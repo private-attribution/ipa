@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 use bitvec::{
-    prelude::{BitArr, Lsb0},
+    prelude::{BitArr, BitSlice, Lsb0},
     slice::Iter,
 };
 use generic_array::GenericArray;
@@ -9,7 +9,7 @@ use typenum::{U14, U2, U32, U8};
 
 use crate::{
     error::LengthError,
-    ff::{boolean::Boolean, ArrayAccess, ArrayBuilder, Field, Serializable, U128Conversions},
+    ff::{boolean::Boolean, ArrayAccess, Field, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
@@ -253,7 +253,7 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, ArrayBuild, Expand, Serializable},
+                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
                 impl_shared_value_common,
                 secret_sharing::{
                     replicated::semi_honest::{ASIterator, AdditiveShare},
@@ -288,6 +288,12 @@ macro_rules! boolean_array_impl {
                 #[must_use]
                 pub fn as_raw_mut_slice(&mut self) -> &mut [u8] {
                     self.0.as_raw_mut_slice()
+                }
+
+                #[inline]
+                #[must_use]
+                pub fn as_bitslice(&self) -> &BitSlice<u8, Lsb0> {
+                    self.0.as_bitslice()
                 }
             }
 
@@ -472,29 +478,6 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl ArrayBuild for $name {
-                type Input = Boolean;
-                type Builder = BooleanArrayBuilder<$name>;
-
-                fn builder() -> Self::Builder {
-                    BooleanArrayBuilder::new()
-                }
-            }
-
-            impl ArrayBuilder for BooleanArrayBuilder<$name> {
-                type Element = Boolean;
-                type Array = $name;
-
-                fn push(&mut self, value: Self::Element) {
-                    self.array.set(self.index, value);
-                    self.index += 1;
-                }
-
-                fn build(self) -> Self::Array {
-                    assert_eq!(self.index, $bits);
-                    self.array
-                }
-            }
             impl SharedValueArray<Boolean> for $name {
                 const ZERO_ARRAY: Self = <$name as SharedValue>::ZERO;
 
@@ -808,25 +791,5 @@ impl FromRandom for BA256 {
 impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
         (rng.gen(), rng.gen()).into()
-    }
-}
-
-pub struct BooleanArrayBuilder<T>
-where
-    T: ArrayAccess<Output = Boolean>,
-{
-    array: T,
-    index: usize,
-}
-
-impl<T> BooleanArrayBuilder<T>
-where
-    T: ArrayAccess<Output = Boolean> + SharedValue,
-{
-    fn new() -> Self {
-        Self {
-            array: T::ZERO,
-            index: 0,
-        }
     }
 }

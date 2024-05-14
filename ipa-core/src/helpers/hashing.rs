@@ -8,6 +8,7 @@ use sha2::{
 
 use crate::{
     ff::{PrimeField, Serializable},
+    helpers::MpcMessage,
     protocol::prss::FromRandomU128,
 };
 
@@ -28,6 +29,12 @@ impl Serializable for Hash {
     }
 }
 
+impl MpcMessage for Hash {}
+
+/// Computes Hash of serializable values from an iterator
+///
+/// ## Panics
+/// Panics when Iterator is empty.
 pub fn compute_hash<'a, I, S>(input: I) -> Hash
 where
     I: IntoIterator<Item = &'a S>,
@@ -106,7 +113,7 @@ mod test {
     use super::{compute_hash, Hash};
     use crate::{
         ff::{Fp31, Fp32BitPrime, Serializable},
-        protocol::ipa_prf::malicious_security::hashing::hash_to_field,
+        helpers::hashing::hash_to_field,
     };
 
     #[test]

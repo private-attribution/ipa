@@ -72,7 +72,7 @@ impl<V: SharedValue> Reconstruct<V> for [&Replicated<V>; 3] {
 
 impl<V: SharedValue> Reconstruct<V> for [Replicated<V>; 3] {
     fn reconstruct(&self) -> V {
-        [&self[0], &self[1], &self[2]].reconstruct()
+        self.each_ref().reconstruct()
     }
 }
 
@@ -117,16 +117,7 @@ where
     for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
-        [&self[0], &self[1], &self[2]].reconstruct()
-    }
-}
-
-impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
-where
-    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
-{
-    fn reconstruct(&self) -> BitDecomposed<T> {
-        BitDecomposed::new(self.map(Deref::deref).reconstruct())
+        self.each_ref().reconstruct()
     }
 }
 
@@ -136,6 +127,24 @@ where
 {
     fn reconstruct(&self) -> Vec<T> {
         self.map(Deref::deref).reconstruct()
+    }
+}
+
+impl<I, T> Reconstruct<BitDecomposed<T>> for [BitDecomposed<I>; 3]
+where
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+{
+    fn reconstruct(&self) -> BitDecomposed<T> {
+        self.each_ref().reconstruct()
+    }
+}
+
+impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
+where
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+{
+    fn reconstruct(&self) -> BitDecomposed<T> {
+        BitDecomposed::new(self.map(Deref::deref).reconstruct())
     }
 }
 
@@ -152,29 +161,21 @@ where
     }
 }
 
-impl Reconstruct<()> for [(); 3] {
-    fn reconstruct(&self) {}
+impl<T, const N: usize> Reconstruct<[T; N]> for [[Replicated<T>; N]; 3]
+where
+    T: SharedValue,
+{
+    fn reconstruct(&self) -> [T; N] {
+        zip(zip(&self[0], &self[1]), &self[2])
+            .map(|((x0, x1), x2)| [x0, x1, x2].reconstruct())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
 }
 
-#[cfg(feature = "descriptive-gate")]
-impl<F, S> Reconstruct<F> for [crate::protocol::boolean::RandomBitsShare<F, S>; 3]
-where
-    F: Field + U128Conversions,
-    S: crate::secret_sharing::SecretSharing<F>,
-    for<'a> [&'a S; 3]: Reconstruct<F>,
-{
-    fn reconstruct(&self) -> F {
-        let bits = zip(
-            self[0].b_b.iter(),
-            zip(self[1].b_b.iter(), self[2].b_b.iter()),
-        )
-        .enumerate()
-        .map(|(i, (b0, (b1, b2)))| [b0, b1, b2].reconstruct() * F::try_from(1 << i).unwrap())
-        .fold(F::ZERO, |a, b| a + b);
-        let value = [&self[0].b_p, &self[1].b_p, &self[2].b_p].reconstruct();
-        assert_eq!(bits, value);
-        value
-    }
+impl Reconstruct<()> for [(); 3] {
+    fn reconstruct(&self) {}
 }
 
 pub trait ValidateMalicious<F: ExtendableField> {

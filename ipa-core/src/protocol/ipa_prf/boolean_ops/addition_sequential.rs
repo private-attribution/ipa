@@ -1,27 +1,20 @@
-use std::{borrow::Borrow, iter::repeat};
+use std::iter::repeat;
 
-#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
+    ff::{boolean::Boolean, ArrayAccessRef},
+    helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
-        context::Context,
+        boolean::or::bool_or,
+        context::{Context, UpgradedSemiHonestContext},
         step::BitOpStep,
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, FieldSimd},
-};
-#[cfg(all(test, unit_test))]
-use crate::{
-    ff::{boolean::Boolean, CustomArray},
-    protocol::{
-        basics::{select, BooleanArrayMul},
-        context::SemiHonestContext,
-    },
-    secret_sharing::SharedValue,
+    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    sharding::ShardBinding,
 };
 
 /// Non-saturated unsigned integer addition
@@ -32,22 +25,32 @@ use crate::{
 ///
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_add<C, F, XS, YS, const N: usize>(
+pub async fn integer_add<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-) -> Result<(XS, AdditiveShare<F, N>), Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+) -> Result<
+    (
+        BitDecomposed<AdditiveShare<Boolean, N>>,
+        AdditiveShare<Boolean, N>,
+    ),
+    Error,
+>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
-    let mut carry = AdditiveShare::<F, N>::ZERO;
+    let mut carry = AdditiveShare::ZERO;
     let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
     Ok((sum, carry))
+}
+
+#[derive(Step)]
+enum SatAddStep {
+    Add,
+    Select,
 }
 
 /// saturated unsigned integer addition
@@ -55,33 +58,27 @@ where
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
-pub async fn integer_sat_add<S>(
-    ctx: SemiHonestContext<'_>,
+pub async fn integer_sat_add<'a, SH, const N: usize>(
+    ctx: UpgradedSemiHonestContext<'a, SH, Boolean>,
     record_id: RecordId,
-    x: &AdditiveShare<S>,
-    y: &AdditiveShare<S>,
-) -> Result<AdditiveShare<S>, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
-    S: SharedValue + CustomArray<Element = Boolean>,
-    AdditiveShare<S>: BooleanArrayMul + std::ops::Not<Output = AdditiveShare<S>>,
+    SH: ShardBinding,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
 {
-    #[derive(Step)]
-    enum Step {
-        Add,
-        Select,
-    }
-
-    let mut carry = AdditiveShare::<Boolean>::ZERO;
-    let result = addition_circuit(ctx.narrow(&Step::Add), record_id, x, y, &mut carry).await?;
+    let mut carry = AdditiveShare::<Boolean, N>::ZERO;
+    let result =
+        addition_circuit(ctx.narrow(&SatAddStep::Add), record_id, x, y, &mut carry).await?;
 
     // if carry==1 then {all ones} else {result}
-    select(
-        ctx.narrow(&Step::Select),
+    bool_or(
+        ctx.narrow(&SatAddStep::Select),
         record_id,
-        &carry,
-        &!AdditiveShare::<S>::ZERO,
         &result,
+        repeat_n(&carry, x.len()),
     )
     .await
 }
@@ -94,41 +91,26 @@ where
 /// propagates errors from multiply
 ///
 ///
-async fn addition_circuit<C, F, XS, YS, const N: usize>(
+async fn addition_circuit<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-    carry: &mut AdditiveShare<F, N>,
-) -> Result<XS, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    carry: &mut AdditiveShare<Boolean, N>,
+) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let x = x.iter();
     let y = y.iter();
 
-    let mut result = XS::builder().with_capacity(x.len());
-    for (i, (xb, yb)) in x
-        .zip(y.chain(repeat(YS::make_ref(&AdditiveShare::<F, N>::ZERO))))
-        .enumerate()
-    {
-        result.push(
-            bit_adder(
-                ctx.narrow(&BitOpStep::from(i)),
-                record_id,
-                xb.borrow(),
-                yb.borrow(),
-                carry,
-            )
-            .await?,
-        );
+    let mut result = BitDecomposed::with_capacity(x.len());
+    for (i, (xb, yb)) in x.zip(y.chain(repeat(&AdditiveShare::ZERO))).enumerate() {
+        result.push(bit_adder(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry).await?);
     }
-
-    Ok(result.build())
+    Ok(result)
 }
 
 ///
@@ -150,17 +132,17 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-async fn bit_adder<C, F, const N: usize>(
+async fn bit_adder<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<F, N>,
-    y: &AdditiveShare<F, N>,
-    carry: &mut AdditiveShare<F, N>,
-) -> Result<AdditiveShare<F, N>, Error>
+    x: &AdditiveShare<Boolean, N>,
+    y: &AdditiveShare<Boolean, N>,
+    carry: &mut AdditiveShare<Boolean, N>,
+) -> Result<AdditiveShare<Boolean, N>, Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let output = x + y + &*carry;
 
@@ -179,15 +161,15 @@ mod test {
     use crate::{
         ff::{
             boolean_array::{BA32, BA64},
-            U128Conversions,
+            ArrayAccess, U128Conversions,
         },
-        protocol,
         protocol::{
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
+            RecordId,
         },
         rand::thread_rng,
-        secret_sharing::replicated::semi_honest::AdditiveShare,
+        secret_sharing::BitDecomposed,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -210,11 +192,11 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA64>, 1>(
+                    integer_add::<_, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
-                        &x_y.0,
-                        &x_y.1,
+                        RecordId::FIRST,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()
@@ -231,23 +213,29 @@ mod test {
     #[test]
     fn semi_honest_sat_add() {
         run(|| async move {
+            const BITS: usize = 64;
+            type BA = BA64;
+
             let world = TestWorld::default();
 
             let mut rng = thread_rng();
 
-            let x_ba64 = rng.gen::<BA64>();
-            let y_ba64 = rng.gen::<BA64>();
-            let x = x_ba64.as_u128();
-            let y = y_ba64.as_u128();
-            let z = 1_u128 << 64;
+            let x_ba = rng.gen::<BA>();
+            let y_ba = rng.gen::<BA>();
+            let x = x_ba.as_u128();
+            let y = y_ba.as_u128();
+            let z = 1_u128 << BITS;
+
+            let x_bits = BitDecomposed::new(x_ba);
+            let y_bits = BitDecomposed::new(y_ba);
 
             let expected = if x + y > z { z - 1 } else { (x + y) % z };
 
             let result = world
-                .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_sat_add::<_>(
+                .upgraded_semi_honest((x_bits, y_bits), |ctx, x_y| async move {
+                    integer_sat_add::<_, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
@@ -256,7 +244,10 @@ mod test {
                 })
                 .await
                 .reconstruct()
-                .as_u128();
+                .into_iter()
+                .enumerate()
+                .fold(0, |acc, (i, b)| acc + b.as_u128() * (1 << i));
+
             assert_eq!((x, y, z, result), (x, y, z, expected));
         });
     }
@@ -278,11 +269,11 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
-                    integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA32>, 1>(
+                    integer_add::<_, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
-                        &x_y.0,
-                        &x_y.1,
+                        RecordId::FIRST,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()
@@ -299,11 +290,11 @@ mod test {
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
-                    integer_add::<_, _, AdditiveShare<BA32>, AdditiveShare<BA64>, 1>(
+                    integer_add::<_, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
-                        &x_y.0,
-                        &x_y.1,
+                        RecordId::FIRST,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()

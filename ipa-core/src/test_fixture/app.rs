@@ -13,6 +13,7 @@ use crate::{
     query::QueryStatus,
     secret_sharing::IntoShares,
     test_fixture::try_join3_array,
+    utils::array::zip3,
     AppSetup, HelperApp,
 };
 
@@ -64,15 +65,8 @@ impl Default for TestApp {
 
         let mpc_network = InMemoryMpcNetwork::new(handlers.map(Some));
         let shard_network = InMemoryShardNetwork::with_shards(1);
-        let drivers = mpc_network
-            .transports()
-            .iter()
-            .zip(setup)
-            .map(|(t, s)| s.connect(Clone::clone(t), shard_network.transport(t.identity(), 0)))
-            .collect::<Vec<_>>()
-            .try_into()
-            .ok()
-            .unwrap();
+        let drivers = zip3(mpc_network.transports().each_ref(), setup)
+            .map(|(t, s)| s.connect(Clone::clone(t), shard_network.transport(t.identity(), 0)));
 
         Self {
             drivers,

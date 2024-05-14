@@ -8,14 +8,11 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    helpers::{
-        ChannelId, Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
-        ShardReceivingEnd, TotalRecords,
-    },
+    helpers::{ChannelId, Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         basics::{
             mul::{malicious::Step::RandomnessForValidation, semi_honest_multiply},
-            ShareKnownValue, ZeroPositions,
+            ShareKnownValue,
         },
         context::{
             dzkp_malicious::DZKPUpgraded,
@@ -35,7 +32,7 @@ use crate::{
         ReplicatedSecretSharing,
     },
     seq_join::SeqJoin,
-    sharding::{NotSharded, ShardIndex},
+    sharding::NotSharded,
     sync::Arc,
 };
 
@@ -134,16 +131,8 @@ impl<'a> super::Context for Context<'a> {
         self.inner.send_channel(role)
     }
 
-    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
-        self.inner.shard_send_channel(dest_shard)
-    }
-
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner.recv_channel(role)
-    }
-
-    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
-        self.inner.shard_recv_channel(origin)
     }
 }
 
@@ -158,8 +147,8 @@ impl<'a> UpgradableContext for Context<'a> {
     type DZKPUpgradedContext = DZKPUpgraded<'a>;
     type DZKPValidator = MaliciousDZKPValidator<'a>;
 
-    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
-        MaliciousDZKPValidator::new(self, chunk_size)
+    fn dzkp_validator(self, multiplication_amount: usize) -> Self::DZKPValidator {
+        MaliciousDZKPValidator::new(self, multiplication_amount)
     }
 }
 
@@ -236,7 +225,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         &self,
         record_id: RecordId,
         x: Replicated<F>,
-        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
         //
         // This code is drawn from:
@@ -258,7 +246,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
             record_id,
             &induced_share,
             &self.inner.r_share,
-            (zeros_at, ZeroPositions::Pvvv),
         )
         .await?;
         let m = MaliciousReplicated::new(x, rx);
@@ -266,22 +253,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         let prss = narrowed.prss();
         self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
-    }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::{
-            context::{upgrade::UpgradeContext, UpgradeStep},
-            NoRecord,
-        };
-
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade_sparse(input, zeros_at)
-            .await
     }
 }
 
@@ -342,23 +313,10 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
             .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
     }
 
-    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
-        self.inner.gateway.get_shard_sender(
-            &ChannelId::new(dest_shard, self.gate.clone()),
-            self.total_records,
-        )
-    }
-
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner
             .gateway
             .get_mpc_receiver(&ChannelId::new(role, self.gate.clone()))
-    }
-
-    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
-        self.inner
-            .gateway
-            .get_shard_receiver(&ChannelId::new(origin, self.gate.clone()))
     }
 }
 

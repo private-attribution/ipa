@@ -673,6 +673,9 @@ macro_rules! impl_transpose_shares_ba_to_bool {
 // Note first macro argument is `BA{N}`, not `BA{M}`.
 impl_transpose_shares_ba_to_bool!(BA64, 64, 64, test_transpose_shares_ba_to_bool_64x64);
 
+// Usage: Quicksort. M = SORT_CHUNK, N = sort key bits.
+impl_transpose_shares_ba_to_bool!(BA32, 256, 32, test_transpose_shares_ba_to_bool_256x32);
+
 /// Implement a transpose of a MxN matrix of secret-shared bits accessed via
 /// `Fn(usize) -> AdditiveShare<BA{N}>` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
 ///
@@ -774,6 +777,9 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
 impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to_bool_256x8);
 impl_transpose_shares_ba_to_bool_small!(BA5, 256, 5, test_transpose_shares_ba_to_bool_256x5);
 impl_transpose_shares_ba_to_bool_small!(BA3, 256, 3, test_transpose_shares_ba_to_bool_256x3);
+
+// Usage: feature_label_dot_product aggregation input. M = number of features, N = BK or TV bits.
+impl_transpose_shares_ba_to_bool_small!(BA8, 32, 8, test_transpose_shares_ba_to_bool_32x8);
 
 // Special transpose used for "aggregation intermediate". See [`aggregate_contributions`] for
 // additional details.

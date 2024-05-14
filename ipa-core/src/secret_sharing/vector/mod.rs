@@ -54,7 +54,6 @@ mod traits;
 mod transpose;
 
 pub use array::StdArray;
-pub use impls::{BoolVectorLookup, BoolVectorTrait};
 pub use traits::{FieldArray, FieldSimd, FieldVectorizable, SharedValueArray, Vectorizable};
 pub use transpose::TransposeFrom;
 #[cfg(feature = "enable-benches")]

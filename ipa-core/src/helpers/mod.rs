@@ -1,3 +1,8 @@
+//! IPA infrastructure
+//!
+//! `infra` would be a more appropriate name for this module. Although some generic utilities are
+//! here for historial reasons, the `utils` module is a better place for them.
+
 use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
@@ -10,6 +15,7 @@ mod buffers;
 mod error;
 mod futures;
 mod gateway;
+pub mod hashing;
 pub(crate) mod prss_protocol;
 pub mod stream;
 mod transport;
@@ -242,6 +248,7 @@ const_assert!(Role::eq(Role::H3.peer(Direction::Right), Role::H1));
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(transparent)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }
@@ -555,6 +562,36 @@ impl From<usize> for TotalRecords {
     }
 }
 
+pub struct RepeatN<T> {
+    element: T,
+    count: usize,
+}
+
+// As of Apr. 2024, this is unstable in `std::iter`. It is also available in `itertools`.
+// The advantage over `repeat(element).take(count)` that we care about is that this
+// implements `ExactSizeIterator`. The other advantage is that `repeat_n` can return
+// the original value (saving a clone) on the last iteration.
+pub fn repeat_n<T: Clone>(element: T, count: usize) -> RepeatN<T> {
+    RepeatN { element, count }
+}
+
+impl<T: Clone> Iterator for RepeatN<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.count > 0).then(|| {
+            self.count -= 1;
+            self.element.clone()
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.count, Some(self.count))
+    }
+}
+
+impl<T: Clone> ExactSizeIterator for RepeatN<T> {}
+
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
@@ -592,11 +629,7 @@ mod tests {
 
         #[test]
         fn basic() {
-            let identities = (1..=3)
-                .map(HelperIdentity::from)
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+            let identities = HelperIdentity::make_three();
             let assignment = RoleAssignment::new(identities);
 
             assert_eq!(Role::H1, assignment.role(HelperIdentity::from(1)));

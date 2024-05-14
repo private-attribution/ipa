@@ -38,7 +38,6 @@ use crate::{
         ShardReceivingEnd, TotalRecords,
     },
     protocol::{
-        basics::ZeroPositions,
         context::dzkp_validator::{DZKPValidator, Segment},
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
         step::{Gate, Step, StepNarrow},
@@ -105,22 +104,9 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     /// and this method is safe to use in multi-threaded environments.
     fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M>;
 
-    /// Open a communication channel to another shard within the same MPC helper. Similarly to
-    /// [`Self::send_channel`], it can be requested more than once for the same channel and from
-    /// multiple threads, but it should not be required. See [`Self::shard_recv_channel`].
-    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M>;
-
     /// Requests data to be received from another MPC helper. Receive requests [`MpcReceivingEnd::receive`]
     /// can be issued from multiple threads.
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M>;
-
-    /// Request a stream to be received from a peer shard within the same MPC helper. This method
-    /// can be called only once per communication channel.
-    ///
-    /// ## Panics
-    /// If called more than once for the same origin and on context instance, narrowed to the same
-    /// [`Self::gate`].
-    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M>;
 }
 
 pub trait UpgradableContext: Context {
@@ -153,7 +139,6 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
         &self,
         record_id: RecordId,
         x: Replicated<F>,
-        zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error>;
 
     /// Upgrade an input using this context.
@@ -199,17 +184,6 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
             unimplemented!()
         }
     }
-
-    /// Upgrade a sparse input using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<Self::Share, Error>;
 }
 
 pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
@@ -266,6 +240,21 @@ impl<'a, B: ShardBinding> Base<'a, B> {
             total_records,
             sharding,
         }
+    }
+}
+
+impl ShardedContext for Base<'_, Sharded> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.inner.gateway.get_shard_sender(
+            &ChannelId::new(dest_shard, self.gate.clone()),
+            self.total_records,
+        )
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.inner
+            .gateway
+            .get_shard_receiver(&ChannelId::new(origin, self.gate.clone()))
     }
 }
 
@@ -328,29 +317,29 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
             .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
     }
 
-    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
-        self.inner.gateway.get_shard_sender(
-            &ChannelId::new(dest_shard, self.gate.clone()),
-            self.total_records,
-        )
-    }
-
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner
             .gateway
             .get_mpc_receiver(&ChannelId::new(role, self.gate.clone()))
-    }
-
-    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
-        self.inner
-            .gateway
-            .get_shard_receiver(&ChannelId::new(origin, self.gate.clone()))
     }
 }
 
 /// Context for MPC circuits that can operate on multiple shards. Provides access to shard information
 /// via [`ShardConfiguration`] trait.
 pub trait ShardedContext: Context + ShardConfiguration {
+    /// Open a communication channel to another shard within the same MPC helper. Similarly to
+    /// [`Self::send_channel`], it can be requested more than once for the same channel and from
+    /// multiple threads, but it should not be required. See [`Self::shard_recv_channel`].
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M>;
+
+    /// Request a stream to be received from a peer shard within the same MPC helper. This method
+    /// can be called only once per communication channel.
+    ///
+    /// ## Panics
+    /// If called more than once for the same origin and on context instance, narrowed to the same
+    /// [`Self::gate`].
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M>;
+
     /// Requests data to be received from all shards that are registered in the system.
     /// Shards that don't have any data to send, must explicitly open and close the send channel.
     fn recv_from_shards<M: Message>(
@@ -378,8 +367,6 @@ pub trait ShardedContext: Context + ShardConfiguration {
         ShardIndex::from(shard_index)
     }
 }
-
-impl<C: Context + ShardConfiguration> ShardedContext for C {}
 
 impl ShardConfiguration for Base<'_, Sharded> {
     fn shard_id(&self) -> ShardIndex {

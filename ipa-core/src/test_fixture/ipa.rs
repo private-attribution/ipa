@@ -194,7 +194,7 @@ pub async fn test_oprf_ipa<F>(
 {
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA3, BA4, BA5, BA6, BA7, BA8},
+            boolean_array::{BA16, BA20, BA3, BA5, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
@@ -202,25 +202,37 @@ pub async fn test_oprf_ipa<F>(
     };
 
     let aws = config.attribution_window_seconds;
-    let result: Vec<_> = world
-        .semi_honest(
+    let result: Vec<_> = if config.per_user_credit_cap == 256 {
+        // Note that many parameters are different in this case, not just the credit cap.
+        // This config is needed for collect_steps coverage.
+        world.semi_honest(
+            records.into_iter(),
+            |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA8, BA20>>| async move {
+                oprf_ipa::<BA5, BA8, BA16, BA20, 8, 32>(ctx, input_rows, aws)
+                    .await
+                    .unwrap()
+            },
+        )
+    } else {
+        // In these configurations, the credit cap is the only parameter that changes.
+        world.semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
-                    8 => oprf_ipa::<BA8, BA3, BA16, BA20, BA3, 256>(ctx, input_rows, aws)
+                    8 => oprf_ipa::<BA8, BA3, BA16, BA20, 3, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    16 => oprf_ipa::<BA8, BA3, BA16, BA20, BA4, 256>(ctx, input_rows, aws)
+                    16 => oprf_ipa::<BA8, BA3, BA16, BA20, 4, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    32 => oprf_ipa::<BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, aws)
+                    32 => oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    64 => oprf_ipa::<BA8, BA3, BA16, BA20, BA6, 256>(ctx, input_rows, aws)
+                    64 => oprf_ipa::<BA8, BA3, BA16, BA20, 6, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    128 => oprf_ipa::<BA8, BA3, BA16, BA20, BA7, 256>(ctx, input_rows, aws)
+                    128 => oprf_ipa::<BA8, BA3, BA16, BA20, 7, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
                     _ =>
@@ -231,8 +243,9 @@ pub async fn test_oprf_ipa<F>(
                 }
             },
         )
-        .await
-        .reconstruct();
+    }
+    .await
+    .reconstruct();
 
     let mut result = result
         .into_iter()

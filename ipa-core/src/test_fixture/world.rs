@@ -32,6 +32,7 @@ use crate::{
     test_fixture::{
         logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
     },
+    utils::array::zip3_ref,
 };
 
 // This is used by the metrics tests in `protocol::context`. It otherwise would/should not be pub.
@@ -589,23 +590,15 @@ impl<B: ShardBinding> ShardWorld<B> {
         let participants = make_participants(&mut StdRng::seed_from_u64(config.seed + shard_seed));
         let network = InMemoryMpcNetwork::default();
 
-        let mut gateways: [_; 3] = network
-            .transports()
-            .iter()
-            .zip(transports.iter())
-            .map(|(mpc, shard)| {
-                Gateway::new(
-                    QueryId,
-                    config.gateway_config,
-                    config.role_assignment().clone(),
-                    Transport::clone_ref(mpc),
-                    Transport::clone_ref(shard),
-                )
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .ok()
-            .unwrap();
+        let mut gateways = zip3_ref(&network.transports(), &transports).map(|(mpc, shard)| {
+            Gateway::new(
+                QueryId,
+                config.gateway_config,
+                config.role_assignment().clone(),
+                Transport::clone_ref(mpc),
+                Transport::clone_ref(shard),
+            )
+        });
 
         // The name for `g` is too complicated and depends on features enabled
         #[allow(clippy::redundant_closure_for_method_calls)]
@@ -653,14 +646,10 @@ impl<B: ShardBinding> ShardWorld<B> {
     #[must_use]
     pub fn contexts(&self) -> [SemiHonestContext<'_, B>; 3] {
         let step = TestExecutionStep::Iter(self.executions.fetch_add(1, Ordering::Relaxed));
-        zip(&self.participants, &self.gateways)
-            .map(|(participant, gateway)| {
-                SemiHonestContext::new_complete(participant, gateway, self.shard_info.clone())
-                    .narrow(&step)
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
+        zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
+            SemiHonestContext::new_complete(participant, gateway, self.shard_info.clone())
+                .narrow(&step)
+        })
     }
 
     /// Creates malicious protocol contexts for 3 helpers
@@ -670,14 +659,9 @@ impl<B: ShardBinding> ShardWorld<B> {
     #[must_use]
     pub fn malicious_contexts(&self) -> [MaliciousContext<'_>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Relaxed);
-        zip(&self.participants, &self.gateways)
-            .map(|(participant, gateway)| {
-                MaliciousContext::new(participant, gateway)
-                    .narrow(&TestExecutionStep::Iter(execution))
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
+        zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
+            MaliciousContext::new(participant, gateway).narrow(&TestExecutionStep::Iter(execution))
+        })
     }
 }
 

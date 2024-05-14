@@ -1,21 +1,19 @@
-use std::iter::repeat;
-
 use embed_doc_image::embed_doc_image;
 use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::boolean::Boolean,
-    protocol::{
-        basics::SecureMul, context::Context, ipa_prf::prf_sharding::BinaryTreeDepthStep,
-        step::BitOpStep, RecordId,
-    },
+    helpers::repeat_n,
+    protocol::{basics::SecureMul, boolean::and::bool_and_8_bit, context::Context, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
+const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
+
 #[derive(Step)]
 pub enum BucketStep {
-    #[dynamic(256)]
+    #[dynamic(512)] // should be equal to MAX_BREAKDOWNS
     Bit(usize),
 }
 
@@ -89,7 +87,6 @@ where
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: SecureMul<C>,
 {
-    const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
     let mut step: usize = 1 << bd_key.len();
 
     if breakdown_count > step {
@@ -108,34 +105,41 @@ where
 
     let mut row_contribution = vec![value; breakdown_count];
 
-    for (tree_depth, bit_of_bdkey) in bd_key.iter().enumerate().rev() {
+    // To move a value to one of 2^bd_key_bits buckets requires 2^bd_key_bits - 1 multiplications
+    // They happen in a tree like fashion:
+    // 1 multiplication for the first bit
+    // 2 for the second bit
+    // 4 for the 3rd bit
+    // And so on. Simply ordering them sequentially is a functional way
+    // of enumerating them without creating more step transitions than necessary
+    let mut multiplication_channel = 0;
+
+    for bit_of_bdkey in bd_key.iter().rev() {
         let span = step >> 1;
         if !robust && span > breakdown_count {
             step = span;
             continue;
         }
 
-        let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
-        let mut futures = Vec::with_capacity(breakdown_count / step);
+        let contributions = ctx
+            .parallel_join((0..breakdown_count).step_by(step).enumerate().filter_map(
+                |(i, tree_index)| {
+                    let bucket_c = ctx.narrow(&BucketStep::from(multiplication_channel + i));
 
-        for (i, tree_index) in (0..breakdown_count).step_by(step).enumerate() {
-            let bucket_c = depth_c.narrow(&BucketStep::from(i));
+                    let index_contribution = &row_contribution[tree_index];
 
-            let index_contribution = row_contribution[tree_index].iter();
-
-            if robust || tree_index + span < breakdown_count {
-                futures.push(async move {
-                    let bit_futures = index_contribution
-                        .zip(repeat((bit_of_bdkey, bucket_c.clone())))
-                        .enumerate()
-                        .map(|(i, (a, (b, bucket_c)))| {
-                            a.multiply(b, bucket_c.narrow(&BitOpStep::Bit(i)), record_id)
-                        });
-                    BitDecomposed::try_from(bucket_c.parallel_join(bit_futures).await?)
-                });
-            }
-        }
-        let contributions = ctx.parallel_join(futures).await?;
+                    (robust || tree_index + span < breakdown_count).then(|| {
+                        bool_and_8_bit(
+                            bucket_c,
+                            record_id,
+                            index_contribution,
+                            repeat_n(bit_of_bdkey, index_contribution.len()),
+                        )
+                    })
+                },
+            ))
+            .await?;
+        multiplication_channel += contributions.len();
 
         for (index, bdbit_contribution) in contributions.into_iter().enumerate() {
             let left_index = index * step;

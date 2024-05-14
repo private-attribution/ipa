@@ -5,7 +5,7 @@ use ipa_macros::Step;
 use crate::{
     error::Error,
     protocol::{
-        basics::{mul::semi_honest_multiply, MultiplyZeroPositions, SecureMul, ZeroPositions},
+        basics::{mul::semi_honest_multiply, SecureMul},
         context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
@@ -59,7 +59,6 @@ pub async fn multiply<F>(
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
     b: &MaliciousReplicated<F>,
-    zeros_at: MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: ExtendableField,
@@ -95,14 +94,12 @@ where
             record_id,
             a.x().access_without_downgrade(),
             b_x,
-            zeros_at,
         ),
         semi_honest_multiply(
             duplicate_multiply_ctx.base_context(),
             record_id,
             a.rx(),
             &b_induced_share,
-            (ZeroPositions::Pvvv, zeros_at.1),
         ),
     )
     .await?;
@@ -121,12 +118,11 @@ impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for Mali
         rhs: &Self,
         ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs, zeros_at).await
+        multiply(ctx, record_id, self, rhs).await
     }
 }
 

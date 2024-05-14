@@ -13,8 +13,7 @@ pub struct Compact(pub u16);
 // serde::Deserialize requires From<&str> implementation
 impl From<&str> for Compact {
     fn from(id: &str) -> Self {
-        // id begins with '/'. strip it.
-        Compact::deserialize(&id[1..])
+        Compact::deserialize(id)
     }
 }
 

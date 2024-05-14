@@ -84,12 +84,7 @@ pub trait Downgrade: Send {
 
 #[must_use = "You should not be downgrading `replicated::malicious::AdditiveShare` values without calling `MaliciousValidator::validate()`"]
 pub struct UnauthorizedDowngradeWrapper<T>(T);
-impl<T> UnauthorizedDowngradeWrapper<T> {
-    #[cfg(feature = "descriptive-gate")]
-    pub(crate) fn new(v: T) -> Self {
-        Self(v)
-    }
-}
+impl<T> UnauthorizedDowngradeWrapper<T> {}
 
 pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;

@@ -1,22 +1,23 @@
-use std::{
-    iter::{repeat, zip},
-    ops::Range,
-};
+use std::{convert::Infallible, iter, mem, ops::Range};
 
 use bitvec::prelude::{BitVec, Lsb0};
-use futures::stream::{iter as stream_iter, TryStreamExt};
+use futures::stream::{self, repeat, StreamExt, TryStreamExt};
 use ipa_macros::Step;
 
 use crate::{
-    error::Error,
-    ff::{boolean::Boolean, ArrayAccess, ArrayBuild, CustomArray},
+    error::{Error, LengthError, UnwrapInfallible},
+    ff::{boolean::Boolean, CustomArray, Expand},
+    helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
         basics::Reveal,
         context::{Context, SemiHonestContext},
-        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt,
+        ipa_prf::{boolean_ops::comparison_and_subtraction_sequential::compare_gt, SORT_CHUNK},
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, BitDecomposed, SharedValue, TransposeFrom,
+        Vectorizable,
+    },
     seq_join::{seq_join, SeqJoin},
 };
 
@@ -26,6 +27,73 @@ pub(crate) enum Step {
     QuicksortPass(usize),
     Compare,
     Reveal,
+}
+
+impl<K> ChunkBuffer<SORT_CHUNK> for (Vec<AdditiveShare<K>>, Vec<AdditiveShare<K>>)
+where
+    K: SharedValue,
+    BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
+    BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
+{
+    type Item = (AdditiveShare<K>, AdditiveShare<K>);
+    type Chunk = (
+        BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>,
+        BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>,
+    );
+
+    fn push(&mut self, item: Self::Item) {
+        self.0.push(item.0);
+        self.1.push(item.1);
+    }
+
+    fn len(&self) -> usize {
+        assert_eq!(self.0.len(), self.1.len());
+        self.0.len()
+    }
+
+    fn resize_with<F: Fn() -> Self::Item>(&mut self, len: usize, f: F) {
+        while self.0.len() < len {
+            <Self as ChunkBuffer<SORT_CHUNK>>::push(self, f());
+        }
+    }
+
+    fn take(&mut self) -> Result<Self::Chunk, LengthError> {
+        let buffered = mem::replace(
+            self,
+            (
+                Vec::with_capacity(SORT_CHUNK),
+                Vec::with_capacity(SORT_CHUNK),
+            ),
+        );
+        let a: Box<[AdditiveShare<K>; SORT_CHUNK]> = match buffered.0.try_into() {
+            Ok(boxed) => boxed,
+            Err(vec) => {
+                *self = (vec, buffered.1);
+                return Err(LengthError {
+                    expected: SORT_CHUNK,
+                    actual: self.0.len(),
+                });
+            }
+        };
+        let b: Box<[AdditiveShare<K>; SORT_CHUNK]> = match buffered.1.try_into() {
+            Ok(boxed) => boxed,
+            Err(vec) => {
+                *self = (<Vec<_> as From<Box<[_]>>>::from(a), vec);
+                return Err(LengthError {
+                    expected: SORT_CHUNK,
+                    actual: self.1.len(),
+                });
+            }
+        };
+
+        let mut a_t = BitDecomposed::new(iter::empty());
+        a_t.transpose_from(&*a).unwrap_infallible();
+        let mut b_t = BitDecomposed::new(iter::empty());
+        b_t.transpose_from(&*b).unwrap_infallible();
+        Ok((a_t, b_t))
+    }
 }
 
 /// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.
@@ -51,8 +119,8 @@ pub(crate) enum Step {
 ///
 /// # Panics
 /// If you provide any invalid ranges, such as 0..0
-pub async fn quicksort_ranges_by_key_insecure<'a, K, F, S>(
-    ctx: SemiHonestContext<'a>,
+pub async fn quicksort_ranges_by_key_insecure<K, F, S>(
+    ctx: SemiHonestContext<'_>,
     list: &mut [S],
     desc: bool,
     get_key: F,
@@ -62,10 +130,15 @@ where
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: SharedValue + CustomArray<Element = Boolean>,
-    AdditiveShare<K>: ArrayAccess + ArrayBuild<Input = AdditiveShare<Boolean>>,
+    <Boolean as Vectorizable<SORT_CHUNK>>::Array: Expand<Input = Boolean>,
+    BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
+    BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
 {
     assert!(!ranges_to_sort.iter().any(Range::is_empty));
 
+    let desc = <Boolean as Vectorizable<SORT_CHUNK>>::Array::expand(&Boolean::from(desc));
     let mut ranges_for_next_pass = Vec::with_capacity(ranges_to_sort.len() * 2);
     let mut quicksort_pass = 1;
 
@@ -83,41 +156,47 @@ where
 
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
-            .set_total_records(num_comparisons_needed);
+            .set_total_records((num_comparisons_needed + SORT_CHUNK - 1) / SORT_CHUNK);
         let cmp_ctx = c.narrow(&Step::Compare);
         let rvl_ctx = c.narrow(&Step::Reveal);
 
+        let compare_index_pairs =
+            stream::iter(ranges_to_sort.clone().into_iter().filter(|r| r.len() > 1))
+                .flat_map(|range| {
+                    // set up iterator
+                    let mut iterator = list[range.clone()].iter().map(get_key).cloned();
+                    // first element is pivot, apply key extraction function f
+                    let pivot = iterator.next().unwrap();
+                    repeat(pivot).zip(stream::iter(iterator))
+                })
+                .map(Ok);
+
         let comp: BitVec<usize, Lsb0> = seq_join(
             ctx.active_work(),
-            stream_iter(
-                ranges_to_sort
-                    .iter()
-                    .filter(|r| r.len() > 1)
-                    .flat_map(|range| {
-                        // set up iterator
-                        let mut iterator = list[range.clone()].iter().map(get_key);
-                        // first element is pivot, apply key extraction function f
-                        let pivot = iterator.next().unwrap();
-                        zip(repeat(pivot), iterator)
-                    })
-                    .enumerate()
-                    .map(|(i, (pivot, k))| {
-                        let cmp_ctx = cmp_ctx.clone();
-                        let rvl_ctx = rvl_ctx.clone();
-                        let record_id = RecordId::from(i);
-                        async move {
-                            // Compare the current element against pivot and reveal the result.
-                            let comparison = compare_gt(cmp_ctx, record_id, k, pivot)
+            process_stream_by_chunks::<_, _, _, _, _, _, _, SORT_CHUNK>(
+                compare_index_pairs,
+                (Vec::new(), Vec::new()),
+                move |idx, (pivot, k)| {
+                    let cmp_ctx = cmp_ctx.clone();
+                    let rvl_ctx = rvl_ctx.clone();
+                    let record_id = RecordId::from(idx);
+                    async move {
+                        // Compare the current element against pivot and reveal the result.
+                        let comparison =
+                            compare_gt::<_, SORT_CHUNK>(cmp_ctx, record_id, &k, &pivot)
                                 .await?
                                 .reveal(rvl_ctx, record_id) // reveal outcome of comparison
                                 .await?;
 
-                            // desc = true will flip the order of the sort
-                            Ok::<_, Error>(Boolean::from(desc) == Boolean::from_array(&comparison))
-                        }
-                    }),
+                        // desc = true will flip the order of the sort
+                        Ok::<_, Error>(comparison + !desc)
+                    }
+                },
+                || (AdditiveShare::<K>::ZERO, AdditiveShare::<K>::ZERO),
             ),
         )
+        .try_flatten_iters()
+        .map_ok(bool::from)
         .try_collect()
         .await?;
 
@@ -165,16 +244,15 @@ pub mod tests {
     use rand::Rng;
 
     use crate::{
-        ff::{
-            boolean_array::{BA20, BA64},
-            U128Conversions,
-        },
+        ff::{boolean_array::BA32, U128Conversions},
         protocol::{context::Context, ipa_prf::quicksort::quicksort_ranges_by_key_insecure},
         rand::thread_rng,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+
+    type TestSortKey = BA32;
 
     #[derive(Step)]
     pub(crate) enum Step {
@@ -192,7 +270,7 @@ pub mod tests {
 
             for desc in bools {
                 // generate vector of random values
-                let records: Vec<BA64> = repeat_with(|| rng.gen()).take(20).collect();
+                let records: Vec<TestSortKey> = repeat_with(|| rng.gen()).take(20).collect();
 
                 // convert expected into more readable format
                 let mut expected: Vec<u128> =
@@ -240,7 +318,7 @@ pub mod tests {
 
             for desc in bools {
                 // generate vector of 20 copies of same random value
-                let records: Vec<BA64> = repeat(rng.gen()).take(20).collect();
+                let records: Vec<TestSortKey> = repeat(rng.gen()).take(20).collect();
 
                 // convert expected into more readable format
                 let mut expected: Vec<u128> =
@@ -287,7 +365,7 @@ pub mod tests {
 
             for desc in bools {
                 // generate vector of random values
-                let records: Vec<BA64> = vec![];
+                let records: Vec<TestSortKey> = vec![];
 
                 // convert expected into more readable format
                 let mut expected: Vec<u128> =
@@ -335,7 +413,7 @@ pub mod tests {
 
             for desc in bools {
                 // generate vector of random values
-                let records: Vec<BA64> = repeat_with(|| rng.gen()).take(20).collect();
+                let records: Vec<TestSortKey> = repeat_with(|| rng.gen()).take(20).collect();
 
                 // convert expected into more readable format
                 let mut expected: Vec<u128> =
@@ -383,19 +461,19 @@ pub mod tests {
 
     #[derive(Clone, Copy, Debug)]
     struct SillyStruct {
-        timestamp: BA20,
+        timestamp: TestSortKey,
         user_id: usize,
     }
 
     impl SillyStruct {
-        fn timestamp(x: &SillyStructShare) -> &AdditiveShare<BA20> {
+        fn timestamp(x: &SillyStructShare) -> &AdditiveShare<TestSortKey> {
             &x.timestamp
         }
     }
 
     #[derive(Clone, Debug)]
     struct SillyStructShare {
-        timestamp: AdditiveShare<BA20>,
+        timestamp: AdditiveShare<TestSortKey>,
         user_id: usize,
     }
 
@@ -464,7 +542,7 @@ pub mod tests {
                 for user_id in TEST_USER_IDS {
                     for _ in 0..user_id {
                         records.push(SillyStruct {
-                            timestamp: rng.gen::<BA20>(),
+                            timestamp: rng.gen(),
                             user_id,
                         });
                     }
