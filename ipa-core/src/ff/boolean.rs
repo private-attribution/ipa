@@ -66,7 +66,6 @@ impl crate::ff::ArrayBuild for Boolean {
 }
 
 // need to implement ArrayBuild for BooleanBuilder which is also done for BitDecomposedBuilder
-
 impl crate::ff::ArrayBuilder for BooleanBuilder {
     type Element = bool;
     type Array = Boolean;
@@ -84,11 +83,6 @@ impl crate::ff::ArrayBuilder for BooleanBuilder {
         Boolean::new(self)
     }
 }
-
-
-
-
-
 
 impl PrimeField for Boolean {
     type PrimeInteger = u8;

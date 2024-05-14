@@ -27,7 +27,7 @@ pub async fn my_new_function<C, F>(
         C: Context,
         F: Field,
         // crate::secret_sharing::replicated::semi_honest::additive_share::AdditiveShare<crate::ff::boolean::Boolean>: crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>
-        Replicated<Boolean> : crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>
+        Replicated<Boolean> : crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>,
 {
     let role = ctx.role();
     let mut counter : u32 = 0;
