@@ -120,7 +120,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestContext<'a, B>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b, ZeroPositions::NONE)
+                semi_honest_mul(ctx, record_id, a, b)
             }
         }
 
@@ -159,7 +159,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestDZKPUpgraded<'a, B>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b, ZeroPositions::NONE)
+                semi_honest_mul(ctx, record_id, a, b)
             }
         }
 
@@ -176,7 +176,7 @@ macro_rules! boolean_array_mul {
                 DZKPUpgradedMaliciousContext<'a>: 'fut,
             {
                 use crate::protocol::basics::mul::dzkp_malicious::multiply;
-                multiply(ctx, record_id, a, b, ZeroPositions::NONE)
+                multiply(ctx, record_id, a, b)
             }
         }
     };
