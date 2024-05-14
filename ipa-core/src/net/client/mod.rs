@@ -426,7 +426,7 @@ fn make_http_connector() -> HttpConnector {
     connector
 }
 
-#[cfg(all(test, web_test))]
+#[cfg(all(test, web_test, descriptive_gate))]
 pub(crate) mod tests {
     use std::{
         fmt::Debug,

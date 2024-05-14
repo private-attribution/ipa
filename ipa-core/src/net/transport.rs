@@ -266,7 +266,7 @@ impl Transport for HttpShardTransport {
     }
 }
 
-#[cfg(all(test, web_test))]
+#[cfg(all(test, web_test, descriptive_gate))]
 mod tests {
     use std::{iter::zip, net::TcpListener, task::Poll};
 
