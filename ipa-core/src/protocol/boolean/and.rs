@@ -9,21 +9,21 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
-const MAX_BITS: usize = 9;
+const MAX_BITS: usize = 8;
 
 #[derive(Step)]
 pub(crate) enum BoolAndStep {
-    #[dynamic(9)] // keep in sync with MAX_BITS
+    #[dynamic(8)] // keep in sync with MAX_BITS
     Bit(usize),
 }
 
-/// Matrix bitwise AND for use with vectors of bit-decomposed values. Supports up to 9 bits of input
-/// that is enough to support both WALR and PRF IPA use cases. IPA currently supports up to
-/// 512 breakdowns (see [`MAX_BREAKDOWN`] limitation) and WALR does not need more than that.
+/// Matrix bitwise AND for use with vectors of bit-decomposed values. Supports up to 8 bits of input
+/// that is enough to support both WALR and PRF IPA use cases.
+///
+/// In IPA this function is used to process trigger values and 8 bit is enough to represent them.
+/// WALR uses it on feature-vector where 8 bits are used to represent decimals.
 /// Limiting the number of bits helps with our static compact gate compilation, so we want this
 /// number to be as small as possible.
-///
-/// [`MAX_BREAKDOWN`]: crate::protocol::ipa_prf::aggregation::bucket::move_single_value_to_bucket
 ///
 /// ## Errors
 /// Propagates errors from the multiplication protocol.
@@ -32,7 +32,7 @@ pub(crate) enum BoolAndStep {
 //
 // Supplying an iterator saves constructing a complete copy of the argument
 // in memory when it is a uniform constant.
-pub async fn bool_and_9_bit<'a, C, BI, const N: usize>(
+pub async fn bool_and_8_bit<'a, C, BI, const N: usize>(
     ctx: C,
     record_id: RecordId,
     a: &BitDecomposed<AdditiveShare<Boolean, N>>,
