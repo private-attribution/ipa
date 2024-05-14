@@ -98,6 +98,12 @@ pub(crate) enum Step {
     Aggregate(usize),
 }
 
+#[derive(Step)]
+pub(crate) enum AggregateValuesStep {
+    OverflowingAdd,
+    SaturatingAdd,
+}
+
 // Aggregation
 //
 // The input to aggregation is a stream of tuples of (attributed breakdown key, attributed trigger
@@ -266,12 +272,23 @@ where
                             let record_id = RecordId::from(i);
                             if a.len() < usize::try_from(OV::BITS).unwrap() {
                                 // If we have enough output bits, add and keep the carry.
-                                let (mut sum, carry) =
-                                    integer_add::<_, B>(ctx, record_id, &a, &b).await?;
+                                let (mut sum, carry) = integer_add::<_, B>(
+                                    ctx.narrow(&AggregateValuesStep::OverflowingAdd),
+                                    record_id,
+                                    &a,
+                                    &b,
+                                )
+                                .await?;
                                 sum.push(carry);
                                 Ok(sum)
                             } else {
-                                integer_sat_add::<_, B>(ctx, record_id, &a, &b).await
+                                integer_sat_add::<_, B>(
+                                    ctx.narrow(&AggregateValuesStep::SaturatingAdd),
+                                    record_id,
+                                    &a,
+                                    &b,
+                                )
+                                .await
                             }
                         }
                     }
