@@ -270,35 +270,35 @@ where
                             Ok(mut chunk_vec) if chunk_vec.len() == 1 => {
                                 Ok(chunk_vec.pop().unwrap())
                             }
-                        Ok(mut chunk_pair) => {
-                            assert_eq!(chunk_pair.len(), 2);
-                            let b = chunk_pair.pop().unwrap();
-                            let a = chunk_pair.pop().unwrap();
-                            let record_id = RecordId::from(i);
-                            if a.len() < usize::try_from(OV::BITS).unwrap() {
-                                // If we have enough output bits, add and keep the carry.
-                                let (mut sum, carry) = integer_add::<_, B>(
-                                    ctx.narrow(&AggregateValuesStep::OverflowingAdd),
-                                    record_id,
-                                    &a,
-                                    &b,
-                                )
-                                .await?;
-                                sum.push(carry);
-                                Ok(sum)
-                            } else {
-                                integer_sat_add::<_, B>(
-                                    ctx.narrow(&AggregateValuesStep::SaturatingAdd),
-                                    record_id,
-                                    &a,
-                                    &b,
-                                )
-                                .await
+                            Ok(mut chunk_pair) => {
+                                assert_eq!(chunk_pair.len(), 2);
+                                let b = chunk_pair.pop().unwrap();
+                                let a = chunk_pair.pop().unwrap();
+                                let record_id = RecordId::from(i);
+                                if a.len() < usize::try_from(OV::BITS).unwrap() {
+                                    // If we have enough output bits, add and keep the carry.
+                                    let (mut sum, carry) = integer_add::<_, B>(
+                                        ctx.narrow(&AggregateValuesStep::OverflowingAdd),
+                                        record_id,
+                                        &a,
+                                        &b,
+                                    )
+                                    .await?;
+                                    sum.push(carry);
+                                    Ok(sum)
+                                } else {
+                                    integer_sat_add::<_, B>(
+                                        ctx.narrow(&AggregateValuesStep::SaturatingAdd),
+                                        record_id,
+                                        &a,
+                                        &b,
+                                    )
+                                    .await
+                                }
                             }
                         }
                     }
-                }
-            }),
+                }),
         );
         num_rows = next_num_rows;
         depth += 1;
