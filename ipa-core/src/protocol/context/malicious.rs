@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         basics::{
             mul::{malicious::Step::RandomnessForValidation, semi_honest_multiply},
-            ShareKnownValue, ZeroPositions,
+            ShareKnownValue,
         },
         context::{
             dzkp_malicious::DZKPUpgraded,
@@ -225,7 +225,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         &self,
         record_id: RecordId,
         x: Replicated<F>,
-        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
         //
         // This code is drawn from:
@@ -247,7 +246,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
             record_id,
             &induced_share,
             &self.inner.r_share,
-            (zeros_at, ZeroPositions::Pvvv),
         )
         .await?;
         let m = MaliciousReplicated::new(x, rx);
@@ -255,22 +253,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         let prss = narrowed.prss();
         self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
-    }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::{
-            context::{upgrade::UpgradeContext, UpgradeStep},
-            NoRecord,
-        };
-
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade_sparse(input, zeros_at)
-            .await
     }
 }
 

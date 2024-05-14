@@ -778,6 +778,9 @@ impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to
 impl_transpose_shares_ba_to_bool_small!(BA5, 256, 5, test_transpose_shares_ba_to_bool_256x5);
 impl_transpose_shares_ba_to_bool_small!(BA3, 256, 3, test_transpose_shares_ba_to_bool_256x3);
 
+// Usage: feature_label_dot_product aggregation input. M = number of features, N = BK or TV bits.
+impl_transpose_shares_ba_to_bool_small!(BA8, 32, 8, test_transpose_shares_ba_to_bool_32x8);
+
 // Special transpose used for "aggregation intermediate". See [`aggregate_contributions`] for
 // additional details.
 //

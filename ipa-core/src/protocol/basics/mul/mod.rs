@@ -29,11 +29,9 @@ mod dzkp_malicious;
 #[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
-pub(in crate::protocol) mod sparse;
 
 #[cfg(feature = "descriptive-gate")]
 pub use semi_honest::multiply as semi_honest_multiply;
-pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
@@ -43,8 +41,7 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
     where
         C: 'fut,
     {
-        self.multiply_sparse(rhs, ctx, record_id, ZeroPositions::NONE)
-            .await
+        self.multiply_sparse(rhs, ctx, record_id).await
     }
 
     /// Multiply and return the result of `a` * `b`.
@@ -57,7 +54,6 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
         rhs: &Self,
         ctx: C,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         C: 'fut;
@@ -144,7 +140,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestUpgraded<'a, B, F>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b, ZeroPositions::NONE)
+                semi_honest_mul(ctx, record_id, a, b)
             }
         }
 
