@@ -1,10 +1,11 @@
 use std::iter::Once;
+
 use bitvec::prelude::BitSlice;
 use generic_array::GenericArray;
 use typenum::U1;
 
 use crate::{
-    ff::{Field, PrimeField, Serializable, U128Conversions},
+    ff::{ArrayAccess, Field, PrimeField, Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::{
         context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
@@ -12,7 +13,6 @@ use crate::{
     },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
-use crate::ff::ArrayAccess;
 impl Block for bool {
     type Size = U1;
 }
