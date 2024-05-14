@@ -289,6 +289,6 @@ mod test {
         assert_eq!(b.get(0), Some(Boolean::from(false)));
 
         // Test iter()
-        assert_eq(vec![Boolean::from(false)], b.iter().collect::<Vec<_>>());
+        assert_eq!(vec![Boolean::from(false)], b.iter().collect::<Vec<_>>());
     }
 }
