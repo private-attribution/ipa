@@ -10,9 +10,11 @@ cargo build --all-targets
 
 # Need to be kept in sync manually with tests we run inside check.yml.
 cargo test
-for gate in "compact" "descriptive"; do
-  cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate-gate"
-done
+# disabled until 961 is merged
+# for gate in "compact" "descriptive"; do
+#  cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate-gate"
+# done
+cargo test --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
 
 cargo test --bench oneshot_ipa --no-default-features --features "enable-benches descriptive-gate" -- -n 62 -c 16
 

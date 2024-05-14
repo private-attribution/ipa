@@ -271,11 +271,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a
     ) -> Result<Self::Share, Error> {
         Ok(x)
     }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<Self::Share, Error> {
-        Ok(input)
-    }
 }
 
 impl<'a, B: ShardBinding, F: ExtendableField> SpecialAccessToUpgradedContext<F>
