@@ -234,7 +234,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U1;
 
-    use crate::ff::{boolean::Boolean, Serializable};
+    use crate::ff::{ArrayAccess, boolean::Boolean, Serializable};
 
     impl Arbitrary for Boolean {
         type Parameters = <bool as Arbitrary>::Parameters;
@@ -275,10 +275,25 @@ mod test {
         assert_ne!(a, !a);
     }
 
-    // #[test]
-    // fn array_access() {
-    //     let mut rng = thread_rng();
-    //     let a = rng.gen::<Boolean>();
-    //     a[0];
-    // }
+    /// test ArrayAccess for Boolean
+    #[test]
+    fn test_array_access() {
+        let mut b = Boolean::from(true);
+
+        // Test get()
+        assert_eq!(b.get(0), Some(Boolean::from(true)));
+        assert_eq!(b.get(1), None);
+
+        // Test set()
+        b.set(0, Boolean::from(false));
+        assert_eq!(b.get(0), Some(Boolean::from(false)));
+
+        // Test iter()
+        let mut count = 0;
+        for elem in b.iter() {
+            count += 1;
+            assert_eq!(elem, Boolean::from(false));
+        }
+        assert_eq!(count, 1);
+    }
 }
