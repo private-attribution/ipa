@@ -254,18 +254,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
     }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::{
-            context::{upgrade::UpgradeContext, UpgradeStep},
-            NoRecord,
-        };
-
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade_sparse(input)
-            .await
-    }
 }
 
 impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
