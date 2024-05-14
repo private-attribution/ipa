@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     helpers::repeat_n,
-    protocol::{basics::SecureMul, boolean::and::bool_and_9_bit, context::Context, RecordId},
+    protocol::{basics::SecureMul, boolean::and::bool_and_8_bit, context::Context, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
@@ -129,7 +129,7 @@ where
                     let index_contribution = &row_contribution[tree_index];
 
                     (robust || tree_index + span < breakdown_count).then(|| {
-                        bool_and_9_bit(
+                        bool_and_8_bit(
                             bucket_c,
                             record_id,
                             index_contribution,
