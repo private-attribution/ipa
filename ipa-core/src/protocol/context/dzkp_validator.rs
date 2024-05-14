@@ -156,7 +156,13 @@ impl<'a> Segment<'a> {
         debug_assert_eq!(x_left.len(), prss_right.len());
         debug_assert_eq!(x_left.len(), z_right.len());
         // check that length is either multiple of 256 or 256 is multiple of length
-        debug_assert!(x_left.len() % 256 == 0 || 256 % x_left.len() == 0);
+        debug_assert_eq!(
+            (
+                x_left.len(),
+                x_left.len() % 256 == 0 || 256 % x_left.len() == 0
+            ),
+            (x_left.len(), true)
+        );
         // asserts passed, create struct
         Self {
             x_left,
