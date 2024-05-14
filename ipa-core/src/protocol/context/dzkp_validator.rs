@@ -199,6 +199,11 @@ impl<'a> SegmentEntry<'a> {
         SegmentEntry(entry)
     }
 
+    #[must_use]
+    pub fn as_bitslice(&self) -> &'a BitSliceType {
+        self.0
+    }
+
     /// This function returns the size in bits.
     #[must_use]
     pub fn len(&self) -> usize {

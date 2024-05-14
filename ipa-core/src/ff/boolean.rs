@@ -197,9 +197,9 @@ impl FromRandomU128 for Boolean {
 impl DZKPCompatibleField for Boolean {
     fn as_segment_entry(array: &<Self as Vectorizable<1>>::Array) -> SegmentEntry<'_> {
         if bool::from(Boolean::from_array(array)) {
-            SegmentEntry::from_bitslice(BitSlice::from_element(&1))
+            SegmentEntry::from_bitslice(BitSlice::from_element(&1u8).get(0..1).unwrap())
         } else {
-            SegmentEntry::from_bitslice(BitSlice::from_element(&0))
+            SegmentEntry::from_bitslice(BitSlice::from_element(&0u8).get(0..1).unwrap())
         }
     }
 }
@@ -211,7 +211,11 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U1;
 
-    use crate::ff::{boolean::Boolean, Serializable};
+    use crate::{
+        ff::{boolean::Boolean, Field, Serializable},
+        protocol::context::dzkp_field::DZKPCompatibleField,
+        secret_sharing::{SharedValue, Vectorizable},
+    };
 
     impl Arbitrary for Boolean {
         type Parameters = <bool as Arbitrary>::Parameters;
@@ -250,5 +254,32 @@ mod test {
         let mut rng = thread_rng();
         let a = rng.gen::<Boolean>();
         assert_ne!(a, !a);
+    }
+
+    #[test]
+    fn boolean_bitslice() {
+        let one = Boolean::ONE;
+        let zero = Boolean::ZERO;
+
+        // convert into vectorizable
+        let one_vec: <Boolean as Vectorizable<1>>::Array = one.into_array();
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+
+        // generate slices
+        let slice_one = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&one_vec);
+        let slice_zero = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
+
+        // check length
+        assert_eq!(slice_one.len(), 1usize);
+        assert_eq!(slice_zero.len(), 1usize);
+
+        // check content
+        assert_ne!(*slice_one.as_bitslice(), *slice_zero.as_bitslice());
+        assert!(slice_one.as_bitslice().first().unwrap());
+        assert!(!slice_zero.as_bitslice().first().unwrap());
+
+        // there is nothing more
+        assert!(slice_one.as_bitslice().get(1).is_none());
+        assert!(slice_zero.as_bitslice().get(1).is_none());
     }
 }

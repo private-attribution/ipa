@@ -293,7 +293,7 @@ macro_rules! boolean_array_impl {
                 #[inline]
                 #[must_use]
                 pub fn as_bitslice(&self) -> &BitSlice<u8, Lsb0> {
-                    self.0.as_bitslice()
+                    self.0.as_bitslice().get(0..$bits).unwrap()
                 }
             }
 
@@ -554,6 +554,7 @@ macro_rules! boolean_array_impl {
                     proptest,
                 };
                 use rand::{thread_rng, Rng};
+                use bitvec::bits;
 
                 use super::*;
 
@@ -729,6 +730,26 @@ macro_rules! boolean_array_impl {
                     let expected = format!("{}{:?}", stringify!($name), $name::ZERO.0.data);
                     let actual = format!("{:?}", $name::ZERO);
                     assert_eq!(expected, actual);
+                }
+
+                #[test]
+                fn bitslice() {
+                    let zero = $name::ZERO;
+                    let random = thread_rng().gen::<$name>();
+
+                    // generate slices
+                    let slice_zero = zero.as_bitslice();
+                    let slice_random = random.as_bitslice();
+
+                    // check length
+                    assert_eq!(slice_zero.len(), $bits);
+                    assert_eq!(slice_random.len(), $bits);
+
+                    // // check content
+                    assert_eq!(*slice_zero, bits![0;$bits]);
+                    slice_random.iter().enumerate().for_each(|(i,bit)| {
+                        assert_eq!(bit,bool::from(random.get(i).unwrap()));
+                    });
                 }
             }
         }
