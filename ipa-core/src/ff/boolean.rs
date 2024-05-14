@@ -289,11 +289,6 @@ mod test {
         assert_eq!(b.get(0), Some(Boolean::from(false)));
 
         // Test iter()
-        let mut count = 0;
-        for elem in b.iter() {
-            count += 1;
-            assert_eq!(elem, Boolean::from(false));
-        }
-        assert_eq!(count, 1);
+        assert_eq(vec![Boolean::from(false)], b.iter().collect::<Vec<_>>());
     }
 }
