@@ -54,3 +54,9 @@ pub(crate) enum GreaterThanConstantStep {
     CompareHi,
     And,
 }
+
+#[derive(CompactStep)]
+pub(crate) enum BoolAndStep {
+    #[step(count = 8)] // keep in sync with MAX_BITS defined inside and.rs
+    Bit(usize),
+}

@@ -13,25 +13,11 @@ impl From<usize> for UserNthRowStep {
 }
 
 #[derive(CompactStep)]
-pub enum BinaryTreeDepthStep {
-    #[step(count = 64, child = BucketStep)]
-    Depth(usize),
-}
-
-impl From<usize> for BinaryTreeDepthStep {
-    fn from(v: usize) -> Self {
-        Self::Depth(v)
-    }
-}
-
-#[derive(CompactStep)]
 pub(crate) enum AttributionStep {
     #[step(child = UserNthRowStep)]
     BinaryValidator,
     PrimeFieldValidator,
     ModulusConvertBreakdownKeyBitsAndTriggerValues,
-    #[step(child = BinaryTreeDepthStep)]
-    MoveValueToCorrectBreakdown,
     Aggregate,
 }
 
@@ -73,22 +59,4 @@ pub(crate) enum FeatureLabelDotProductStep {
     DidSourceReceiveAttribution,
     ComputeSaturatingSum,
     IsAttributedSourceAndPrevRowNotSaturated,
-}
-
-#[derive(CompactStep)]
-pub enum BucketStep {
-    #[step(count = 256)]
-    Bit(usize),
-}
-
-impl From<u32> for BucketStep {
-    fn from(v: u32) -> Self {
-        Self::Bit(usize::try_from(v).unwrap())
-    }
-}
-
-impl From<usize> for BucketStep {
-    fn from(v: usize) -> Self {
-        Self::Bit(v)
-    }
 }

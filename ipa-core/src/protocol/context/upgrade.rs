@@ -200,12 +200,3 @@ where
             .await
     }
 }
-
-// This could also work on a record-bound context, but it's only used in one place for tests where
-// that's not currently required.
-#[cfg(test)]
-impl<'a, C: UpgradedContext<F>, F: ExtendableField> UpgradeContext<'a, C, F, NoRecord> {
-    pub(super) async fn upgrade_sparse(self, input: Replicated<F>) -> Result<C::Share, Error> {
-        self.ctx.upgrade_one(RecordId::from(0u32), input).await
-    }
-}

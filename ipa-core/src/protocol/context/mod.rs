@@ -180,13 +180,6 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
             unimplemented!()
         }
     }
-
-    /// Upgrade a sparse input using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    #[cfg(test)]
-    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<Self::Share, Error>;
 }
 
 pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
