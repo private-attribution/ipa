@@ -12,7 +12,7 @@ use crate::{
     },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
-use crate::ff::{ArrayAccess, ArrayBuild, ArrayBuilder};
+use crate::ff::{ArrayAccess};
 
 impl Block for bool {
     type Size = U1;
@@ -21,7 +21,6 @@ impl Block for bool {
 ///implements shared value framework for bool
 #[derive(Clone, Copy, PartialEq, Debug, Eq)]
 pub struct Boolean(bool);
-pub struct BooleanBuilder(bool);
 
 impl Boolean {
     pub const TRUE: Boolean = Self(true);
@@ -52,35 +51,6 @@ impl ArrayAccess for Boolean {
 
     fn iter(&self) -> Self::Iter<'_> {
         std::iter::once(*self)
-    }
-}
-
-
-impl crate::ff::ArrayBuild for Boolean {
-    type Input = bool;
-    type Builder = BooleanBuilder;
-
-    fn builder() -> Self::Builder {
-        BooleanBuilder { 0: false, 1: true }
-    }
-}
-
-// need to implement ArrayBuild for BooleanBuilder which is also done for BitDecomposedBuilder
-impl crate::ff::ArrayBuilder for BooleanBuilder {
-    type Element = bool;
-    type Array = Boolean;
-
-    fn with_capacity(mut self, capacity: usize) -> Self {
-        self.reserve(capacity);
-        self
-    }
-
-    fn push(&mut self, value: bool) {
-        self = value;
-    }
-
-    fn build(self) -> Self::Array {
-        Boolean::new(self)
     }
 }
 

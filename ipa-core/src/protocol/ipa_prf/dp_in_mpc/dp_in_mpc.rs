@@ -27,7 +27,7 @@ pub async fn my_new_function<C, F>(
         C: Context,
         F: Field,
         // crate::secret_sharing::replicated::semi_honest::additive_share::AdditiveShare<crate::ff::boolean::Boolean>: crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>
-        Replicated<Boolean> : crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>,
+        // Replicated<Boolean> : crate::protocol::basics::BooleanProtocols<C, { Boolean }>,
 {
     let role = ctx.role();
     let mut counter : u32 = 0;
@@ -51,7 +51,8 @@ pub async fn my_new_function<C, F>(
 
     // Approach 1) using the below line for BitDecomposed.
     let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
-    let (sum, carry) = integer_add::<_,Boolean,Replicated<Boolean>,_,_>(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
+    // let (sum, carry) = integer_add::<_,Boolean,Replicated<Boolean>,_,_>(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
+    let (sum, carry) = integer_add(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
 
     // Approach 2) concrete types
     // let ss_ba8s : AdditiveShare<BA8> = ctx.prss().generate_with(RecordId::from(0_u32), )
@@ -82,7 +83,7 @@ mod test {
     use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::my_new_function;
     use rand::distributions::{Distribution};
     use crate::{ff::{Field, Fp31, Fp32BitPrime, U128Conversions, boolean_array::BA4}, helpers::TotalRecords, protocol::{
-        basics::{SecureMul, ZeroPositions},
+        basics::{SecureMul},
         context::Context,
         RecordId,
     }, protocol, rand::{thread_rng, Rng}, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated, seq_join::SeqJoin, test_fixture::{Reconstruct, ReconstructArr, Runner, TestWorld}};
