@@ -274,4 +274,11 @@ mod test {
         let a = rng.gen::<Boolean>();
         assert_ne!(a, !a);
     }
+
+    // #[test]
+    // fn array_access() {
+    //     let mut rng = thread_rng();
+    //     let a = rng.gen::<Boolean>();
+    //     a[0];
+    // }
 }
