@@ -76,3 +76,51 @@ impl From<usize> for BitOpStep {
         Self::Bit(v)
     }
 }
+
+#[derive(Step)]
+pub enum EightBitStep {
+    #[dynamic(8)]
+    Bit(usize),
+}
+
+impl From<usize> for EightBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+#[derive(Step)]
+pub enum SixteenBitStep {
+    #[dynamic(16)]
+    Bit(usize),
+}
+
+impl From<usize> for SixteenBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+#[derive(Step)]
+pub enum ThirtyTwoBitStep {
+    #[dynamic(32)]
+    Bit(usize),
+}
+
+impl From<usize> for ThirtyTwoBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+#[derive(Step)]
+pub enum SixtyFourBitStep {
+    #[dynamic(64)]
+    Bit(usize),
+}
+
+impl From<usize> for SixtyFourBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}

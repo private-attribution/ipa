@@ -10,7 +10,7 @@ use crate::{
         basics::{BooleanProtocols, SecureMul},
         boolean::or::bool_or,
         context::{Context, UpgradedSemiHonestContext},
-        step::BitOpStep,
+        step::{BitOpStep, EightBitStep, SixteenBitStep, SixtyFourBitStep, ThirtyTwoBitStep},
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
@@ -106,9 +106,18 @@ where
     let x = x.iter();
     let y = y.iter();
 
-    let mut result = BitDecomposed::with_capacity(x.len());
+    let bit_depth = x.len();
+    let mut result = BitDecomposed::with_capacity(bit_depth);
     for (i, (xb, yb)) in x.zip(y.chain(repeat(&AdditiveShare::ZERO))).enumerate() {
-        result.push(bit_adder(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry).await?);
+        let c = match bit_depth {
+            1..=8 => ctx.narrow(&EightBitStep::from(i)),
+            9..=16 => ctx.narrow(&SixteenBitStep::from(i)),
+            17..=32 => ctx.narrow(&ThirtyTwoBitStep::from(i)),
+            33..=64 => ctx.narrow(&SixtyFourBitStep::from(i)),
+            65..=256 => ctx.narrow(&BitOpStep::from(i)),
+            _ => panic!("No appropriate Bit Step for bit depth: {}", bit_depth),
+        };
+        result.push(bit_adder(c, record_id, xb, yb, carry).await?);
     }
     Ok(result)
 }
