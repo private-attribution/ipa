@@ -44,7 +44,6 @@ impl<S: Stream> FixedLength<S> {
     ///
     /// Note that this is safe on the same basis that `ExactSizeIterator` is safe in
     /// that code cannot rely on the claims of this type for ensuring safety of code.
-    #[allow(dead_code)] // TODO - use in infra
     pub fn new(inner: S, len: usize) -> Self {
         Self { inner, len }
     }
