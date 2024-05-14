@@ -1,4 +1,3 @@
-pub mod apply_permutation;
 pub mod check_zero;
 mod if_else;
 pub(crate) mod mul;
@@ -7,17 +6,15 @@ mod reveal;
 mod share_known_value;
 pub mod step;
 pub mod share_validation;
-pub mod sum_of_product;
 
 use std::ops::Not;
 
 pub use check_zero::check_zero;
-pub use if_else::{if_else, select};
+pub use if_else::select;
 pub use mul::{BooleanArrayMul, SecureMul};
 pub use reshare::Reshare;
 pub use reveal::{partial_reveal, reveal, Reveal};
 pub use share_known_value::ShareKnownValue;
-pub use sum_of_product::SumOfProducts;
 
 use crate::{
     const_assert_eq,
@@ -41,7 +38,6 @@ pub trait BasicProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N: 
     + Reveal<C, N, Output = <V as Vectorizable<N>>::Array>
     + SecureMul<C>
     + ShareKnownValue<C, V>
-    + SumOfProducts<C>
 {
 }
 

@@ -11,10 +11,8 @@ track_steps!(
         basics::{
             mul::step,
             step,
-            sum_of_product::malicious::step @ "src/protocol/basics/sum_of_product/step.rs",
         },
         boolean::{
-            random_bits_generator::fallback_step @ "src/protocol/boolean/fallback_step.rs",
             step,
         },
         context::step,

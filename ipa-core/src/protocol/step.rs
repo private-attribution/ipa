@@ -30,16 +30,10 @@ pub enum DeadCodeStep {
     MaliciousMultiply,
     #[step(child = crate::protocol::basics::mul::step::UpgradeStep)]
     DummyUpgrade,
-    #[step(child = crate::protocol::basics::sum_of_product::malicious::step::Step)]
-    SumOfProductMalicious,
     #[step(child = crate::protocol::boolean::step::BitwiseLessThanStep)]
     BitwiseLessThan,
     #[step(child = crate::protocol::boolean::step::GreaterThanConstantStep)]
     GreaterThanConstant,
-    #[step(child = crate::protocol::boolean::step::ComparisonStep)]
-    Comparison,
-    #[step(child = crate::protocol::boolean::step::SolvedBitsStep)]
-    SolvedBits,
     #[step(child = crate::protocol::context::step::UpgradeStep)]
     UpgradeShare,
     #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]

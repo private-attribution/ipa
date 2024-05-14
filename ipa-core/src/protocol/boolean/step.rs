@@ -25,19 +25,6 @@ impl From<usize> for BitOpStep {
 }
 
 #[derive(CompactStep)]
-pub(crate) enum SolvedBitsStep {
-    RandomBits,
-    IsPLessThanB,
-    RevealC,
-}
-
-#[derive(CompactStep)]
-pub(crate) enum ComparisonStep {
-    PrefixOr,
-    DotProduct,
-}
-
-#[derive(CompactStep)]
 pub(crate) enum BitwiseLessThanStep {
     CheckTrimmed,
     CheckIfAnyOnes,
