@@ -50,15 +50,15 @@ pub async fn my_new_function<C, F>(
     // let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
 
     // Approach 1) using the below line for BitDecomposed.
-    // let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
-    // let (sum, carry) = integer_add::<_,Boolean,Replicated<Boolean>,_,_>(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
+    let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
+    let (sum, carry) = integer_add::<_,Boolean,Replicated<Boolean>,_,_>(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
 
     // Approach 2) concrete types
     // let ss_ba8s : AdditiveShare<BA8> = ctx.prss().generate_with(RecordId::from(0_u32), )
-    let mut x_shared : Replicated<BA4> = ctx.prss().generate::<Replicated<BA4>,_>(counter);
-    let mut y_shared : Replicated<BA4> = ctx.prss().generate::<Replicated<BA4>,_>(counter);
-
-    let (sum,carry) = integer_add::<_,BA4,Replicated<BA4>,_,_>(ctx, RecordId::from(0_u32), x_shared,y_shared);
+    // let mut x_shared : Replicated<BA4> = ctx.prss().generate::<Replicated<BA4>,_>(counter);
+    // let mut y_shared : Replicated<BA4> = ctx.prss().generate::<Replicated<BA4>,_>(counter);
+    //
+    // let (sum,carry) = integer_add::<_,BA4,Replicated<BA4>,_,_>(ctx, RecordId::from(0_u32), x_shared,y_shared);
 
     // let ss_bits : Vec<BitDecomposed<Replicated<Boolean>>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS);
     // let share = ctx
