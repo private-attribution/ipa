@@ -84,37 +84,34 @@ macro_rules! boolean_vector {
                     let a = rng.gen::<$vec>();
                     let b = rng.gen::<$vec>();
 
-                    // required by DZKP storage strategy
-                    if (a.as_bitslice().len() % 256 == 0 || 256 % a.as_bitslice().len() == 0) {
-                        let bit_shares = bit.share_with(&mut rng);
-                        let a_shares = a.share_with(&mut rng);
-                        let b_shares = b.share_with(&mut rng);
+                    let bit_shares = bit.share_with(&mut rng);
+                    let a_shares = a.share_with(&mut rng);
+                    let b_shares = b.share_with(&mut rng);
 
-                        let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares)))
-                            .map(|(ctx, (bit_share, (a_share, b_share)))| async move {
-                                let v = ctx.clone().dzkp_validator(1);
-                                let m_ctx = v.context();
+                    let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares)))
+                        .map(|(ctx, (bit_share, (a_share, b_share)))| async move {
+                            let v = ctx.clone().dzkp_validator(1);
+                            let m_ctx = v.context();
 
-                                let result = select(
-                                    m_ctx.set_total_records(1),
-                                    RecordId::from(0),
-                                    &bit_share,
-                                    &a_share,
-                                    &b_share,
-                                )
-                                .await?;
+                            let result = select(
+                                m_ctx.set_total_records(1),
+                                RecordId::from(0),
+                                &bit_share,
+                                &a_share,
+                                &b_share,
+                            )
+                            .await?;
 
-                                v.validate::<Fp31>().await?;
+                            v.validate::<Fp31>().await?;
 
-                                Ok::<_, Error>(result)
-                            });
+                            Ok::<_, Error>(result)
+                        });
 
-                        let [ab0, ab1, ab2] = join3v(futures).await;
+                    let [ab0, ab1, ab2] = join3v(futures).await;
 
-                        let ab = [ab0, ab1, ab2].reconstruct();
+                    let ab = [ab0, ab1, ab2].reconstruct();
 
-                        assert_eq!(ab, if bit.into() { a } else { b });
-                    }
+                    assert_eq!(ab, if bit.into() { a } else { b });
                 }
 
                 #[tokio::test]
