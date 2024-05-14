@@ -43,12 +43,12 @@ where
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let mut carry = AdditiveShare::ZERO;
-    let sum = addition_circuit(ctx.narrow(&AddStep::Add), record_id, x, y, &mut carry).await?;
+    let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
     Ok((sum, carry))
 }
 
 #[derive(Step)]
-enum AddStep {
+enum SatAddStep {
     Add,
     Select,
 }
@@ -70,11 +70,12 @@ where
     AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
 {
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
-    let result = addition_circuit(ctx.narrow(&AddStep::Add), record_id, x, y, &mut carry).await?;
+    let result =
+        addition_circuit(ctx.narrow(&SatAddStep::Add), record_id, x, y, &mut carry).await?;
 
     // if carry==1 then {all ones} else {result}
     bool_or(
-        ctx.narrow(&AddStep::Select),
+        ctx.narrow(&SatAddStep::Select),
         record_id,
         &result,
         repeat_n(&carry, x.len()),

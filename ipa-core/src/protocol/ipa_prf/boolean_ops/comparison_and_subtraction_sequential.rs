@@ -6,6 +6,7 @@
 
 use std::iter::repeat;
 
+#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
 use crate::{
@@ -74,13 +75,6 @@ where
     Ok(carry)
 }
 
-#[derive(Step)]
-enum SubStep {
-    Subtract,
-    #[cfg(all(test, unit_test))]
-    Select,
-}
-
 /// non-saturated unsigned integer subtraction
 /// subtracts y from x, Output has same length as x (carries and indices of y too large for x are ignored).
 /// When y>x, it computes `(x+2^|x|)-y`, considering only the least-significant
@@ -99,7 +93,7 @@ where
 {
     // we need to initialize carry to 1 for a subtraction
     let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
-    subtraction_circuit(ctx.narrow(&SubStep::Subtract), record_id, x, y, &mut carry).await
+    subtraction_circuit(ctx, record_id, x, y, &mut carry).await
 }
 
 /// saturated unsigned integer subtraction
@@ -120,9 +114,15 @@ where
 {
     use crate::ff::ArrayAccess;
 
+    #[derive(Step)]
+    enum Step {
+        Subtract,
+        Select,
+    }
+
     let mut carry = !AdditiveShare::<Boolean>::ZERO;
     let result = subtraction_circuit(
-        ctx.narrow(&SubStep::Subtract),
+        ctx.narrow(&Step::Subtract),
         record_id,
         &x.to_bits(),
         &y.to_bits(),
@@ -134,7 +134,7 @@ where
     // carry computes carry=(x>=y)
     // if carry==0 then {zero} else {result}
     select(
-        ctx.narrow(&SubStep::Select),
+        ctx.narrow(&Step::Select),
         record_id,
         &carry,
         &result,
