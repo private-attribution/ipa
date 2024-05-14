@@ -248,6 +248,7 @@ const_assert!(Role::eq(Role::H3.peer(Direction::Right), Role::H1));
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(transparent)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }

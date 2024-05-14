@@ -112,6 +112,7 @@ mod tests {
     }
 
     #[derive(Serialize)]
+    #[serde(transparent)]
     struct OverrideReqRoles {
         helper_roles: Vec<i8>,
     }
