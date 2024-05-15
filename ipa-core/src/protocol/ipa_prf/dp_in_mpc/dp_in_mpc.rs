@@ -22,6 +22,7 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 pub async fn add_dp_noise<C, F>(
     ctx: C,
     a: &Vec<Replicated<F>>,
+    B: u32, // number of histogram bins
 )-> Result<Vec<Replicated<F>>, Error>
     where
         C: Context,
@@ -29,50 +30,31 @@ pub async fn add_dp_noise<C, F>(
         // crate::secret_sharing::replicated::semi_honest::additive_share::AdditiveShare<crate::ff::boolean::Boolean>: crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>
         // Replicated<Boolean> : crate::protocol::basics::BooleanProtocols<C, { Boolean }>,
 {
-    let role = ctx.role();
-    let mut counter : u32 = 0;
-    // let (l,r) = ctx
-    //     .prss()
-    //     .generate::<(<F as Vectorizable<N>>::Array,_),_>(counter);
-    // counter += 1;
-    let (left,right) = ctx
-        .prss()
-        .generate::<(u128,u128),_>(counter);
 
-    // let share = ctx
-    //     .prss()
-    //     .generate::<Replicated<F>,_>(counter);
+    /// Step 1:  Generate Bernoulli's with PRSS
+    /// sample a stream of `total_bits = num_bernoulli * B` bit from PRSS where B is number of histogram bins
+    /// and num_bernoulli is the number of Bernoulli samples to sum to get a sample from a Binomial
+    /// distribution with the desired epsilon, delta
+    let num_bernoulli: u32 = 1000;
+    let total_bits = num_bernoulli * B;
+
+    let bernoulli_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),total_bits ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
+    /// so this is a vector of total_bits length where each element is a Boolean secret sharing of a
+    /// single random bit
 
 
-    //  Generate Bernoulli's with PRSS as BitDecomposed type
-    let BITS:  usize = 100;
-    // Calls to PRSS which are not working
-    // let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
+    /// Step 2: Convert to input from of aggregate_values
+    /// may need to transpose to be vectorized by B, the number of histogram bins, which is how
+    /// aggregation calls `aggregate_values` and similar to how `feature_label_dot_product` uses
+    /// number of features
+    ///  TODO
 
-    // Approach 1) using the below line for BitDecomposed.
-    let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
-    let ss2_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS );
-    // let (sum, carry) = integer_add::<_,Boolean,Replicated<Boolean>,_,_>(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
-    // let (sum, carry) = integer_add(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
-    let (sum, carry) = integer_add(ctx,protocol::RecordId(counter), ss_bits, ss2_bits);
-    // Approach 2) concrete types
-    // let ss_ba8s : AdditiveShare<BA8> = ctx.prss().generate_with(RecordId::from(0_u32), )
-    // let mut x_shared : Replicated<BA4> = ctx.prss().generate::<Replicated<BA4>,_>(counter);
-    // let mut y_shared : Replicated<BA4> = ctx.prss().generate::<Replicated<BA4>,_>(counter);
-    //
-    // let (sum,carry) = integer_add::<_,BA4,Replicated<BA4>,_,_>(ctx, RecordId::from(0_u32), x_shared,y_shared);
+    /// Step 3: Call `aggregate_values`, the output should be a vector of length B, number histogram bins,
+    /// with each element the sum of `num_bernoulli` Bernoulli bits.
+    ///  TODO
 
-    // let ss_bits : Vec<BitDecomposed<Replicated<Boolean>>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS);
-    // let share = ctx
-    //     .prss()
-    //     .generate::<Vec<Replicated<Boolean>>,_>(counter);
-
-
-    // let share = ctx
-    //     .prss()
-    //     .generate::<Replicated<F,N>,_>(counter);
-
-
+    /// Step 4:  Add DP noise to output values
+    /// TODO
 
     Ok(a.to_vec())
 }
@@ -94,7 +76,7 @@ mod test {
     use crate::protocol::ipa_prf::dp_in_mpc;
 
     #[tokio::test]
-    pub async fn test_new_my_function(){
+    pub async fn test_add_dp_noise(){
         let world = TestWorld::default();
 
         // create input
@@ -109,20 +91,5 @@ mod test {
             }).await;
     }
 
-    // #[tokio::test]
-    // pub async fn test_integer_add(){
-    //     let world = TestWorld::default();
-    //     let counter = 0;
-    //     let x_shared = world.ctx.prss().generate::<Replicated<BA4>,_>(counter);
-    //     let y_shared = world.ctx.prss().generate::<Replicated<BA4>,_>(counter);
-    //
-    //     let (sum, carry) = world.semi_honest((x_shared,y_shared),|ctx, x_y|async move {
-    //         integer_add::<_,_,AdditiveShare<BA4>,AdditiveShare<BA4>,1>(
-    //             ctx.set_total_records(1),
-    //             protocol::RecordId(0),
-    //             &x_y.0,
-    //             &x_y.1,
-    //         ).await.unwrap()
-    //     }).await.reconstruct();
-    // }
+
 }
