@@ -646,30 +646,30 @@ mod test {
     }
 
     fn decrypt_report(
-        pk: Vec<u8>,
-        sk: Vec<u8>,
-        encrypted_report_bytes: Vec<u8>,
+        pk: &[u8],
+        sk: &[u8],
+        encrypted_report_bytes: &[u8],
         expected: &RawReport,
     ) -> OprfReport<BA8, BA3, BA20> {
         let key_registry1 = KeyRegistry::from_keys([KeyPair::from((
-            IpaPrivateKey::from_bytes(&sk).unwrap(),
-            IpaPublicKey::from_bytes(&pk).unwrap(),
+            IpaPrivateKey::from_bytes(sk).unwrap(),
+            IpaPublicKey::from_bytes(pk).unwrap(),
         ))]);
 
-        let enc_report =
-            EncryptedOprfReport::from_bytes(encrypted_report_bytes.as_slice()).unwrap();
+        let enc_report = EncryptedOprfReport::from_bytes(encrypted_report_bytes).unwrap();
         let dec_report: OprfReport<BA8, BA3, BA20> = enc_report.decrypt(&key_registry1).unwrap();
 
         assert_eq!(dec_report.event_type, expected.event_type);
         assert_eq!(dec_report.epoch, expected.epoch);
         assert_eq!(dec_report.site_domain, expected.site_domain);
-        return dec_report;
+
+        dec_report
     }
 
     fn validate_blobs(
-        enc_report_bytes1: Vec<u8>,
-        enc_report_bytes2: Vec<u8>,
-        enc_report_bytes3: Vec<u8>,
+        enc_report_bytes1: &[u8],
+        enc_report_bytes2: &[u8],
+        enc_report_bytes3: &[u8],
         expected: &RawReport,
     ) {
         let pk = [
@@ -689,14 +689,26 @@ mod test {
                 .unwrap(),
         ];
 
-        let dec_report1: OprfReport<BA8, BA3, BA20> =
-            decrypt_report(pk[0].clone(), sk[0].clone(), enc_report_bytes1, &expected);
+        let dec_report1: OprfReport<BA8, BA3, BA20> = decrypt_report(
+            pk[0].as_slice(),
+            sk[0].as_slice(),
+            enc_report_bytes1,
+            expected,
+        );
 
-        let dec_report2: OprfReport<BA8, BA3, BA20> =
-            decrypt_report(pk[1].clone(), sk[1].clone(), enc_report_bytes2, &expected);
+        let dec_report2: OprfReport<BA8, BA3, BA20> = decrypt_report(
+            pk[1].as_slice(),
+            sk[1].as_slice(),
+            enc_report_bytes2,
+            expected,
+        );
 
-        let dec_report3: OprfReport<BA8, BA3, BA20> =
-            decrypt_report(pk[2].clone(), sk[2].clone(), enc_report_bytes3, &expected);
+        let dec_report3: OprfReport<BA8, BA3, BA20> = decrypt_report(
+            pk[2].as_slice(),
+            sk[2].as_slice(),
+            enc_report_bytes3,
+            expected,
+        );
 
         assert_eq!(
             [
@@ -757,9 +769,9 @@ mod test {
         };
 
         validate_blobs(
-            enc_report_bytes1,
-            enc_report_bytes2,
-            enc_report_bytes3,
+            &enc_report_bytes1,
+            &enc_report_bytes2,
+            &enc_report_bytes3,
             &expected,
         );
     }
@@ -785,9 +797,9 @@ mod test {
         };
 
         validate_blobs(
-            enc_report_bytes1,
-            enc_report_bytes2,
-            enc_report_bytes3,
+            &enc_report_bytes1,
+            &enc_report_bytes2,
+            &enc_report_bytes3,
             &expected,
         );
     }
