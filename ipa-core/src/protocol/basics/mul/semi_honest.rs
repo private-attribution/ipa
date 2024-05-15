@@ -26,7 +26,7 @@ use crate::{
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn gen_prss_and_multipy<C, F, const N: usize>(
+pub async fn sh_multiply<C, F, const N: usize>(
     ctx: C,
     record_id: RecordId,
     a: &Replicated<F, N>,
@@ -113,7 +113,7 @@ where
     where
         SemiHonestContext<'a, B>: 'fut,
     {
-        gen_prss_and_multipy(ctx, record_id, self, rhs).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -134,7 +134,7 @@ where
     where
         UpgradedSemiHonestContext<'a, B, F>: 'fut,
     {
-        gen_prss_and_multipy(ctx, record_id, self, rhs).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -154,7 +154,7 @@ where
     where
         SemiHonestDZKPUpgraded<'a, B>: 'fut,
     {
-        gen_prss_and_multipy(ctx, record_id, self, rhs).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -168,7 +168,7 @@ mod test {
 
     use rand::distributions::{Distribution, Standard};
 
-    use super::gen_prss_and_multipy;
+    use super::sh_multiply;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
         helpers::TotalRecords,
@@ -282,7 +282,7 @@ mod test {
             .unwrap();
         let results = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                gen_prss_and_multipy(
+                sh_multiply(
                     ctx.set_total_records(1),
                     RecordId::from(0),
                     &a_shares,
@@ -381,7 +381,7 @@ mod test {
                     let mut iter = share.iter();
                     let mut val = iter.next().unwrap().clone();
                     for i in 1..MANYMULT_ITERS {
-                        val = gen_prss_and_multipy(
+                        val = sh_multiply(
                             ctx.clone(),
                             RecordId::from(i - 1),
                             &val,
