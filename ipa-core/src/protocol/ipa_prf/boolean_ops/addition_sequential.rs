@@ -10,7 +10,7 @@ use crate::{
         basics::{BooleanProtocols, SecureMul},
         boolean::or::bool_or,
         context::{Context, UpgradedSemiHonestContext},
-        step::BitOpStep,
+        step::Step,
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
@@ -25,7 +25,7 @@ use crate::{
 ///
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_add<C, const N: usize>(
+pub async fn integer_add<C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -39,11 +39,12 @@ pub async fn integer_add<C, const N: usize>(
 >
 where
     C: Context,
+    S: Step + From<usize>,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let mut carry = AdditiveShare::ZERO;
-    let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
+    let sum = addition_circuit::<_, S, N>(ctx, record_id, x, y, &mut carry).await?;
     Ok((sum, carry))
 }
 
@@ -58,7 +59,7 @@ enum SatAddStep {
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sat_add<'a, SH, const N: usize>(
+pub async fn integer_sat_add<'a, SH, S, const N: usize>(
     ctx: UpgradedSemiHonestContext<'a, SH, Boolean>,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -66,12 +67,14 @@ pub async fn integer_sat_add<'a, SH, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     SH: ShardBinding,
+    S: Step + From<usize>,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
 {
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
     let result =
-        addition_circuit(ctx.narrow(&SatAddStep::Add), record_id, x, y, &mut carry).await?;
+        addition_circuit::<_, S, N>(ctx.narrow(&SatAddStep::Add), record_id, x, y, &mut carry)
+            .await?;
 
     // if carry==1 then {all ones} else {result}
     bool_or(
@@ -91,7 +94,7 @@ where
 /// propagates errors from multiply
 ///
 ///
-async fn addition_circuit<C, const N: usize>(
+async fn addition_circuit<C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -100,6 +103,7 @@ async fn addition_circuit<C, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
+    S: Step + From<usize>,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
@@ -108,7 +112,7 @@ where
 
     let mut result = BitDecomposed::with_capacity(x.len());
     for (i, (xb, yb)) in x.zip(y.chain(repeat(&AdditiveShare::ZERO))).enumerate() {
-        result.push(bit_adder(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry).await?);
+        result.push(bit_adder(ctx.narrow(&S::from(i)), record_id, xb, yb, carry).await?);
     }
     Ok(result)
 }
@@ -166,6 +170,7 @@ mod test {
         protocol::{
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
+            step::SixtyFourBitStep,
             RecordId,
         },
         rand::thread_rng,
@@ -192,7 +197,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_add::<_, 1>(
+                    integer_add::<_, SixtyFourBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),
@@ -233,7 +238,7 @@ mod test {
 
             let result = world
                 .upgraded_semi_honest((x_bits, y_bits), |ctx, x_y| async move {
-                    integer_sat_add::<_, 1>(
+                    integer_sat_add::<_, SixtyFourBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0,
@@ -269,7 +274,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
-                    integer_add::<_, 1>(
+                    integer_add::<_, SixtyFourBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),
@@ -290,7 +295,7 @@ mod test {
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
-                    integer_add::<_, 1>(
+                    integer_add::<_, SixtyFourBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),

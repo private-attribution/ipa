@@ -3,7 +3,7 @@ use std::iter::zip;
 use crate::{
     error::Error,
     ff::{boolean::Boolean, Field},
-    protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
+    protocol::{basics::SecureMul, context::Context, step::TwoHundredFiftySixBitOpStep, RecordId},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd,
         Linear as LinearSecretSharing,
@@ -52,7 +52,7 @@ where
 
     BitDecomposed::try_from(
         ctx.parallel_join(zip(a.iter(), b).enumerate().map(|(i, (a, b))| {
-            let ctx = ctx.narrow(&BitOpStep::Bit(i));
+            let ctx = ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(i));
             async move {
                 let ab = a.multiply(b, ctx, record_id).await?;
                 Ok::<_, Error>(-ab + a + b)

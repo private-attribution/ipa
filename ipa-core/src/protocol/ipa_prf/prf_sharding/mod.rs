@@ -35,6 +35,7 @@ use crate::{
             },
             AGG_CHUNK,
         },
+        step::{EightBitStep, ThirtyTwoBitStep},
         RecordId,
     },
     secret_sharing::{
@@ -188,7 +189,11 @@ where
         )
         .await?;
 
-        let (updated_sum, overflow_bit) = integer_add(
+        assert!(
+            TV::BITS <= 8,
+            "EightBitStep not large enough to accomodate this sum"
+        );
+        let (updated_sum, overflow_bit) = integer_add::<_, EightBitStep, 1>(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -196,6 +201,10 @@ where
         )
         .await?;
 
+        assert!(
+            TV::BITS <= 8,
+            "EightBitStep not large enough to accomodate this subtraction"
+        );
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
             overflow_bit.multiply(
                 &self.is_saturated.clone().not(),
@@ -207,7 +216,7 @@ where
             // overflow. When that is the case, `updated_sum` must be within `2^TV::BITS` of the
             // cap, and a `TV::BITS` subtraction of the `TV::BITS` least significant bits of
             // `updated_sum` from zero will correctly compute the difference to the cap.
-            integer_sub(
+            integer_sub::<_, EightBitStep>(
                 ctx.narrow(&Step::ComputeDifferenceToCap),
                 record_id,
                 &BitDecomposed::new(repeat_n(
@@ -680,7 +689,11 @@ where
     Replicated<Boolean>: BooleanProtocols<C>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
-        let time_delta_bits = integer_sub(
+        assert!(
+            TS::BITS <= 32,
+            "ThirtyTwoBitStep is not large enough to accomodate this subtraction"
+        );
+        let time_delta_bits = integer_sub::<_, ThirtyTwoBitStep>(
             ctx.narrow(&Step::ComputeTimeDelta),
             record_id,
             &trigger_event_timestamp.to_bits(),
@@ -695,7 +708,7 @@ where
             )
         });
 
-        let time_delta_gt_attribution_window = compare_gt(
+        let time_delta_gt_attribution_window = compare_gt::<_, ThirtyTwoBitStep, 1>(
             ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
             record_id,
             &time_delta_bits,

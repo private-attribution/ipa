@@ -8,7 +8,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::UpgradedContext,
-        step::{BitOpStep, Gate, Step, StepNarrow},
+        step::{Gate, Step, StepNarrow, TwoHundredFiftySixBitOpStep},
         NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
@@ -117,8 +117,10 @@ where
 {
     async fn upgrade(self, input: (T, U)) -> Result<(TM, UM), Error> {
         try_join(
-            self.narrow(&BitOpStep::from(0)).upgrade(input.0),
-            self.narrow(&BitOpStep::from(1)).upgrade(input.1),
+            self.narrow(&TwoHundredFiftySixBitOpStep::from(0))
+                .upgrade(input.0),
+            self.narrow(&TwoHundredFiftySixBitOpStep::from(1))
+                .upgrade(input.1),
         )
         .await
     }

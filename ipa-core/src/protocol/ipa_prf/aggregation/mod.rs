@@ -21,6 +21,7 @@ use crate::{
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             prf_sharding::AttributionOutputs,
         },
+        step::SixteenBitStep,
         RecordId,
     },
     secret_sharing::{
@@ -277,7 +278,7 @@ where
                                 let record_id = RecordId::from(i);
                                 if a.len() < usize::try_from(OV::BITS).unwrap() {
                                     // If we have enough output bits, add and keep the carry.
-                                    let (mut sum, carry) = integer_add::<_, B>(
+                                    let (mut sum, carry) = integer_add::<_, SixteenBitStep, B>(
                                         ctx.narrow(&AggregateValuesStep::OverflowingAdd),
                                         record_id,
                                         &a,
@@ -287,7 +288,7 @@ where
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
-                                    integer_sat_add::<_, B>(
+                                    integer_sat_add::<_, SixteenBitStep, B>(
                                         ctx.narrow(&AggregateValuesStep::SaturatingAdd),
                                         record_id,
                                         &a,
