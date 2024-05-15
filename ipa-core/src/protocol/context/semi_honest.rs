@@ -150,7 +150,7 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
     type DZKPValidator = SemiHonestDZKPValidator<'a, B>;
 
     #[allow(unused_variables)]
-    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
+    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator {
         Self::DZKPValidator::new(self.inner)
     }
 }
@@ -270,11 +270,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a
         x: Replicated<F>,
     ) -> Result<Self::Share, Error> {
         Ok(x)
-    }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<Self::Share, Error> {
-        Ok(input)
     }
 }
 

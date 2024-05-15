@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 use bitvec::{
-    prelude::{BitArr, Lsb0},
+    prelude::{BitArr, BitSlice, Lsb0},
     slice::Iter,
 };
 use generic_array::GenericArray;
@@ -288,6 +288,12 @@ macro_rules! boolean_array_impl {
                 #[must_use]
                 pub fn as_raw_mut_slice(&mut self) -> &mut [u8] {
                     self.0.as_raw_mut_slice()
+                }
+
+                #[inline]
+                #[must_use]
+                pub fn as_bitslice(&self) -> &BitSlice<u8, Lsb0> {
+                    self.0.as_bitslice()
                 }
             }
 

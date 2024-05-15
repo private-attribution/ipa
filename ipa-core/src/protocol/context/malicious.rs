@@ -147,8 +147,8 @@ impl<'a> UpgradableContext for Context<'a> {
     type DZKPUpgradedContext = DZKPUpgraded<'a>;
     type DZKPValidator = MaliciousDZKPValidator<'a>;
 
-    fn dzkp_validator(self, multiplication_amount: usize) -> Self::DZKPValidator {
-        MaliciousDZKPValidator::new(self, multiplication_amount)
+    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator {
+        MaliciousDZKPValidator::new(self, max_multiplications_per_gate)
     }
 }
 
@@ -253,18 +253,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         let prss = narrowed.prss();
         self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
-    }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::{
-            context::{upgrade::UpgradeContext, UpgradeStep},
-            NoRecord,
-        };
-
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade_sparse(input)
-            .await
     }
 }
 

@@ -82,7 +82,7 @@ impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
 mod test {
     use crate::{
         error::Error,
-        ff::{boolean::Boolean, Fp31},
+        ff::{boolean::Boolean, Fp61BitPrime},
         protocol::{
             basics::SecureMul,
             context::{dzkp_validator::DZKPValidator, Context, DZKPContext, UpgradableContext},
@@ -113,7 +113,7 @@ mod test {
                 assert!(matches!(mctx.is_verified(), Err(Error::ContextUnsafe(_))));
 
                 // validate all elements in the batch
-                validator.validate::<Fp31>().await.unwrap();
+                validator.validate::<Fp61BitPrime>().await.unwrap();
 
                 // batch is empty now
                 assert!(mctx.is_verified().is_ok());
