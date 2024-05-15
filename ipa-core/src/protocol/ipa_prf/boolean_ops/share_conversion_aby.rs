@@ -10,7 +10,7 @@ use crate::{
     protocol::{
         basics::{partial_reveal, BooleanProtocols},
         boolean::step::TwoHundredFiftySixBitOpStep,
-        context::Context,
+        context::{Context, UpgradedContext},
         ipa_prf::boolean_ops::{
             addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
         },
@@ -100,7 +100,7 @@ pub async fn convert_to_fp25519<C, const NC: usize, const NP: usize>(
     x: BitDecomposed<AdditiveShare<Boolean, NC>>,
 ) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
 where
-    C: Context,
+    C: UpgradedContext,
     Fp25519: Vectorizable<NP>,
     Boolean: FieldSimd<NC>,
     BitDecomposed<AdditiveShare<Boolean, NC>>: FromPrss<usize>,
@@ -169,7 +169,11 @@ where
         )
         .await?;
         match (&mut y, y_bit) {
-            (Some(y), Some(y_bit)) => y.push(y_bit),
+            (Some(y), Some(y_bit)) => {
+                // TODO: this should be replaced with real malicious security.
+                use crate::protocol::basics::ThisCodeIsAuthorizedToObserveRevealedValues;
+                y.push(y_bit.access_without_verification());
+            }
             (None, None) => (),
             _ => unreachable!("inconsistent partial_reveal behavior"),
         }
@@ -423,7 +427,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             let [res0, res1, res2] = world
-                .semi_honest(records.into_iter(), |ctx, records| async move {
+                .upgraded_semi_honest(records.into_iter(), |ctx, records| async move {
                     seq_join(
                         ctx.active_work(),
                         process_slice_by_chunks(

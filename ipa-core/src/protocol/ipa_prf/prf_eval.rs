@@ -2,12 +2,12 @@ use std::iter::zip;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
+    ff::{curve_points::RP25519, ec_prime_field::Fp25519, Expand},
     protocol::{
-        basics::{Reveal, SecureMul},
-        context::Context,
+        basics::{reveal, Reveal, SecureMul, VectorProtocols},
+        context::{Context, UpgradedContext},
         ipa_prf::step::PrfStep as Step,
-        prss::{FromPrss, SharedRandomness},
+        prss::SharedRandomness,
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, Sendable, StdArray, Vectorizable},
@@ -25,9 +25,9 @@ pub async fn compute_match_key_pseudonym<C>(
     input_match_keys: Vec<AdditiveShare<Fp25519>>,
 ) -> Result<Vec<u64>, Error>
 where
-    C: Context,
-    AdditiveShare<Boolean, 1>: SecureMul<C>,
-    AdditiveShare<Fp25519>: SecureMul<C>,
+    C: UpgradedContext,
+    AdditiveShare<Fp25519>: VectorProtocols<C, Fp25519>,
+    AdditiveShare<RP25519>: Reveal<C, Output = <RP25519 as Vectorizable<1>>::Array>,
 {
     let ctx = sh_ctx.set_total_records(input_match_keys.len());
     let futures = input_match_keys
@@ -70,17 +70,18 @@ where
 /// Propagates errors from multiplications, reveal and scalar multiplication
 /// # Panics
 /// Never as of when this comment was written, but the compiler didn't know that.
-pub async fn eval_dy_prf<C, const N: usize>(
+pub async fn eval_dy_prf<'a, C, const N: usize>(
     ctx: C,
     record_id: RecordId,
     k: &AdditiveShare<Fp25519>,
     x: AdditiveShare<Fp25519, N>,
 ) -> Result<[u64; N], Error>
 where
-    C: Context,
+    C: UpgradedContext,
     Fp25519: Vectorizable<N>,
     RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
-    AdditiveShare<Fp25519, N>: SecureMul<C> + FromPrss,
+    AdditiveShare<Fp25519, N>: VectorProtocols<C, Fp25519, N>,
+    AdditiveShare<RP25519, N>: Reveal<C, N, Output = <RP25519 as Vectorizable<N>>::Array>,
     StdArray<RP25519, N>: Sendable,
 {
     let sh_r: AdditiveShare<Fp25519, N> =
@@ -98,8 +99,17 @@ where
     let sh_gr = AdditiveShare::<RP25519, N>::from(sh_r);
 
     //reconstruct (z,R)
-    let gr = sh_gr.reveal(ctx.narrow(&Step::RevealR), record_id).await?;
-    let z = y.reveal(ctx.narrow(&Step::Revealz), record_id).await?;
+    let gr = reveal(ctx.narrow(&Step::RevealR), record_id, &sh_gr).await?;
+    let z = reveal(ctx.narrow(&Step::Revealz), record_id, &y).await?;
+
+    let (gr, z) = {
+        // TODO: this should be replaced with a malicious verify.
+        use crate::protocol::basics::ThisCodeIsAuthorizedToObserveRevealedValues;
+        (
+            gr.access_without_verification(),
+            z.access_without_verification(),
+        )
+    };
 
     //compute R^(1/z) to u64
     Ok(zip(gr, z)
@@ -190,7 +200,7 @@ mod test {
                 .collect();
 
             let result: Vec<_> = world
-                .semi_honest(
+                .upgraded_semi_honest(
                     (records.into_iter(), k),
                     |ctx, (input_match_keys, prf_key)| async move {
                         compute_match_key_pseudonym::<_>(ctx, prf_key, input_match_keys)

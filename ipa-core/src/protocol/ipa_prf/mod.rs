@@ -15,15 +15,15 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA5, BA64, BA8},
+        curve_points::RP25519,
         ec_prime_field::Fp25519,
         CustomArray, Serializable, U128Conversions,
     },
     helpers::stream::{process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
+        basics::{BooleanArrayMul, BooleanProtocols, Reveal, VectorProtocols},
         context::{
-            Context, SemiHonestContext, UpgradableContext, UpgradedContext,
-            UpgradedSemiHonestContext,
+            Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -32,12 +32,11 @@ use crate::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
         },
-        prss::FromPrss,
         RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        SharedValue, TransposeFrom,
+        SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
     sharding::NotSharded,
@@ -271,21 +270,29 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: SharedValue + CustomArray<Element = Boolean>,
     TV: SharedValue + CustomArray<Element = Boolean>,
     TS: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<C, CONV_CHUNK>,
-    Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<C::UpgradedContext<Boolean>, CONV_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        VectorProtocols<C::UpgradedContext<Fp25519>, Fp25519, PRF_CHUNK>,
+    Replicated<RP25519, PRF_CHUNK>: Reveal<
+        C::UpgradedContext<Fp25519>,
+        PRF_CHUNK,
+        Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array,
+    >,
 {
-    let convert_ctx = ctx
-        .narrow(&Step::ConvertFp25519)
+    let convert_val = ctx.narrow(&Step::ConvertFp25519).validator::<Boolean>();
+    let prf_val = ctx.narrow(&Step::EvalPrf).validator::<Fp25519>();
+
+    let convert_ctx = convert_val
+        .context()
         .set_total_records((input_rows.len() + CONV_CHUNK - 1) / CONV_CHUNK);
-    let eval_ctx = ctx
-        .narrow(&Step::EvalPrf)
+    let prf_ctx = prf_val
+        .context()
         .set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);
 
-    let prf_key = gen_prf_key(&eval_ctx);
+    let prf_key = gen_prf_key(&prf_ctx);
 
     let curve_pts = seq_join(
         ctx.active_work(),
@@ -321,10 +328,9 @@ where
         ctx.active_work(),
         stream::iter(curve_pts).enumerate().map(|(i, curve_pts)| {
             let record_id = RecordId::from(i);
-            let eval_ctx = eval_ctx.clone();
+            let prf_ctx = prf_ctx.clone();
             let prf_key = &prf_key;
-            curve_pts
-                .then(move |pts| eval_dy_prf::<_, PRF_CHUNK>(eval_ctx, record_id, prf_key, pts))
+            curve_pts.then(move |pts| eval_dy_prf::<_, PRF_CHUNK>(prf_ctx, record_id, prf_key, pts))
         }),
     )
     .try_collect::<Vec<_>>()
