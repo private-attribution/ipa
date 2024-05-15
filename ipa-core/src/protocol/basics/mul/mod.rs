@@ -29,7 +29,8 @@ mod dzkp_malicious;
 #[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
-pub use semi_honest::sh_multiply as semi_honest_mul;
+
+pub use semi_honest::sh_multiply as semi_honest_multiply;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
@@ -99,7 +100,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestContext<'a, B>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b)
+                semi_honest_multiply(ctx, record_id, a, b)
             }
         }
 
@@ -119,7 +120,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestUpgraded<'a, B, F>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b)
+                semi_honest_multiply(ctx, record_id, a, b)
             }
         }
 
@@ -138,7 +139,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestDZKPUpgraded<'a, B>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b)
+                semi_honest_multiply(ctx, record_id, a, b)
             }
         }
 

@@ -5,7 +5,7 @@ use ipa_macros::Step;
 use crate::{
     error::Error,
     protocol::{
-        basics::{mul::semi_honest_mul, SecureMul},
+        basics::{mul::semi_honest_multiply, SecureMul},
         context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
@@ -89,13 +89,13 @@ where
     //
     let b_induced_share = Replicated::new(b_x.left().to_extended(), b_x.right().to_extended());
     let (ab, rab) = try_join(
-        semi_honest_mul(
+        semi_honest_multiply(
             ctx.base_context(),
             record_id,
             a.x().access_without_downgrade(),
             b_x,
         ),
-        semi_honest_mul(
+        semi_honest_multiply(
             duplicate_multiply_ctx.base_context(),
             record_id,
             a.rx(),
