@@ -2,7 +2,7 @@ use ipa_step_derive::CompactStep;
 
 #[derive(CompactStep)]
 pub enum BitOpStep {
-    #[step(count = 512)] // TODO: add child steps for multiplication
+    #[step(count = 256)] // TODO: add child steps for multiplication
     Bit(usize),
 }
 
@@ -22,24 +22,6 @@ impl From<usize> for BitOpStep {
     fn from(v: usize) -> Self {
         Self::Bit(v)
     }
-}
-
-#[derive(CompactStep)]
-pub(crate) enum BitwiseLessThanStep {
-    CheckTrimmed,
-    CheckIfAnyOnes,
-    LeadingOnesOrRest,
-    CheckIfAllOnes,
-    CheckLeastSignificantBits,
-    AllOnesAndFinalBits,
-}
-
-#[derive(CompactStep)]
-pub(crate) enum GreaterThanConstantStep {
-    Reveal,
-    CompareLo,
-    CompareHi,
-    And,
 }
 
 #[derive(CompactStep)]

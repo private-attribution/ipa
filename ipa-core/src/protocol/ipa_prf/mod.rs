@@ -251,7 +251,7 @@ where
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
     let eval_ctx = ctx.narrow(&Step::EvalPrf);
 
-    let prf_key = gen_prf_key(&convert_ctx);
+    let prf_key = gen_prf_key(&eval_ctx);
 
     seq_join(
         ctx.active_work(),

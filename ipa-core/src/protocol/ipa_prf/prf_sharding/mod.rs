@@ -448,8 +448,10 @@ where
             .collect()
             .await;
 
+    let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
+    let ctx = attribution_validator.context();
     aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
-        binary_m_ctx.narrow(&Step::Aggregate),
+        ctx,
         stream::iter(flattened_user_results),
         num_outputs,
     )

@@ -31,24 +31,16 @@ pub enum DeadCodeStep {
     MaliciousMultiply,
     #[step(child = crate::protocol::basics::mul::step::UpgradeStep)]
     DummyUpgrade,
-    #[step(child = crate::protocol::boolean::step::BitwiseLessThanStep)]
-    BitwiseLessThan,
-    #[step(child = crate::protocol::boolean::step::GreaterThanConstantStep)]
-    GreaterThanConstant,
     #[step(child = crate::protocol::context::step::UpgradeStep)]
     UpgradeShare,
     #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
     MaliciousProtocol,
     #[step(child = crate::protocol::context::step::ValidateStep)]
     MaliciousValidation,
-    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
-    SaturatedAddition,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedSubtractionStep)]
     SaturatedSubtraction,
     #[step(child = crate::protocol::ipa_prf::prf_sharding::step::FeatureLabelDotProductStep)]
     FeatureLabelDotProduct,
-    #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
-    Aggregate,
     #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]
     ZeroKnowledgeProofValidate,
     #[cfg_attr(any(test, feature = "test-fixture"), step(child = crate::test_fixture::step::TestExecutionStep))]

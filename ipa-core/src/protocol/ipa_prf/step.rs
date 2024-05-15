@@ -17,8 +17,14 @@ pub(crate) enum IpaPrfStep {
 
 #[derive(CompactStep)]
 pub(crate) enum QuicksortStep {
-    #[step(count = 999)]
+    /// Sort up to 1B rows. We can't exceed that limit for other reasons as well (record_id).
+    #[step(count = 30, child = crate::protocol::ipa_prf::step::QuicksortPassStep)]
     QuicksortPass(usize),
+}
+
+#[derive(CompactStep)]
+pub(crate) enum QuicksortPassStep {
+    #[step(child = crate::protocol::boolean::step::BitOpStep)]
     Compare,
     Reveal,
 }

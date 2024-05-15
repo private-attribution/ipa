@@ -18,6 +18,7 @@ pub(crate) enum AttributionStep {
     BinaryValidator,
     PrimeFieldValidator,
     ModulusConvertBreakdownKeyBitsAndTriggerValues,
+    #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
     Aggregate,
 }
 
@@ -28,6 +29,7 @@ pub(crate) enum AttributionPerRowStep {
     #[step(child = AttributionZeroTriggerStep)]
     AttributedTriggerValue,
     SourceEventTimestamp,
+    #[step(child = crate::protocol::boolean::step::BitOpStep)]
     ComputeSaturatingSum,
     IsSaturatedAndPrevRowNotSaturated,
     #[step(child = crate::protocol::boolean::step::BitOpStep)]
@@ -46,6 +48,7 @@ pub(crate) enum AttributionZeroTriggerStep {
 
 #[derive(CompactStep)]
 pub(crate) enum AttributionWindowStep {
+    #[step(child = crate::protocol::boolean::step::BitOpStep)]
     ComputeTimeDelta,
     #[step(child = crate::protocol::boolean::step::BitOpStep)]
     CompareTimeDeltaToAttributionWindow,

@@ -12,7 +12,8 @@ use crate::{
         context::{Context, SemiHonestContext},
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
-            step::QuicksortStep as Step, SORT_CHUNK,
+            step::{QuicksortPassStep, QuicksortStep as Step},
+            SORT_CHUNK,
         },
         RecordId,
     },
@@ -151,8 +152,8 @@ where
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
             .set_total_records((num_comparisons_needed + SORT_CHUNK - 1) / SORT_CHUNK);
-        let cmp_ctx = c.narrow(&Step::Compare);
-        let rvl_ctx = c.narrow(&Step::Reveal);
+        let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
+        let rvl_ctx = c.narrow(&QuicksortPassStep::Reveal);
 
         let compare_index_pairs =
             stream::iter(ranges_to_sort.clone().into_iter().filter(|r| r.len() > 1))

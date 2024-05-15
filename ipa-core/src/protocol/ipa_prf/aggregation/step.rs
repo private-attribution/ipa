@@ -29,7 +29,8 @@ impl From<usize> for BucketStep {
 
 #[derive(CompactStep)]
 pub(crate) enum AggregateValuesStep {
+    #[step(child = crate::protocol::boolean::step::BitOpStep)]
     OverflowingAdd,
+    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
     SaturatingAdd,
 }
-
