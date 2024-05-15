@@ -5,8 +5,7 @@
 //! is abbreviated below as `length(x) >= log2(y)`.
 
 use std::iter::repeat;
-use crate::protocol::ipa_prf::CustomArray;
-use crate::secret_sharing::SharedValue;
+
 use crate::{
     error::Error,
     ff::{boolean::Boolean, ArrayAccessRef, Field},
@@ -14,9 +13,12 @@ use crate::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::step::BitOpStep,
         context::{Context, SemiHonestContext},
+        ipa_prf::CustomArray,
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd, SharedValue,
+    },
 };
 
 /// Comparison operation

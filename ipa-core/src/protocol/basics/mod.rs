@@ -4,8 +4,8 @@ pub(crate) mod mul;
 mod reshare;
 mod reveal;
 mod share_known_value;
-pub mod step;
 pub mod share_validation;
+pub mod step;
 
 use std::ops::Not;
 
@@ -26,8 +26,11 @@ use crate::{
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
     },
     secret_sharing::{
-        replicated::malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-        replicated::semi_honest::AdditiveShare, FieldSimd, SecretSharing, SharedValue, Vectorizable,
+        replicated::{
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            semi_honest::AdditiveShare,
+        },
+        FieldSimd, SecretSharing, SharedValue, Vectorizable,
     },
     sharding::ShardBinding,
 };

@@ -1,8 +1,4 @@
-use std::{
-    cmp,
-    collections::HashMap,
-    fmt::Debug,
-};
+use std::{cmp, collections::HashMap, fmt::Debug};
 
 use async_trait::async_trait;
 use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};

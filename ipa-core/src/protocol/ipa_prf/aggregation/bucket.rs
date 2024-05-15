@@ -4,10 +4,12 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     helpers::repeat_n,
-    protocol::{basics::SecureMul, boolean::and::bool_and_8_bit, context::Context, RecordId},
+    protocol::{
+        basics::SecureMul, boolean::and::bool_and_8_bit, context::Context,
+        ipa_prf::aggregation::step::BucketStep, RecordId,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
-use crate::protocol::ipa_prf::aggregation::step::BucketStep;
 
 const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
 

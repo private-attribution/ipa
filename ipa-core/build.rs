@@ -37,7 +37,6 @@ fn main() {
         build_gate::<protocol::step::ProtocolStep>();
     }
 
-
     // test is not supported because cfg_aliases is based on
     // https://docs.rs/tectonic_cfg_support macro and that only supports features, target_os, family
     // env, etc.

@@ -4,7 +4,10 @@ use futures::future::try_join;
 use crate::{
     error::Error,
     protocol::{
-        basics::{mul::semi_honest_multiply, SecureMul},
+        basics::{
+            mul::{semi_honest_multiply, step::MaliciousMultiplyStep},
+            SecureMul,
+        },
         context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
@@ -14,7 +17,6 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
-use crate::protocol::basics::mul::step::MaliciousMultiplyStep;
 
 ///
 /// Implementation drawn from:

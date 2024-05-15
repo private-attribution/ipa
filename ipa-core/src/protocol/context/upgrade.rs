@@ -8,9 +8,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        boolean::step::BitOpStep,
-        context::{UpgradedContext},
-        Gate, NoRecord, RecordBinding, RecordId,
+        boolean::step::BitOpStep, context::UpgradedContext, Gate, NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},

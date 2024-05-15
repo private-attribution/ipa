@@ -2,9 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{
-            mul::semi_honest_multiply, reveal::Reveal, step::CheckZeroStep as Step,
-        },
+        basics::{mul::semi_honest_multiply, reveal::Reveal, step::CheckZeroStep as Step},
         context::Context,
         prss::{FromRandom, SharedRandomness},
         RecordId,

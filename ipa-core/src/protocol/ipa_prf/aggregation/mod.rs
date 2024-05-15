@@ -17,7 +17,7 @@ use crate::{
         basics::{BooleanArrayMul, BooleanProtocols},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
-            aggregation::step::AggregationStep as Step,
+            aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             prf_sharding::AttributionOutputs,
         },
@@ -29,7 +29,6 @@ use crate::{
     },
     sharding::NotSharded,
 };
-use crate::protocol::ipa_prf::aggregation::step::AggregateValuesStep;
 
 mod bucket;
 pub(crate) mod step;

@@ -3,10 +3,9 @@ use std::iter::zip;
 use crate::{
     error::Error,
     ff::boolean::Boolean,
-    protocol::{basics::SecureMul, context::Context, RecordId},
+    protocol::{basics::SecureMul, boolean::step::BoolAndStep, context::Context, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
-use crate::protocol::boolean::step::BoolAndStep;
 
 const MAX_BITS: usize = 8;
 
