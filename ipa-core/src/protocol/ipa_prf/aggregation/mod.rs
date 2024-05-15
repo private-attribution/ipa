@@ -206,7 +206,9 @@ where
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
     );
 
-    aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
+    todo!()
+    // aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
+
 }
 
 /// A vector of histogram contributions for each output bucket.
@@ -235,7 +237,9 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
-) -> Result<Vec<Replicated<OV>>, Error>
+// ) -> Result<Vec<Replicated<OV>>, Error>
+) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
+
 where
     'ctx: 'fut,
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -320,6 +324,8 @@ where
     );
     // Aggregation output transpose
     Ok(Vec::transposed_from(&result)?)
+    Ok(result)
+
 }
 
 #[cfg(all(test, unit_test))]
