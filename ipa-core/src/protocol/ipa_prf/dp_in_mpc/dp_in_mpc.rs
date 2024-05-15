@@ -19,7 +19,7 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 
 
 #[cfg(test)]
-pub async fn my_new_function<C, F>(
+pub async fn add_dp_noise<C, F>(
     ctx: C,
     a: &Vec<Replicated<F>>,
 )-> Result<Vec<Replicated<F>>, Error>
@@ -81,7 +81,7 @@ pub async fn my_new_function<C, F>(
 #[cfg(all(test, unit_test))]
 mod test {
 
-    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::my_new_function;
+    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::{add_dp_noise, my_new_function};
     use rand::distributions::{Distribution};
     use crate::{ff::{Field, Fp31, Fp32BitPrime, U128Conversions, boolean_array::BA4}, helpers::TotalRecords, protocol::{
         basics::{SecureMul},
@@ -105,7 +105,7 @@ mod test {
         let result = world.semi_honest(
             a.into_iter(),
             | ctx , a | async move {
-                my_new_function(ctx, &a).await.unwrap()
+                add_dp_noise(ctx, &a).await.unwrap()
             }).await;
     }
 
