@@ -283,10 +283,11 @@ where
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
 
-    let vec_of_shares =
-        aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+    todo!()
+    // let vec_of_shares =
+    //     aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
 
-    Ok(vec_of_shares.try_into().unwrap())
+    // Ok(vec_of_shares.try_into().unwrap())
 }
 
 async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
