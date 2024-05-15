@@ -27,7 +27,7 @@ use crate::{
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn multiply<'a, F, const N: usize>(
+pub async fn zkp_multiply<'a, F, const N: usize>(
     ctx: DZKPUpgradedMaliciousContext<'a>,
     record_id: RecordId,
     a: &Replicated<F, N>,
@@ -65,7 +65,7 @@ where
 impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
     SecureMul<DZKPUpgradedMaliciousContext<'a>> for Replicated<F, N>
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: DZKPUpgradedMaliciousContext<'a>,
@@ -74,7 +74,7 @@ impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
     where
         DZKPUpgradedMaliciousContext<'a>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs).await
+        zkp_multiply(ctx, record_id, self, rhs).await
     }
 }
 
