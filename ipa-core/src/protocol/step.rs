@@ -4,6 +4,7 @@ use ipa_step_derive::{CompactGate, CompactStep};
 
 #[derive(CompactStep, CompactGate)]
 pub enum ProtocolStep {
+    Prss,
     #[step(child = crate::protocol::ipa_prf::step::IpaPrfStep)]
     IpaPrf,
     Multiply,

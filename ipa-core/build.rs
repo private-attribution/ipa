@@ -23,15 +23,20 @@ track_steps!(
             aggregation::step,
             step,
         },
-        modulus_conversion::step,
         step,
     },
     test_fixture::step
 );
 
 fn main() {
-    setup_steps();
-    build_gate::<protocol::step::ProtocolStep>();
+    if cfg!(feature = "compact-gate") {
+        // include protocol_gate.rs. This slows down the build significantly, so avoid doing that
+        // in dev builds.
+        // std::env::set_var(ipa_step::COMPACT_GATE_INCLUDE_ENV, "1");
+        setup_steps();
+        build_gate::<protocol::step::ProtocolStep>();
+    }
+
 
     // test is not supported because cfg_aliases is based on
     // https://docs.rs/tectonic_cfg_support macro and that only supports features, target_os, family
@@ -43,7 +48,8 @@ fn main() {
         unit_test: { all(not(feature = "shuttle"), feature = "in-memory-infra", descriptive_gate) },
         web_test: { all(not(feature = "shuttle"), feature = "real-world-infra") },
     }
-    println!("cargo::rustc-check-cfg=cfg(unit_test)");
+    println!("cargo::rustc-check-cfg=cfg(descriptive_gate)");
+    println!("cargo::rustc-check-cfg=cfg(compact_gate)");
     println!("cargo::rustc-check-cfg=cfg(web_test)");
     println!("cargo::rustc-check-cfg=cfg(coverage)");
 }

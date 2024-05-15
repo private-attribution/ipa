@@ -7,8 +7,7 @@ use crate::{
         server::{ClientIdentity, Error},
         HttpTransport,
     },
-    protocol::Gate,
-    protocol::QueryId,
+    protocol::{Gate, QueryId},
     sync::Arc,
 };
 

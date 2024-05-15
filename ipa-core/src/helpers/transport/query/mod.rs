@@ -3,7 +3,6 @@ use std::{
     num::NonZeroU32,
 };
 
-use ipa_step::{descriptive::Descriptive, Step, StepNarrow};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
@@ -12,10 +11,7 @@ use crate::{
         transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
         GatewayConfig, RoleAssignment, RouteParams,
     },
-    protocol::{
-        step::{ProtocolGate, ProtocolStep},
-        QueryId,
-    },
+    protocol::QueryId,
 };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
@@ -222,26 +218,6 @@ impl AsRef<str> for QueryType {
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
         }
-    }
-}
-
-impl Step for QueryType {}
-
-#[allow(clippy::from_over_into)]
-impl Into<ProtocolGate> for &QueryType {
-    fn into(self) -> ProtocolGate {
-        ProtocolGate::default().narrow(&match self {
-            #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-            QueryType::TestMultiply => ProtocolStep::Multiply,
-            QueryType::OprfIpa(_) => ProtocolStep::IpaPrf,
-        })
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<Descriptive> for &QueryType {
-    fn into(self) -> Descriptive {
-        Descriptive::new(self)
     }
 }
 
