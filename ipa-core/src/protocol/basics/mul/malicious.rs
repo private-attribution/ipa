@@ -5,7 +5,7 @@ use ipa_macros::Step;
 use crate::{
     error::Error,
     protocol::{
-        basics::{mul::semi_honest_multiply, SecureMul},
+        basics::{mul::semi_honest_mul, SecureMul},
         context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
@@ -54,7 +54,7 @@ pub(crate) enum Step {
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn multiply_ab_and_rab_and_accumulate_macs<F>(
+pub async fn mac_multiply<F>(
     ctx: UpgradedMaliciousContext<'_, F>,
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
@@ -89,13 +89,13 @@ where
     //
     let b_induced_share = Replicated::new(b_x.left().to_extended(), b_x.right().to_extended());
     let (ab, rab) = try_join(
-        semi_honest_multiply(
+        semi_honest_mul(
             ctx.base_context(),
             record_id,
             a.x().access_without_downgrade(),
             b_x,
         ),
-        semi_honest_multiply(
+        semi_honest_mul(
             duplicate_multiply_ctx.base_context(),
             record_id,
             a.rx(),
@@ -122,7 +122,7 @@ impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for Mali
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
-        multiply_ab_and_rab_and_accumulate_macs(ctx, record_id, self, rhs).await
+        mac_multiply(ctx, record_id, self, rhs).await
     }
 }
 

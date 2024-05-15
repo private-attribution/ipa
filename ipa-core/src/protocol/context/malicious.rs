@@ -11,7 +11,7 @@ use crate::{
     helpers::{ChannelId, Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         basics::{
-            mul::{malicious::Step::RandomnessForValidation, semi_honest_multiply},
+            mul::{malicious::Step::RandomnessForValidation, semi_honest_mul},
             ShareKnownValue,
         },
         context::{
@@ -241,7 +241,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         //
         let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
 
-        let rx = semi_honest_multiply(
+        let rx = semi_honest_mul(
             self.as_base(),
             record_id,
             &induced_share,

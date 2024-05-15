@@ -29,7 +29,7 @@ mod dzkp_malicious;
 #[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
-pub use semi_honest::sh_multiply as semi_honest_multiply;
+pub use semi_honest::sh_multiply as semi_honest_mul;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
@@ -39,8 +39,6 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
     where
         C: 'fut;
 }
-
-use semi_honest::sh_multiply;
 
 // The BooleanArrayMul trait is implemented for types like `Replicated<BA32>`. It hides the `N`
 // const parameter so that implementations parameterized with a Boolean array type parameter (e.g.
@@ -121,7 +119,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestUpgraded<'a, B, F>: 'fut,
             {
-                sh_multiply(ctx, record_id, a, b)
+                semi_honest_mul(ctx, record_id, a, b)
             }
         }
 
@@ -156,8 +154,8 @@ macro_rules! boolean_array_mul {
             where
                 DZKPUpgradedMaliciousContext<'a>: 'fut,
             {
-                use crate::protocol::basics::mul::dzkp_malicious::multiply;
-                multiply(ctx, record_id, a, b)
+                use crate::protocol::basics::mul::dzkp_malicious::zkp_multiply;
+                zkp_multiply(ctx, record_id, a, b)
             }
         }
     };

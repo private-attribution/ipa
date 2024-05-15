@@ -27,7 +27,7 @@ use crate::{
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn gen_prss_multiply_and_store_unverified_values<'a, F, const N: usize>(
+pub async fn zkp_multiply<'a, F, const N: usize>(
     ctx: DZKPUpgradedMaliciousContext<'a>,
     record_id: RecordId,
     a: &Replicated<F, N>,
@@ -74,7 +74,7 @@ impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
     where
         DZKPUpgradedMaliciousContext<'a>: 'fut,
     {
-        gen_prss_multiply_and_store_unverified_values(ctx, record_id, self, rhs).await
+        zkp_multiply(ctx, record_id, self, rhs).await
     }
 }
 
