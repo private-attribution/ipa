@@ -39,9 +39,7 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
 // ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
         C: Context,
-        Replicated<Boolean, B> : Vectorizable<{ N }>,
 {
-
     // Step 1:  Generate Bernoulli's with PRSS
     // sample a stream of `total_bits = num_bernoulli * B` bit from PRSS where B is number of histogram bins
     // and num_bernoulli is the number of Bernoulli samples to sum to get a sample from a Binomial
@@ -62,18 +60,24 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
 
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
     let noise_gen_ctx  = ctx.narrow(&Step::NoiseGen);
-    let noise_vector = aggregate_values::<B,OV>(noise_gen_ctx, aggregation_input, num_bernoulli).await;
+    let noise_vector = aggregate_values::<B,OV>(
+                                                                         noise_gen_ctx,
+                                                          aggregation_input,
+                                                                num_bernoulli as usize).await;
 
 
     // Step 4:  Add DP noise to output values
     let apply_noise_ctx =  ctx.narrow(&Step::ApplyNoise).set_total_records(1);
-    let histogram_noised = integer_add::<C,_,B>(apply_noise_ctx, RecordID::FIRST,noise_vector, histogram_bin_values);
+    let histogram_noised = integer_add::<C,_,B>(
+                                                        apply_noise_ctx,
+                                                        RecordID::FIRST,
+                                                        noise_vector,
+                                                        histogram_bin_values);
 
     // Step 5 Transpose output representation
     // TODO
     // Ok(histogram_noised)
     Ok(Vec::transposed_from(&histogram_noised)?)
-
 }
 
 #[cfg(all(test, unit_test))]
