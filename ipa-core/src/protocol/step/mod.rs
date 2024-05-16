@@ -53,26 +53,99 @@ impl Step for str {}
 ///
 /// This is a temporary solution for narrowing contexts until the infra is
 /// updated with a new step scheme.
+pub trait BitStep: Step + From<usize> {
+    fn max_bit_depth() -> u32;
+}
+
 #[derive(Step)]
-pub enum BitOpStep {
+pub enum EightBitStep {
+    #[dynamic(8)]
+    Bit(usize),
+}
+
+impl From<usize> for EightBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+impl BitStep for EightBitStep {
+    fn max_bit_depth() -> u32 {
+        8
+    }
+}
+
+#[derive(Step)]
+pub enum SixteenBitStep {
+    #[dynamic(16)]
+    Bit(usize),
+}
+
+impl From<usize> for SixteenBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+impl BitStep for SixteenBitStep {
+    fn max_bit_depth() -> u32 {
+        16
+    }
+}
+
+#[derive(Step)]
+pub enum ThirtyTwoBitStep {
+    #[dynamic(32)]
+    Bit(usize),
+}
+
+impl From<usize> for ThirtyTwoBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+impl BitStep for ThirtyTwoBitStep {
+    fn max_bit_depth() -> u32 {
+        32
+    }
+}
+
+#[derive(Step)]
+pub enum TwoHundredFiftySixBitOpStep {
     #[dynamic(256)]
     Bit(usize),
 }
 
-impl From<i32> for BitOpStep {
-    fn from(v: i32) -> Self {
-        Self::Bit(usize::try_from(v).unwrap())
+impl BitStep for TwoHundredFiftySixBitOpStep {
+    fn max_bit_depth() -> u32 {
+        256
     }
 }
 
-impl From<u32> for BitOpStep {
-    fn from(v: u32) -> Self {
-        Self::Bit(usize::try_from(v).unwrap())
-    }
-}
-
-impl From<usize> for BitOpStep {
+impl From<usize> for TwoHundredFiftySixBitOpStep {
     fn from(v: usize) -> Self {
         Self::Bit(v)
+    }
+}
+
+#[cfg(test)]
+#[derive(Step)]
+pub enum DefaultBitStep {
+    #[dynamic(256)]
+    Bit(usize),
+}
+
+#[cfg(test)]
+impl From<usize> for DefaultBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+#[cfg(test)]
+impl BitStep for DefaultBitStep {
+    fn max_bit_depth() -> u32 {
+        256
     }
 }
