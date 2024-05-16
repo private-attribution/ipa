@@ -282,11 +282,16 @@ where
     let flattened_stream = Box::pin(
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
-    todo!()
-    // let vec_of_shares =
-    //     aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+    // todo!()
+    let vec_of_shares =
+        aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
     //
     // Ok(vec_of_shares.try_into().unwrap())
+    /// how aggregation used to finish Ok(Vec::transposed_from(&result)?)
+    /// now it finishes as Ok(result)
+    let vec_of_shares_transposed_from = Vec::transposed_from(&vec_of_shares);
+    Ok(vec_of_shares_transposed_from.try_into().unwrap())
+
 }
 
 async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
