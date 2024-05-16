@@ -25,6 +25,7 @@ use crate::{
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
 };
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 
 pub struct PrfShardedIpaInputRow<FV: SharedValue, const B: usize> {
     prf_of_match_key: u64,
@@ -283,14 +284,16 @@ where
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
     // todo!()
-    let vec_of_shares =
-        aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
-    //
+    // let vec_of_shares:BitDecomposed<AdditiveShare<Boolean,B>> =
+    //     aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+
     // Ok(vec_of_shares.try_into().unwrap())
-    /// how aggregation used to finish Ok(Vec::transposed_from(&result)?)
-    /// now it finishes as Ok(result)
-    let vec_of_shares_transposed_from = Vec::transposed_from(&vec_of_shares);
-    Ok(vec_of_shares_transposed_from.try_into().unwrap())
+    // how aggregation used to finish Ok(Vec::transposed_from(&result)?)
+    // now it finishes as Ok(result)
+
+    // new attempt
+    // let vec_of_shares_transposed_from  = Vec::transposed_from(&vec_of_shares);
+    // Ok(vec_of_shares_transposed_from.try_into().unwrap())
 
 }
 
