@@ -294,7 +294,6 @@ where
     // new attempt
     // let vec_of_shares_transposed_from  = Vec::transposed_from(&vec_of_shares);
     // Ok(vec_of_shares_transposed_from.try_into().unwrap())
-
 }
 
 async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
