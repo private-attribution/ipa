@@ -352,7 +352,7 @@ pub mod tests {
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld,ReconstructArr},
     };
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
@@ -384,7 +384,7 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
 
             // assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map(BA8::truncate_from));
             assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]));
