@@ -1,7 +1,7 @@
 use std::{borrow::Borrow, iter::zip, ops::Deref};
 
 use crate::{
-    ff::{Field, PrimeField, U128Conversions},
+    ff::{PrimeField, U128Conversions},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -76,10 +76,18 @@ impl<V: SharedValue> Reconstruct<V> for [Replicated<V>; 3] {
     }
 }
 
-impl<F: Field + Vectorizable<N>, const N: usize> ReconstructArr<<F as Vectorizable<N>>::Array>
-    for [Replicated<F, N>; 3]
+impl<V: SharedValue + Vectorizable<N>, const N: usize> ReconstructArr<<V as Vectorizable<N>>::Array>
+for [Replicated<V, N>; 3]
 {
-    fn reconstruct_arr(&self) -> <F as Vectorizable<N>>::Array {
+    fn reconstruct_arr(&self) -> <V as Vectorizable<N>>::Array {
+        self.each_ref().reconstruct_arr()
+    }
+}
+
+impl<V: SharedValue + Vectorizable<N>, const N: usize> ReconstructArr<<V as Vectorizable<N>>::Array>
+for [&Replicated<V, N>; 3]
+{
+    fn reconstruct_arr(&self) -> <V as Vectorizable<N>>::Array {
         let s0l = self[0].left_arr();
         let s0r = self[0].right_arr();
         let s1l = self[1].left_arr();
@@ -97,12 +105,29 @@ impl<F: Field + Vectorizable<N>, const N: usize> ReconstructArr<<F as Vectorizab
     }
 }
 
+impl<V, const N: usize> ReconstructArr<BitDecomposed<<V as Vectorizable<N>>::Array>>
+for [BitDecomposed<Replicated<V, N>>; 3]
+    where
+        V: SharedValue + Vectorizable<N>,
+{
+    fn reconstruct_arr(&self) -> BitDecomposed<<V as Vectorizable<N>>::Array> {
+        let [s0_bits, s1_bits, s2_bits] = self.each_ref();
+
+        BitDecomposed::new(
+            s0_bits
+                .iter()
+                .zip(s1_bits.iter().zip(s2_bits.iter()))
+                .map(|(s0, (s1, s2))| [s0, s1, s2].reconstruct_arr()),
+        )
+    }
+}
+
 impl<T, U, V, W> Reconstruct<(V, W)> for [(T, U); 3]
-where
-    for<'t> [&'t T; 3]: Reconstruct<V>,
-    for<'u> [&'u U; 3]: Reconstruct<W>,
-    V: Sized,
-    W: Sized,
+    where
+            for<'t> [&'t T; 3]: Reconstruct<V>,
+            for<'u> [&'u U; 3]: Reconstruct<W>,
+            V: Sized,
+            W: Sized,
 {
     fn reconstruct(&self) -> (V, W) {
         (
@@ -113,8 +138,8 @@ where
 }
 
 impl<I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
-where
-    for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
+    where
+            for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.each_ref().reconstruct()
@@ -122,8 +147,8 @@ where
 }
 
 impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
-where
-    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+    where
+            for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.map(Deref::deref).reconstruct()
@@ -131,8 +156,8 @@ where
 }
 
 impl<I, T> Reconstruct<BitDecomposed<T>> for [BitDecomposed<I>; 3]
-where
-    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+    where
+            for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> BitDecomposed<T> {
         self.each_ref().reconstruct()
@@ -140,8 +165,8 @@ where
 }
 
 impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
-where
-    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+    where
+            for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> BitDecomposed<T> {
         BitDecomposed::new(self.map(Deref::deref).reconstruct())
@@ -149,8 +174,8 @@ where
 }
 
 impl<I, T> Reconstruct<Vec<T>> for [&[I]; 3]
-where
-    for<'i> [&'i I; 3]: Reconstruct<T>,
+    where
+            for<'i> [&'i I; 3]: Reconstruct<T>,
 {
     fn reconstruct(&self) -> Vec<T> {
         assert_eq!(self[0].len(), self[1].len());
@@ -162,8 +187,8 @@ where
 }
 
 impl<T, const N: usize> Reconstruct<[T; N]> for [[Replicated<T>; N]; 3]
-where
-    T: SharedValue,
+    where
+        T: SharedValue,
 {
     fn reconstruct(&self) -> [T; N] {
         zip(zip(&self[0], &self[1]), &self[2])
@@ -183,9 +208,9 @@ pub trait ValidateMalicious<F: ExtendableField> {
 }
 
 impl<F, T> ValidateMalicious<F> for [T; 3]
-where
-    F: ExtendableField,
-    T: Borrow<MaliciousReplicated<F>>,
+    where
+        F: ExtendableField,
+        T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F::ExtendedField) {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
@@ -228,10 +253,10 @@ impl<F: ExtendableField> ValidateMalicious<F> for [BitDecomposed<MaliciousReplic
 }
 
 impl<F: ExtendableField> ValidateMalicious<F>
-    for [(
-        MaliciousReplicated<F>,
-        BitDecomposed<MaliciousReplicated<F>>,
-    ); 3]
+for [(
+    MaliciousReplicated<F>,
+    BitDecomposed<MaliciousReplicated<F>>,
+); 3]
 {
     fn validate(&self, r: F::ExtendedField) {
         let [t0, t1, t2] = self;
