@@ -14,9 +14,10 @@ use crate::protocol::ipa_prf::aggregation::aggregate_values;
 use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
 use crate::protocol::prss::PrssIndex;
 use crate::secret_sharing::BitDecomposed;
-use crate::protocol::ipa_prf::Step;
+// use crate::protocol::ipa_prf::Step;
 // use crate::secret_sharing::replicated::malicious::AdditiveShare;
 // use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+use ipa_macros::Step;
 use crate::protocol::RecordId;
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 
@@ -65,7 +66,7 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
 
     /// Step 4:  Add DP noise to output values
     let apply_noise_ctx =  ctx.narrow(&Step::ApplyNoise).set_total_records(1);
-    let histogram_noised = integer_add(apply_noise_ctx, RecordID(from(0_u32),noise_vector, histogram_bin_values));
+    let histogram_noised = integer_add(apply_noise_ctx, RecordID::FIRST,noise_vector, histogram_bin_values));
 
     /// Step 5 Transpose output representation
     /// TODO
