@@ -30,7 +30,6 @@ use crate::{
     },
     sharding::NotSharded,
 };
-use crate::test_fixture::Reconstruct;
 
 mod bucket;
 
