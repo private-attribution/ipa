@@ -35,7 +35,7 @@ use crate::{
             },
             AGG_CHUNK,
         },
-        step::{EightBitStep, ThirtyTwoBitStep},
+        step::{BitStep, EightBitStep, ThirtyTwoBitStep},
         RecordId,
     },
     secret_sharing::{
@@ -190,7 +190,7 @@ where
         .await?;
 
         assert!(
-            TV::BITS <= 8,
+            TV::BITS <= EightBitStep::max_bit_depth(),
             "EightBitStep not large enough to accomodate this sum"
         );
         let (updated_sum, overflow_bit) = integer_add::<_, EightBitStep, 1>(
@@ -202,7 +202,7 @@ where
         .await?;
 
         assert!(
-            TV::BITS <= 8,
+            TV::BITS <= EightBitStep::max_bit_depth(),
             "EightBitStep not large enough to accomodate this subtraction"
         );
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
@@ -690,7 +690,7 @@ where
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         assert!(
-            TS::BITS <= 32,
+            TS::BITS <= ThirtyTwoBitStep::max_bit_depth(),
             "ThirtyTwoBitStep is not large enough to accomodate this subtraction"
         );
         let time_delta_bits = integer_sub::<_, ThirtyTwoBitStep>(

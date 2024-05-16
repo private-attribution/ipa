@@ -12,7 +12,7 @@ use crate::{
         basics::Reveal,
         context::{Context, SemiHonestContext},
         ipa_prf::{boolean_ops::comparison_and_subtraction_sequential::compare_gt, SORT_CHUNK},
-        step::ThirtyTwoBitStep,
+        step::{BitStep, ThirtyTwoBitStep},
         RecordId,
     },
     secret_sharing::{
@@ -173,7 +173,7 @@ where
                 .map(Ok);
 
         assert!(
-            K::BITS <= 32,
+            K::BITS <= ThirtyTwoBitStep::max_bit_depth(),
             "ThirtyTwoBitStep is not large enough to accomodate this sort"
         );
         let comp: BitVec<usize, Lsb0> = seq_join(

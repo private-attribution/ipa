@@ -10,7 +10,7 @@ use crate::{
         basics::{BooleanProtocols, SecureMul},
         boolean::or::bool_or,
         context::{Context, UpgradedSemiHonestContext},
-        step::Step,
+        step::BitStep,
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
@@ -39,7 +39,7 @@ pub async fn integer_add<C, S, const N: usize>(
 >
 where
     C: Context,
-    S: Step + From<usize>,
+    S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
@@ -67,7 +67,7 @@ pub async fn integer_sat_add<'a, SH, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     SH: ShardBinding,
-    S: Step + From<usize>,
+    S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
 {
@@ -103,7 +103,7 @@ async fn addition_circuit<C, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    S: Step + From<usize>,
+    S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
@@ -170,7 +170,7 @@ mod test {
         protocol::{
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
-            step::SixtyFourBitStep,
+            step::DefaultBitStep,
             RecordId,
         },
         rand::thread_rng,
@@ -197,7 +197,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_add::<_, SixtyFourBitStep, 1>(
+                    integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),
@@ -238,7 +238,7 @@ mod test {
 
             let result = world
                 .upgraded_semi_honest((x_bits, y_bits), |ctx, x_y| async move {
-                    integer_sat_add::<_, SixtyFourBitStep, 1>(
+                    integer_sat_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0,
@@ -274,7 +274,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
-                    integer_add::<_, SixtyFourBitStep, 1>(
+                    integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),
@@ -295,7 +295,7 @@ mod test {
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
-                    integer_add::<_, SixtyFourBitStep, 1>(
+                    integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),

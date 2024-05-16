@@ -15,7 +15,7 @@ use crate::{
     protocol::{
         basics::{BooleanProtocols, SecureMul, ShareKnownValue},
         context::Context,
-        step::Step,
+        step::BitStep,
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
@@ -44,7 +44,7 @@ pub async fn compare_geq<C, S>(
 ) -> Result<AdditiveShare<Boolean>, Error>
 where
     C: Context,
-    S: Step + From<usize>,
+    S: BitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
 {
     // we need to initialize carry to 1 for x>=y,
@@ -67,7 +67,7 @@ pub async fn compare_gt<C, S, const N: usize>(
 ) -> Result<AdditiveShare<Boolean, N>, Error>
 where
     C: Context,
-    S: Step + From<usize>,
+    S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
@@ -91,7 +91,7 @@ pub async fn integer_sub<C, S>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean>>, Error>
 where
     C: Context,
-    S: Step + From<usize>,
+    S: BitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
 {
     // we need to initialize carry to 1 for a subtraction
@@ -113,7 +113,7 @@ pub async fn integer_sat_sub<S, St>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     S: SharedValue + CustomArray<Element = Boolean>,
-    St: Step + From<usize>,
+    St: BitStep,
     for<'a> AdditiveShare<S>: BooleanArrayMul<SemiHonestContext<'a>>,
 {
     use crate::ff::ArrayAccess;
@@ -163,7 +163,7 @@ async fn subtraction_circuit<C, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    S: Step + From<usize>,
+    S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
@@ -241,7 +241,7 @@ mod test {
             ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
                 compare_geq, compare_gt, integer_sat_sub, integer_sub,
             },
-            step::{EightBitStep, SixtyFourBitStep},
+            step::DefaultBitStep,
             RecordId,
         },
         rand::thread_rng,
@@ -302,7 +302,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
-                    compare_geq::<_, SixtyFourBitStep>(
+                    compare_geq::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -318,7 +318,7 @@ mod test {
 
             let result2 = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    compare_geq::<_, SixtyFourBitStep>(
+                    compare_geq::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -349,7 +349,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
-                    compare_gt::<_, SixtyFourBitStep, 1>(
+                    compare_gt::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -366,7 +366,7 @@ mod test {
             // check that x is not greater than itself
             let result2 = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    compare_gt::<_, SixtyFourBitStep, 1>(
+                    compare_gt::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -411,7 +411,7 @@ mod test {
                         ctx.active_work(),
                         stream_iter(x.into_iter().zip(repeat((ctx, y))).enumerate().map(
                             |(i, (x, (ctx, y)))| async move {
-                                compare_gt::<_, SixtyFourBitStep, 1>(
+                                compare_gt::<_, DefaultBitStep, 1>(
                                     ctx,
                                     RecordId::from(i),
                                     &x.to_bits(),
@@ -494,7 +494,7 @@ mod test {
                         ctx.active_work(),
                         stream_iter(x.into_iter().zip(repeat((ctx, y))).enumerate().map(
                             |(i, (x, (ctx, y)))| async move {
-                                compare_gt::<_, SixtyFourBitStep, N>(ctx, RecordId::from(i), &x, &y)
+                                compare_gt::<_, DefaultBitStep, N>(ctx, RecordId::from(i), &x, &y)
                                     .await
                             },
                         )),
@@ -538,7 +538,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sub::<_, SixtyFourBitStep>(
+                    integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -569,7 +569,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sat_sub::<_, SixtyFourBitStep>(
+                    integer_sat_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0],
@@ -596,7 +596,7 @@ mod test {
 
             let result = world
                 .semi_honest((x, y), |ctx, x_y| async move {
-                    integer_sub::<_, EightBitStep>(
+                    integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0.to_bits(),
@@ -628,7 +628,7 @@ mod test {
 
             let result = world
                 .semi_honest(records, |ctx, x_y| async move {
-                    integer_sub::<_, SixtyFourBitStep>(
+                    integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0.to_bits(),

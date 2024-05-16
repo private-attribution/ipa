@@ -53,28 +53,8 @@ impl Step for str {}
 ///
 /// This is a temporary solution for narrowing contexts until the infra is
 /// updated with a new step scheme.
-#[derive(Step)]
-pub enum TwoHundredFiftySixBitOpStep {
-    #[dynamic(256)]
-    Bit(usize),
-}
-
-impl From<i32> for TwoHundredFiftySixBitOpStep {
-    fn from(v: i32) -> Self {
-        Self::Bit(usize::try_from(v).unwrap())
-    }
-}
-
-impl From<u32> for TwoHundredFiftySixBitOpStep {
-    fn from(v: u32) -> Self {
-        Self::Bit(usize::try_from(v).unwrap())
-    }
-}
-
-impl From<usize> for TwoHundredFiftySixBitOpStep {
-    fn from(v: usize) -> Self {
-        Self::Bit(v)
-    }
+pub trait BitStep: Step + From<usize> {
+    fn max_bit_depth() -> u32;
 }
 
 #[derive(Step)]
@@ -86,6 +66,12 @@ pub enum EightBitStep {
 impl From<usize> for EightBitStep {
     fn from(v: usize) -> Self {
         Self::Bit(v)
+    }
+}
+
+impl BitStep for EightBitStep {
+    fn max_bit_depth() -> u32 {
+        8
     }
 }
 
@@ -101,6 +87,12 @@ impl From<usize> for SixteenBitStep {
     }
 }
 
+impl BitStep for SixteenBitStep {
+    fn max_bit_depth() -> u32 {
+        16
+    }
+}
+
 #[derive(Step)]
 pub enum ThirtyTwoBitStep {
     #[dynamic(32)]
@@ -113,14 +105,47 @@ impl From<usize> for ThirtyTwoBitStep {
     }
 }
 
+impl BitStep for ThirtyTwoBitStep {
+    fn max_bit_depth() -> u32 {
+        32
+    }
+}
+
 #[derive(Step)]
-pub enum SixtyFourBitStep {
-    #[dynamic(64)]
+pub enum TwoHundredFiftySixBitOpStep {
+    #[dynamic(256)]
     Bit(usize),
 }
 
-impl From<usize> for SixtyFourBitStep {
+impl BitStep for TwoHundredFiftySixBitOpStep {
+    fn max_bit_depth() -> u32 {
+        256
+    }
+}
+
+impl From<usize> for TwoHundredFiftySixBitOpStep {
     fn from(v: usize) -> Self {
         Self::Bit(v)
+    }
+}
+
+#[cfg(test)]
+#[derive(Step)]
+pub enum DefaultBitStep {
+    #[dynamic(256)]
+    Bit(usize),
+}
+
+#[cfg(test)]
+impl From<usize> for DefaultBitStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
+
+#[cfg(test)]
+impl BitStep for DefaultBitStep {
+    fn max_bit_depth() -> u32 {
+        256
     }
 }
