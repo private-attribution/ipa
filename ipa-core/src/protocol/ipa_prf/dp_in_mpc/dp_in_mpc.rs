@@ -13,11 +13,12 @@ use crate::ff::boolean_array::BA8;
 use crate::protocol::ipa_prf::aggregation::aggregate_values;
 use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
 use crate::protocol::prss::PrssIndex;
-use crate::secret_sharing::{BitDecomposed, TransposeFrom};
+use crate::secret_sharing::{BitDecomposed, SharedValue, TransposeFrom};
 // use crate::protocol::ipa_prf::Step;
 // use crate::secret_sharing::replicated::malicious::AdditiveShare;
 // use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use ipa_macros::Step;
+use crate::ff::U128Conversions;
 use crate::protocol::RecordId;
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 
@@ -28,6 +29,7 @@ pub(crate) enum Step {
     ApplyNoise(usize),
 }
 
+
 #[cfg(test)]
 pub async fn add_dp_noise<C, const B: usize,OV>(
     ctx: C,
@@ -37,6 +39,7 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
 // ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
         C: Context,
+        Replicated<Boolean, B> : Vectorizable<{ N }>,
 {
 
     // Step 1:  Generate Bernoulli's with PRSS
