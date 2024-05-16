@@ -354,6 +354,7 @@ pub mod tests {
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld,ReconstructArr},
     };
+    use crate::secret_sharing::StdArray;
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
         let values = <&[u32; B]>::try_from(values).unwrap();
@@ -377,7 +378,7 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 1, 1, 1])),
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 0, 1, 1])),
             ];
-            let result = TestWorld::default()
+            let result : BitDecomposed<BA8> = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
@@ -385,9 +386,9 @@ pub mod tests {
                 .await
                 .map(Result::unwrap)
                 .reconstruct_arr();
-
+            let expected : BitDecomposed<BA8> = input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map(BA8::truncate_from);
             // assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map(BA8::truncate_from));
-            assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]));
+            assert_eq!(result, expected);
 
         });
     }
