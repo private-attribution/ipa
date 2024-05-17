@@ -39,15 +39,15 @@ type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
 >;
 
 impl<BK, TV, const N: usize> ChunkBuffer<N>
-    for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
-where
-    Boolean: Vectorizable<N>,
-    BK: SharedValue,
-    TV: SharedValue,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
+    where
+        Boolean: Vectorizable<N>,
+        BK: SharedValue,
+        TV: SharedValue,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
 {
     type Item = AttributionOutputs<Replicated<BK>, Replicated<TV>>;
     type Chunk = AttributionOutputsChunk<N>;
@@ -138,24 +138,24 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<Vec<Replicated<HV>>, Error>
-where
-    St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Boolean: FieldSimd<N> + FieldSimd<B>,
-    Replicated<Boolean, B>:
+    where
+        St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
+        BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        Boolean: FieldSimd<N> + FieldSimd<B>,
+        Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-    Vec<BitDecomposed<Replicated<Boolean, B>>>:
-        for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
-    Vec<Replicated<HV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+        Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+        Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+        Vec<BitDecomposed<Replicated<Boolean, B>>>:
+            for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
+        Vec<Replicated<HV>>:
+            for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let num_chunks = (contributions_stream_len + N - 1) / N;
     // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
@@ -182,7 +182,7 @@ where
                     B,
                     false,
                 )
-                .await
+                    .await
             }
         },
         || AttributionOutputs {
@@ -206,10 +206,9 @@ where
             })
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
     );
-
-    todo!()
-    // aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
-
+    let aggregated_result =
+        aggregate_values::<TV, B>(ctx, aggregation_input, num_chunks * N).await?;
+    Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
 /// A vector of histogram contributions for each output bucket.
@@ -238,17 +237,13 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
-// ) -> Result<Vec<Replicated<OV>>, Error>
-) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
-
-where
-    'ctx: 'fut,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>:
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
+    where
+        'ctx: 'fut,
+        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        Boolean: FieldSimd<B>,
+        Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    // Vec<Replicated<OV>>:
-    //     for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let mut depth = 0;
     while num_rows > 1 {
@@ -292,7 +287,7 @@ where
                                         &a,
                                         &b,
                                     )
-                                    .await?;
+                                        .await?;
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
@@ -306,7 +301,7 @@ where
                                         &a,
                                         &b,
                                     )
-                                    .await
+                                        .await
                                 }
                             }
                         }
@@ -331,10 +326,8 @@ where
         usize::try_from(OV::BITS).unwrap(),
         Replicated::<Boolean, B>::ZERO,
     );
-    // Aggregation output transpose
-    // Ok(Vec::transposed_from(&result)?)
+    // Aggregation output to remain vectorized
     Ok(result)
-
 }
 
 #[cfg(all(test, unit_test))]
@@ -353,7 +346,7 @@ pub mod tests {
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{ReconstructArr, Runner, TestWorld},
     };
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
@@ -378,18 +371,17 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 1, 1, 1])),
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 0, 1, 1])),
             ];
-
-            todo!()
-            // let result = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len();
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
-            //
-            // assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
+            let result: BitDecomposed<BA8> = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+            let expected: BitDecomposed<BA8> = input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>());
+            assert_eq!(result, expected);
         });
     }
 
@@ -402,18 +394,20 @@ pub mod tests {
                 Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
                 Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
             ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
 
-            todo!()
-            // let result = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len();
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
-            //
-            // assert_eq!(result, [0u32, 1, 2, 3, 0, 0, 0, 0].map(BA8::truncate_from));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 0, 0, 0, 0])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -426,18 +420,20 @@ pub mod tests {
                 Ok(input_row(3, &[0, 1, 0, 1, 0, 2, 0, 7])),
                 Ok(input_row(3, &[0, 0, 0, 1, 3, 1, 2, 0])),
             ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
 
-            todo!()
-            // let result = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len();
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
-            //
-            // assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -452,18 +448,20 @@ pub mod tests {
                 Ok(input_row(7, &[0, 0, 0, 1, 1, 1, 2, 3])),
                 Ok(input_row(7, &[0, 0, 0, 1, 0, 2, 2, 1])),
             ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
 
-            todo!()
-            // let result = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len();
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
-            //
-            // assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -477,38 +475,36 @@ pub mod tests {
                 Ok(input_row(7, &[1, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
                 Ok(input_row(7, &[0, 0x40, 0x7f, 1, 0, 0, 0, 0])),
             ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
 
-            todo!()
-            // let result = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len();
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
-            //
-            // assert_eq!(
-            //     result,
-            //     [0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0].map(BA8::truncate_from)
-            // );
+            assert_eq!(
+                result,
+                input_row(8, &[0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
     #[test]
     fn aggregate_empty() {
-        todo!()
-        // run(|| async move {
-        //     let result = TestWorld::default()
-        //         .upgraded_semi_honest((), |ctx, ()| {
-        //             aggregate_values::<BA8, 8>(ctx, stream::empty().boxed(), 0)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        //
-        //     assert!(result.iter().all(|b| *b == 0));
-        // });
+        run(|| async move {
+            let result = TestWorld::default()
+                .upgraded_semi_honest((), |ctx, ()| {
+                    aggregate_values::<BA8, 8>(ctx, stream::empty().boxed(), 0)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+
+            assert!(result.iter().all(|b| *b == 0));
+        });
     }
 
     #[test]
@@ -519,17 +515,16 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 0, 0, 0, 0, 0, 0])),
                 Err(Error::Internal),
             ];
-            todo!()
-            // let result = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len();
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await;
-            //
-            // for &role in Role::all() {
-            //     assert!(matches!(result[role], Err(Error::Internal)));
-            // }
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await;
+
+            for &role in Role::all() {
+                assert!(matches!(result[role], Err(Error::Internal)));
+            }
         });
     }
 
@@ -540,15 +535,14 @@ pub mod tests {
         // Test aggregation with less records than expected
         run(|| async move {
             let inputs = vec![Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0]))];
-            todo!()
-            // let _ = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len() + 1;
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
+            let _ = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len() + 1;
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
         });
     }
 
@@ -563,104 +557,122 @@ pub mod tests {
                 Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
                 Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
             ];
-            todo!()
-            // let _ = TestWorld::default()
-            //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-            //         let num_rows = inputs.len() - 1;
-            //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
+            let _ = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len() - 1;
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
         });
     }
+
+    // fn input_row_vec<const B: usize>(tv_bits: usize, values: &Vec<u64>) -> BitDecomposed<[Boolean; B]> {
+    //     let values = <&[u64; B]>::try_from(values).unwrap();
+    //
+    //     BitDecomposed::decompose(tv_bits, |i| {
+    //         values.map(|v| Boolean::from((v >> i) & 1 == 1))
+    //     })
+    // }
+
+    // fn input_row_u64<const B: usize>(tv_bits: usize, values: &[u64]) -> BitDecomposed<[Boolean; B]> {
+    //     let values = <&[u64; B]>::try_from(values).unwrap();
+    //
+    //     BitDecomposed::decompose(tv_bits, |i| {
+    //         values.map(|v| Boolean::from((v >> i) & 1 == 1))
+    //     })
+    // }
 
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
     // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
     // saturated addition at the output.
-    const PROP_MAX_INPUT_LEN: usize = 10;
-    const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
-    const PROP_BUCKETS: usize = 8;
-    type PropHistogramValue = BA8;
+//     const PROP_MAX_INPUT_LEN: usize = 10;
+//     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
+// const PROP_BUCKETS: usize = 8;
+//     type PropHistogramValue = BA8;
+//
+//     // We want to capture everything in this struct for visibility in the output of failing runs,
+//     // even if it isn't used by the test.
+//     #[allow(dead_code)]
+//     #[derive(Debug)]
+//     struct AggregatePropTestInputs {
+//         inputs: Vec<[u32; PROP_BUCKETS]>,
+//         expected: Vec<PropHistogramValue>,
+//         seed: u64,
+//         len: usize,
+//         tv_bits: usize,
+//     }
+//
+//     const_assert!(
+//         PropHistogramValue::BITS < 64,
+//         "(1 << PropHistogramValue::BITS) must fit in u64"
+//     );
+//
+//     prop_compose! {
+//         fn arb_aggregate_values_inputs(max_len: usize)
+//                                       (
+//                                           len in 0..=max_len,
+//                                           tv_bits in 0..=PROP_MAX_TV_BITS,
+//                                           seed in any::<u64>(),
+//                                       )
+//         -> AggregatePropTestInputs {
+//             let mut rng = StdRng::seed_from_u64(seed);
+//             let mut expected = vec![0u64; PROP_BUCKETS];
+//             let inputs = repeat_with(|| {
+//                 let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
+//                 for (exp, val) in expected.iter_mut().zip(row) {
+//                     *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
+//                 }
+//                 row
+//             })
+//             .take(len)
+//             .collect();
+//
+//             // let expected : Vec<u64>  = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
+//             //
+//             // let expected = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
+//             let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
+//
+//             AggregatePropTestInputs {
+//                 inputs,
+//                 expected,
+//                 seed,
+//                 len,
+//                 tv_bits,
+//             }
+//         }
+//     }
+//     proptest! {
+//         #[test]
+//         fn aggregate_proptest(
+//             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
+//         ) {
+//             tokio::runtime::Runtime::new().unwrap().block_on(async {
+//                 let AggregatePropTestInputs {
+//                     inputs,
+//                     expected,
+//                     tv_bits,
+//                     ..
+//                 } = input_struct;
+//                 let inputs = inputs.into_iter().map(move |row| {
+//                     Ok(input_row(tv_bits, &row))
+//                 });
+//                 let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
+//                     let num_rows = inputs.len();
+//                     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
+//                         ctx,
+//                         stream::iter(inputs).boxed(),
+//                         num_rows,
+//                     )
+//                 })
+//                 .await
+//                 .map(Result::unwrap)
+//                 .reconstruct_arr();
+//                 let expected_vectorized = input_row_u64(tv_bits, &expected.try_into().unwrap() );
+//                 assert_eq!(result, expected_vectorized);
+//             });
+//         }
+//     }
 
-    // We want to capture everything in this struct for visibility in the output of failing runs,
-    // even if it isn't used by the test.
-    #[allow(dead_code)]
-    #[derive(Debug)]
-    struct AggregatePropTestInputs {
-        inputs: Vec<[u32; PROP_BUCKETS]>,
-        expected: Vec<PropHistogramValue>,
-        seed: u64,
-        len: usize,
-        tv_bits: usize,
-    }
-
-    const_assert!(
-        PropHistogramValue::BITS < 64,
-        "(1 << PropHistogramValue::BITS) must fit in u64"
-    );
-
-    prop_compose! {
-        fn arb_aggregate_values_inputs(max_len: usize)
-                                      (
-                                          len in 0..=max_len,
-                                          tv_bits in 0..=PROP_MAX_TV_BITS,
-                                          seed in any::<u64>(),
-                                      )
-        -> AggregatePropTestInputs {
-            let mut rng = StdRng::seed_from_u64(seed);
-            let mut expected = vec![0u64; PROP_BUCKETS];
-            let inputs = repeat_with(|| {
-                let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
-                for (exp, val) in expected.iter_mut().zip(row) {
-                    *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
-                }
-                row
-            })
-            .take(len)
-            .collect();
-
-            let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
-
-            AggregatePropTestInputs {
-                inputs,
-                expected,
-                seed,
-                len,
-                tv_bits,
-            }
-        }
-    }
-    proptest! {
-        #[test]
-        fn aggregate_proptest(
-            input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
-        ) {
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                let AggregatePropTestInputs {
-                    inputs,
-                    expected,
-                    tv_bits,
-                    ..
-                } = input_struct;
-                let inputs = inputs.into_iter().map(move |row| {
-                    Ok(input_row(tv_bits, &row))
-                });
-                todo!()
-                // let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
-                //     let num_rows = inputs.len();
-                //     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
-                //         ctx,
-                //         stream::iter(inputs).boxed(),
-                //         num_rows,
-                //     )
-                // })
-                // .await
-                // .map(Result::unwrap)
-                // .reconstruct();
-                //
-                // assert_eq!(result, expected);
-            });
-        }
-    }
 }
