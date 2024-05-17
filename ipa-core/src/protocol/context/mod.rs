@@ -211,18 +211,6 @@ pub struct Base<'a, B: ShardBinding = NotSharded> {
 }
 
 impl<'a, B: ShardBinding> Base<'a, B> {
-    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway, sharding: B) -> Self {
-        Self::new_complete(
-            participant,
-            gateway,
-            Gate::default(),
-            TotalRecords::Unspecified,
-            sharding,
-        )
-    }
-}
-
-impl<'a, B: ShardBinding> Base<'a, B> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,

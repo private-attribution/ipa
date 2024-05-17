@@ -15,6 +15,7 @@ pub mod ipa;
 pub mod logging;
 pub mod metrics;
 pub(crate) mod step;
+#[cfg(feature = "in-memory-infra")]
 mod test_gate;
 
 use std::fmt::Debug;

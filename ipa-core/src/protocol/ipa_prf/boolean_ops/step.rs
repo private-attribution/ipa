@@ -1,10 +1,10 @@
 use ipa_step_derive::CompactStep;
 
-/// FIXME: This step is not generic enough to be used in the saturated_addition protocol.
+/// FIXME: This step is not generic enough to be used in the `saturated_addition` protocol.
 /// It constraints the input to be at most 2 bytes and it will panic in runtime if it is greater
 /// than that. The issue is that compact gate requires concrete type to be put as child.
 /// If we ever see it being an issue, we should make a few implementations of this similar to what
-/// we've done in BitStep
+/// we've done for bit steps
 #[derive(CompactStep)]
 pub(crate) enum SaturatedAdditionStep {
     #[step(child = crate::protocol::boolean::step::SixteenBitStep)]

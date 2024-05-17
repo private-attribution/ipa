@@ -1,7 +1,7 @@
 use ipa_step::Step;
 
-use crate::protocol::{
-    boolean::step::{EightBitStep, SixteenBitStep, ThirtyTwoBitStep, TwoHundredFiftySixBitOpStep},
+use crate::protocol::boolean::step::{
+    EightBitStep, SixteenBitStep, ThirtyTwoBitStep, TwoHundredFiftySixBitOpStep,
 };
 
 pub mod and;

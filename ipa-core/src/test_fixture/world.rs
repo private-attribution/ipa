@@ -191,7 +191,7 @@ impl TestWorld<NotSharded> {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn contexts(&self) -> [SemiHonestContext<'_>; 3] {
-        self.shards[0].contexts(self.next_gate())
+        self.shards[0].contexts(&self.next_gate())
     }
 
     /// Creates malicious protocol contexts for 3 helpers
@@ -200,7 +200,7 @@ impl TestWorld<NotSharded> {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn malicious_contexts(&self) -> [MaliciousContext<'_>; 3] {
-        self.shards[0].malicious_contexts(self.next_gate())
+        self.shards[0].malicious_contexts(&self.next_gate())
     }
 
     #[must_use]
@@ -421,7 +421,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         zip(shards.into_iter(), zip(zip(h1, h2), h3))
             .map(|(shard, ((h1, h2), h3))| {
                 ShardWorld::<Sharded>::run_either(
-                    shard.contexts(gate.clone()),
+                    shard.contexts(&gate),
                     self.metrics_handle.span(),
                     [h1, h2, h3],
                     shard_fn,
@@ -658,7 +658,7 @@ impl<B: ShardBinding> ShardWorld<B> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn contexts(&self, gate: Gate) -> [SemiHonestContext<'_, B>; 3] {
+    pub fn contexts(&self, gate: &Gate) -> [SemiHonestContext<'_, B>; 3] {
         zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
             SemiHonestContext::new_with_gate(
                 participant,
@@ -674,7 +674,7 @@ impl<B: ShardBinding> ShardWorld<B> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn malicious_contexts(&self, gate: Gate) -> [MaliciousContext<'_>; 3] {
+    pub fn malicious_contexts(&self, gate: &Gate) -> [MaliciousContext<'_>; 3] {
         zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
             MaliciousContext::new_with_gate(participant, gateway, gate.clone())
         })
