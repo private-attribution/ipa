@@ -286,7 +286,7 @@ where
     let aggregated_result : BitDecomposed<AdditiveShare<Boolean,B>> =
         aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
 
-    let transposed_aggregated_result = Vec::transposed_from(&aggregated_result);
+    let transposed_aggregated_result:Vec<Replicated<HV>> = Vec::transposed_from(&aggregated_result)?;
 
     Ok(transposed_aggregated_result.try_into().unwrap())
 
