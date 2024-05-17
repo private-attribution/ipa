@@ -206,8 +206,9 @@ where
             })
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
     );
-    todo!()
-    // aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
+    let aggregated_result = aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await?;
+    Ok(Vec::transposed_from(&aggregated_result)?)
+
 }
 
 /// A vector of histogram contributions for each output bucket.
