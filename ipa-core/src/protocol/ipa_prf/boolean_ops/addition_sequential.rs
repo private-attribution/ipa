@@ -64,16 +64,18 @@ where
     S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
+    Gate: StepNarrow<S>,
 {
     use super::step::SaturatedAdditionStep as Step;
 
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
     let result =
-        addition_circuit::<_, S, N>(ctx.narrow(&Step::Add), record_id, x, y, &mut carry).await?;
+        addition_circuit::<_, S, N>(ctx.narrow::<Step>(&Step::Add), record_id, x, y, &mut carry)
+            .await?;
 
     // if carry==1 then {all ones} else {result}
     bool_or(
-        ctx.narrow(&Step::Select),
+        ctx.narrow::<Step>(&Step::Select),
         record_id,
         &result,
         repeat_n(&carry, x.len()),
@@ -101,6 +103,7 @@ where
     S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let x = x.iter();
     let y = y.iter();

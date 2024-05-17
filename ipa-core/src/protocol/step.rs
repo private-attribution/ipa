@@ -8,6 +8,9 @@ pub enum ProtocolStep {
     #[step(child = crate::protocol::ipa_prf::step::IpaPrfStep)]
     IpaPrf,
     Multiply,
+    #[cfg(any(test, feature = "test-fixture"))]
+    #[step(count = 10, child = crate::test_fixture::step::TestExecutionStep)]
+    Test(usize),
 
     /// This step includes all the steps that are currently not linked into a top-level protocol.
     ///
@@ -43,6 +46,6 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]
     ZeroKnowledgeProofValidate,
-    #[cfg_attr(any(test, feature = "test-fixture"), step(child = crate::test_fixture::step::TestExecutionStep))]
-    TestExecution,
+    // #[cfg_attr(any(test, feature = "test-fixture"), step(child = crate::test_fixture::step::TestExecutionStep))]
+    // TestExecution,
 }

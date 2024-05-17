@@ -1,6 +1,7 @@
 use std::{array, num::NonZeroUsize};
 
 use futures::{future::join3, stream, StreamExt};
+use ipa_step::StepNarrow;
 use rand::distributions::{Distribution, Standard};
 
 use crate::{
@@ -9,7 +10,8 @@ use crate::{
     protocol::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
-        RecordId,
+        step::ProtocolStep,
+        Gate, RecordId,
     },
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
@@ -76,6 +78,7 @@ pub async fn arithmetic<F, const N: usize>(
 {
     let config = TestWorldConfig {
         gateway_config: GatewayConfig::new(active_work),
+        initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test(0))),
         ..Default::default()
     };
     let world = TestWorld::new_with(config);

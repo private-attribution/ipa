@@ -580,7 +580,7 @@ mod tests {
                 UpgradableContext, UpgradedContext, Validator,
             },
             prss::SharedRandomness,
-            Gate, RecordId,
+            RecordId,
         },
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -665,6 +665,7 @@ mod tests {
         let input = (0..10u128).map(Fp31::truncate_from).collect::<Vec<_>>();
         let input_len = input.len();
         let field_size = <Fp31 as Serializable>::Size::USIZE;
+        let metrics_step = world.gate().narrow("metrics");
 
         let result = world
             .semi_honest(input.clone().into_iter(), |ctx, shares| async move {
@@ -685,10 +686,6 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
-        let metrics_step = Gate::default()
-            // .narrow(&TestExecutionStep::Iter(0))
-            .narrow(&TestWorld::execution_step(0))
-            .narrow("metrics");
 
         // for semi-honest protocols, amplification factor per helper is 1.
         // that is, for every communication, there is exactly one send and receive of the same data
@@ -728,6 +725,11 @@ mod tests {
         let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
         let input_len = input.len();
         let field_size = <Fp31 as Serializable>::Size::USIZE;
+        let metrics_step = world
+            .gate()
+            // TODO: leaky abstraction, test world should tell us the exact step
+            .narrow(&MaliciousProtocol)
+            .narrow("metrics");
 
         let _result = world
             .upgraded_malicious(input.clone().into_iter(), |ctx, a| async move {
@@ -742,12 +744,6 @@ mod tests {
                 a
             })
             .await;
-
-        let metrics_step = Gate::default()
-            .narrow(&TestWorld::execution_step(0))
-            // TODO: leaky abstraction, test world should tell us the exact step
-            .narrow(&MaliciousProtocol)
-            .narrow("metrics");
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();

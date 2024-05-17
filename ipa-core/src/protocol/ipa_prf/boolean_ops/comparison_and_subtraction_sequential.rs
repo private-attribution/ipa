@@ -6,6 +6,8 @@
 
 use std::iter::repeat;
 
+use ipa_step::StepNarrow;
+
 use crate::{
     error::Error,
     ff::{boolean::Boolean, ArrayAccessRef, CustomArray, Field},
@@ -13,7 +15,7 @@ use crate::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::BitStep,
         context::{Context, SemiHonestContext},
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd, SharedValue,
@@ -36,6 +38,7 @@ where
     C: Context,
     S: BitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
+    Gate: StepNarrow<S>,
 {
     // we need to initialize carry to 1 for x>=y,
     let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
@@ -60,6 +63,7 @@ where
     S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     // we need to initialize carry to 0 for x>y
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
@@ -83,6 +87,7 @@ where
     C: Context,
     S: BitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
+    Gate: StepNarrow<S>,
 {
     // we need to initialize carry to 1 for a subtraction
     let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
@@ -105,13 +110,14 @@ where
     S: SharedValue + CustomArray<Element = Boolean>,
     St: BitStep,
     for<'a> AdditiveShare<S>: BooleanArrayMul<SemiHonestContext<'a>>,
+    Gate: StepNarrow<St>,
 {
     use super::step::SaturatedSubtractionStep as Step;
     use crate::ff::ArrayAccess;
 
     let mut carry = !AdditiveShare::<Boolean>::ZERO;
     let result = subtraction_circuit::<_, St, 1>(
-        ctx.narrow(&Step::Subtract),
+        ctx.narrow::<Step>(&Step::Subtract),
         record_id,
         &x.to_bits(),
         &y.to_bits(),
@@ -123,7 +129,7 @@ where
     // carry computes carry=(x>=y)
     // if carry==0 then {zero} else {result}
     select(
-        ctx.narrow(&Step::Select),
+        ctx.narrow::<Step>(&Step::Select),
         record_id,
         &carry,
         &result,
@@ -151,6 +157,7 @@ where
     S: BitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let x = x.iter();
     let y = y.iter();

@@ -30,7 +30,7 @@ pub mod test_fixture;
 mod app;
 mod seq_join;
 mod serde;
-mod sharding;
+pub mod sharding;
 mod utils;
 
 pub use app::{HelperApp, Setup as AppSetup};

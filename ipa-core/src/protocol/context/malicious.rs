@@ -43,8 +43,18 @@ pub struct Context<'a> {
 
 impl<'a> Context<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self::new_with_gate(participant, gateway, Gate::default())
+    }
+
+    pub fn new_with_gate(participant: &'a PrssEndpoint, gateway: &'a Gateway, gate: Gate) -> Self {
         Self {
-            inner: Base::new(participant, gateway, NotSharded),
+            inner: Base::new_complete(
+                participant,
+                gateway,
+                gate,
+                TotalRecords::Unspecified,
+                NotSharded,
+            ),
         }
     }
 
