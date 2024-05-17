@@ -396,99 +396,95 @@ pub mod tests {
     #[test]
     fn aggregate_odd() {
         // Test aggregation with odd number of records
-        todo!()
-        // run(|| async move {
-        //     let inputs = vec![
-        //         Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
-        //         Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
-        //         Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
-        //     ];
-        //     let result = TestWorld::default()
-        //         .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-        //             let num_rows = inputs.len();
-        //             aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        //
-        //     assert_eq!(result, [0u32, 1, 2, 3, 0, 0, 0, 0].map(BA8::truncate_from));
-        // });
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
+                Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
+                Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
+            ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+
+            assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 0, 0, 0, 0]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>()));
+        });
     }
 
     #[test]
     fn aggregate_multi_bit() {
         // Test aggregation with multi-bit trigger values
-        todo!()
-        // run(|| async move {
-        //     let inputs = vec![
-        //         Ok(input_row(3, &[0, 0, 2, 1, 1, 2, 4, 0])),
-        //         Ok(input_row(3, &[0, 1, 0, 1, 0, 2, 0, 7])),
-        //         Ok(input_row(3, &[0, 0, 0, 1, 3, 1, 2, 0])),
-        //     ];
-        //     let result = TestWorld::default()
-        //         .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-        //             let num_rows = inputs.len();
-        //             aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        //
-        //     assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
-        // });
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(3, &[0, 0, 2, 1, 1, 2, 4, 0])),
+                Ok(input_row(3, &[0, 1, 0, 1, 0, 2, 0, 7])),
+                Ok(input_row(3, &[0, 0, 0, 1, 3, 1, 2, 0])),
+            ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+
+            assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>()));
+        });
     }
 
     #[test]
     fn aggregate_wide() {
         // Test aggregation with wide trigger values
         // (i.e. carries not preserved throughout aggregation)
-        todo!()
-        // run(|| async move {
-        //     let inputs = vec![
-        //         Ok(input_row(7, &[0, 0, 2, 1, 1, 0, 1, 1])),
-        //         Ok(input_row(7, &[0, 1, 0, 0, 2, 2, 1, 2])),
-        //         Ok(input_row(7, &[0, 0, 0, 1, 1, 1, 2, 3])),
-        //         Ok(input_row(7, &[0, 0, 0, 1, 0, 2, 2, 1])),
-        //     ];
-        //     let result = TestWorld::default()
-        //         .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-        //             let num_rows = inputs.len();
-        //             aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        //
-        //     assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
-        // });
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(7, &[0, 0, 2, 1, 1, 0, 1, 1])),
+                Ok(input_row(7, &[0, 1, 0, 0, 2, 2, 1, 2])),
+                Ok(input_row(7, &[0, 0, 0, 1, 1, 1, 2, 3])),
+                Ok(input_row(7, &[0, 0, 0, 1, 0, 2, 2, 1])),
+            ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+
+            assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>()));
+        });
     }
 
     #[test]
     fn aggregate_saturating() {
         // Test that aggregation uses saturating addition
-        todo!()
-        // run(|| async move {
-        //     let inputs = vec![
-        //         Ok(input_row(7, &[0x7f, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
-        //         Ok(input_row(7, &[0x7f, 0x40, 0x7f, 1, 0, 0, 0, 0])),
-        //         Ok(input_row(7, &[1, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
-        //         Ok(input_row(7, &[0, 0x40, 0x7f, 1, 0, 0, 0, 0])),
-        //     ];
-        //     let result = TestWorld::default()
-        //         .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-        //             let num_rows = inputs.len();
-        //             aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        //
-        //     assert_eq!(
-        //         result,
-        //         [0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0].map(BA8::truncate_from)
-        //     );
-        // });
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(7, &[0x7f, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
+                Ok(input_row(7, &[0x7f, 0x40, 0x7f, 1, 0, 0, 0, 0])),
+                Ok(input_row(7, &[1, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
+                Ok(input_row(7, &[0, 0x40, 0x7f, 1, 0, 0, 0, 0])),
+            ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+
+            assert_eq!(
+                result,
+                input_row(8,&[0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>())
+            );
+        });
     }
 
     #[test]
