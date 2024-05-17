@@ -29,8 +29,6 @@ pub use validator::Validator;
 pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
-#[cfg(feature = "descriptive_gate")]
-use crate::protocol::NoRecord;
 use crate::{
     error::Error,
     helpers::{

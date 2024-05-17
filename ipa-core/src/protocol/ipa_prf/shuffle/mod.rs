@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub mod base;
-#[cfg(feature = "descriptive_gate")]
+#[cfg(descriptive_gate)]
 mod sharded;
 pub(crate) mod step;
 
