@@ -9,6 +9,7 @@ use crate::{
     helpers::Role,
     protocol::{
         basics::{partial_reveal, BooleanProtocols},
+        boolean::step::TwoHundredFiftySixBitOpStep,
         context::Context,
         ipa_prf::boolean_ops::{
             addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
@@ -122,7 +123,7 @@ where
     // addition r+s might cause carry,
     // this is no problem since we have set bit 254 of sh_r and sh_s to 0
     let sh_rs = {
-        let (mut rs_with_higherorderbits, _) = integer_add::<_, N>(
+        let (mut rs_with_higherorderbits, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, N>(
             ctx.narrow(&Step::IntegerAddBetweenMasks),
             record_id,
             &sh_r,
@@ -140,8 +141,13 @@ where
 
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
-    let (sh_y, _) =
-        integer_add::<_, N>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, &x).await?;
+    let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, N>(
+        ctx.narrow(&Step::IntegerAddMaskToX),
+        record_id,
+        &sh_rs,
+        &x,
+    )
+    .await?;
 
     // this leaks information, but with negligible probability
     let mut y = (ctx.role() != Role::H3).then(|| Vec::with_capacity(N));

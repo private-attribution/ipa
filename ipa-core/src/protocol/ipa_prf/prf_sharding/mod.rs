@@ -21,7 +21,11 @@ use crate::{
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
-        boolean::or::or,
+        boolean::{
+            or::or,
+            step::{EightBitStep, ThirtyTwoBitStep},
+            BitStep,
+        },
         context::{
             Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
@@ -112,9 +116,6 @@ where
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TS>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
 {
     ///
     /// This function contains the main logic for the per-user attribution circuit.
@@ -146,7 +147,12 @@ where
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error> {
+    ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>
+    where
+        Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+        Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+        Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
         let (
@@ -190,7 +196,11 @@ where
         )
         .await?;
 
-        let (updated_sum, overflow_bit) = integer_add(
+        assert!(
+            TV::BITS <= EightBitStep::max_bit_depth(),
+            "EightBitStep not large enough to accomodate this sum"
+        );
+        let (updated_sum, overflow_bit) = integer_add::<_, EightBitStep, 1>(
             ctx.narrow(&PerRowStep::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -198,6 +208,10 @@ where
         )
         .await?;
 
+        assert!(
+            TV::BITS <= EightBitStep::max_bit_depth(),
+            "EightBitStep not large enough to accomodate this subtraction"
+        );
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
             overflow_bit.multiply(
                 &self.is_saturated.clone().not(),
@@ -209,7 +223,7 @@ where
             // overflow. When that is the case, `updated_sum` must be within `2^TV::BITS` of the
             // cap, and a `TV::BITS` subtraction of the `TV::BITS` least significant bits of
             // `updated_sum` from zero will correctly compute the difference to the cap.
-            integer_sub(
+            integer_sub::<_, EightBitStep>(
                 ctx.narrow(&PerRowStep::ComputeDifferenceToCap),
                 record_id,
                 &BitDecomposed::new(repeat_n(
@@ -393,9 +407,9 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TS>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
+    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -468,9 +482,9 @@ where
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TS>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
+    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -532,7 +546,7 @@ async fn breakdown_key_of_most_recent_source_event<C, BK>(
 where
     C: Context,
     BK: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<BK>: BooleanArrayMul,
+    Replicated<BK>: BooleanArrayMul<C>,
 {
     select(
         ctx,
@@ -557,7 +571,7 @@ async fn timestamp_of_most_recent_source_event<C, TS>(
 where
     C: Context,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<TS>: BooleanArrayMul,
+    Replicated<TS>: BooleanArrayMul<C>,
 {
     match attribution_window_seconds {
         None => Ok(prev_row_timestamp_bits.clone()),
@@ -597,7 +611,7 @@ async fn zero_out_trigger_value_unless_attributed<'a, TV, TS>(
 where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<TV>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -652,7 +666,11 @@ where
     Replicated<Boolean>: BooleanProtocols<C>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
-        let time_delta_bits = integer_sub(
+        assert!(
+            TS::BITS <= ThirtyTwoBitStep::max_bit_depth(),
+            "ThirtyTwoBitStep is not large enough to accomodate this subtraction"
+        );
+        let time_delta_bits = integer_sub::<_, ThirtyTwoBitStep>(
             ctx.narrow(&WindowStep::ComputeTimeDelta),
             record_id,
             &trigger_event_timestamp.to_bits(),
@@ -667,7 +685,7 @@ where
             )
         });
 
-        let time_delta_gt_attribution_window = compare_gt(
+        let time_delta_gt_attribution_window = compare_gt::<_, ThirtyTwoBitStep, 1>(
             ctx.narrow(&WindowStep::CompareTimeDeltaToAttributionWindow),
             record_id,
             &time_delta_bits,
@@ -711,7 +729,7 @@ async fn compute_capped_trigger_value<C, TV>(
 where
     C: Context,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<TV>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul<C>,
 {
     let narrowed_ctx1 =
         ctx.narrow(&PerRowStep::ComputedCappedAttributedTriggerValueNotSaturatedCase);

@@ -9,6 +9,7 @@ use crate::{
     helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
         basics::Reveal,
+        boolean::{step::ThirtyTwoBitStep, BitStep},
         context::{Context, SemiHonestContext},
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
@@ -166,6 +167,10 @@ where
                 })
                 .map(Ok);
 
+        assert!(
+            K::BITS <= ThirtyTwoBitStep::max_bit_depth(),
+            "ThirtyTwoBitStep is not large enough to accommodate this sort"
+        );
         let comp: BitVec<usize, Lsb0> = seq_join(
             ctx.active_work(),
             process_stream_by_chunks::<_, _, _, _, _, _, _, SORT_CHUNK>(
@@ -177,11 +182,12 @@ where
                     let record_id = RecordId::from(idx);
                     async move {
                         // Compare the current element against pivot and reveal the result.
-                        let comparison =
-                            compare_gt::<_, SORT_CHUNK>(cmp_ctx, record_id, &k, &pivot)
-                                .await?
-                                .reveal(rvl_ctx, record_id) // reveal outcome of comparison
-                                .await?;
+                        let comparison = compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
+                            cmp_ctx, record_id, &k, &pivot,
+                        )
+                        .await?
+                        .reveal(rvl_ctx, record_id) // reveal outcome of comparison
+                        .await?;
 
                         // desc = true will flip the order of the sort
                         Ok::<_, Error>(comparison + !desc)

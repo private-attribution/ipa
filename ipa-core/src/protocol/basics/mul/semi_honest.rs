@@ -19,15 +19,14 @@ use crate::{
     sharding,
 };
 
-/// This function allows to multiply secret shared values.
 /// This is a wrapper function around the actual MPC multiplication protocol
-///
-/// The `zeros_at` argument indicates where there are known zeros in the inputs.
+/// It exists because there are a few implementations that share the same code for
+/// generating random masks with PRSS and which then invoke the same multiplication protocol.
 ///
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn multiply<C, F, const N: usize>(
+pub async fn sh_multiply<C, F, const N: usize>(
     ctx: C,
     record_id: RecordId,
     a: &Replicated<F, N>,
@@ -105,7 +104,7 @@ where
     B: sharding::ShardBinding,
     F: Field + FieldSimd<N>,
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: SemiHonestContext<'a, B>,
@@ -114,7 +113,7 @@ where
     where
         SemiHonestContext<'a, B>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -126,7 +125,7 @@ where
     B: sharding::ShardBinding,
     F: PrimeField + FieldSimd<N>,
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: UpgradedSemiHonestContext<'a, B, F>,
@@ -135,7 +134,7 @@ where
     where
         UpgradedSemiHonestContext<'a, B, F>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -146,7 +145,7 @@ where
     B: sharding::ShardBinding,
     F: Field + FieldSimd<N>,
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: SemiHonestDZKPUpgraded<'a, B>,
@@ -155,7 +154,7 @@ where
     where
         SemiHonestDZKPUpgraded<'a, B>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -169,7 +168,7 @@ mod test {
 
     use rand::distributions::{Distribution, Standard};
 
-    use super::multiply;
+    use super::sh_multiply;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
         helpers::TotalRecords,
@@ -283,7 +282,7 @@ mod test {
             .unwrap();
         let results = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                multiply(
+                sh_multiply(
                     ctx.set_total_records(1),
                     RecordId::from(0),
                     &a_shares,
@@ -382,7 +381,7 @@ mod test {
                     let mut iter = share.iter();
                     let mut val = iter.next().unwrap().clone();
                     for i in 1..MANYMULT_ITERS {
-                        val = multiply(
+                        val = sh_multiply(
                             ctx.clone(),
                             RecordId::from(i - 1),
                             &val,

@@ -24,7 +24,7 @@ pub(crate) enum QuicksortStep {
 
 #[derive(CompactStep)]
 pub(crate) enum QuicksortPassStep {
-    #[step(child = crate::protocol::boolean::step::BitOpStep)]
+    #[step(child = crate::protocol::boolean::step::ThirtyTwoBitStep)]
     Compare,
     Reveal,
 }

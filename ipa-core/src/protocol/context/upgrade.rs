@@ -8,7 +8,8 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        boolean::step::BitOpStep, context::UpgradedContext, Gate, NoRecord, RecordBinding, RecordId,
+        boolean::step::TwoHundredFiftySixBitOpStep, context::UpgradedContext, Gate, NoRecord,
+        RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -116,8 +117,10 @@ where
 {
     async fn upgrade(self, input: (T, U)) -> Result<(TM, UM), Error> {
         try_join(
-            self.narrow(&BitOpStep::from(0)).upgrade(input.0),
-            self.narrow(&BitOpStep::from(1)).upgrade(input.1),
+            self.narrow(&TwoHundredFiftySixBitOpStep::from(0))
+                .upgrade(input.0),
+            self.narrow(&TwoHundredFiftySixBitOpStep::from(1))
+                .upgrade(input.1),
         )
         .await
     }

@@ -29,10 +29,10 @@ pub(crate) enum AttributionPerRowStep {
     #[step(child = AttributionZeroTriggerStep)]
     AttributedTriggerValue,
     SourceEventTimestamp,
-    #[step(child = crate::protocol::boolean::step::BitOpStep)]
+    #[step(child = crate::protocol::boolean::step::EightBitStep)]
     ComputeSaturatingSum,
     IsSaturatedAndPrevRowNotSaturated,
-    #[step(child = crate::protocol::boolean::step::BitOpStep)]
+    #[step(child = crate::protocol::boolean::step::EightBitStep)]
     ComputeDifferenceToCap,
     ComputedCappedAttributedTriggerValueNotSaturatedCase,
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
@@ -48,9 +48,9 @@ pub(crate) enum AttributionZeroTriggerStep {
 
 #[derive(CompactStep)]
 pub(crate) enum AttributionWindowStep {
-    #[step(child = crate::protocol::boolean::step::BitOpStep)]
+    #[step(child = crate::protocol::boolean::step::ThirtyTwoBitStep)]
     ComputeTimeDelta,
-    #[step(child = crate::protocol::boolean::step::BitOpStep)]
+    #[step(child = crate::protocol::boolean::step::ThirtyTwoBitStep)]
     CompareTimeDeltaToAttributionWindow,
 }
 

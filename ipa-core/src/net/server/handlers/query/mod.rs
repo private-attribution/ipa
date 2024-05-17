@@ -143,7 +143,7 @@ pub mod test_helpers {
         let resp = test_server.server.handle_req(req).await;
         let status = resp.status();
         let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        assert_eq!(StatusCode::OK, status, "Request failed: {}", String::from_utf8_lossy(body_bytes.as_ref()));
+        assert_eq!(StatusCode::OK, status);
         body_bytes.to_vec()
     }
 }
