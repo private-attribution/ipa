@@ -246,8 +246,8 @@ where
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     // BitDecomposed<Replicated<Boolean,B>>: Reconstruct<Replicated<Boolean,B>>,
-    Vec<Replicated<OV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    // Vec<Replicated<OV>>:
+    //     for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let mut depth = 0;
     while num_rows > 1 {
@@ -488,41 +488,39 @@ pub mod tests {
     }
 
     #[test]
-    fn aggregate_empty() { todo!()
-        // run(|| async move {
-        //     let result = TestWorld::default()
-        //         .upgraded_semi_honest((), |ctx, ()| {
-        //             aggregate_values::<BA8, 8>(ctx, stream::empty().boxed(), 0)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        //
-        //     assert!(result.iter().all(|b| *b == 0));
-        // });
+    fn aggregate_empty() {
+        run(|| async move {
+            let result = TestWorld::default()
+                .upgraded_semi_honest((), |ctx, ()| {
+                    aggregate_values::<BA8, 8>(ctx, stream::empty().boxed(), 0)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+
+            assert!(result.iter().all(|b| *b == 0));
+        });
     }
 
     #[test]
     fn aggregate_error() {
         // Test aggregation with an error in the input stream
-        todo!()
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(1, &[0, 0, 0, 0, 0, 0, 0, 0])),
+                Err(Error::Internal),
+            ];
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await;
 
-        // run(|| async move {
-        //     let inputs = vec![
-        //         Ok(input_row(1, &[0, 0, 0, 0, 0, 0, 0, 0])),
-        //         Err(Error::Internal),
-        //     ];
-        //     // let result = TestWorld::default()
-        //     //     .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-        //     //         let num_rows = inputs.len();
-        //     //         aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-        //     //     })
-        //     //     .await;
-        //     //
-        //     // for &role in Role::all() {
-        //     //     assert!(matches!(result[role], Err(Error::Internal)));
-        //     }
-        // });
+            for &role in Role::all() {
+                assert!(matches!(result[role], Err(Error::Internal)));
+            }
+        });
     }
 
     #[cfg(debug_assertions)]
@@ -530,18 +528,17 @@ pub mod tests {
     #[should_panic(expected = "FixedLength stream ended with 1 remaining")]
     fn aggregate_too_few() {
         // Test aggregation with less records than expected
-        todo!()
-        // run(|| async move {
-        //     let inputs = vec![Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0]))];
-        //     let _ = TestWorld::default()
-        //         .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-        //             let num_rows = inputs.len() + 1;
-        //             aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        // });
+        run(|| async move {
+            let inputs = vec![Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0]))];
+            let _ = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len() + 1;
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+        });
     }
 
     #[cfg(debug_assertions)]
@@ -549,22 +546,21 @@ pub mod tests {
     #[should_panic(expected = "FixedLength stream ended with -1 remaining")]
     fn aggregate_too_many() {
         // Test aggregation with more records than expected
-        todo!()
-        // run(|| async move {
-        //     let inputs = vec![
-        //         Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
-        //         Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
-        //         Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
-        //     ];
-        //     let _ = TestWorld::default()
-        //         .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
-        //             let num_rows = inputs.len() - 1;
-        //             aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        // });
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
+                Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
+                Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
+            ];
+            let _ = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len() - 1;
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+        });
     }
 
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
