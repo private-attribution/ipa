@@ -46,6 +46,8 @@ pub mod prf_sharding;
 mod malicious_security;
 mod quicksort;
 mod shuffle;
+#[cfg(all(test, unit_test))]
+pub mod validation_protocol;
 
 /// Match key type
 pub type MatchKey = BA64;
