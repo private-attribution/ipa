@@ -568,6 +568,22 @@ pub mod tests {
         });
     }
 
+    // fn input_row_vec<const B: usize>(tv_bits: usize, values: &Vec<u64>) -> BitDecomposed<[Boolean; B]> {
+    //     let values = <&[u64; B]>::try_from(values).unwrap();
+    //
+    //     BitDecomposed::decompose(tv_bits, |i| {
+    //         values.map(|v| Boolean::from((v >> i) & 1 == 1))
+    //     })
+    // }
+
+    fn input_row_u64<const B: usize>(tv_bits: usize, values: &[u64]) -> BitDecomposed<[Boolean; B]> {
+        let values = <&[u64; B]>::try_from(values).unwrap();
+
+        BitDecomposed::decompose(tv_bits, |i| {
+            values.map(|v| Boolean::from((v >> i) & 1 == 1))
+        })
+    }
+
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
     // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
     // saturated addition at the output.
@@ -613,6 +629,9 @@ pub mod tests {
             .take(len)
             .collect();
 
+            // let expected : Vec<u64>  = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
+            //
+            // let expected = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
             let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
 
             AggregatePropTestInputs {
@@ -629,31 +648,31 @@ pub mod tests {
         fn aggregate_proptest(
             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
         ) {
-                todo!()
-        //     tokio::runtime::Runtime::new().unwrap().block_on(async {
-        //         let AggregatePropTestInputs {
-        //             inputs,
-        //             expected,
-        //             tv_bits,
-        //             ..
-        //         } = input_struct;
-        //         let inputs = inputs.into_iter().map(move |row| {
-        //             Ok(input_row(tv_bits, &row))
-        //         });
-        //         let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
-        //             let num_rows = inputs.len();
-        //             aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
-        //                 ctx,
-        //                 stream::iter(inputs).boxed(),
-        //                 num_rows,
-        //             )
-        //         })
-        //         .await
-        //         .map(Result::unwrap)
-        //         .reconstruct();
-        //
-        //         assert_eq!(result, expected);
-        //     });
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let AggregatePropTestInputs {
+                    inputs,
+                    expected,
+                    tv_bits,
+                    ..
+                } = input_struct;
+                let inputs = inputs.into_iter().map(move |row| {
+                    Ok(input_row(tv_bits, &row))
+                });
+                let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                    )
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+                let expected_vectorized = input_row_u64(tv_bits, &expected.try_into().unwrap() );
+                assert_eq!(result, expected_vectorized);
+            });
         }
     }
+
 }
