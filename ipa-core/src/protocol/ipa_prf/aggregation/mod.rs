@@ -206,7 +206,9 @@ where
             })
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
     );
-    let aggregated_result = aggregate_values::<TV, B>(ctx, aggregation_input, num_chunks * N).await?;
+    let aggregated_result = aggregate_values::<TV, B>(ctx,
+                                                      aggregation_input,
+                                                      num_chunks * N).await?;
     Ok(Vec::transposed_from(&aggregated_result)?)
 
 }
@@ -388,7 +390,6 @@ pub mod tests {
                 .map(Result::unwrap)
                 .reconstruct_arr();
             let expected : BitDecomposed<BA8> = input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map(|x: [Boolean; 8] | x.into_iter().collect::<BA8>());
-            // assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map(BA8::truncate_from));
             assert_eq!(result, expected);
 
         });

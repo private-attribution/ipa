@@ -283,17 +283,13 @@ where
     let flattened_stream = Box::pin(
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
-    todo!()
-    // let vec_of_shares:BitDecomposed<AdditiveShare<Boolean,B>> =
-    //     aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+    let aggregated_result : BitDecomposed<AdditiveShare<Boolean,B>> =
+        aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
 
-    // Ok(vec_of_shares.try_into().unwrap())
-    // how aggregation used to finish Ok(Vec::transposed_from(&result)?)
-    // now it finishes as Ok(result)
+    let transposed_aggregated_result = Vec::transposed_from(&aggregated_result);
 
-    // new attempt
-    // let vec_of_shares_transposed_from  = Vec::transposed_from(&vec_of_shares);
-    // Ok(vec_of_shares_transposed_from.try_into().unwrap())
+    Ok(transposed_aggregated_result.try_into().unwrap())
+
 }
 
 async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
