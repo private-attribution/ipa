@@ -239,7 +239,6 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
-// ) -> Result<Vec<Replicated<OV>>, Error>
 ) -> Result<BitDecomposed<Replicated<Boolean,B>>,Error>
 
 where
@@ -248,9 +247,6 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    // BitDecomposed<Replicated<Boolean,B>>: Reconstruct<Replicated<Boolean,B>>,
-    // Vec<Replicated<OV>>:
-    //     for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let mut depth = 0;
     while num_rows > 1 {
@@ -333,8 +329,7 @@ where
         usize::try_from(OV::BITS).unwrap(),
         Replicated::<Boolean, B>::ZERO,
     );
-    // Aggregation output transpose
-    // Ok(Vec::transposed_from(&result)?)
+    // Aggregation output to remain vectorized
     Ok(result)
 
 }
@@ -355,9 +350,8 @@ pub mod tests {
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld,ReconstructArr},
+        test_fixture::{Runner, TestWorld,ReconstructArr},
     };
-    use crate::secret_sharing::StdArray;
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
         let values = <&[u32; B]>::try_from(values).unwrap();
@@ -621,36 +615,37 @@ pub mod tests {
             }
         }
     }
-    proptest! {
+    proptest!
+    {
         #[test]
         fn aggregate_proptest(
             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
         ) {
-            todo!()
-            // tokio::runtime::Runtime::new().unwrap().block_on(async {
-            //     let AggregatePropTestInputs {
-            //         inputs,
-            //         expected,
-            //         tv_bits,
-            //         ..
-            //     } = input_struct;
-            //     let inputs = inputs.into_iter().map(move |row| {
-            //         Ok(input_row(tv_bits, &row))
-            //     });
-            //     let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
-            //         let num_rows = inputs.len();
-            //         aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
-            //             ctx,
-            //             stream::iter(inputs).boxed(),
-            //             num_rows,
-            //         )
-            //     })
-            //     .await
-            //     .map(Result::unwrap)
-            //     .reconstruct();
-            //
-            //     assert_eq!(result, expected);
-            // });
+                todo!()
+        //     tokio::runtime::Runtime::new().unwrap().block_on(async {
+        //         let AggregatePropTestInputs {
+        //             inputs,
+        //             expected,
+        //             tv_bits,
+        //             ..
+        //         } = input_struct;
+        //         let inputs = inputs.into_iter().map(move |row| {
+        //             Ok(input_row(tv_bits, &row))
+        //         });
+        //         let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
+        //             let num_rows = inputs.len();
+        //             aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
+        //                 ctx,
+        //                 stream::iter(inputs).boxed(),
+        //                 num_rows,
+        //             )
+        //         })
+        //         .await
+        //         .map(Result::unwrap)
+        //         .reconstruct();
+        //
+        //         assert_eq!(result, expected);
+        //     });
         }
     }
 }
