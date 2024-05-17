@@ -32,7 +32,6 @@ fn main() {
     if cfg!(feature = "compact-gate") {
         // include protocol_gate.rs. This slows down the build significantly, so avoid doing that
         // in dev builds.
-        // std::env::set_var(ipa_step::COMPACT_GATE_INCLUDE_ENV, "1");
         setup_steps();
         build_gate::<protocol::step::ProtocolStep>();
     }
@@ -47,8 +46,8 @@ fn main() {
         unit_test: { all(not(feature = "shuttle"), feature = "in-memory-infra", descriptive_gate) },
         web_test: { all(not(feature = "shuttle"), feature = "real-world-infra") },
     }
-    println!("cargo::rustc-check-cfg=cfg(descriptive_gate)");
-    println!("cargo::rustc-check-cfg=cfg(compact_gate)");
+    println!("cargo::rustc-check-cfg=cfg(descriptive-gate)");
+    println!("cargo::rustc-check-cfg=cfg(compact-gate)");
     println!("cargo::rustc-check-cfg=cfg(web_test)");
     println!("cargo::rustc-check-cfg=cfg(coverage)");
 }

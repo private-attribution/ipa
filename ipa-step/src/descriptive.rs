@@ -88,7 +88,7 @@ impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
         }
 
         let mut id = self.id.clone() + "/";
-        #[cfg(all(feature = "trace", feature = "in-memory-infra"))]
+        #[cfg(feature = "trace")]
         {
             id += [std::any::type_name::<S>(), "::"].concat().as_ref();
         }

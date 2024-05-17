@@ -145,9 +145,8 @@ jobs:
       - name: Run arithmetic bench
         run: cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
 
-# disabled until 961 is merged
-#      - name: Run compact gate tests
-#        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+      - name: Run compact gate tests
+        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
   sanitize:
