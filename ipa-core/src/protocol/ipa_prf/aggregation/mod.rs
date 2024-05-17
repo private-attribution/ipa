@@ -206,11 +206,9 @@ where
             })
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
     );
-    let aggregated_result = aggregate_values::<TV, B>(ctx,
-                                                      aggregation_input,
-                                                      num_chunks * N).await?;
+    let aggregated_result =
+        aggregate_values::<TV, B>(ctx, aggregation_input, num_chunks * N).await?;
     Ok(Vec::transposed_from(&aggregated_result)?)
-
 }
 
 /// A vector of histogram contributions for each output bucket.
@@ -239,8 +237,7 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
-) -> Result<BitDecomposed<Replicated<Boolean,B>>,Error>
-
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     'ctx: 'fut,
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -331,7 +328,6 @@ where
     );
     // Aggregation output to remain vectorized
     Ok(result)
-
 }
 
 #[cfg(all(test, unit_test))]
@@ -350,7 +346,7 @@ pub mod tests {
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{Runner, TestWorld,ReconstructArr},
+        test_fixture::{ReconstructArr, Runner, TestWorld},
     };
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
@@ -375,7 +371,7 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 1, 1, 1])),
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 0, 1, 1])),
             ];
-            let result : BitDecomposed<BA8> = TestWorld::default()
+            let result: BitDecomposed<BA8> = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
@@ -383,9 +379,9 @@ pub mod tests {
                 .await
                 .map(Result::unwrap)
                 .reconstruct_arr();
-            let expected : BitDecomposed<BA8> = input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map(|x: [Boolean; 8] | x.into_iter().collect::<BA8>());
+            let expected: BitDecomposed<BA8> = input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>());
             assert_eq!(result, expected);
-
         });
     }
 
@@ -407,7 +403,11 @@ pub mod tests {
                 .map(Result::unwrap)
                 .reconstruct_arr();
 
-            assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 0, 0, 0, 0]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>()));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 0, 0, 0, 0])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -429,7 +429,11 @@ pub mod tests {
                 .map(Result::unwrap)
                 .reconstruct_arr();
 
-            assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>()));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -453,7 +457,11 @@ pub mod tests {
                 .map(Result::unwrap)
                 .reconstruct_arr();
 
-            assert_eq!(result, input_row(8,&[0u32, 1, 2, 3, 4, 5, 6, 7]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>()));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -478,7 +486,8 @@ pub mod tests {
 
             assert_eq!(
                 result,
-                input_row(8,&[0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0]).map( |x : [Boolean; 8] | x.into_iter().collect::<BA8>())
+                input_row(8, &[0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
             );
         });
     }
@@ -615,8 +624,7 @@ pub mod tests {
             }
         }
     }
-    proptest!
-    {
+    proptest! {
         #[test]
         fn aggregate_proptest(
             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)

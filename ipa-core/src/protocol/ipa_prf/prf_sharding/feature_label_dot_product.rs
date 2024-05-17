@@ -19,13 +19,15 @@ use crate::{
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        replicated::{
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+            ReplicatedSecretSharing,
+        },
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 
 pub struct PrfShardedIpaInputRow<FV: SharedValue, const B: usize> {
     prf_of_match_key: u64,
@@ -283,13 +285,13 @@ where
     let flattened_stream = Box::pin(
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
-    let aggregated_result : BitDecomposed<AdditiveShare<Boolean,B>> =
+    let aggregated_result: BitDecomposed<AdditiveShare<Boolean, B>> =
         aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
 
-    let transposed_aggregated_result:Vec<Replicated<HV>> = Vec::transposed_from(&aggregated_result)?;
+    let transposed_aggregated_result: Vec<Replicated<HV>> =
+        Vec::transposed_from(&aggregated_result)?;
 
     Ok(transposed_aggregated_result.try_into().unwrap())
-
 }
 
 async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
