@@ -13,7 +13,7 @@ use crate::{
     ff::{boolean::Boolean, ArrayAccessRef, CustomArray, Field},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
-        boolean::BitStep,
+        boolean::NBitStep,
         context::{Context, SemiHonestContext},
         Gate, RecordId,
     },
@@ -36,7 +36,7 @@ pub async fn compare_geq<C, S>(
 ) -> Result<AdditiveShare<Boolean>, Error>
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
     Gate: StepNarrow<S>,
 {
@@ -60,7 +60,7 @@ pub async fn compare_gt<C, S, const N: usize>(
 ) -> Result<AdditiveShare<Boolean, N>, Error>
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Gate: StepNarrow<S>,
@@ -85,7 +85,7 @@ pub async fn integer_sub<C, S>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean>>, Error>
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
     Gate: StepNarrow<S>,
 {
@@ -108,7 +108,7 @@ pub async fn integer_sat_sub<S, St>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     S: SharedValue + CustomArray<Element = Boolean>,
-    St: BitStep,
+    St: NBitStep,
     for<'a> AdditiveShare<S>: BooleanArrayMul<SemiHonestContext<'a>>,
     Gate: StepNarrow<St>,
 {
@@ -154,7 +154,7 @@ async fn subtraction_circuit<C, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Gate: StepNarrow<S>,

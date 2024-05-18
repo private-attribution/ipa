@@ -8,7 +8,7 @@ use crate::{
     helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
-        boolean::{or::bool_or, BitStep},
+        boolean::{or::bool_or, NBitStep},
         context::{Context, UpgradedSemiHonestContext},
         Gate, RecordId,
     },
@@ -38,7 +38,7 @@ pub async fn integer_add<C, S, const N: usize>(
 >
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Gate: StepNarrow<S>,
@@ -61,7 +61,7 @@ pub async fn integer_sat_add<'a, SH, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     SH: ShardBinding,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
     Gate: StepNarrow<S>,
@@ -100,7 +100,7 @@ async fn addition_circuit<C, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Gate: StepNarrow<S>,

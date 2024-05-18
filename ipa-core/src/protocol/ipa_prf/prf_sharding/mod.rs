@@ -24,7 +24,7 @@ use crate::{
         boolean::{
             or::or,
             step::{EightBitStep, ThirtyTwoBitStep},
-            BitStep,
+            NBitStep,
         },
         context::{
             Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
@@ -197,7 +197,7 @@ where
         .await?;
 
         assert!(
-            TV::BITS <= EightBitStep::max_bit_depth(),
+            TV::BITS <= EightBitStep::BITS,
             "EightBitStep not large enough to accomodate this sum"
         );
         let (updated_sum, overflow_bit) = integer_add::<_, EightBitStep, 1>(
@@ -209,7 +209,7 @@ where
         .await?;
 
         assert!(
-            TV::BITS <= EightBitStep::max_bit_depth(),
+            TV::BITS <= EightBitStep::BITS,
             "EightBitStep not large enough to accomodate this subtraction"
         );
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
@@ -667,7 +667,7 @@ where
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         assert!(
-            TS::BITS <= ThirtyTwoBitStep::max_bit_depth(),
+            TS::BITS <= ThirtyTwoBitStep::BITS,
             "ThirtyTwoBitStep is not large enough to accomodate this subtraction"
         );
         let time_delta_bits = integer_sub::<_, ThirtyTwoBitStep>(

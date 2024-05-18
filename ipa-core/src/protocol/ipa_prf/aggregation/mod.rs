@@ -15,7 +15,7 @@ use crate::{
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols},
-        boolean::{step::SixteenBitStep, BitStep},
+        boolean::{step::SixteenBitStep, NBitStep},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
             aggregation::step::{AggregateValuesStep, AggregationStep as Step},
@@ -266,7 +266,7 @@ where
                                 let record_id = RecordId::from(i);
                                 if a.len() < usize::try_from(OV::BITS).unwrap() {
                                     assert!(
-                                        OV::BITS <= SixteenBitStep::max_bit_depth(),
+                                        OV::BITS <= SixteenBitStep::BITS,
                                         "SixteenBitStep not large enough to accomodate this sum"
                                     );
                                     // If we have enough output bits, add and keep the carry.
@@ -281,7 +281,7 @@ where
                                     Ok(sum)
                                 } else {
                                     assert!(
-                                        OV::BITS <= SixteenBitStep::max_bit_depth(),
+                                        OV::BITS <= SixteenBitStep::BITS,
                                         "SixteenBitStep not large enough to accomodate this sum"
                                     );
                                     integer_sat_add::<_, SixteenBitStep, B>(
