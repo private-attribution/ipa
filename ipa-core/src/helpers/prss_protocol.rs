@@ -4,24 +4,10 @@ use x25519_dalek::PublicKey;
 
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, Role, TotalRecords},
-    protocol::{
-        prss,
-        step::{Gate, Step, StepNarrow},
-        RecordId,
-    },
+    protocol::{prss, Gate, RecordId},
 };
 
-pub struct PrssExchangeStep;
-
-impl AsRef<str> for PrssExchangeStep {
-    fn as_ref(&self) -> &str {
-        "prss_exchange"
-    }
-}
-
-impl Step for PrssExchangeStep {}
-
-/// establish the prss endpoint by exchanging public keys with the other helpers
+/// Establish the prss endpoint by exchanging public keys with the other helpers.
 /// # Errors
 /// if communication with other helpers fails
 pub async fn negotiate<R: RngCore + CryptoRng>(
@@ -29,12 +15,11 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     gate: &Gate,
     rng: &mut R,
 ) -> Result<prss::Endpoint, Error<Role>> {
-    // setup protocol to exchange prss public keys. This protocol sends one message per peer.
+    // setup protocol to exchange PRSS public keys. This protocol sends one message per peer.
     // Each message contains this helper's public key. At the end of this protocol, all helpers
     // have completed key exchange and each of them have established a shared secret with each peer.
-    let step = gate.narrow(&PrssExchangeStep);
-    let left_channel = ChannelId::new(gateway.role().peer(Direction::Left), step.clone());
-    let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), step.clone());
+    let left_channel = ChannelId::new(gateway.role().peer(Direction::Left), gate.clone());
+    let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), gate.clone());
     let total_records = TotalRecords::from(1);
 
     let left_sender = gateway.get_mpc_sender::<PublicKey>(&left_channel, total_records);

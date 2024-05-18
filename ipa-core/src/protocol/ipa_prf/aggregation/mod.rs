@@ -5,7 +5,6 @@ use std::{
 };
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
@@ -16,12 +15,13 @@ use crate::{
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols},
+        boolean::{step::SixteenBitStep, BitStep},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
+            aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             prf_sharding::AttributionOutputs,
         },
-        step::{BitStep, SixteenBitStep},
         RecordId,
     },
     secret_sharing::{
@@ -32,6 +32,7 @@ use crate::{
 };
 
 mod bucket;
+pub(crate) mod step;
 
 type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
     BitDecomposed<Replicated<Boolean, N>>,
@@ -90,19 +91,6 @@ where
             capped_attributed_trigger_value: tv,
         })
     }
-}
-
-#[derive(Step)]
-pub(crate) enum Step {
-    MoveToBucket,
-    #[dynamic(32)]
-    Aggregate(usize),
-}
-
-#[derive(Step)]
-pub(crate) enum AggregateValuesStep {
-    OverflowingAdd,
-    SaturatingAdd,
 }
 
 // Aggregation

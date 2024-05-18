@@ -1,21 +1,13 @@
 use std::iter::zip;
 
-use ipa_macros::Step;
-
 use crate::{
     error::Error,
     ff::boolean::Boolean,
-    protocol::{basics::SecureMul, context::Context, RecordId},
+    protocol::{basics::SecureMul, boolean::step::BoolAndStep, context::Context, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
 const MAX_BITS: usize = 8;
-
-#[derive(Step)]
-pub(crate) enum BoolAndStep {
-    #[dynamic(8)] // keep in sync with MAX_BITS
-    Bit(usize),
-}
 
 /// Matrix bitwise AND for use with vectors of bit-decomposed values. Supports up to 8 bits of input
 /// that is enough to support both WALR and PRF IPA use cases.

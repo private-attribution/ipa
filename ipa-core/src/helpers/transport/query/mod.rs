@@ -11,7 +11,7 @@ use crate::{
         transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
         GatewayConfig, RoleAssignment, RouteParams,
     },
-    protocol::{step::Step, QueryId},
+    protocol::QueryId,
 };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
@@ -22,10 +22,7 @@ impl QuerySize {
 }
 
 impl<'de> Deserialize<'de> for QuerySize {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let v = u32::deserialize(deserializer)?;
         Self::try_from(v).map_err(serde::de::Error::custom)
     }
@@ -223,8 +220,6 @@ impl AsRef<str> for QueryType {
         }
     }
 }
-
-impl Step for QueryType {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]

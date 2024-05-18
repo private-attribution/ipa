@@ -3,6 +3,7 @@ name = "ipa-core"
 version = "0.1.0"
 rust-version = "1.77.0"
 edition = "2021"
+build = "build.rs"
 
 [features]
 default = [
@@ -11,13 +12,15 @@ default = [
     # by default remove all TRACE, DEBUG spans from release builds
     "tracing/max_level_trace",
     "tracing/release_max_level_info",
-    "descriptive-gate",
     "aggregate-circuit",
     "stall-detection",
     "aggregate-circuit",
     "ipa-prf",
+    "ipa-step/string-step",
 ]
 cli = ["comfy-table", "clap"]
+# Enabling compact gates disables any tests that rely on descriptive gates.
+compact-gate = ["ipa-step/string-step"]
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
@@ -54,11 +57,7 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
-step-trace = ["descriptive-gate"]
-# The following two features are mutually exclusive. Descriptive should be enabled by deafult as the vast majority
-# of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
-descriptive-gate = []
-compact-gate = ["ipa-macros/compact-gate"]
+step-trace = ["ipa-step/trace"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
 # Enable tokio task profiling. Requires tokio_unstable flag to be passed to the compiler.
@@ -73,7 +72,8 @@ aggregate-circuit = []
 ipa-prf = []
 
 [dependencies]
-ipa-macros = { version = "*", path = "../ipa-macros" }
+ipa-step = { version = "*", path = "../ipa-step" }
+ipa-step-derive = { version = "*", path = "../ipa-step-derive" }
 
 aes = "0.8.3"
 async-trait = "0.1.79"
@@ -133,7 +133,7 @@ rustls-pemfile = { version = "2.1.2", optional = true }
 rustls-pki-types = "1.4.1"
 # TODO consider using zerocopy or serde_bytes or in-house serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0" }
+serde_json = "1.0"
 sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
 thiserror = "1.0"
@@ -155,14 +155,19 @@ tikv-jemallocator = "0.5.0"
 
 [build-dependencies]
 cfg_aliases = "0.1.1"
+ipa-step = { version = "*", path = "../ipa-step", features = ["build"] }
+ipa-step-derive = { version = "*", path = "../ipa-step-derive", features = ["build"] }
+serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 command-fds = "0.2.2"
 hex = "0.4"
+ipa-step = { version = "*", path = "../ipa-step", features = ["build", "string-step"] }
 permutation = "0.4.1"
 proptest = "1.4"
 rustls = { version = "0.23" }
 tempfile = "3"
+
 
 [lib]
 path = "src/lib.rs"
@@ -193,25 +198,25 @@ bench = false
 name = "criterion_arithmetic"
 path = "benches/ct/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[bench]]
 name = "iai_arithmetic"
 path = "benches/iai/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[bench]]
 name = "oneshot_arithmetic"
 path = "benches/oneshot/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[bench]]
 name = "oneshot_ipa"
 path = "benches/oneshot/ipa.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[bench]]
 name = "transpose"
@@ -225,15 +230,14 @@ required-features = [
     "web-app",
     "real-world-infra",
     "test-fixture",
-    "descriptive-gate",
 ]
 
 [[test]]
 name = "compact_gate"
 required-features = [
     "cli",
+    "compact-gate",
     "web-app",
     "real-world-infra",
     "test-fixture",
-    "compact-gate",
 ]

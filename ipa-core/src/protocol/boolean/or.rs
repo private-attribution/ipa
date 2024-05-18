@@ -3,7 +3,9 @@ use std::iter::zip;
 use crate::{
     error::Error,
     ff::{boolean::Boolean, Field},
-    protocol::{basics::SecureMul, context::Context, step::TwoHundredFiftySixBitOpStep, RecordId},
+    protocol::{
+        basics::SecureMul, boolean::step::TwoHundredFiftySixBitOpStep, context::Context, RecordId,
+    },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd,
         Linear as LinearSecretSharing,

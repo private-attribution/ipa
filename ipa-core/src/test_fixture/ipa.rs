@@ -14,7 +14,6 @@ use crate::{
         },
         IntoShares,
     },
-    test_fixture::Reconstruct,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -198,7 +197,7 @@ pub async fn test_oprf_ipa<F>(
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
-        test_fixture::Runner,
+        test_fixture::{Reconstruct, Runner},
     };
 
     let aws = config.attribution_window_seconds;

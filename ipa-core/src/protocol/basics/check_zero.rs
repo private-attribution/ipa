@@ -1,22 +1,14 @@
-use ipa_macros::Step;
-
 use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{mul::semi_honest_multiply, reveal::Reveal},
+        basics::{mul::semi_honest_multiply, reveal::Reveal, step::CheckZeroStep as Step},
         context::Context,
         prss::{FromRandom, SharedRandomness},
         RecordId,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    MultiplyWithR,
-    RevealR,
-}
 
 /// A very simple protocol to check if a replicated secret sharing is a sharing of zero.
 ///

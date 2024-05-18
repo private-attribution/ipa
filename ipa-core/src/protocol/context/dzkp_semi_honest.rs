@@ -5,6 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
@@ -16,8 +17,7 @@ use crate::{
             dzkp_validator::Segment, Base, DZKPContext, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness,
         },
-        step::{Gate, Step, StepNarrow},
-        RecordId,
+        Gate, RecordId,
     },
     seq_join::SeqJoin,
     sharding::{ShardBinding, ShardConfiguration, ShardIndex, Sharded},

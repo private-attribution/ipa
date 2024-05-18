@@ -26,7 +26,7 @@ use crate::{
         ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection, Transport,
         TransportIdentity,
     },
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
     sync::{Arc, Weak},
 };
 
@@ -328,7 +328,7 @@ mod tests {
             HandlerBox, HelperIdentity, HelperResponse, OrderingSender, Role, RoleAssignment,
             Transport, TransportIdentity,
         },
-        protocol::{step::Gate, QueryId},
+        protocol::{Gate, QueryId},
         sync::Arc,
     };
 

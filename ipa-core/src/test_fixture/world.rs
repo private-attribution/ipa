@@ -1,11 +1,14 @@
+// We have quite a bit of code that is only used when descriptive-gate is enabled.
+#![allow(dead_code)]
 use std::{array::from_fn, borrow::Borrow, fmt::Debug, io::stdout, iter::zip, marker::PhantomData};
 
 use async_trait::async_trait;
-use futures::{future::join_all, Future};
-use futures_util::{stream::FuturesOrdered, StreamExt};
-use ipa_macros::Step;
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng, thread_rng, Rng};
-use rand_core::{RngCore, SeedableRng};
+use futures::{future::join_all, stream::FuturesOrdered, Future, StreamExt};
+use rand::{
+    distributions::{Distribution, Standard},
+    rngs::StdRng,
+    thread_rng, Rng, RngCore, SeedableRng,
+};
 use tracing::{Instrument, Level, Span};
 
 use crate::{
@@ -20,28 +23,23 @@ use crate::{
             UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
-        QueryId,
+        Gate, QueryId,
     },
     secret_sharing::{
         replicated::malicious::{DowngradeMalicious, ExtendableField},
         IntoShares,
     },
     sharding::{NotSharded, ShardBinding, ShardIndex, Sharded},
-    sync::atomic::{AtomicUsize, Ordering},
     telemetry::{stats::Metrics, StepStatsCsvExporter},
     test_fixture::{
-        logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
+        logging, make_participants,
+        metrics::MetricsHandle,
+        sharing::ValidateMalicious,
+        test_gate::{gate_vendor, TestGateVendor},
+        Reconstruct,
     },
     utils::array::zip3_ref,
 };
-
-// This is used by the metrics tests in `protocol::context`. It otherwise would/should not be pub.
-#[derive(Step)]
-pub enum TestExecutionStep {
-    /// Provides a unique per-iteration context in tests.
-    #[dynamic(1024)]
-    Iter(usize),
-}
 
 pub trait ShardingScheme {
     type Container<A>;
@@ -89,6 +87,7 @@ pub struct WithShards<const SHARDS: usize, D: Distribute = RoundRobin> {
 pub struct TestWorld<S: ShardingScheme = NotSharded> {
     shards: Box<[ShardWorld<S::ShardBinding>]>,
     metrics_handle: MetricsHandle,
+    gate_vendor: Box<dyn TestGateVendor>,
     _shard_network: InMemoryShardNetwork,
     _phantom: PhantomData<S>,
 }
@@ -104,6 +103,12 @@ pub struct TestWorldConfig {
     pub role_assignment: Option<RoleAssignment>,
     /// Seed for random generators used in PRSS
     pub seed: u64,
+    /// The gate to start on. If left empty, a unique gate per test run will be created, allowing
+    /// the use of [`TestWorld`] for multiple runs.
+    /// For anything other than compact gate, you'll want to leave it empty. Only if you care about
+    /// performance and want to use compact gates, you set this to the gate narrowed to root step
+    /// of the protocol being tested.
+    pub initial_gate: Option<Gate>,
 }
 
 impl ShardingScheme for NotSharded {
@@ -186,7 +191,7 @@ impl TestWorld<NotSharded> {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn contexts(&self) -> [SemiHonestContext<'_>; 3] {
-        self.shards[0].contexts()
+        self.shards[0].contexts(&self.next_gate())
     }
 
     /// Creates malicious protocol contexts for 3 helpers
@@ -195,7 +200,7 @@ impl TestWorld<NotSharded> {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn malicious_contexts(&self) -> [MaliciousContext<'_>; 3] {
-        self.shards[0].malicious_contexts()
+        self.shards[0].malicious_contexts(&self.next_gate())
     }
 
     #[must_use]
@@ -249,9 +254,19 @@ impl<S: ShardingScheme> TestWorld<S> {
         Self {
             shards,
             metrics_handle: MetricsHandle::new(config.metrics_level),
+            gate_vendor: gate_vendor(config.initial_gate.clone()),
             _shard_network: shard_network,
             _phantom: PhantomData,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn gate(&self) -> Gate {
+        self.gate_vendor.current()
+    }
+
+    fn next_gate(&self) -> Gate {
+        self.gate_vendor.next()
     }
 }
 
@@ -265,6 +280,7 @@ impl Default for TestWorldConfig {
             metrics_level: Level::DEBUG,
             role_assignment: None,
             seed: thread_rng().next_u64(),
+            initial_gate: None,
         }
     }
 }
@@ -314,7 +330,6 @@ where
 pub trait Runner<S: ShardingScheme> {
     /// This could be also derived from [`S`], but maybe that's too much for that trait.
     type SemiHonestContext<'ctx>: Context;
-
     /// Run with a context that can be upgraded, but is only good for semi-honest.
     async fn semi_honest<'a, I, A, O, H, R>(
         &'a self,
@@ -398,6 +413,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
     {
         let shards = self.shards();
         let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share().map(D::distribute);
+        let gate = self.next_gate();
 
         // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
         #[allow(clippy::redundant_closure)]
@@ -405,7 +421,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         zip(shards.into_iter(), zip(zip(h1, h2), h3))
             .map(|(shard, ((h1, h2), h3))| {
                 ShardWorld::<Sharded>::run_either(
-                    shard.contexts(),
+                    shard.contexts(&gate),
                     self.metrics_handle.span(),
                     [h1, h2, h3],
                     shard_fn,
@@ -572,7 +588,6 @@ struct ShardWorld<B: ShardBinding> {
     shard_info: B,
     gateways: [Gateway; 3],
     participants: [PrssEndpoint; 3],
-    executions: AtomicUsize,
     // It will be used once Gateway knows how to route shard traffic
     _shard_connections: [InMemoryTransport<ShardIndex>; 3],
     _mpc_network: InMemoryMpcNetwork,
@@ -608,7 +623,6 @@ impl<B: ShardBinding> ShardWorld<B> {
             shard_info,
             gateways,
             participants,
-            executions: AtomicUsize::default(),
             _shard_connections: transports,
             _mpc_network: network,
             _phantom: PhantomData,
@@ -644,11 +658,14 @@ impl<B: ShardBinding> ShardWorld<B> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn contexts(&self) -> [SemiHonestContext<'_, B>; 3] {
-        let step = TestExecutionStep::Iter(self.executions.fetch_add(1, Ordering::Relaxed));
+    pub fn contexts(&self, gate: &Gate) -> [SemiHonestContext<'_, B>; 3] {
         zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
-            SemiHonestContext::new_complete(participant, gateway, self.shard_info.clone())
-                .narrow(&step)
+            SemiHonestContext::new_with_gate(
+                participant,
+                gateway,
+                self.shard_info.clone(),
+                gate.clone(),
+            )
         })
     }
 
@@ -657,10 +674,9 @@ impl<B: ShardBinding> ShardWorld<B> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn malicious_contexts(&self) -> [MaliciousContext<'_>; 3] {
-        let execution = self.executions.fetch_add(1, Ordering::Relaxed);
+    pub fn malicious_contexts(&self, gate: &Gate) -> [MaliciousContext<'_>; 3] {
         zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
-            MaliciousContext::new(participant, gateway).narrow(&TestExecutionStep::Iter(execution))
+            MaliciousContext::new_with_gate(participant, gateway, gate.clone())
         })
     }
 }
