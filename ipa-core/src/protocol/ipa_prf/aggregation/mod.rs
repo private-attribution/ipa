@@ -333,6 +333,7 @@ where
 #[cfg(all(test, unit_test))]
 pub mod tests {
     use std::{array, cmp::min, iter::repeat_with};
+    use crate::secret_sharing::TransposeFrom;
 
     use futures::{stream, StreamExt};
     use proptest::prelude::*;
@@ -667,10 +668,11 @@ pub mod tests {
                     )
                 })
                 .await
-                .map(Result::unwrap)
-                .reconstruct_arr();
-                let expected_vectorized = input_row_u64(tv_bits, &expected.try_into().unwrap() );
-                assert_eq!(result, expected_vectorized);
+                .map(Result::unwrap);
+                let result_transposed = Vec::transposed_from(&result)?;
+                let result_reconstructed = result_transposed.reconstruct_arr();
+
+                assert_eq!(result_transposed, expected);
             });
         }
     }
