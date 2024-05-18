@@ -1,12 +1,6 @@
 use ipa_step_derive::CompactStep;
 
 #[derive(CompactStep)]
-pub(crate) enum BoolAndStep {
-    #[step(count = 8)] // keep in sync with MAX_BITS defined inside and.rs
-    Bit(usize),
-}
-
-#[derive(CompactStep)]
 pub enum EightBitStep {
     #[step(count = 8)]
     Bit(usize),

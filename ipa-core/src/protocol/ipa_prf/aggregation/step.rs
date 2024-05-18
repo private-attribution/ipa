@@ -11,7 +11,7 @@ pub(crate) enum AggregationStep {
 #[derive(CompactStep)]
 pub enum BucketStep {
     /// should be equal to `MAX_BREAKDOWNS`
-    #[step(count = 512, child = crate::protocol::boolean::step::BoolAndStep)]
+    #[step(count = 512, child = crate::protocol::boolean::step::EightBitStep)]
     Bit(usize),
 }
 
