@@ -32,8 +32,6 @@ pub enum DeadCodeStep {
     CheckZero,
     #[step(child = crate::protocol::basics::mul::step::MaliciousMultiplyStep)]
     MaliciousMultiply,
-    #[step(child = crate::protocol::basics::mul::step::UpgradeStep)]
-    DummyUpgrade,
     #[step(child = crate::protocol::context::step::UpgradeStep)]
     UpgradeShare,
     #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
@@ -46,6 +44,4 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]
     ZeroKnowledgeProofValidate,
-    // #[cfg_attr(any(test, feature = "test-fixture"), step(child = crate::test_fixture::step::TestExecutionStep))]
-    // TestExecution,
 }
