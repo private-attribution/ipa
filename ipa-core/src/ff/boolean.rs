@@ -71,9 +71,6 @@ impl Vectorizable<1> for Boolean {
     type Array = StdArray<Boolean, 1>;
 }
 
-impl<B> Vectorizable<B> for Boolean {
-    type Array = StdArray<Boolean, B>;
-}
 
 impl FieldVectorizable<1> for Boolean {
     type ArrayAlias = StdArray<Boolean, 1>;

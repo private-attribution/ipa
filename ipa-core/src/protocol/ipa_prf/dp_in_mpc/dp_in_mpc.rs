@@ -12,7 +12,7 @@ use crate::ff::boolean::Boolean;
 use crate::ff::boolean_array::BA8;
 use crate::protocol::ipa_prf::aggregation::aggregate_values;
 use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
-use crate::protocol::prss::PrssIndex;
+use crate::protocol::prss::{FromPrss, PrssIndex};
 use crate::secret_sharing::{BitDecomposed, SharedValue, TransposeFrom};
 // use crate::protocol::ipa_prf::Step;
 // use crate::secret_sharing::replicated::malicious::AdditiveShare;
@@ -39,6 +39,8 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
 // ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
         C: Context,
+        Boolean: Vectorizable<B>,
+        BitDecomposed<Replicated<Boolean,B>>: FromPrss<usize>,
 {
     // Step 1:  Generate Bernoulli's with PRSS
     // sample a stream of `total_bits = num_bernoulli * B` bit from PRSS where B is number of histogram bins
@@ -48,7 +50,7 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
     let bits = 1;
     let mut vector_input_to_agg: Vec<_>;
     for i in 0..num_bernoulli {
-        let element : Replicated<Boolean,B> = ctx.prss().generate_with(RecordId::from(i),bits);
+        let element : BitDecomposed<Replicated<Boolean,B>> = ctx.prss().generate_with(RecordId::from(i),bits);
         vector_input_to_agg.push(element);
     }
 
