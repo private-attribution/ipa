@@ -1,6 +1,9 @@
 // DP in MPC
 
+use std::pin::Pin;
+use std::vec::IntoIter;
 use futures_util::stream;
+use futures_util::stream::Iter;
 use crate::{error::Error, ff::{Field, boolean_array::BA4}, protocol::{
     context::Context,
     prss::SharedRandomness,
@@ -33,14 +36,14 @@ pub(crate) enum Step {
 
 
 #[cfg(test)]
-pub async fn add_dp_noise<'ctx, C, const B: usize,OV>(
-    ctx: C,
+pub async fn add_dp_noise<'ctx, const B: usize,OV>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     histogram_bin_values: BitDecomposed<Replicated<Boolean,B>>,
     num_histogram_bins: u32,
     ) -> Result<Vec<Replicated<OV>>, Error>
 // ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
-        C: Context,
+        // C: Context,
         Boolean: Vectorizable<B> + FieldSimd<B>,
         BitDecomposed<Replicated<Boolean,B>>: FromPrss<usize>,
         OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -63,7 +66,8 @@ pub async fn add_dp_noise<'ctx, C, const B: usize,OV>(
     // may need to transpose to be vectorized by B, the number of histogram bins, which is how
     // aggregation calls `aggregate_values` and similar to how `feature_label_dot_product` uses
     // number of features
-    let aggregation_input = Box::pin(stream::iter(vector_input_to_agg.into_iter()));
+    let aggregation_input: Pin<Box<Iter<IntoIter<BitDecomposed<AdditiveShare<Boolean, { B }>>>>>> =
+        Box::pin(stream::iter(vector_input_to_agg.into_iter()));
 
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
     let noise_gen_ctx  = ctx.narrow(&Step::NoiseGen);
@@ -74,17 +78,19 @@ pub async fn add_dp_noise<'ctx, C, const B: usize,OV>(
 
 
     // Step 4:  Add DP noise to output values
-    let apply_noise_ctx =  ctx.narrow(&Step::ApplyNoise).set_total_records(1);
-    let histogram_noised = integer_add::<C,_,B>(
-                                                        apply_noise_ctx,
-                                                        RecordID::FIRST,
-                                                        noise_vector,
-                                                        histogram_bin_values);
+    // let apply_noise_ctx =  ctx.narrow(&Step::ApplyNoise).set_total_records(1);
+    // let histogram_noised = integer_add::<_,_,B>(
+    //                                                     apply_noise_ctx,
+    //                                                     RecordId::FIRST,
+    //                                                     noise_vector,
+    //                                                     histogram_bin_values);
 
     // Step 5 Transpose output representation
     // TODO
     // Ok(histogram_noised)
-    Ok(Vec::transposed_from(&histogram_noised)?)
+    // Ok(Vec::transposed_from(&histogram_noised)?)
+    Ok(Vec::transposed_from(&noise_vector)?)
+
 }
 
 #[cfg(all(test, unit_test))]
@@ -123,7 +129,7 @@ mod test {
         let result = world.semi_honest(
             input.into_iter(),
             | ctx , input | async move {
-                add_dp_noise::<_,_,Output_Value>(ctx, &input,NUM_BREAKDOWNS).await.unwrap()
+                add_dp_noise::<_,Output_Value>(ctx, &input,NUM_BREAKDOWNS).await.unwrap()
             }).await;
     }
 
