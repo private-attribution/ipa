@@ -18,9 +18,11 @@ use crate::secret_sharing::{BitDecomposed, SharedValue, TransposeFrom};
 // use crate::secret_sharing::replicated::malicious::AdditiveShare;
 // use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use ipa_macros::Step;
-use crate::ff::U128Conversions;
-use crate::protocol::RecordId;
+use crate::ff::{CustomArray, U128Conversions};
+use crate::protocol::{BooleanProtocols, RecordId};
+use crate::protocol::context::UpgradedSemiHonestContext;
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
+use crate::sharding::NotSharded;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -31,7 +33,7 @@ pub(crate) enum Step {
 
 
 #[cfg(test)]
-pub async fn add_dp_noise<C, const B: usize,OV>(
+pub async fn add_dp_noise<'ctx, C, const B: usize,OV>(
     ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean,B>>,
     num_histogram_bins: u32,
@@ -39,8 +41,11 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
 // ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
         C: Context,
-        Boolean: Vectorizable<B>,
+        Boolean: Vectorizable<B> + FieldSimd<B>,
         BitDecomposed<Replicated<Boolean,B>>: FromPrss<usize>,
+        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
     // Step 1:  Generate Bernoulli's with PRSS
     // sample a stream of `total_bits = num_bernoulli * B` bit from PRSS where B is number of histogram bins
@@ -62,7 +67,7 @@ pub async fn add_dp_noise<C, const B: usize,OV>(
 
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
     let noise_gen_ctx  = ctx.narrow(&Step::NoiseGen);
-    let noise_vector = aggregate_values::<B,OV>(
+    let noise_vector = aggregate_values::<OV,B>(
                                                                          noise_gen_ctx,
                                                           aggregation_input,
                                                                 num_bernoulli as usize).await;
