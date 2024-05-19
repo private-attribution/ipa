@@ -17,7 +17,6 @@ pub(crate) enum AttributionStep {
     #[step(child = UserNthRowStep)]
     BinaryValidator,
     PrimeFieldValidator,
-    ModulusConvertBreakdownKeyBitsAndTriggerValues,
     #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
     Aggregate,
 }
