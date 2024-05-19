@@ -577,13 +577,7 @@ pub mod tests {
     //     })
     // }
 
-    fn input_row_u64<const B: usize>(tv_bits: usize, values: &[u64]) -> BitDecomposed<[Boolean; B]> {
-        let values = <&[u64; B]>::try_from(values).unwrap();
 
-        BitDecomposed::decompose(tv_bits, |i| {
-            values.map(|v| Boolean::from((v >> i) & 1 == 1))
-        })
-    }
 
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
     // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
@@ -659,7 +653,7 @@ pub mod tests {
                 let inputs = inputs.into_iter().map(move |row| {
                     Ok(input_row(tv_bits, &row))
                 });
-                let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
+                let result : BitDecomposed<BA8> = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
                         ctx,
@@ -668,13 +662,22 @@ pub mod tests {
                     )
                 })
                 .await
-                .map(Result::unwrap);
-                let result_transposed = Vec::transposed_from(&result)?;
-                let result_reconstructed = result_transposed.reconstruct_arr();
+                .map(Result::unwrap)
+                .reconstruct_arr();
 
-                assert_eq!(result_transposed, expected);
+                let expected_type : Vec<BA8> = expected;
+                // let expected_vectorized = input_row()
+                // assert_eq!(result, expected);
             });
         }
+    }
+
+    fn input_row_proptest<const B: usize>(tv_bits: usize, values: &[u64]) -> BitDecomposed<[Boolean; B]> {
+        let values = <&[u64; B]>::try_from(values).unwrap();
+
+        BitDecomposed::decompose(tv_bits, |i| {
+            values.map(|v| Boolean::from((v >> i) & 1 == 1))
+        })
     }
 
 }
