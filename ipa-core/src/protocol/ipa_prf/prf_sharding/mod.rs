@@ -38,8 +38,8 @@ use crate::{
             },
             prf_sharding::step::{
                 AttributionPerRowStep as PerRowStep, AttributionStep as Step,
-                AttributionWindowStep as WindowStep, AttributionZeroTriggerStep as ZeroStep,
-                UserNthRowStep,
+                AttributionWindowStep as WindowStep,
+                AttributionZeroOutTriggerStep as ZeroOutTriggerStep, UserNthRowStep,
             },
             AGG_CHUNK,
         },
@@ -616,11 +616,11 @@ where
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
             ever_encountered_a_source_event,
-            ctx.narrow(&ZeroStep::DidTriggerGetAttributed),
+            ctx.narrow(&ZeroOutTriggerStep::DidTriggerGetAttributed),
             record_id,
         ),
         is_trigger_event_within_attribution_window(
-            ctx.narrow(&ZeroStep::CheckAttributionWindow),
+            ctx.narrow(&ZeroOutTriggerStep::CheckAttributionWindow),
             record_id,
             attribution_window_seconds,
             trigger_event_timestamp,
@@ -631,7 +631,7 @@ where
 
     // save 1 multiplication if there is no attribution window
     let zero_out_flag = if attribution_window_seconds.is_some() {
-        let c = ctx.narrow(&ZeroStep::AttributedEventCheckFlag);
+        let c = ctx.narrow(&ZeroOutTriggerStep::AttributedEventCheckFlag);
         did_trigger_get_attributed
             .multiply(&is_trigger_within_window, c, record_id)
             .await?

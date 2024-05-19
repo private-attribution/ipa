@@ -26,7 +26,7 @@ pub(crate) enum AttributionStep {
 pub(crate) enum AttributionPerRowStep {
     EverEncounteredSourceEvent,
     AttributedBreakdownKey,
-    #[step(child = AttributionZeroTriggerStep)]
+    #[step(child = AttributionZeroOutTriggerStep)]
     AttributedTriggerValue,
     SourceEventTimestamp,
     #[step(child = crate::protocol::boolean::step::EightBitStep)]
@@ -39,7 +39,7 @@ pub(crate) enum AttributionPerRowStep {
 }
 
 #[derive(CompactStep)]
-pub(crate) enum AttributionZeroTriggerStep {
+pub(crate) enum AttributionZeroOutTriggerStep {
     DidTriggerGetAttributed,
     #[step(child = AttributionWindowStep)]
     CheckAttributionWindow,
