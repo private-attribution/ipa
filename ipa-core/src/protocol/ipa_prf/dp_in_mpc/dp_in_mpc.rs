@@ -68,35 +68,34 @@ pub async fn gen_binomial_noise<C, const B: usize,OV>(
 
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
 
-    noise_vector = aggregate_values::<OV,B>(
-        noise_gen_ctx,
+    let noise_vector = aggregate_values::<OV,B>(
+        ctx,
         aggregation_input,
         num_bernoulli as usize).await;
-
+    noise_vector
 }
 
 
 #[cfg(test)]
-pub async fn apply_dp_noise<'ctx, const B: usize,OV>(
-    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+pub async fn apply_dp_noise<C, const B: usize,OV>(
+    ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean,B>>,
     num_histogram_bins: u32,
     ) -> Result<Vec<Replicated<OV>>, Error>
 // ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
-        // C: Context,
+        C: Context,
         Boolean: Vectorizable<B> + FieldSimd<B>,
         BitDecomposed<Replicated<Boolean,B>>: FromPrss<usize>,
         OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+        Replicated<Boolean, B>: BooleanProtocols<C, B>,
 {
     assert_eq!(num_histogram_bins, B as u32);
     // in the future there could be some calculation there to go from a passed in
     // epsilon, delta to the num_bernoulli, but for now it is fixed.
     let num_bernoulli: u32 = 1000;
     let noise_gen_ctx = ctx.narrow(&Step::NoiseGen);
-    noise_vector = gen_binomial_noise<B,OV>(noise_gen_ctx,num_bernoulli);
+    let noise_vector = gen_binomial_noise::<C,B,OV>(noise_gen_ctx,num_bernoulli,num_histogram_bins);
 
 
     // Step 4:  Add DP noise to output values
@@ -117,7 +116,7 @@ pub async fn apply_dp_noise<'ctx, const B: usize,OV>(
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::{add_dp_noise, gen_binomial_noise};
+    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::{apply_dp_noise, gen_binomial_noise};
     use rand::distributions::{Distribution};
     use crate::{ff::{Field, Fp31, Fp32BitPrime, U128Conversions, boolean_array::BA4}, helpers::TotalRecords, protocol::{
         basics::{SecureMul},
@@ -150,7 +149,7 @@ mod test {
         let input = input_row(8, &[10,8,6,41]);
         let result = world.semi_honest(
             | ctx  | async move {
-                gen_binomial_noise::<_,NUM_BREAKDOWNS as usize,Output_Value>(ctx, &input,NUM_BREAKDOWNS).await.unwrap()
+                gen_binomial_noise::<_,{NUM_BREAKDOWNS as usize},Output_Value>(ctx, &input,NUM_BREAKDOWNS).await.unwrap()
             }).await;
     }
 
