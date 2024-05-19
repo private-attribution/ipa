@@ -82,7 +82,6 @@ pub async fn apply_dp_noise<C, const B: usize,OV>(
     histogram_bin_values: BitDecomposed<Replicated<Boolean,B>>,
     num_histogram_bins: u32,
     ) -> Result<Vec<Replicated<OV>>, Error>
-// ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
         C: Context,
         Boolean: Vectorizable<B> + FieldSimd<B>,
@@ -107,10 +106,7 @@ pub async fn apply_dp_noise<C, const B: usize,OV>(
                                                         histogram_bin_values);
 
     // Step 5 Transpose output representation
-    // TODO
-    // Ok(histogram_noised)
-    // Ok(Vec::transposed_from(&histogram_noised)?)
-    Ok(Vec::transposed_from(&noise_vector)?)
+    Ok(Vec::transposed_from(&histogram_noised)?)
 
 }
 
@@ -140,31 +136,30 @@ mod test {
         })
     }
 
-    #[tokio::test]
-    pub async fn test_four_breakdowns(){
-        let world = TestWorld::default();
-        // const OUTPUT_WIDTH : u32 = 16;
-        type Output_Value = BA8;
-        const NUM_BREAKDOWNS: u32 = 4;
-        let input = input_row(8, &[10,8,6,41]);
-        let result = world.semi_honest(
-            | ctx  | async move {
-                gen_binomial_noise::<_,{NUM_BREAKDOWNS as usize},Output_Value>(ctx, &input,NUM_BREAKDOWNS).await.unwrap()
-            }).await;
-    }
+    // #[tokio::test]
+    // pub async fn test_apply_dp_noise(){
+    //     let world = TestWorld::default();
+    //     type Output_Value = BA8;
+    //     const NUM_BREAKDOWNS: u32 = 4;
+    //     let input = input_row(8, &[10,8,6,41]);
+    //     let result = world.semi_honest(
+    //         input.into_iter() | ctx,input  | async move {
+    //             apply_dp_noise::<_,_,Output_Value>(ctx, &input,NUM_BREAKDOWNS).await.unwrap()
+    //         }).await;
+    // }
 
     #[tokio::test]
-    pub async fn test_gen_binomial(){
+    pub async fn test_gen_binomial_noise(){
         let world = TestWorld::default();
         // const OUTPUT_WIDTH : u32 = 16;
         type Output_Value = BA8;
         const NUM_BREAKDOWNS: u32 = 4;
         let num_bernoulli : u32 = 1000;
-        let input = input_row(8, &[10,8,6,41]);
+        let input = input_row(8, &[10,8,6,41]); // really no input
         let result = world.semi_honest(
             input.into_iter(),
             | ctx , input | async move {
-                add_dp_noise::<_,Output_Value>(ctx, num_bernoulli,NUM_BREAKDOWNS).await.unwrap()
+                gen_binomial_noise::<_,{NUM_BREAKDOWNS as usize},Output_Value>(ctx, num_bernoulli,NUM_BREAKDOWNS).await.unwrap()
             }).await;
     }
 
