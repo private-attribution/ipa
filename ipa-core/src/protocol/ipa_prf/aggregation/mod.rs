@@ -271,7 +271,7 @@ where
                                     );
                                     // If we have enough output bits, add and keep the carry.
                                     let (mut sum, carry) = integer_add::<_, SixteenBitStep, B>(
-                                        ctx.narrow(&AggregateValuesStep::OverflowingAdd),
+                                        ctx.narrow(&AggregateValuesStep::Add),
                                         record_id,
                                         &a,
                                         &b,
