@@ -14,7 +14,7 @@ use crate::{
         },
         ipa_prf::malicious_security::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-            prover::{ProofArray, UVPolynomial, ZeroKnowledgeProof},
+            prover::{ProofArray, UVPolynomial, UVStore, ZeroKnowledgeProof},
         },
         prss::SharedRandomness,
         RecordId,
@@ -55,7 +55,7 @@ where
         <R as Sub<U1>>::Output: ArrayLength,
     {
         // generate ProofBatch
-        let (prover_left_batch, verifier_left_batch) =
+        let (prover_left_batch, verifier_left_batch, (left, right)) =
             ProofBatch::<F, R>::compute_proof_batch(&ctx, uv_tuple_block);
 
         // send left_prover_batch and receive right_verifier_batch
@@ -83,7 +83,7 @@ where
 
 impl<F, R> ProofBatch<F, R>
 where
-    F: PrimeField,
+    F: PrimeField + Default,
     ZeroKnowledgeProof<F, R>: ProofArray,
 {
     fn is_empty(&self) -> bool {
@@ -153,11 +153,12 @@ where
     ///
     /// It generates `prover_left_batch` as its left output
     /// and `verifier_left_batch` as its right output.
+    /// Further, it outputs the generated masks included in the last proof of the batch.
     ///
     /// `PRSS` is invoked since `PRSS` left is used to generate `prover_left_batch`.
     /// Since it cannot be invoked later again on the same `Gate` and `Index`,
     /// we use `PRSS` right to generate `verifier_left_batch` and output it as well.
-    fn compute_proof_batch<C, I>(ctx: &C, uv_tuple_block: I) -> (Self, Self)
+    fn compute_proof_batch<C, I>(ctx: &C, uv_tuple_block: I) -> (Self, Self, (F, F))
     where
         C: Context,
         I: Iterator<Item = UVTupleBlock<F>> + Clone,
@@ -180,57 +181,58 @@ where
         // set up record counter
         let mut record_counter = 0usize;
 
-        // // generate first proof
-        // let mut proof = UVStore::<F, R>::compute_proof(
-        //     // todo(DM): clone needs to be fixed
-        //     ProofBatch::<F, R>::polynomials_from_blocks::<R, _>(uv_tuple_block.clone()),
-        //     &lagrange_table,
-        // );
-        //
-        // // generate proof shares
-        // let (prover_left_proof, verifier_left_proof) =
-        //     ProofBatch::<F, R>::share_via_prss(&mut proof.g, ctx, &mut record_counter);
+        // generate first proof
+        // from iterator over owned values
+        let mut proof = ZeroKnowledgeProof::<F, R>::compute_proof(
+            Self::polynomials_from_blocks::<R, _>(uv_tuple_block.clone()),
+            &lagrange_table,
+        );
 
-        // let mut proof_generator = UVStore::<_, _, Vec<_>>::gen_challenge_and_recurse::<R, _>(
-        //     &prover_left_proof,
-        //     &proof.g,
-        //     ProofBatch::<F, R>::polynomials_from_blocks::<R, _>(uv_tuple_block),
-        // );
-        //
-        // // store proofs
-        // prover_left_batch.push(ZeroKnowledgeProof {
-        //     g: prover_left_proof,
-        // });
-        // verifier_left_batch.push(ZeroKnowledgeProof {
-        //     g: verifier_left_proof,
-        // });
-        //
-        // // recursively generate proofs
-        // while proof_generator.len() >= R::USIZE {
-        //     // generate next proof
-        //     let mut proof = UVStore::<F, R, Vec<_>>::compute_proof(
-        //         proof_generator.iter().map(|x| (&x.0, &x.1)),
-        //         &lagrange_table,
-        //     );
-        //
-        //     // generate proof shares
-        //     let (prover_left_proof, verifier_left_proof) =
-        //         ProofBatch::<F, R>::share_via_prss(&mut proof.g, ctx, &mut record_counter);
-        //
-        //     proof_generator = UVStore::<_, _, Vec<_>>::gen_challenge_and_recurse::<R, _>(
-        //         &prover_left_proof,
-        //         &proof.g,
-        //         proof_generator.iter().map(|x| (&x.0, &x.1)),
-        //     );
-        //
-        //     // store proofs
-        //     prover_left_batch.push(ZeroKnowledgeProof {
-        //         g: prover_left_proof,
-        //     });
-        //     verifier_left_batch.push(ZeroKnowledgeProof {
-        //         g: verifier_left_proof,
-        //     });
-        // }
+        // generate proof shares
+        let (prover_left_proof, verifier_left_proof) =
+            Self::share_via_prss(&mut proof, ctx, &mut record_counter);
+
+        // compute next uv values
+        // from iterator over owned values
+        let mut uv_store = UVStore::gen_challenge_and_recurse(
+            &prover_left_proof,
+            &proof,
+            Self::polynomials_from_blocks::<R, _>(uv_tuple_block),
+        );
+
+        // store proofs
+        prover_left_batch.push(prover_left_proof);
+        verifier_left_batch.push(verifier_left_proof);
+
+        // recursively generate proofs
+        // until there are less than `R::USIZE` many (u,v) field elements
+        while uv_store.len() >= R::USIZE {
+            // generate next proof
+            // from iterator over references
+            let mut proof =
+                ZeroKnowledgeProof::<F, R>::compute_proof(uv_store.iter(), &lagrange_table);
+
+            // generate proof shares
+            let (prover_left_proof, verifier_left_proof) =
+                Self::share_via_prss(&mut proof, ctx, &mut record_counter);
+
+            // compute next uv values
+            // from iterator over references
+            uv_store = UVStore::<F, R>::gen_challenge_and_recurse(
+                &prover_left_proof,
+                &proof,
+                uv_store.iter(), //.map(|x| (&x.0, &x.1)),
+            );
+
+            // store proofs
+            prover_left_batch.push(prover_left_proof);
+            verifier_left_batch.push(verifier_left_proof);
+        }
+
+        // generate masks
+        let (p_mask, _): (F, F) = ctx.prss().generate_fields(RecordId::from(record_counter));
+        record_counter += 1;
+        let (q_mask, _): (F, F) = ctx.prss().generate_fields(RecordId::from(record_counter));
 
         // output proofs
         (
@@ -240,6 +242,8 @@ where
             ProofBatch {
                 proofs: verifier_left_batch,
             },
+            //(left_mask,right_mask)
+            (F::ZERO, F::ZERO),
         )
     }
 

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     iter::zip,
     ops::{Add, Sub},
 };
@@ -15,8 +16,6 @@ use crate::{
 };
 
 pub type UVPolynomial<F, N> = (GenericArray<F, N>, GenericArray<F, N>);
-pub type UVPolynomialRef<'a, F, N> = (&'a GenericArray<F, N>, &'a GenericArray<F, N>);
-
 pub type TwoNMinusOne<R> = Diff<Sum<R, R>, U1>;
 
 // todo: deprecate
@@ -74,26 +73,27 @@ where
         }
     }
 
-    ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
     /// `https://eprint.iacr.org/2023/909.pdf`
     ///
-    pub fn compute_proof<'a, J>(
+    /// Uses Andy's borrow trick to work with references and owned values :)
+    pub fn compute_proof<J, B>(
         uv: J,
         lagrange_table: &LagrangeTable<F, R, <R as Sub<U1>>::Output>,
     ) -> Self
     where
-        J: Iterator<Item = UVPolynomialRef<'a, F, R>>,
+        J: Iterator<Item = B>,
         R: ArrayLength + Sub<U1>,
         <R as Sub<U1>>::Output: ArrayLength,
+        B: Borrow<UVPolynomial<F, R>>,
     {
         let mut proof = Self::default();
-        for uv in uv.into_iter() {
+        for uv in uv {
             for i in 0..R::USIZE {
-                proof.g[i] += uv.0[i] * uv.1[i];
+                proof.g[i] += uv.borrow().0[i] * uv.borrow().1[i];
             }
-            let p_extrapolated = lagrange_table.eval(uv.0);
-            let q_extrapolated = lagrange_table.eval(uv.1);
+            let p_extrapolated = lagrange_table.eval(&uv.borrow().0);
+            let q_extrapolated = lagrange_table.eval(&uv.borrow().1);
 
             for (i, (x, y)) in
                 zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
@@ -131,17 +131,17 @@ where
         self.uv.iter()
     }
 
-    /// This function generates a set of `UVPolynomial<F,2M-1>` that is used for the next recursion.
-    /// Parameter `M` determines the degree of the polynomial which is `2M-2`.
-    /// It also determines the amount of points that represent each polynomial which is `2M-1`.
-    ///
-    /// The new `ProofGenerator` uses `Vec<UVPolynomial<F,2M-1>>` as `IntoIterator` datatype.
+    /// This function generates a set of `UVPolynomial<F,R>` that is used for the next recursion.
+    /// Parameter `R` determines the degree of the polynomial which is `R-1`.
+    /// It also determines the amount of points that represent each polynomial which is `R`.
     ///
     /// The function uses `Fiat-Shamir` to generate a challenge `r`
     /// by hashing the two input proofs, `proof_left` and `proof_right`
     /// It then evaluates each input polynomial at x coordinate `r`.
     /// The computed points are used to generate the set of `UVPolynomial<F,M>`.
-    pub fn gen_challenge_and_recurse<'a, J>(
+    ///
+    /// Uses Andy's borrow trick to work with references and owned values :)
+    pub fn gen_challenge_and_recurse<J, B>(
         proof_left: &ZeroKnowledgeProof<F, R>,
         proof_right: &ZeroKnowledgeProof<F, R>,
         mut uv: J,
@@ -149,16 +149,10 @@ where
     where
         F: Default,
         ZeroKnowledgeProof<F, R>: ProofArray,
-        J: Iterator<Item = UVPolynomialRef<'a, F, R>>,
+        J: Iterator<Item = B>,
+        B: Borrow<UVPolynomial<F, R>>,
     {
-        let r: F = hash_to_field(
-            &compute_hash(proof_left.g.iter()),
-            &compute_hash(proof_right.g.iter()),
-            R::U128,
-        );
-
-        let denominator = CanonicalLagrangeDenominator::<F, R>::new();
-        let lagrange_table_r = LagrangeTable::<F, R, U1>::new(&denominator, &r);
+        let lagrange_table_r = Self::retrieve_lagrange_table(proof_left, proof_right);
 
         let mut output = Vec::<UVPolynomial<F, R>>::new();
 
@@ -167,12 +161,12 @@ where
         while let Some(polynomial) = uv.next() {
             let mut u = GenericArray::<F, R>::default();
             let mut v = GenericArray::<F, R>::default();
-            u[0] = lagrange_table_r.eval(polynomial.0)[0];
-            v[0] = lagrange_table_r.eval(polynomial.1)[0];
+            u[0] = lagrange_table_r.eval(&polynomial.borrow().0)[0];
+            v[0] = lagrange_table_r.eval(&polynomial.borrow().1)[0];
             for i in 1..R::USIZE {
                 if let Some(polynomial) = uv.next() {
-                    u[i] = lagrange_table_r.eval(polynomial.0)[0];
-                    v[i] = lagrange_table_r.eval(polynomial.1)[0];
+                    u[i] = lagrange_table_r.eval(&polynomial.borrow().0)[0];
+                    v[i] = lagrange_table_r.eval(&polynomial.borrow().1)[0];
                 } else {
                     u[i] = F::ZERO;
                     v[i] = F::ZERO;
@@ -182,6 +176,25 @@ where
         }
 
         Self { uv: output }
+    }
+
+    /// This function computes a `LagrangeTable` for a `Fiat-Shamir` challenge
+    /// which is computed via hashing `proof_left` and `proof_right`
+    fn retrieve_lagrange_table(
+        proof_left: &ZeroKnowledgeProof<F, R>,
+        proof_right: &ZeroKnowledgeProof<F, R>,
+    ) -> LagrangeTable<F, R, U1>
+    where
+        ZeroKnowledgeProof<F, R>: ProofArray,
+    {
+        let r: F = hash_to_field(
+            &compute_hash(proof_left.g.iter()),
+            &compute_hash(proof_right.g.iter()),
+            R::U128,
+        );
+
+        let denominator = CanonicalLagrangeDenominator::<F, R>::new();
+        LagrangeTable::<F, R, U1>::new(&denominator, &r)
     }
 }
 
@@ -268,6 +281,22 @@ mod test {
     }
 
     #[test]
+    fn length_empty_iter() {
+        let uv = (
+            GenericArray::<Fp31, U2>::from_array([Fp31::ZERO; 2]),
+            GenericArray::<Fp31, U2>::from_array([Fp31::ZERO; 2]),
+        );
+
+        let store = UVStore { uv: vec![uv; 1] };
+
+        assert!(!store.is_empty());
+
+        assert_eq!(store.len(), 2usize);
+
+        assert_eq!(*(store.iter().next().unwrap()).0, [Fp31::ZERO; 2]);
+    }
+
+    #[test]
     fn sample_proof() {
         const U_1: [u128; 32] = [
             0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1, 15, 0, 0, 1, 15, 2, 30,
@@ -331,10 +360,8 @@ mod test {
             .collect::<Vec<_>>();
 
         // first iteration
-        let proof_1 = ZeroKnowledgeProof::<Fp31, U4>::compute_proof(
-            uv_1.iter().map(|x| (&x.0, &x.1)),
-            &lagrange_table,
-        );
+        let proof_1 = ZeroKnowledgeProof::<Fp31, U4>::compute_proof(uv_1.iter(), &lagrange_table);
+
         assert_eq!(
             proof_1.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_1,
@@ -350,15 +377,13 @@ mod test {
         let pg_2 = UVStore::<Fp31, U4>::gen_challenge_and_recurse(
             &ZeroKnowledgeProof { g: proof_left_1 },
             &ZeroKnowledgeProof { g: proof_right_1 },
-            uv_1.iter().map(|x| (&x.0, &x.1)),
+            uv_1.iter(),
         );
+
         assert_eq!(pg_2, (&U_2[..], &V_2[..]));
 
         // next iteration
-        let proof_2 = ZeroKnowledgeProof::<Fp31, U4>::compute_proof(
-            uv_2.iter().map(|x| (&x.0, &x.1)),
-            &lagrange_table,
-        );
+        let proof_2 = ZeroKnowledgeProof::<Fp31, U4>::compute_proof(uv_2.iter(), &lagrange_table);
         assert_eq!(
             proof_2.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_2,
@@ -374,7 +399,7 @@ mod test {
         let pg_3 = UVStore::<Fp31, U4>::gen_challenge_and_recurse(
             &ZeroKnowledgeProof { g: proof_left_2 },
             &ZeroKnowledgeProof { g: proof_right_2 },
-            pg_2.uv.iter().map(|x| (&x.0, &x.1)),
+            pg_2.uv.iter(),
         );
 
         // final proof trim pg_3 from U4 to U2
