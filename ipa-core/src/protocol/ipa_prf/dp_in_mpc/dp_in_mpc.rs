@@ -2,8 +2,9 @@
 
 use std::pin::Pin;
 use std::vec::IntoIter;
-use futures_util::stream;
+use futures_util::{stream, StreamExt};
 use futures_util::stream::Iter;
+use tokio_stream::Stream;
 use crate::{error::Error, ff::{Field, boolean_array::BA4}, protocol::{
     context::Context,
     prss::SharedRandomness,
@@ -62,12 +63,38 @@ pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
     // may need to transpose to be vectorized by B, the number of histogram bins, which is how
     // aggregation calls `aggregate_values` and similar to how `feature_label_dot_product` uses
     // number of features
-    let aggregation_input: Pin<Box<Iter<IntoIter<BitDecomposed<AdditiveShare<Boolean, { B }>>>>>> =
-        Box::pin(stream::iter(vector_input_to_agg.into_iter()));
+
+    // Multiple attempts to get an the stream aggregation_input to be of the appropreate type:
+    // Attempt 1)
+    // let aggregation_input: Pin<Box<Iter<IntoIter<BitDecomposed<AdditiveShare<Boolean, { B }>>>>>> =
+    //     Box::pin(stream::iter(vector_input_to_agg.into_iter()));
+
+    // Attempt 2)
+    // let aggregation_input: Pin<Box<dyn Stream<Item = Result<BitDecomposed<AdditiveShare<Boolean, B>>, Error>> + Send>> =
+    //     Box::pin(stream::unfold(vector_input_to_agg.into_iter(), |mut iter| async move {
+    //         let next = iter.next();
+    //         match next {
+    //             Some(value) => Ok((Ok(value), iter)),
+    //             None => Ok((Err(Error::AggregationStream), iter)),
+    //         }
+    //     }));
+
+    // Attempt 3)
+    let aggregation_input: Pin<Box<dyn Stream<Item = Result<BitDecomposed<AdditiveShare<Boolean, B>>, Error>> + Send>> =
+        Box::pin(stream::unfold(vector_input_to_agg.into_iter(), |mut iter| {
+            async move {
+                let next = iter.next();
+                match next {
+                    Some(value) => Ok((Ok(value), iter)),
+                    None => Ok((Err(Error::AggregationStream), iter)),
+                }
+            }
+        })
+            .boxed());
 
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
 
-    let noise_vector = aggregate_values::<OV,B>(
+    let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> = aggregate_values::<OV,B>(
         ctx,
         aggregation_input,
         num_bernoulli as usize).await;
