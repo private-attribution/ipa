@@ -265,6 +265,7 @@ impl<S: ShardingScheme> TestWorld<S> {
         self.gate_vendor.current()
     }
 
+    #[must_use]
     fn next_gate(&self) -> Gate {
         self.gate_vendor.next()
     }

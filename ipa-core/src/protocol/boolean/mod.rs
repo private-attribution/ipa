@@ -17,37 +17,27 @@ pub(crate) mod step;
 ///
 /// This is a temporary solution for narrowing contexts until the infra is
 /// updated with a new step scheme.
-pub trait BitStep: Step + From<usize> {
-    fn max_bit_depth() -> u32;
+pub trait NBitStep: Step + From<usize> {
+    const BITS: u32;
 }
 
-impl BitStep for EightBitStep {
-    fn max_bit_depth() -> u32 {
-        8
-    }
+impl NBitStep for EightBitStep {
+    const BITS: u32 = 8;
 }
 
-impl BitStep for SixteenBitStep {
-    fn max_bit_depth() -> u32 {
-        16
-    }
+impl NBitStep for SixteenBitStep {
+    const BITS: u32 = 16;
 }
 
-impl BitStep for ThirtyTwoBitStep {
-    fn max_bit_depth() -> u32 {
-        32
-    }
+impl NBitStep for ThirtyTwoBitStep {
+    const BITS: u32 = 32;
 }
 
-impl BitStep for TwoHundredFiftySixBitOpStep {
-    fn max_bit_depth() -> u32 {
-        256
-    }
+impl NBitStep for TwoHundredFiftySixBitOpStep {
+    const BITS: u32 = 256;
 }
 
 #[cfg(test)]
-impl BitStep for crate::protocol::boolean::step::DefaultBitStep {
-    fn max_bit_depth() -> u32 {
-        256
-    }
+impl NBitStep for crate::protocol::boolean::step::DefaultBitStep {
+    const BITS: u32 = 256;
 }

@@ -9,7 +9,7 @@ use crate::{
     helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
         basics::Reveal,
-        boolean::{step::ThirtyTwoBitStep, BitStep},
+        boolean::{step::ThirtyTwoBitStep, NBitStep},
         context::{Context, SemiHonestContext},
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
@@ -168,7 +168,7 @@ where
                 .map(Ok);
 
         assert!(
-            K::BITS <= ThirtyTwoBitStep::max_bit_depth(),
+            K::BITS <= ThirtyTwoBitStep::BITS,
             "ThirtyTwoBitStep is not large enough to accommodate this sort"
         );
         let comp: BitVec<usize, Lsb0> = seq_join(

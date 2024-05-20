@@ -29,6 +29,7 @@ fn build_narrows(
         let short_name = t.rsplit_once("::").map_or_else(|| t.as_ref(), |(_a, b)| b);
         let msg = format!("unexpected narrow for {gate_name}({{s}}) => {short_name}({{ss}})");
         syntax.extend(quote! {
+            #[allow(clippy::too_many_lines)]
             impl ::ipa_step::StepNarrow<#ty> for #ident {
                 fn narrow(&self, step: &#ty) -> Self {
                     match self.0 {

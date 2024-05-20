@@ -24,7 +24,7 @@ use crate::{
         boolean::{
             or::or,
             step::{EightBitStep, ThirtyTwoBitStep},
-            BitStep,
+            NBitStep,
         },
         context::{
             Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
@@ -38,8 +38,8 @@ use crate::{
             },
             prf_sharding::step::{
                 AttributionPerRowStep as PerRowStep, AttributionStep as Step,
-                AttributionWindowStep as WindowStep, AttributionZeroTriggerStep as ZeroStep,
-                UserNthRowStep,
+                AttributionWindowStep as WindowStep,
+                AttributionZeroOutTriggerStep as ZeroOutTriggerStep, UserNthRowStep,
             },
             AGG_CHUNK,
         },
@@ -197,7 +197,7 @@ where
         .await?;
 
         assert!(
-            TV::BITS <= EightBitStep::max_bit_depth(),
+            TV::BITS <= EightBitStep::BITS,
             "EightBitStep not large enough to accomodate this sum"
         );
         let (updated_sum, overflow_bit) = integer_add::<_, EightBitStep, 1>(
@@ -209,7 +209,7 @@ where
         .await?;
 
         assert!(
-            TV::BITS <= EightBitStep::max_bit_depth(),
+            TV::BITS <= EightBitStep::BITS,
             "EightBitStep not large enough to accomodate this subtraction"
         );
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
@@ -616,11 +616,11 @@ where
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
             ever_encountered_a_source_event,
-            ctx.narrow(&ZeroStep::DidTriggerGetAttributed),
+            ctx.narrow(&ZeroOutTriggerStep::DidTriggerGetAttributed),
             record_id,
         ),
         is_trigger_event_within_attribution_window(
-            ctx.narrow(&ZeroStep::CheckAttributionWindow),
+            ctx.narrow(&ZeroOutTriggerStep::CheckAttributionWindow),
             record_id,
             attribution_window_seconds,
             trigger_event_timestamp,
@@ -631,7 +631,7 @@ where
 
     // save 1 multiplication if there is no attribution window
     let zero_out_flag = if attribution_window_seconds.is_some() {
-        let c = ctx.narrow(&ZeroStep::AttributedEventCheckFlag);
+        let c = ctx.narrow(&ZeroOutTriggerStep::AttributedEventCheckFlag);
         did_trigger_get_attributed
             .multiply(&is_trigger_within_window, c, record_id)
             .await?
@@ -667,7 +667,7 @@ where
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         assert!(
-            TS::BITS <= ThirtyTwoBitStep::max_bit_depth(),
+            TS::BITS <= ThirtyTwoBitStep::BITS,
             "ThirtyTwoBitStep is not large enough to accomodate this subtraction"
         );
         let time_delta_bits = integer_sub::<_, ThirtyTwoBitStep>(
