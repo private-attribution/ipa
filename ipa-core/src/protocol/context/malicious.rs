@@ -218,18 +218,19 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
             NotSharded,
         )
     }
-}
 
-#[async_trait]
-impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
-    type Share = MaliciousReplicated<F>;
-
-    fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
+    pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().base_context(), value),
             &self.inner.r_share * value.to_extended(),
         )
     }
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
+    type Field = F;
+    type Share = MaliciousReplicated<F>;
 
     async fn upgrade_one(
         &self,

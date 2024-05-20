@@ -376,8 +376,7 @@ pub trait Runner<S: ShardingScheme> {
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
-        for<'u> UpgradeContext<'u, UpgradedMaliciousContext<'a, F>, F>:
-            UpgradeToMalicious<'u, A, M>,
+        UpgradeContext<UpgradedMaliciousContext<'a, F>>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send + 'static,
         H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -469,8 +468,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
-        for<'u> UpgradeContext<'u, UpgradedMaliciousContext<'a, F>, F>:
-            UpgradeToMalicious<'u, A, M>,
+        UpgradeContext<UpgradedMaliciousContext<'a, F>>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send + 'static,
         H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -552,8 +550,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
-        for<'u> UpgradeContext<'u, UpgradedMaliciousContext<'a, F>, F>:
-            UpgradeToMalicious<'u, A, M>,
+        UpgradeContext<UpgradedMaliciousContext<'a, F>>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send + 'static,
         H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,

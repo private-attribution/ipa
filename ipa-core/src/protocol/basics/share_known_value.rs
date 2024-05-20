@@ -1,6 +1,6 @@
 use crate::{
     helpers::Role,
-    protocol::context::{Context, UpgradedContext, UpgradedMaliciousContext},
+    protocol::context::{Context, UpgradedMaliciousContext},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
