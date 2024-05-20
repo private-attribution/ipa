@@ -665,15 +665,16 @@ pub mod tests {
                 .map(Result::unwrap)
                 .reconstruct_arr();
 
-                let expected_type : Vec<BA8> = expected;
-                // let expected_vectorized = input_row()
-                // assert_eq!(result, expected);
+                let confirm_expected_type : Vec<BA8> = expected;
+                let expected_arr : [u32 ; 8] = expected.try_into().unwrap();
+                let expected_vectorized : BitDecomposed<BA8> = input_row(8, &expected_arr).map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>());
+                assert_eq!(result, expected_vectorized);
             });
         }
     }
 
-    fn input_row_proptest<const B: usize>(tv_bits: usize, values: &[u64]) -> BitDecomposed<[Boolean; B]> {
-        let values = <&[u64; B]>::try_from(values).unwrap();
+    fn input_row_proptest<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
+        let values = <&[u32; B]>::try_from(values).unwrap();
 
         BitDecomposed::decompose(tv_bits, |i| {
             values.map(|v| Boolean::from((v >> i) & 1 == 1))
