@@ -1,8 +1,9 @@
 use std::{
+    fmt::Display,
     future::Future,
     iter::Take,
     mem,
-    ops::Deref,
+    ops::{Deref, RangeInclusive},
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -53,12 +54,6 @@ pub struct Chunk<K, const N: usize> {
     data: K,
 }
 
-impl<T, const N: usize> Chunk<[T; N], N> {
-    pub fn new(chunk_type: ChunkType, data: [T; N]) -> Self {
-        Self { chunk_type, data }
-    }
-}
-
 impl<K, const N: usize> Chunk<K, N> {
     /// Apply a transformation to the chunk data
     pub fn map<F, KM>(self, f: F) -> Chunk<KM, N>
@@ -71,6 +66,103 @@ impl<K, const N: usize> Chunk<K, N> {
             chunk_type,
             data: f(data),
         }
+    }
+
+    /// Apply a transformation to the chunk data via a `Future`
+    pub fn then<F, Fut, KM>(self, f: F) -> ChunkFuture<Fut, KM, N>
+    where
+        F: FnOnce(K) -> Fut,
+        Fut: Future<Output = Result<KM, Error>>,
+    {
+        let Self { chunk_type, data } = self;
+
+        ChunkFuture::new(f(data), chunk_type)
+    }
+}
+
+enum Expected {
+    /// For the final, partial chunk, we require at least as many sub-chunks as necessary to hold
+    /// the specified amount of data, and at most a full chunk. It is probably only reasonable to
+    /// get one or the other, and not something in between, but we allow that for now.
+    Range(RangeInclusive<usize>),
+    Exactly(usize),
+}
+
+impl Display for Expected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expected::Range(bounds) => write!(
+                f,
+                "between {min} and {max}",
+                min = bounds.start(),
+                max = bounds.end()
+            ),
+            Expected::Exactly(value) => value.fmt(f),
+        }
+    }
+}
+
+impl Expected {
+    fn type_str(&self) -> &'static str {
+        match self {
+            Expected::Range(_) => "partial",
+            Expected::Exactly(_) => "full",
+        }
+    }
+
+    fn contains(&self, value: usize) -> bool {
+        match *self {
+            Expected::Range(ref exp_range) => exp_range.contains(&value),
+            Expected::Exactly(exp_value) => exp_value == value,
+        }
+    }
+}
+
+impl<T, const N: usize> Chunk<Vec<T>, N> {
+    /// Unpack nested chunks
+    ///
+    /// This function can be used when converting between vectorization factors. Before calling this function,
+    /// the protocol code needs to convert (e.g. using `Chunk::map` or `Chunk::then`) the chunk data into a
+    /// vector of N / M sub-chunks with data type `T`. This function will then convert the `Chunk<Vec<T>, N>`
+    /// into a vector with type `Vec<Chunk<T, M>>` containing up to N / M chunks. Note that the result may
+    /// be shorter than N / M chunks, if the input was a partial chunk.
+    ///
+    /// # Panics
+    /// If the data stream is not valid for the specified chunk and sub-chunk configuration.
+    #[must_use]
+    pub fn unpack<const M: usize>(self) -> Vec<Chunk<T, M>> {
+        let Self { chunk_type, data } = self;
+        debug_assert!(N % M == 0);
+        let (mut len, expected) = if let ChunkType::Partial(len) = chunk_type {
+            (len, Expected::Range(((len + M - 1) / M)..=(N / M)))
+        } else {
+            (N, Expected::Exactly(N / M))
+        };
+        assert!(
+            expected.contains(data.len()),
+            "input to Chunk::unpack (N = {N}, M = {M}) was not chunked properly. \
+             {type_str} input chunk should contain {expected} sub-chunks, found {len}",
+            type_str = expected.type_str(),
+            len = data.len(),
+        );
+        data.into_iter()
+            .map_while(|item| {
+                if len == 0 {
+                    None
+                } else if len >= M {
+                    len -= M;
+                    Some(Chunk {
+                        chunk_type: ChunkType::Full,
+                        data: item,
+                    })
+                } else {
+                    Some(Chunk {
+                        chunk_type: ChunkType::Partial(mem::replace(&mut len, 0)),
+                        data: item,
+                    })
+                }
+            })
+            .collect()
     }
 }
 
@@ -134,11 +226,11 @@ where
 // `Unpin`.  Requiring `D: Unpin` is easy, but requiring `F: Unpin` in turn requires a bunch of `C:
 // Unpin` bounds in protocols.
 #[pin_project]
-struct SliceChunkProcessor<'a, T, U, F, Fut, D, const N: usize>
+struct SliceChunkProcessor<'a, T, K, F, Fut, D, const N: usize>
 where
     T: Clone + 'a,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
-    Fut: Future<Output = Result<[U; N], Error>> + 'a,
+    Fut: Future<Output = Result<K, Error>> + 'a,
     D: Fn() -> T,
 {
     slice: &'a [T],
@@ -156,14 +248,14 @@ where
     pad_record_fn: D,
 }
 
-impl<'a, T, U, F, Fut, D, const N: usize> SliceChunkProcessor<'a, T, U, F, Fut, D, N>
+impl<'a, T, K, F, Fut, D, const N: usize> SliceChunkProcessor<'a, T, K, F, Fut, D, N>
 where
     T: Clone,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
-    Fut: Future<Output = Result<[U; N], Error>> + 'a,
+    Fut: Future<Output = Result<K, Error>> + 'a,
     D: Fn() -> T,
 {
-    fn next_chunk(self: Pin<&mut Self>) -> Option<ChunkFuture<Fut, [U; N], N>> {
+    fn next_chunk(self: Pin<&mut Self>) -> Option<ChunkFuture<Fut, K, N>> {
         let this = self.project();
 
         let whole_chunks = this.slice.len() / N;
@@ -193,30 +285,30 @@ where
     }
 }
 
-impl<'a, T, U, F, Fut, D, const N: usize> Stream for SliceChunkProcessor<'a, T, U, F, Fut, D, N>
+impl<'a, T, K, F, Fut, D, const N: usize> Stream for SliceChunkProcessor<'a, T, K, F, Fut, D, N>
 where
     T: Clone,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
-    Fut: Future<Output = Result<[U; N], Error>> + 'a,
+    Fut: Future<Output = Result<K, Error>> + 'a,
     D: Fn() -> T,
 {
-    type Item = ChunkFuture<Fut, [U; N], N>;
+    type Item = ChunkFuture<Fut, K, N>;
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Poll::Ready(self.next_chunk())
     }
 }
 
-pub fn process_slice_by_chunks<'a, T, U, F, Fut, D, const N: usize>(
+pub fn process_slice_by_chunks<'a, T, K, F, Fut, D, const N: usize>(
     slice: &'a [T],
     process_fn: F,
     pad_record_fn: D,
-) -> impl Stream<Item = ChunkFuture<Fut, [U; N], N>> + 'a
+) -> impl Stream<Item = ChunkFuture<Fut, K, N>> + 'a
 where
     T: Clone,
-    U: 'a,
+    K: 'a,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut + 'a,
-    Fut: Future<Output = Result<[U; N], Error>> + 'a,
+    Fut: Future<Output = Result<K, Error>> + 'a,
     D: Fn() -> T + 'a,
 {
     SliceChunkProcessor {
@@ -720,20 +812,68 @@ mod tests {
         assert!(poll_immediate(&mut st).next().await.is_none() && st.is_terminated());
     }
 
+    impl<K, const N: usize> Chunk<K, N> {
+        pub fn new(chunk_type: ChunkType, data: K) -> Self {
+            Self { chunk_type, data }
+        }
+    }
+
     #[test]
     fn chunk_into_iter() {
         assert_eq!(
-            Chunk::new(ChunkType::Full, [1, 2])
+            Chunk::<_, 2>::new(ChunkType::Full, [1, 2])
                 .into_iter()
                 .collect::<Vec<_>>(),
             [1, 2],
         );
         assert_eq!(
-            Chunk::new(ChunkType::Partial(1), [3, 4])
+            Chunk::<_, 2>::new(ChunkType::Partial(1), [3, 4])
                 .into_iter()
                 .collect::<Vec<_>>(),
             [3],
         );
+    }
+
+    #[test]
+    fn chunk_unpack() {
+        assert_eq!(
+            Chunk::<_, 4>::new(ChunkType::Full, vec![[1, 2], [3, 4]]).unpack::<2>(),
+            vec![
+                Chunk::new(ChunkType::Full, [1, 2]),
+                Chunk::new(ChunkType::Full, [3, 4]),
+            ],
+        );
+
+        assert_eq!(
+            Chunk::<_, 4>::new(ChunkType::Partial(3), vec![[1, 2], [3, -1]]).unpack::<2>(),
+            vec![
+                Chunk::new(ChunkType::Full, [1, 2]),
+                Chunk::new(ChunkType::Partial(1), [3, -1]),
+            ],
+        );
+
+        assert_eq!(
+            Chunk::<_, 4>::new(ChunkType::Partial(1), vec![[5, -1]]).unpack::<2>(),
+            vec![Chunk::new(ChunkType::Partial(1), [5, -1]),],
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "input to Chunk::unpack (N = 4, M = 2) was not chunked properly. \
+                    full input chunk should contain 2 sub-chunks, found 3"
+    )]
+    fn chunk_unpack_invalid_full() {
+        let _ = Chunk::<_, 4>::new(ChunkType::Full, vec![[1, 2], [3, 4], [5, 6]]).unpack::<2>();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "input to Chunk::unpack (N = 8, M = 2) was not chunked properly. \
+                    partial input chunk should contain between 3 and 4 sub-chunks, found 2"
+    )]
+    fn chunk_unpack_invalid_partial() {
+        let _ = Chunk::<_, 8>::new(ChunkType::Partial(5), vec![[1, 2], [3, 4]]).unpack::<2>();
     }
 
     #[tokio::test]
