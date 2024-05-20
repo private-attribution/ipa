@@ -39,15 +39,15 @@ type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
 >;
 
 impl<BK, TV, const N: usize> ChunkBuffer<N>
-    for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
-where
-    Boolean: Vectorizable<N>,
-    BK: SharedValue,
-    TV: SharedValue,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
+    where
+        Boolean: Vectorizable<N>,
+        BK: SharedValue,
+        TV: SharedValue,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
 {
     type Item = AttributionOutputs<Replicated<BK>, Replicated<TV>>;
     type Chunk = AttributionOutputsChunk<N>;
@@ -138,24 +138,24 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<Vec<Replicated<HV>>, Error>
-where
-    St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Boolean: FieldSimd<N> + FieldSimd<B>,
-    Replicated<Boolean, B>:
+    where
+        St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
+        BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        Boolean: FieldSimd<N> + FieldSimd<B>,
+        Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-    Vec<BitDecomposed<Replicated<Boolean, B>>>:
-        for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
-    Vec<Replicated<HV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+        Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+        Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+        BitDecomposed<Replicated<Boolean, N>>:
+            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+        Vec<BitDecomposed<Replicated<Boolean, B>>>:
+            for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
+        Vec<Replicated<HV>>:
+            for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let num_chunks = (contributions_stream_len + N - 1) / N;
     // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
@@ -182,7 +182,7 @@ where
                     B,
                     false,
                 )
-                .await
+                    .await
             }
         },
         || AttributionOutputs {
@@ -238,11 +238,11 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-where
-    'ctx: 'fut,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>:
+    where
+        'ctx: 'fut,
+        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        Boolean: FieldSimd<B>,
+        Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
     let mut depth = 0;
@@ -287,7 +287,7 @@ where
                                         &a,
                                         &b,
                                     )
-                                    .await?;
+                                        .await?;
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
@@ -301,7 +301,7 @@ where
                                         &a,
                                         &b,
                                     )
-                                    .await
+                                        .await
                                 }
                             }
                         }
@@ -584,7 +584,7 @@ pub mod tests {
     // saturated addition at the output.
     const PROP_MAX_INPUT_LEN: usize = 10;
     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
-    const PROP_BUCKETS: usize = 8;
+const PROP_BUCKETS: usize = 8;
     type PropHistogramValue = BA8;
 
     // We want to capture everything in this struct for visibility in the output of failing runs,
@@ -593,15 +593,15 @@ pub mod tests {
     #[derive(Debug)]
     struct AggregatePropTestInputs {
         inputs: Vec<[u32; PROP_BUCKETS]>,
-        expected: Vec<PropHistogramValue>,
+        expected: BitDecomposed<BA8>,
         seed: u64,
         len: usize,
         tv_bits: usize,
     }
 
     const_assert!(
-        PropHistogramValue::BITS < 64,
-        "(1 << PropHistogramValue::BITS) must fit in u64"
+        PropHistogramValue::BITS < u32::BITS,
+        "(1 << PropHistogramValue::BITS) must fit in u32",
     );
 
     prop_compose! {
@@ -613,21 +613,19 @@ pub mod tests {
                                       )
         -> AggregatePropTestInputs {
             let mut rng = StdRng::seed_from_u64(seed);
-            let mut expected = vec![0u64; PROP_BUCKETS];
+            let mut expected = vec![0; PROP_BUCKETS];
             let inputs = repeat_with(|| {
                 let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
                 for (exp, val) in expected.iter_mut().zip(row) {
-                    *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
+                    *exp = min(*exp + val, (1 << PropHistogramValue::BITS) - 1);
                 }
                 row
             })
             .take(len)
             .collect();
 
-            // let expected : Vec<u64>  = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
-            //
-            // let expected = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
-            let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
+            let expected = input_row::<PROP_BUCKETS>(usize::try_from(PropHistogramValue::BITS).unwrap(), &expected)
+                .map(|x| x.into_iter().collect());
 
             AggregatePropTestInputs {
                 inputs,
@@ -665,10 +663,7 @@ pub mod tests {
                 .map(Result::unwrap)
                 .reconstruct_arr();
 
-                let confirm_expected_type : Vec<BA8> = expected;
-                let expected_arr : [u32 ; 8] = expected.try_into().unwrap();
-                let expected_vectorized : BitDecomposed<BA8> = input_row(8, &expected_arr).map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>());
-                assert_eq!(result, expected_vectorized);
+                assert_eq!(result, expected);
             });
         }
     }
