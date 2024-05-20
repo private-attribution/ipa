@@ -48,7 +48,7 @@ pub enum ChunkType {
 ///
 /// This type is used for the output data from processing functions.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Chunk<K: IntoIterator, const N: usize> {
+pub struct Chunk<K, const N: usize> {
     chunk_type: ChunkType,
     data: K,
 }
@@ -59,10 +59,18 @@ impl<T, const N: usize> Chunk<[T; N], N> {
     }
 }
 
-impl<K: IntoIterator, const N: usize> Chunk<K, N> {
-    /// Return the raw chunk data, even if only partially valid.
-    pub fn into_raw(self) -> K {
-        self.data
+impl<K, const N: usize> Chunk<K, N> {
+    /// Apply a transformation to the chunk data
+    pub fn map<F, KM>(self, f: F) -> Chunk<KM, N>
+    where
+        F: FnOnce(K) -> KM,
+    {
+        let Self { chunk_type, data } = self;
+
+        Chunk {
+            chunk_type,
+            data: f(data),
+        }
     }
 }
 
@@ -104,7 +112,6 @@ where
 impl<Fut, K, const N: usize> Future for ChunkFuture<Fut, K, N>
 where
     Fut: Future<Output = Result<K, Error>>,
-    K: IntoIterator,
 {
     type Output = Result<Chunk<K, N>, Error>;
 
@@ -275,7 +282,6 @@ struct StreamChunkProcessor<St, T, B, K, F, Fut, D, const N: usize>
 where
     St: Stream<Item = Result<T, Error>> + Send,
     B: ChunkBuffer<N>,
-    K: IntoIterator,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
     D: Fn() -> T,
@@ -315,7 +321,6 @@ impl<St, T, B, K, F, Fut, D, const N: usize> Stream
 where
     St: Stream<Item = Result<T, Error>> + Send,
     B: ChunkBuffer<N, Item = T>,
-    K: IntoIterator,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
     D: Fn() -> T,
@@ -373,7 +378,6 @@ impl<St, T, B, K, F, Fut, D, const N: usize> FusedStream
 where
     St: Stream<Item = Result<T, Error>> + Send,
     B: ChunkBuffer<N, Item = T>,
-    K: IntoIterator,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
     D: Fn() -> T,
@@ -397,7 +401,6 @@ pub fn process_stream_by_chunks<St, T, B, K, F, Fut, D, const N: usize>(
 where
     St: Stream<Item = Result<T, Error>> + Send,
     B: ChunkBuffer<N, Item = T>,
-    K: IntoIterator,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
     D: Fn() -> T,

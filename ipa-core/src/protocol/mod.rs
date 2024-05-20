@@ -15,15 +15,7 @@ use std::{
 pub use basics::{BasicProtocols, BooleanProtocols};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    error::Error,
-    ff::{Gf20Bit, Gf3Bit, Gf40Bit, Gf8Bit},
-};
-
-pub type MatchKey = Gf40Bit;
-pub type BreakdownKey = Gf8Bit;
-pub type TriggerValue = Gf3Bit;
-pub type Timestamp = Gf20Bit;
+use crate::error::Error;
 
 // These two cfg flags are defined to be mutually exclusive.
 #[cfg(compact_gate)]
