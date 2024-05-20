@@ -457,7 +457,7 @@ mod test {
         let denominator = CanonicalLagrangeDenominator::<Fp31, U3>::new();
         let lagrange_table = LagrangeTable::<Fp31, U3, U2>::from(denominator);
         let proof_3 = compute_final_proof::<Fp31, U2>(
-            uv,
+            &uv,
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
             Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
             &lagrange_table,
