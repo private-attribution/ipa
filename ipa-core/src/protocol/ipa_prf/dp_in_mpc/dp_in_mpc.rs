@@ -35,17 +35,16 @@ pub(crate) enum Step {
 }
 
 #[cfg(test)]
-pub async fn gen_binomial_noise<C, const B: usize,OV>(
-    ctx: C,
+pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded,Boolean>,
     num_bernoulli: u32,
     num_histogram_bins: u32,
 ) -> Result<BitDecomposed<Replicated<Boolean,B>>, Error>
     where
-        C: Context,
         Boolean: Vectorizable<B> + FieldSimd<B>,
         BitDecomposed<Replicated<Boolean,B>>: FromPrss<usize>,
         OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Replicated<Boolean, B>: BooleanProtocols<C, B>,
+        Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
     // Step 1:  Generate Bernoulli's with PRSS
     // sample a stream of `total_bits = num_bernoulli * B` bit from PRSS where B is number of histogram bins
@@ -156,7 +155,7 @@ mod test {
         const NUM_BREAKDOWNS: u32 = 4;
         let num_bernoulli : u32 = 1000;
         let input = input_row(8, &[10,8,6,41]); // really no input
-        let result = world.semi_honest(
+        let result = world.upgraded_semi_honest(
             input.into_iter(),
             | ctx , input | async move {
                 gen_binomial_noise::<_,{NUM_BREAKDOWNS as usize},Output_Value>(ctx, num_bernoulli,NUM_BREAKDOWNS).await.unwrap()
