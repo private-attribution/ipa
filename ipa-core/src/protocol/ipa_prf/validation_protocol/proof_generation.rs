@@ -150,7 +150,7 @@ where
                     x,
                 )
                 .clone(),
-            })
+            });
         });
 
         // output
@@ -274,7 +274,7 @@ where
         record_counter: &mut usize,
         ctx: &C,
         lagrange_table: &LagrangeTable<F, R, <R as Sub<U1>>::Output>,
-        mut uv: J,
+        uv: J,
     ) -> UVStore<F, R>
     where
         C: Context,
@@ -360,10 +360,10 @@ where
 
             // mask proof such that party on the right does not know mask
             // i.e. use PRSS left
-            proof.g[i] += left.clone();
+            proof.g[i] += left;
 
-            // set prover_left
-            // such that party on the left can compute it itself
+            // set prover_left_proof
+            // such that party on the left can compute it himself
             // i.e. use PRSS left
             prover_left_proof.g[i] = left;
 

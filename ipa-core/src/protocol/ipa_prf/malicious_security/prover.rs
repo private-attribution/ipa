@@ -151,7 +151,7 @@ where
     /// or when masks cannot be set safely.
     /// The latter is the case when there are too many points for a polynomial of degree `R minus 1`.
     /// This function likely panics when used with small fields like `Fp31`
-    /// Use FP61BitPrime instead when using this function in test cases.
+    /// Use `FP61BitPrime` instead when using this function in test cases.
     pub fn set_masks(&mut self, p_0: F, q_0: F) {
         // assert that there are only two polynomials
         debug_assert_eq!(self.len(), 1usize);
@@ -266,7 +266,7 @@ mod test {
 
     // todo: deprecate
     fn compute_final_proof<F, R>(
-        uv: UVPolynomial<F, R>,
+        uv: &UVPolynomial<F, R>,
         p_0: F,
         q_0: F,
         lagrange_table: &LagrangeTable<F, Sum<R, U1>, R>,
@@ -447,8 +447,8 @@ mod test {
 
         // final proof trim pg_3 from U4 to U2
         let uv = (
-            GenericArray::<Fp31, U2>::from_slice(&pg_3.uv[0].0.as_slice()[0..2]).clone(),
-            GenericArray::<Fp31, U2>::from_slice(&pg_3.uv[0].1.as_slice()[0..2]).clone(),
+            *GenericArray::<Fp31, U2>::from_slice(&pg_3.uv[0].0.as_slice()[0..2]),
+            *GenericArray::<Fp31, U2>::from_slice(&pg_3.uv[0].1.as_slice()[0..2]),
         );
 
         assert_eq!(UVStore { uv: vec![uv; 1] }, (&U_3[..], &V_3[..]));
