@@ -40,15 +40,15 @@ type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
 >;
 
 impl<BK, TV, const N: usize> ChunkBuffer<N>
-for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
-    where
-        Boolean: Vectorizable<N>,
-        BK: SharedValue,
-        TV: SharedValue,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+    for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
+where
+    Boolean: Vectorizable<N>,
+    BK: SharedValue,
+    TV: SharedValue,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
 {
     type Item = AttributionOutputs<Replicated<BK>, Replicated<TV>>;
     type Chunk = AttributionOutputsChunk<N>;
@@ -126,24 +126,24 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<Vec<Replicated<HV>>, Error>
-    where
-        St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
-        BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Boolean: FieldSimd<N> + FieldSimd<B>,
-        Replicated<Boolean, B>:
+where
+    St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
+    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Boolean: FieldSimd<N> + FieldSimd<B>,
+    Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-        Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-        Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-        Vec<BitDecomposed<Replicated<Boolean, B>>>:
-            for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
-        Vec<Replicated<HV>>:
-            for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+    Vec<BitDecomposed<Replicated<Boolean, B>>>:
+        for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let num_chunks = (contributions_stream_len + N - 1) / N;
     // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
@@ -170,7 +170,7 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
                     B,
                     false,
                 )
-                    .await
+                .await
             }
         },
         || AttributionOutputs {
@@ -226,11 +226,11 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-    where
-        'ctx: 'fut,
-        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Boolean: FieldSimd<B>,
-        Replicated<Boolean, B>:
+where
+    'ctx: 'fut,
+    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
     let mut depth = 0;
@@ -275,7 +275,7 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
                                         &a,
                                         &b,
                                     )
-                                        .await?;
+                                    .await?;
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
@@ -289,7 +289,7 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
                                         &a,
                                         &b,
                                     )
-                                        .await
+                                    .await
                                 }
                             }
                         }
@@ -321,6 +321,7 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
 #[cfg(all(test, unit_test))]
 pub mod tests {
     use std::{array, cmp::min, iter::repeat_with};
+
     use futures::{stream, StreamExt};
     use proptest::prelude::*;
     use rand::{rngs::StdRng, SeedableRng};
@@ -560,7 +561,7 @@ pub mod tests {
     // saturated addition at the output.
     const PROP_MAX_INPUT_LEN: usize = 10;
     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
-const PROP_BUCKETS: usize = 8;
+    const PROP_BUCKETS: usize = 8;
     type PropHistogramValue = BA8;
 
     // We want to capture everything in this struct for visibility in the output of failing runs,
@@ -643,5 +644,4 @@ const PROP_BUCKETS: usize = 8;
             });
         }
     }
-
 }
