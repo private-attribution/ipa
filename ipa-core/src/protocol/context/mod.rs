@@ -107,7 +107,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 }
 
 pub trait UpgradableContext: Context {
-    type UpgradedContext<F: ExtendableField>: UpgradedContext<F>;
+    type UpgradedContext<F: ExtendableField>: UpgradedContext;
     type Validator<F: ExtendableField>: Validator<Self, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
@@ -119,16 +119,14 @@ pub trait UpgradableContext: Context {
 }
 
 #[async_trait]
-pub trait UpgradedContext<F: ExtendableField>: Context {
-    // TODO: can we add BasicProtocols to this so that we don't need it as a constraint everywhere.
-    type Share: SecretSharing<F> + 'static;
-
-    fn share_known_value(&self, value: F) -> Self::Share;
+pub trait UpgradedContext: Context {
+    type Field: ExtendableField;
+    type Share: SecretSharing<Self::Field> + 'static;
 
     async fn upgrade_one(
         &self,
         record_id: RecordId,
-        x: Replicated<F>,
+        x: Replicated<Self::Field>,
     ) -> Result<Self::Share, Error>;
 
     /// Upgrade an input using this context.
@@ -138,7 +136,7 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
+        UpgradeContext<Self>: UpgradeToMalicious<T, M>,
     {
         #[cfg(descriptive_gate)]
         {
@@ -162,7 +160,7 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
+        UpgradeContext<Self, RecordId>: UpgradeToMalicious<T, M>,
     {
         #[cfg(descriptive_gate)]
         {
@@ -180,7 +178,7 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     }
 }
 
-pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
+pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext {
     /// This is the base context type.  This will always be `Base`, but use
     /// an associated type to avoid having to bind this trait to the lifetime
     /// associated with the `Base` struct.

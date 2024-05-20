@@ -15,7 +15,6 @@ use crate::{
         TotalRecords,
     },
     protocol::{
-        basics::ShareKnownValue,
         context::{
             dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
             validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
@@ -266,12 +265,9 @@ impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, B, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext for Upgraded<'a, B, F> {
+    type Field = F;
     type Share = Replicated<F>;
-
-    fn share_known_value(&self, value: F) -> Self::Share {
-        Replicated::share_known_value(&self.inner, value)
-    }
 
     async fn upgrade_one(
         &self,
