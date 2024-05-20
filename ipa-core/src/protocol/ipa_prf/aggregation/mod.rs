@@ -333,8 +333,6 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
 #[cfg(all(test, unit_test))]
 pub mod tests {
     use std::{array, cmp::min, iter::repeat_with};
-    use crate::secret_sharing::TransposeFrom;
-
     use futures::{stream, StreamExt};
     use proptest::prelude::*;
     use rand::{rngs::StdRng, SeedableRng};
@@ -343,7 +341,7 @@ pub mod tests {
     use crate::{
         const_assert,
         error::Error,
-        ff::{boolean::Boolean, boolean_array::BA8, U128Conversions},
+        ff::{boolean::Boolean, boolean_array::BA8},
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
@@ -569,16 +567,6 @@ pub mod tests {
         });
     }
 
-    // fn input_row_vec<const B: usize>(tv_bits: usize, values: &Vec<u64>) -> BitDecomposed<[Boolean; B]> {
-    //     let values = <&[u64; B]>::try_from(values).unwrap();
-    //
-    //     BitDecomposed::decompose(tv_bits, |i| {
-    //         values.map(|v| Boolean::from((v >> i) & 1 == 1))
-    //     })
-    // }
-
-
-
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
     // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
     // saturated addition at the output.
@@ -666,14 +654,6 @@ const PROP_BUCKETS: usize = 8;
                 assert_eq!(result, expected);
             });
         }
-    }
-
-    fn input_row_proptest<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
-        let values = <&[u32; B]>::try_from(values).unwrap();
-
-        BitDecomposed::decompose(tv_bits, |i| {
-            values.map(|v| Boolean::from((v >> i) & 1 == 1))
-        })
     }
 
 }
