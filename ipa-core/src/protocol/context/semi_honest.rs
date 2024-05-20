@@ -6,6 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
@@ -22,8 +23,7 @@ use crate::{
             UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -48,8 +48,17 @@ impl ShardConfiguration for Context<'_, Sharded> {
 
 impl<'a, B: ShardBinding> Context<'a, B> {
     pub fn new_complete(participant: &'a PrssEndpoint, gateway: &'a Gateway, shard: B) -> Self {
+        Self::new_with_gate(participant, gateway, shard, Gate::default())
+    }
+
+    pub fn new_with_gate(
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        shard: B,
+        gate: Gate,
+    ) -> Self {
         Self {
-            inner: Base::new(participant, gateway, shard),
+            inner: Base::new_complete(participant, gateway, gate, TotalRecords::Unspecified, shard),
         }
     }
 }

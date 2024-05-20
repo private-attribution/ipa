@@ -86,7 +86,7 @@ mod tests {
             transport::{in_memory::InMemoryShardNetwork, routing::RouteId},
             HelperIdentity, Transport,
         },
-        protocol::{step::Gate, QueryId},
+        protocol::{Gate, QueryId},
         sharding::ShardIndex,
         test_executor::run,
         test_fixture::logging,

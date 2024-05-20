@@ -19,7 +19,7 @@ use crate::{
         StepBinding, StreamCollection, Transport,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
     sharding::ShardIndex,
     sync::Arc,
 };
@@ -266,7 +266,7 @@ impl Transport for HttpShardTransport {
     }
 }
 
-#[cfg(all(test, web_test))]
+#[cfg(all(test, web_test, descriptive_gate))]
 mod tests {
     use std::{iter::zip, net::TcpListener, task::Poll};
 

@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use futures::future::try_join;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
     protocol::{
-        basics::{mul::semi_honest_multiply, SecureMul},
+        basics::{
+            mul::{semi_honest_multiply, step::MaliciousMultiplyStep},
+            SecureMul,
+        },
         context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
@@ -15,13 +17,6 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    DuplicateMultiply,
-    RandomnessForValidation,
-    ReshareRx,
-}
 
 ///
 /// Implementation drawn from:
@@ -68,8 +63,8 @@ where
         secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
     };
 
-    let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
-    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
+    let duplicate_multiply_ctx = ctx.narrow(&MaliciousMultiplyStep::DuplicateMultiply);
+    let random_constant_ctx = ctx.narrow(&MaliciousMultiplyStep::RandomnessForValidation);
     let b_x = b.x().access_without_downgrade();
 
     //

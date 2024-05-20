@@ -1,36 +1,27 @@
-#[cfg(feature = "descriptive-gate")]
-use std::sync::Arc;
-use std::{
-    cmp,
-    collections::HashMap,
-    fmt::Debug,
-    sync::{Mutex, Weak},
-};
+use std::{cmp, collections::HashMap, fmt::Debug};
 
 use async_trait::async_trait;
 use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
 use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
 
+use super::step::ZeroKnowledgeProofValidateStep as Step;
 #[cfg(all(test, unit_test))]
 use crate::protocol::context::dzkp_field::{UVSingleBlock, UVTupleBlock};
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::context::{
-    dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded, Context, MaliciousContext,
-};
 use crate::{
     error::{BoxError, Error},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_field::DZKPBaseField, dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
-            Base, SemiHonestContext, UpgradableContext,
+            dzkp_field::DZKPBaseField, dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, Context,
+            MaliciousContext, SemiHonestContext, UpgradableContext,
         },
-        step::Gate,
-        RecordId,
+        Gate, RecordId,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::ShardBinding,
+    sync::{Arc, Mutex, Weak},
     telemetry::metrics::DZKP_BATCH_INCREMENTS,
 };
 
@@ -511,15 +502,6 @@ impl DZKPBatch {
     }
 }
 
-/// Steps used by the validation component of the DZKP
-#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
-pub(crate) enum Step {
-    /// For the execution of the malicious protocol.
-    DZKPMaliciousProtocol,
-    /// Step for validating the DZK proof.
-    DZKPValidate,
-}
-
 /// Validator Trait for DZKPs
 /// It is different from the validator trait since context outputs a `DZKPUpgradedContext`
 /// that is tied to a `DZKPBatch` rather than an `accumulator`.
@@ -598,7 +580,6 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
 /// `MaliciousDZKPValidator` corresponds to pub struct `Malicious` and implements the trait `DZKPValidator`
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
 #[allow(dead_code)]
-#[cfg(feature = "descriptive-gate")]
 // dead code: validate_ctx is not used yet
 pub struct MaliciousDZKPValidator<'a> {
     batch_ref: Arc<Mutex<Batch>>,
@@ -606,7 +587,6 @@ pub struct MaliciousDZKPValidator<'a> {
     validate_ctx: Base<'a>,
 }
 
-#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     fn context(&self) -> MaliciousDZKPUpgraded<'a> {
@@ -642,7 +622,6 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<'a> MaliciousDZKPValidator<'a> {
     #[must_use]
     pub fn new(ctx: MaliciousContext<'a>, max_multiplications_per_gate: usize) -> Self {
@@ -661,7 +640,6 @@ impl<'a> MaliciousDZKPValidator<'a> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
         self.is_verified().unwrap();
@@ -687,8 +665,7 @@ mod tests {
                 dzkp_validator::{Batch, DZKPValidator, Segment, SegmentEntry, Step},
                 Context, DZKPContext, UpgradableContext,
             },
-            step::Gate,
-            RecordId,
+            Gate, RecordId,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{join3v, Reconstruct, TestWorld},

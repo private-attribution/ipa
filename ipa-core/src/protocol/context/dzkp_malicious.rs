@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
@@ -15,8 +16,7 @@ use crate::{
             Base, Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-        RecordId,
+        Gate, RecordId,
     },
     seq_join::SeqJoin,
     sync::Arc,

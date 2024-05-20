@@ -1,7 +1,5 @@
 use std::{convert::Infallible, ops::Neg};
 
-use ipa_macros::Step;
-
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
@@ -11,10 +9,12 @@ use crate::{
     helpers::Role,
     protocol::{
         basics::{partial_reveal, BooleanProtocols},
+        boolean::step::TwoHundredFiftySixBitOpStep,
         context::Context,
-        ipa_prf::boolean_ops::addition_sequential::integer_add,
+        ipa_prf::boolean_ops::{
+            addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
+        },
         prss::{FromPrss, SharedRandomness},
-        step::TwoHundredFiftySixBitOpStep,
         RecordId,
     },
     secret_sharing::{
@@ -22,15 +22,6 @@ use crate::{
         BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    GenerateSecretSharing,
-    IntegerAddBetweenMasks,
-    IntegerAddMaskToX,
-    #[dynamic(256)]
-    RevealY(usize),
-}
 
 /// share conversion
 /// from Boolean array of size n to integer mod p, where p is modulus of elliptic curve field `Fp25519`
@@ -97,6 +88,8 @@ pub(crate) enum Step {
 ///
 /// # Errors
 /// Propagates Errors from Integer Subtraction and Partial Reveal
+/// # Panics
+/// If values processed by this function is smaller than 256 bits.
 pub async fn convert_to_fp25519<C, const N: usize>(
     ctx: C,
     record_id: RecordId,

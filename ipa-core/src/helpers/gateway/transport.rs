@@ -6,7 +6,7 @@ use crate::{
         transport::routing::RouteId, MpcTransportImpl, NoResourceIdentifier, QueryIdBinding, Role,
         RoleAssignment, RouteParams, StepBinding, Transport,
     },
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
     sharding::ShardIndex,
 };
 

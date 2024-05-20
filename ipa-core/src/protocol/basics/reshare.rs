@@ -5,19 +5,19 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::Context, prss::SharedRandomness, RecordId},
-    secret_sharing::replicated::{
-        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    protocol::{
+        basics::mul::step::MaliciousMultiplyStep::{RandomnessForValidation, ReshareRx},
+        context::{Context, SpecialAccessToUpgradedContext, UpgradedMaliciousContext},
+        prss::SharedRandomness,
+        RecordId,
     },
-};
-#[cfg(feature = "descriptive-gate")]
-use crate::{
-    protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx},
-    protocol::context::SpecialAccessToUpgradedContext,
-    protocol::context::UpgradedMaliciousContext,
-    secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-    secret_sharing::replicated::malicious::{
-        AdditiveShare as MaliciousReplicated, ExtendableField,
+    secret_sharing::replicated::{
+        malicious::{
+            AdditiveShare as MaliciousReplicated, ExtendableField,
+            ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        },
+        semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
 };
 
@@ -101,7 +101,6 @@ impl<C: Context, F: Field> Reshare<C> for Replicated<F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
@@ -209,7 +208,7 @@ mod tests {
             helpers::{Direction, Role},
             protocol::{
                 basics::{
-                    mul::malicious::Step::{RandomnessForValidation, ReshareRx},
+                    mul::step::MaliciousMultiplyStep::{RandomnessForValidation, ReshareRx},
                     Reshare,
                 },
                 context::{

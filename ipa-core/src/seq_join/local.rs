@@ -132,10 +132,9 @@ mod local_test {
     use futures::{
         future::lazy,
         stream::{poll_fn, repeat_with},
-        StreamExt,
+        Future, StreamExt,
     };
 
-    use super::*;
     use crate::{
         seq_join::{seq_join, seq_try_join_all},
         test_executor::run,
