@@ -1,4 +1,4 @@
-use std::ops::{Add, Sub};
+use std::{borrow::Borrow, ops::Sub};
 
 use futures_util::{stream, StreamExt};
 use generic_array::{ArrayLength, GenericArray};
@@ -28,6 +28,13 @@ use crate::{
 ///
 /// It uses parameter `R` which is the recursion factor of the zero-knowledge proofs
 /// A zero-knowledge proof with recursion factor `R` has length `2*R::USIZE-1`
+///
+/// The `VerifierBatch` also contains two masks `p_0` and `q_0` in `masks` stored as `(p_0,q_0)`
+/// These masks are used as additional `u,v` values for the final proof
+/// of the `left` batch of `ZeroKnowledgeProofs`.
+/// On the `right` batch of `ZeroKnowledgeProofs` these values are set to `F::ZERO`.
+/// These masks mask sensitive information when the right verifier sends a field value to the left verifier,
+/// i.e. using a channel with `Direction:Right`, who does not have access to these masks.
 pub struct VerifierBatch<F, R>
 where
     F: PrimeField,
@@ -35,6 +42,7 @@ where
 {
     left: Vec<ZeroKnowledgeProof<F, R>>,
     right: Vec<ZeroKnowledgeProof<F, R>>,
+    left_masks: (F, F),
 }
 
 impl<F, R> VerifierBatch<F, R>
@@ -55,7 +63,7 @@ where
         <R as Sub<U1>>::Output: ArrayLength,
     {
         // generate ProofBatch
-        let (prover_left_batch, verifier_left_batch, (left, right)) =
+        let (prover_left_batch, verifier_left_batch, (p, q)) =
             ProofBatch::<F, R>::compute_proof_batch(&ctx, uv_tuple_block);
 
         // send left_prover_batch and receive right_verifier_batch
@@ -65,6 +73,7 @@ where
         VerifierBatch {
             left: verifier_left_batch.proofs,
             right: verifier_right_batch.proofs,
+            left_masks: (p, q),
         }
     }
 }
@@ -181,60 +190,70 @@ where
         // set up record counter
         let mut record_counter = 0usize;
 
-        // generate first proof
-        // from iterator over owned values
-        let mut proof = ZeroKnowledgeProof::<F, R>::compute_proof(
-            Self::polynomials_from_blocks::<R, _>(uv_tuple_block.clone()),
+        // generate first proof from input
+        let mut uv_store = Self::compute_next_proof(
+            &mut prover_left_batch,
+            &mut verifier_left_batch,
+            &mut record_counter,
+            ctx,
             &lagrange_table,
-        );
-
-        // generate proof shares
-        let (prover_left_proof, verifier_left_proof) =
-            Self::share_via_prss(&mut proof, ctx, &mut record_counter);
-
-        // compute next uv values
-        // from iterator over owned values
-        let mut uv_store = UVStore::gen_challenge_and_recurse(
-            &prover_left_proof,
-            &proof,
             Self::polynomials_from_blocks::<R, _>(uv_tuple_block),
         );
 
-        // store proofs
-        prover_left_batch.push(prover_left_proof);
-        verifier_left_batch.push(verifier_left_proof);
-
         // recursively generate proofs
         // until there are less than `R::USIZE` many (u,v) field elements
-        while uv_store.len() >= R::USIZE {
+        // and then do one more iteration
+        //
+        // notice that uv_store.len() will always be at least 1
+        // further, polynomial uv_store.uv[0].0 and .1 will always have
+        // R::USIZE many points since they are filled with `F::ZERO`.
+        loop {
+            let stop = uv_store.len() < R::USIZE;
+
             // generate next proof
-            // from iterator over references
-            let mut proof =
-                ZeroKnowledgeProof::<F, R>::compute_proof(uv_store.iter(), &lagrange_table);
-
-            // generate proof shares
-            let (prover_left_proof, verifier_left_proof) =
-                Self::share_via_prss(&mut proof, ctx, &mut record_counter);
-
-            // compute next uv values
-            // from iterator over references
-            uv_store = UVStore::<F, R>::gen_challenge_and_recurse(
-                &prover_left_proof,
-                &proof,
-                uv_store.iter(), //.map(|x| (&x.0, &x.1)),
+            uv_store = Self::compute_next_proof(
+                &mut prover_left_batch,
+                &mut verifier_left_batch,
+                &mut record_counter,
+                ctx,
+                &lagrange_table,
+                uv_store.iter(),
             );
 
-            // store proofs
-            prover_left_batch.push(prover_left_proof);
-            verifier_left_batch.push(verifier_left_proof);
+            if stop {
+                break;
+            }
         }
 
         // generate masks
-        let (p_mask, _): (F, F) = ctx.prss().generate_fields(RecordId::from(record_counter));
+        // the right mask are used during the proof generation
+        // and the verifier on the right generate the same masks
+        // as his left_mask which are then used during the verification
+        // this prover stores its left masks
+        // which he uses once he plays the role of the verifier to the left
+        let (left_p_mask, right_p_mask): (F, F) =
+            ctx.prss().generate_fields(RecordId::from(record_counter));
         record_counter += 1;
-        let (q_mask, _): (F, F) = ctx.prss().generate_fields(RecordId::from(record_counter));
+        let (left_q_mask, right_q_mask): (F, F) =
+            ctx.prss().generate_fields(RecordId::from(record_counter));
+        record_counter += 1;
+
+        // set masks
+        uv_store.set_masks(right_p_mask, right_q_mask);
+
+        // generate last proof
+        _ = Self::compute_next_proof(
+            &mut prover_left_batch,
+            &mut verifier_left_batch,
+            &mut record_counter,
+            ctx,
+            &lagrange_table,
+            uv_store.iter(),
+        );
 
         // output proofs
+        // as well as the left masks
+        // which are later needed during the verification
         (
             ProofBatch {
                 proofs: prover_left_batch,
@@ -242,16 +261,53 @@ where
             ProofBatch {
                 proofs: verifier_left_batch,
             },
-            //(left_mask,right_mask)
-            (F::ZERO, F::ZERO),
+            (left_p_mask, left_q_mask),
         )
+    }
+
+    /// This function is a helper function that computes the next proof from an iterator
+    /// It also computes the next `UVStore`
+    /// that can be used for the `compute_next_proof` call that follows this call.
+    fn compute_next_proof<C, J, B>(
+        prover_left_batch: &mut Vec<ZeroKnowledgeProof<F, R>>,
+        verifier_left_batch: &mut Vec<ZeroKnowledgeProof<F, R>>,
+        record_counter: &mut usize,
+        ctx: &C,
+        lagrange_table: &LagrangeTable<F, R, <R as Sub<U1>>::Output>,
+        mut uv: J,
+    ) -> UVStore<F, R>
+    where
+        C: Context,
+        R: ArrayLength + Sub<U1>,
+        <R as Sub<U1>>::Output: ArrayLength,
+        J: Iterator<Item = B> + Clone,
+        B: Borrow<UVPolynomial<F, R>>,
+    {
+        // generate next proof
+        // from iterator
+        let mut proof = ZeroKnowledgeProof::<F, R>::compute_proof(uv.clone(), &lagrange_table);
+
+        // generate proof shares
+        let (prover_left_proof, verifier_left_proof) =
+            Self::share_via_prss(&mut proof, ctx, record_counter);
+
+        // compute next uv values
+        // from iterator
+        let uv_store = UVStore::<F, R>::gen_challenge_and_recurse(&prover_left_proof, &proof, uv);
+
+        // store proofs
+        prover_left_batch.push(prover_left_proof);
+        verifier_left_batch.push(verifier_left_proof);
+
+        //output UVStore
+        uv_store
     }
 
     /// This is a helper function that allows to split a `UVTupleBlock`
     /// into `UVPolynomials` of the correct size.
-    fn polynomials_from_blocks<M, I>(blocks: I) -> impl Iterator<Item = UVPolynomial<F, M>>
+    fn polynomials_from_blocks<M, I>(blocks: I) -> impl Iterator<Item = UVPolynomial<F, M>> + Clone
     where
-        I: Iterator<Item = UVTupleBlock<F>>,
+        I: Iterator<Item = UVTupleBlock<F>> + Clone,
         M: ArrayLength,
     {
         assert_eq!(BlockSize::USIZE % M::USIZE, 0);

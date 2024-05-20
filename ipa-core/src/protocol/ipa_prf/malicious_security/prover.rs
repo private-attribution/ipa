@@ -27,6 +27,14 @@ pub trait ProofArray {
     type Length: ArrayLength;
 }
 
+/// This struct contains a single `ZeroKnowledgeProof`
+/// The length of the proof is not the generic parameter `R`.
+/// The length can be obtained using the trait `ProofArray`
+/// where the associated type `Length`
+/// represents the length of the proof.
+///
+/// Parameter `R` represents the recursion factor, which is a parameter
+/// used during the proof generation and verification.
 pub struct ZeroKnowledgeProof<F, R>
 where
     Self: ProofArray,
@@ -127,8 +135,43 @@ where
         self.uv.is_empty()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &UVPolynomial<F, R>> {
+    pub fn iter(&self) -> impl Iterator<Item = &UVPolynomial<F, R>> + Clone {
         self.uv.iter()
+    }
+
+    pub fn first(&self) -> &UVPolynomial<F, R> {
+        &self.uv[0]
+    }
+
+    /// This function allows to set masks to protect sensitive information.
+    /// It is used when the last proof of a batch is generated.
+    ///
+    /// ## Panics
+    /// Panics when `self` contains more than one polynomial tuple
+    /// or when masks cannot be set safely.
+    /// The latter is the case when there are too many points for a polynomial of degree `R minus 1`.
+    /// This function likely panics when used with small fields like `Fp31`
+    /// Use FP61BitPrime instead when using this function in test cases.
+    pub fn set_masks(&mut self, p_0: F, q_0: F) {
+        // assert that there are only two polynomials
+        debug_assert_eq!(self.len(), 1usize);
+        // assert that last point of p,q is really `F::Zero`
+        // such that we can safely set the 0 points to be the last points
+        // p is the polynomial uv_store.first().0
+        // and q is the polynomial uv_store.first().1
+        // this is likely to fail for small sized fields,
+        // so dont use Fp31 (but rather FP61BitPrime) in tests for this function.
+        debug_assert_eq!(
+            (self.first().0[R::USIZE - 1], self.first().1[R::USIZE - 1]),
+            (F::ZERO, F::ZERO)
+        );
+        // shift 0 positions to the back where no actual point is stored
+        // (F::ZERO are overwhelmingly likely to be just 0 fillers)
+        self.uv[0].0[R::USIZE - 1] = self.uv[0].0[0];
+        self.uv[0].1[R::USIZE - 1] = self.uv[0].1[0];
+        // set 0 positions of p, q polynomial to masks
+        self.uv[0].0[0] = p_0;
+        self.uv[0].1[0] = q_0;
     }
 
     /// This function generates a set of `UVPolynomial<F,R>` that is used for the next recursion.
