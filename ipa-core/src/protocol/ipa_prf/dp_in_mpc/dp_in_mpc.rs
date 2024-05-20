@@ -76,24 +76,23 @@ pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
 
 
 #[cfg(test)]
-pub async fn apply_dp_noise<C, const B: usize,OV>(
-    ctx: C,
+pub async fn apply_dp_noise<'ctx, const B: usize,OV>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded,Boolean>,
     histogram_bin_values: BitDecomposed<Replicated<Boolean,B>>,
     num_histogram_bins: u32,
     ) -> Result<Vec<Replicated<OV>>, Error>
     where
-        C: Context,
         Boolean: Vectorizable<B> + FieldSimd<B>,
         BitDecomposed<Replicated<Boolean,B>>: FromPrss<usize>,
         OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Replicated<Boolean, B>: BooleanProtocols<C, B>,
+        Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded,Boolean>, B>,
 {
     assert_eq!(num_histogram_bins, B as u32);
     // in the future there could be some calculation there to go from a passed in
     // epsilon, delta to the num_bernoulli, but for now it is fixed.
     let num_bernoulli: u32 = 1000;
     let noise_gen_ctx = ctx.narrow(&Step::NoiseGen);
-    let noise_vector = gen_binomial_noise::<C,B,OV>(noise_gen_ctx,num_bernoulli,num_histogram_bins);
+    let noise_vector = gen_binomial_noise::<B,OV>(noise_gen_ctx,num_bernoulli,num_histogram_bins);
 
 
     // Step 4:  Add DP noise to output values
@@ -158,7 +157,7 @@ mod test {
         let result = world.upgraded_semi_honest(
             input.into_iter(),
             | ctx , input | async move {
-                gen_binomial_noise::<_,{NUM_BREAKDOWNS as usize},Output_Value>(ctx, num_bernoulli,NUM_BREAKDOWNS).await.unwrap()
+                gen_binomial_noise::<{NUM_BREAKDOWNS as usize},Output_Value>(ctx, num_bernoulli,NUM_BREAKDOWNS).await.unwrap()
             }).await;
     }
 
