@@ -84,7 +84,7 @@ impl<I, S> ReceiveRecords<I, S> {
     }
 }
 
-#[cfg(all(test, any(unit_test, web_test)))]
+#[cfg(all(test, descriptive_gate, any(unit_test, web_test)))]
 impl<I: TransportIdentity, S: crate::helpers::BytesStream> ReceiveRecords<I, S> {
     /// Converts this into a stream that yields owned byte chunks.
     ///

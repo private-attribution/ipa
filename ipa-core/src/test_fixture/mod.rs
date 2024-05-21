@@ -14,6 +14,9 @@ mod event_gen;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
+pub(crate) mod step;
+#[cfg(feature = "in-memory-infra")]
+mod test_gate;
 
 use std::fmt::Debug;
 
@@ -27,7 +30,7 @@ pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
 #[cfg(feature = "in-memory-infra")]
 pub use world::{
     Distribute, Random as RandomInputDistribution, RoundRobin as RoundRobinInputDistribution,
-    Runner, TestExecutionStep, TestWorld, TestWorldConfig, WithShards,
+    Runner, TestWorld, TestWorldConfig, WithShards,
 };
 
 use crate::{

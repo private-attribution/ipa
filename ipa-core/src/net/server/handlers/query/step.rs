@@ -7,7 +7,7 @@ use crate::{
         server::{ClientIdentity, Error},
         HttpTransport,
     },
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
     sync::Arc,
 };
 
@@ -35,6 +35,7 @@ mod tests {
 
     use futures::{stream::poll_immediate, StreamExt};
     use hyper::{Body, StatusCode};
+    use ipa_step::StepNarrow;
 
     use super::*;
     use crate::{
@@ -43,10 +44,7 @@ mod tests {
             server::handlers::query::test_helpers::{assert_fails_with, MaybeExtensionExt},
             test::TestServer,
         },
-        protocol::{
-            step::{Gate, StepNarrow},
-            QueryId,
-        },
+        protocol::{Gate, QueryId},
     };
 
     const DATA_LEN: usize = 3;

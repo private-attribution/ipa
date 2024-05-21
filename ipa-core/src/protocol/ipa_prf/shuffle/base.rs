@@ -1,29 +1,17 @@
 use std::ops::{Add, AddAssign};
 
 use futures::future;
-use ipa_macros::Step;
 use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng};
 
 use crate::{
     error::Error,
     helpers::{Direction, MpcReceivingEnd, Role},
-    protocol::{context::Context, RecordId},
+    protocol::{context::Context, ipa_prf::shuffle::step::OPRFShuffleStep, RecordId},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
     },
 };
-
-#[derive(Step)]
-pub(crate) enum OPRFShuffleStep {
-    ApplyPermutations,
-    GenerateAHat,
-    GenerateBHat,
-    GenerateZ,
-    TransferCHat,
-    TransferX2,
-    TransferY1,
-}
 
 /// # Errors
 /// Will propagate errors from transport and a few typecasts

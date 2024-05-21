@@ -9,11 +9,13 @@ use ipa_core::{
     error::Error,
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
+    protocol::{step::ProtocolStep::IpaPrf, Gate},
     test_fixture::{
         ipa::{ipa_in_the_clear, test_oprf_ipa, CappingOrder, IpaSecurityModel},
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
+use ipa_step::StepNarrow;
 use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
 
@@ -101,6 +103,7 @@ async fn run(args: Args) -> Result<(), Error> {
     let _prep_time = Instant::now();
     let config = TestWorldConfig {
         gateway_config: GatewayConfig::new(args.active()),
+        initial_gate: Some(Gate::default().narrow(&IpaPrf)),
         ..TestWorldConfig::default()
     };
     // Construct TestWorld early to initialize logging.

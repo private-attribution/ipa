@@ -17,8 +17,9 @@ use crate::{
     hpke::{KeyPair, KeyRegistry},
     protocol::{
         basics::ShareKnownValue,
-        context::SemiHonestContext,
+        context::{Context, SemiHonestContext},
         ipa_prf::{oprf_ipa, OPRFIPAInputRow},
+        step::ProtocolStep::IpaPrf,
     },
     report::{EncryptedOprfReport, EventType},
     secret_sharing::{
@@ -65,6 +66,7 @@ where
             phantom_data: _,
         } = self;
         tracing::info!("New query: {config:?}");
+        let ctx = ctx.narrow(&IpaPrf);
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {

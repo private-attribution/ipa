@@ -1,6 +1,6 @@
 use std::iter::repeat;
 
-use ipa_macros::Step;
+use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
@@ -8,10 +8,9 @@ use crate::{
     helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
-        boolean::or::bool_or,
+        boolean::{or::bool_or, NBitStep},
         context::{Context, UpgradedSemiHonestContext},
-        step::BitStep,
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
     sharding::ShardBinding,
@@ -39,19 +38,14 @@ pub async fn integer_add<C, S, const N: usize>(
 >
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let mut carry = AdditiveShare::ZERO;
     let sum = addition_circuit::<_, S, N>(ctx, record_id, x, y, &mut carry).await?;
     Ok((sum, carry))
-}
-
-#[derive(Step)]
-enum SatAddStep {
-    Add,
-    Select,
 }
 
 /// saturated unsigned integer addition
@@ -67,18 +61,21 @@ pub async fn integer_sat_add<'a, SH, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     SH: ShardBinding,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
+    Gate: StepNarrow<S>,
 {
+    use super::step::SaturatedAdditionStep as Step;
+
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
     let result =
-        addition_circuit::<_, S, N>(ctx.narrow(&SatAddStep::Add), record_id, x, y, &mut carry)
+        addition_circuit::<_, S, N>(ctx.narrow::<Step>(&Step::Add), record_id, x, y, &mut carry)
             .await?;
 
     // if carry==1 then {all ones} else {result}
     bool_or(
-        ctx.narrow(&SatAddStep::Select),
+        ctx.narrow::<Step>(&Step::Select),
         record_id,
         &result,
         repeat_n(&carry, x.len()),
@@ -103,9 +100,10 @@ async fn addition_circuit<C, S, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    S: BitStep,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let x = x.iter();
     let y = y.iter();
@@ -168,9 +166,9 @@ mod test {
             ArrayAccess, U128Conversions,
         },
         protocol::{
+            boolean::step::DefaultBitStep,
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
-            step::DefaultBitStep,
             RecordId,
         },
         rand::thread_rng,

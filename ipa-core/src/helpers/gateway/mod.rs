@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Shard receiver channel[ShardIndex(1),\"protocol/iter0\"] can only be created once"
+        expected = "Shard receiver channel[ShardIndex(1),\"protocol/iter000\"] can only be created once"
     )]
     fn shards_receive_twice() {
         run(|| async move {

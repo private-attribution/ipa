@@ -11,7 +11,7 @@
 use std::{cmp::max, future::Future, ops::Add};
 
 use futures::{future::try_join, stream, StreamExt, TryFutureExt};
-use ipa_macros::Step;
+use ipa_step::Step;
 use rand::seq::SliceRandom;
 
 use crate::{
@@ -180,7 +180,6 @@ trait ShuffleContext: ShardedContext {
     }
 }
 
-#[derive(Step)]
 enum ShuffleStep {
     /// Depending on the helper position inside the MPC ring, generate Ã, B̃ or both.
     PseudoRandomTable,
@@ -201,6 +200,24 @@ enum ShuffleStep {
     /// Local per-shard shuffle, where each shard redistributes shares locally according to samples
     /// obtained from PRSS. Does not require Shard or MPC communication.
     LocalShuffle,
+}
+
+impl Step for ShuffleStep {}
+
+impl AsRef<str> for ShuffleStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            ShuffleStep::PseudoRandomTable => "PseudoRandomTable",
+            ShuffleStep::Permute12 => "Permute12",
+            ShuffleStep::Permute23 => "Permute23",
+            ShuffleStep::Permute31 => "Permute31",
+            ShuffleStep::Cardinality => "Cardinality",
+            ShuffleStep::LeftToRight => "LeftToRight",
+            ShuffleStep::C => "C",
+            ShuffleStep::Mask => "Mask",
+            ShuffleStep::LocalShuffle => "LocalShuffle",
+        }
+    }
 }
 
 impl<C: ShardedContext> ShuffleContext for C {}
