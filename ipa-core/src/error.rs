@@ -73,8 +73,6 @@ pub enum Error {
     DZKPValidationFailed,
     #[error("Inconsistent shares")]
     InconsistentShares,
-    #[error("Aggregation stream")]
-    AggregationStream,
 }
 
 impl Default for Error {
