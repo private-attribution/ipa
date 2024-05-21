@@ -155,10 +155,11 @@ impl<'a> Segment<'a> {
         debug_assert_eq!(x_left.len(), prss_left.len());
         debug_assert_eq!(x_left.len(), prss_right.len());
         debug_assert_eq!(x_left.len(), z_right.len());
-        // check that length is either smaller than 256 or 256 is multiple of length
-        debug_assert_eq!(
-            (x_left.len(), x_left.len() <= 256 || x_left.len() % 256 == 0),
-            (x_left.len(), true)
+        // check that length is either smaller or a multiple of 256
+        debug_assert!(
+            x_left.len() <= 256 || x_left.len() % 256 == 0,
+            "length {} needs to be smaller or a multiple of 256",
+            x_left.len()
         );
         // asserts passed, create struct
         Self {
@@ -299,12 +300,19 @@ impl MultiplicationInputsBatch {
     /// It supports `segments` that are either smaller than 256 bits or multiple of 256 bits.
     ///
     /// ## Panics
-    /// Panics when segments have different lengths across records, the `record_id` is less than
-    /// `first_record` or when `record_id` is more than `first_record + max_multiplications`,
-    /// i.e. not enough space has been allocated.
+    /// Panics when segments have different lengths across records.
+    /// It also Panics when the `record_id` is smaller
+    /// than the first record of the batch, i.e. `first_record`
+    /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment(&mut self, record_id: RecordId, segment: Segment) {
         // check segment size
         debug_assert_eq!(segment.len(), self.multiplication_bit_size);
+
+        // panics when record_id is out of bounds
+        assert!(record_id >= self.first_record);
+        assert!(
+            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
+        );
 
         // update last record
         self.last_record = cmp::max(self.last_record, record_id);
@@ -317,15 +325,27 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// insert `segments` for `segments` that are smallere than 256
+    /// insert `segments` that are smaller than or equal to 256
     ///
     /// ## Panics
     /// Panics when `bit_length` and `block_id` are out of bounds.
+    /// It also Panics when the `record_id` is smaller
+    /// than the first record of the batch, i.e. `first_record`
+    /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment_small(&mut self, record_id: RecordId, segment: Segment) {
+        // check length
+        debug_assert!(segment.len() <= 256);
+
+        // panics when record_id is out of bounds
+        assert!(record_id >= self.first_record);
+        assert!(
+            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
+        );
+
         // panics when record_id is less than first_record
         let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
         // round up segment length to a power of two since we want to have divisors of 256
-        let length = segment.power_of_two_bit_len();
+        let length = segment.len().next_power_of_two();
 
         let block_id = (length * id_within_batch) >> BIT_ARRAY_SHIFT;
         // segments are small, pack one or more in each entry of `vec`
@@ -352,12 +372,23 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// insert `segments` for `segments` that are multiples of 256
+    /// insert `segments` that are multiples of 256
     ///
     /// ## Panics
     /// Panics when segment is not a multiple of 256 or is out of bounds.
+    /// It also Panics when the `record_id` is smaller
+    /// than the first record of the batch, i.e. `first_record`
+    /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment_large(&mut self, record_id: RecordId, segment: &Segment) {
-        // panics when record_id is less than first_record
+        // check length
+        debug_assert_eq!(segment.len() % 256, 0);
+
+        // panics when record_id is out of bounds
+        assert!(record_id >= self.first_record);
+        assert!(
+            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
+        );
+
         let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
         let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
 
@@ -1021,37 +1052,49 @@ mod tests {
         // Boolean
         assert_eq!(
             1usize,
-            SegmentEntry::from_bitslice(bits.get(0..1).unwrap()).power_of_two_bit_len()
+            SegmentEntry::from_bitslice(bits.get(0..1).unwrap())
+                .len()
+                .next_power_of_two()
         );
 
         // BA3
         assert_eq!(
             4usize,
-            SegmentEntry::from_bitslice(bits.get(0..3).unwrap()).power_of_two_bit_len()
+            SegmentEntry::from_bitslice(bits.get(0..3).unwrap())
+                .len()
+                .next_power_of_two()
         );
 
         // BA8
         assert_eq!(
             8usize,
-            SegmentEntry::from_bitslice(bits.get(0..8).unwrap()).power_of_two_bit_len()
+            SegmentEntry::from_bitslice(bits.get(0..8).unwrap())
+                .len()
+                .next_power_of_two()
         );
 
         // BA20
         assert_eq!(
             32usize,
-            SegmentEntry::from_bitslice(bits.get(0..20).unwrap()).power_of_two_bit_len()
+            SegmentEntry::from_bitslice(bits.get(0..20).unwrap())
+                .len()
+                .next_power_of_two()
         );
 
         // BA64
         assert_eq!(
             64usize,
-            SegmentEntry::from_bitslice(bits.get(0..64).unwrap()).power_of_two_bit_len()
+            SegmentEntry::from_bitslice(bits.get(0..64).unwrap())
+                .len()
+                .next_power_of_two()
         );
 
         // BA256
         assert_eq!(
             256usize,
-            SegmentEntry::from_bitslice(bits.get(0..256).unwrap()).power_of_two_bit_len()
+            SegmentEntry::from_bitslice(bits.get(0..256).unwrap())
+                .len()
+                .next_power_of_two()
         );
     }
 }
