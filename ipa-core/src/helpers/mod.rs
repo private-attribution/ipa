@@ -82,7 +82,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::{step::Gate, RecordId},
+    protocol::{Gate, RecordId},
     secret_sharing::Sendable,
     sharding::ShardIndex,
 };

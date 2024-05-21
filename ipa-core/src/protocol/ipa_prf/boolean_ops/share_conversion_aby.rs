@@ -1,7 +1,5 @@
 use std::{convert::Infallible, ops::Neg};
 
-use ipa_macros::Step;
-
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
@@ -11,8 +9,11 @@ use crate::{
     helpers::Role,
     protocol::{
         basics::{partial_reveal, BooleanProtocols},
+        boolean::step::TwoHundredFiftySixBitOpStep,
         context::Context,
-        ipa_prf::boolean_ops::addition_sequential::integer_add,
+        ipa_prf::boolean_ops::{
+            addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
+        },
         prss::{FromPrss, SharedRandomness},
         RecordId,
     },
@@ -21,15 +22,6 @@ use crate::{
         BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    GenerateSecretSharing,
-    IntegerAddBetweenMasks,
-    IntegerAddMaskToX,
-    #[dynamic(256)]
-    RevealY(usize),
-}
 
 /// share conversion
 /// from Boolean array of size n to integer mod p, where p is modulus of elliptic curve field `Fp25519`
@@ -96,6 +88,8 @@ pub(crate) enum Step {
 ///
 /// # Errors
 /// Propagates Errors from Integer Subtraction and Partial Reveal
+/// # Panics
+/// If values processed by this function is smaller than 256 bits.
 pub async fn convert_to_fp25519<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
@@ -129,7 +123,7 @@ where
     // addition r+s might cause carry,
     // this is no problem since we have set bit 254 of sh_r and sh_s to 0
     let sh_rs = {
-        let (mut rs_with_higherorderbits, _) = integer_add::<_, N>(
+        let (mut rs_with_higherorderbits, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, N>(
             ctx.narrow(&Step::IntegerAddBetweenMasks),
             record_id,
             &sh_r,
@@ -147,8 +141,13 @@ where
 
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
-    let (sh_y, _) =
-        integer_add::<_, N>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, &x).await?;
+    let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, N>(
+        ctx.narrow(&Step::IntegerAddMaskToX),
+        record_id,
+        &sh_rs,
+        &x,
+    )
+    .await?;
 
     // this leaks information, but with negligible probability
     let mut y = (ctx.role() != Role::H3).then(|| Vec::with_capacity(N));

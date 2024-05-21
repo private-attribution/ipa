@@ -4,22 +4,24 @@ use std::{
     pin::Pin,
 };
 
-use futures::{Stream, StreamExt, TryStreamExt};
-use ipa_macros::Step;
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, CustomArray, U128Conversions},
     helpers::{
-        stream::{process_stream_by_chunks, Chunk, ChunkBuffer, FixedLength, TryFlattenItersExt},
+        stream::{process_stream_by_chunks, ChunkBuffer, FixedLength, TryFlattenItersExt},
         TotalRecords,
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols},
+        boolean::{step::SixteenBitStep, NBitStep},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
+            aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             prf_sharding::AttributionOutputs,
+            BreakdownKey,
         },
         RecordId,
     },
@@ -31,6 +33,7 @@ use crate::{
 };
 
 mod bucket;
+pub(crate) mod step;
 
 type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
     BitDecomposed<Replicated<Boolean, N>>,
@@ -91,19 +94,6 @@ where
     }
 }
 
-#[derive(Step)]
-pub(crate) enum Step {
-    MoveToBucket,
-    #[dynamic(32)]
-    Aggregate(usize),
-}
-
-#[derive(Step)]
-pub(crate) enum AggregateValuesStep {
-    OverflowingAdd,
-    SaturatingAdd,
-}
-
 // Aggregation
 //
 // The input to aggregation is a stream of tuples of (attributed breakdown key, attributed trigger
@@ -139,7 +129,7 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    BK: BreakdownKey<B>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<N> + FieldSimd<B>,
@@ -156,7 +146,6 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    let num_chunks = (contributions_stream_len + N - 1) / N;
     // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
     // parallel (thus cannot reach a batch of records).
     let bucket_ctx = ctx
@@ -192,21 +181,25 @@ where
 
     let aggregation_input = Box::pin(
         row_contribution_chunk_stream
-            // The final chunk from the previous stage is padded with zero-credit records. Rather
-            // than transpose out of vectorized form, flatten the chunked stream, discard the
-            // trailing records, and transpose again for final aggregation, we instead call into_raw
-            // to get the padded record chunk and transpose directly to the form we need for the
-            // final stage. Including the zero-credit padding records does not affect the final
-            // output.
-            .then(|fut| async move { fut.await.map(Chunk::into_raw) })
-            .map_ok(|chunk| {
-                // This is the aggregation intermediate transpose, see the function comment.
-                Vec::transposed_from(chunk.as_slice()).unwrap_infallible()
+            // Rather than transpose out of record-vectorized form and then transpose again back
+            // into bucket-vectorized form, we use a special transpose (the "aggregation
+            // intermediate transpose") that combines the two steps.
+            //
+            // Since the bucket-vectorized representation is separable by records, we do the
+            // transpose within the `Chunk` wrapper using `Chunk::map`, and then invoke
+            // `Chunk::into_iter` via `try_flatten_iters` to produce an unchunked stream of
+            // records, vectorized by buckets.
+            .then(|fut| {
+                fut.map(|res| {
+                    res.map(|chunk| {
+                        chunk.map(|data| Vec::transposed_from(data.as_slice()).unwrap_infallible())
+                    })
+                })
             })
-            .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
+            .try_flatten_iters(),
     );
 
-    aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
+    aggregate_values::<_, B>(ctx, aggregation_input, contributions_stream_len).await
 }
 
 /// A vector of histogram contributions for each output bucket.
@@ -276,9 +269,13 @@ where
                                 let a = chunk_pair.pop().unwrap();
                                 let record_id = RecordId::from(i);
                                 if a.len() < usize::try_from(OV::BITS).unwrap() {
+                                    assert!(
+                                        OV::BITS <= SixteenBitStep::BITS,
+                                        "SixteenBitStep not large enough to accomodate this sum"
+                                    );
                                     // If we have enough output bits, add and keep the carry.
-                                    let (mut sum, carry) = integer_add::<_, B>(
-                                        ctx.narrow(&AggregateValuesStep::OverflowingAdd),
+                                    let (mut sum, carry) = integer_add::<_, SixteenBitStep, B>(
+                                        ctx.narrow(&AggregateValuesStep::Add),
                                         record_id,
                                         &a,
                                         &b,
@@ -287,7 +284,11 @@ where
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
-                                    integer_sat_add::<_, B>(
+                                    assert!(
+                                        OV::BITS <= SixteenBitStep::BITS,
+                                        "SixteenBitStep not large enough to accomodate this sum"
+                                    );
+                                    integer_sat_add::<_, SixteenBitStep, B>(
                                         ctx.narrow(&AggregateValuesStep::SaturatingAdd),
                                         record_id,
                                         &a,

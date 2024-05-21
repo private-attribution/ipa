@@ -2,7 +2,6 @@ use std::{convert::Infallible, iter, mem, ops::Range};
 
 use bitvec::prelude::{BitVec, Lsb0};
 use futures::stream::{self, repeat, StreamExt, TryStreamExt};
-use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
@@ -10,8 +9,13 @@ use crate::{
     helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
         basics::Reveal,
+        boolean::{step::ThirtyTwoBitStep, NBitStep},
         context::{Context, SemiHonestContext},
-        ipa_prf::{boolean_ops::comparison_and_subtraction_sequential::compare_gt, SORT_CHUNK},
+        ipa_prf::{
+            boolean_ops::comparison_and_subtraction_sequential::compare_gt,
+            step::{QuicksortPassStep, QuicksortStep as Step},
+            SORT_CHUNK,
+        },
         RecordId,
     },
     secret_sharing::{
@@ -20,14 +24,6 @@ use crate::{
     },
     seq_join::{seq_join, SeqJoin},
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    #[dynamic(1024)]
-    QuicksortPass(usize),
-    Compare,
-    Reveal,
-}
 
 impl<K> ChunkBuffer<SORT_CHUNK> for (Vec<AdditiveShare<K>>, Vec<AdditiveShare<K>>)
 where
@@ -157,8 +153,8 @@ where
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
             .set_total_records((num_comparisons_needed + SORT_CHUNK - 1) / SORT_CHUNK);
-        let cmp_ctx = c.narrow(&Step::Compare);
-        let rvl_ctx = c.narrow(&Step::Reveal);
+        let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
+        let rvl_ctx = c.narrow(&QuicksortPassStep::Reveal);
 
         let compare_index_pairs =
             stream::iter(ranges_to_sort.clone().into_iter().filter(|r| r.len() > 1))
@@ -171,6 +167,10 @@ where
                 })
                 .map(Ok);
 
+        assert!(
+            K::BITS <= ThirtyTwoBitStep::BITS,
+            "ThirtyTwoBitStep is not large enough to accommodate this sort"
+        );
         let comp: BitVec<usize, Lsb0> = seq_join(
             ctx.active_work(),
             process_stream_by_chunks::<_, _, _, _, _, _, _, SORT_CHUNK>(
@@ -182,11 +182,12 @@ where
                     let record_id = RecordId::from(idx);
                     async move {
                         // Compare the current element against pivot and reveal the result.
-                        let comparison =
-                            compare_gt::<_, SORT_CHUNK>(cmp_ctx, record_id, &k, &pivot)
-                                .await?
-                                .reveal(rvl_ctx, record_id) // reveal outcome of comparison
-                                .await?;
+                        let comparison = compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
+                            cmp_ctx, record_id, &k, &pivot,
+                        )
+                        .await?
+                        .reveal(rvl_ctx, record_id) // reveal outcome of comparison
+                        .await?;
 
                         // desc = true will flip the order of the sort
                         Ok::<_, Error>(comparison + !desc)
@@ -240,7 +241,7 @@ pub mod tests {
         iter::{repeat, repeat_with},
     };
 
-    use ipa_macros::Step;
+    use ipa_step_derive::CompactStep;
     use rand::Rng;
 
     use crate::{
@@ -254,7 +255,7 @@ pub mod tests {
 
     type TestSortKey = BA32;
 
-    #[derive(Step)]
+    #[derive(CompactStep)]
     pub(crate) enum Step {
         TestReverse,
     }

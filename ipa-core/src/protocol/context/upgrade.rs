@@ -2,14 +2,14 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use futures::future::try_join;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::UpgradedContext,
-        step::{BitOpStep, Gate, Step, StepNarrow},
-        NoRecord, RecordBinding, RecordId,
+        boolean::step::TwoHundredFiftySixBitOpStep, context::UpgradedContext, Gate, NoRecord,
+        RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -24,7 +24,7 @@ use crate::{
 /// and outer vectors in a `Vec<Vec<T>>` is an error. Instead, one level of iteration can use the
 /// record ID and the other can use something like a `BitOpStep`.
 ///
-#[cfg_attr(not(feature = "descriptive-gate"), doc = "```ignore")]
+#[cfg_attr(not(descriptive_gate), doc = "```ignore")]
 /// ```no_run
 /// use ipa_core::protocol::{context::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext as C}, NoRecord, RecordId};
 /// use ipa_core::ff::Fp32BitPrime as F;
@@ -33,12 +33,12 @@ use crate::{
 /// };
 /// // Note: Unbound upgrades only work when testing.
 /// #[cfg(test)]
-/// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<Replicated<F>, _>>::upgrade;
-/// let _ = <UpgradeContext<C<'_, F>, F, RecordId> as UpgradeToMalicious<Replicated<F>, _>>::upgrade;
+/// let _ = <UpgradeContext<C<'_, F>, NoRecord> as UpgradeToMalicious<Replicated<F>, _>>::upgrade;
+/// let _ = <UpgradeContext<C<'_, F>, RecordId> as UpgradeToMalicious<Replicated<F>, _>>::upgrade;
 /// #[cfg(test)]
-/// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<(Replicated<F>, Replicated<F>), _>>::upgrade;
-/// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
-/// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<(Vec<Replicated<F>>, Vec<Replicated<F>>), _>>::upgrade;
+/// let _ = <UpgradeContext<C<'_, F>, NoRecord> as UpgradeToMalicious<(Replicated<F>, Replicated<F>), _>>::upgrade;
+/// let _ = <UpgradeContext<C<'_, F>, NoRecord> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
+/// let _ = <UpgradeContext<C<'_, F>, NoRecord> as UpgradeToMalicious<(Vec<Replicated<F>>, Vec<Replicated<F>>), _>>::upgrade;
 /// ```
 ///
 /// ```compile_fail
@@ -49,29 +49,21 @@ use crate::{
 /// };
 /// // This can't be upgraded with a record-bound context because the record ID
 /// // is used internally for vector indexing.
-/// let _ = <UpgradeContext<C<'_, F>, F, RecordId> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
-pub struct UpgradeContext<
-    'a,
-    C: UpgradedContext<F>,
-    F: ExtendableField,
-    B: RecordBinding = NoRecord,
-> {
+/// let _ = <UpgradeContext<C<'_, F>, RecordId> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
+pub struct UpgradeContext<C: UpgradedContext, B: RecordBinding = NoRecord> {
     ctx: C,
     record_binding: B,
-    _lifetime: PhantomData<&'a F>,
 }
 
-impl<'a, C, F, B> UpgradeContext<'a, C, F, B>
+impl<C, B> UpgradeContext<C, B>
 where
-    C: UpgradedContext<F>,
-    F: ExtendableField,
+    C: UpgradedContext,
     B: RecordBinding,
 {
     pub fn new(ctx: C, record_binding: B) -> Self {
         Self {
             ctx,
             record_binding,
-            _lifetime: PhantomData,
         }
     }
 
@@ -84,7 +76,7 @@ where
 }
 
 #[async_trait]
-pub trait UpgradeToMalicious<'a, T, M>
+pub trait UpgradeToMalicious<T, M>
 where
     T: Send,
 {
@@ -92,10 +84,9 @@ where
 }
 
 #[async_trait]
-impl<'a, C, F> UpgradeToMalicious<'a, (), ()> for UpgradeContext<'a, C, F, NoRecord>
+impl<C> UpgradeToMalicious<(), ()> for UpgradeContext<C, NoRecord>
 where
-    C: UpgradedContext<F>,
-    F: ExtendableField,
+    C: UpgradedContext,
 {
     async fn upgrade(self, _input: ()) -> Result<(), Error> {
         Ok(())
@@ -103,37 +94,35 @@ where
 }
 
 #[async_trait]
-impl<'a, C, F, T, TM, U, UM> UpgradeToMalicious<'a, (T, U), (TM, UM)>
-    for UpgradeContext<'a, C, F, NoRecord>
+impl<C, T, TM, U, UM> UpgradeToMalicious<(T, U), (TM, UM)> for UpgradeContext<C, NoRecord>
 where
-    C: UpgradedContext<F>,
-    F: ExtendableField,
+    C: UpgradedContext,
     T: Send + 'static,
     U: Send + 'static,
     TM: Send + Sized + 'static,
     UM: Send + Sized + 'static,
-    for<'u> UpgradeContext<'u, C, F, NoRecord>:
-        UpgradeToMalicious<'u, T, TM> + UpgradeToMalicious<'u, U, UM>,
+    UpgradeContext<C, NoRecord>: UpgradeToMalicious<T, TM> + UpgradeToMalicious<U, UM>,
 {
     async fn upgrade(self, input: (T, U)) -> Result<(TM, UM), Error> {
         try_join(
-            self.narrow(&BitOpStep::from(0)).upgrade(input.0),
-            self.narrow(&BitOpStep::from(1)).upgrade(input.1),
+            self.narrow(&TwoHundredFiftySixBitOpStep::from(0))
+                .upgrade(input.0),
+            self.narrow(&TwoHundredFiftySixBitOpStep::from(1))
+                .upgrade(input.1),
         )
         .await
     }
 }
 
 #[async_trait]
-impl<'a, C, F, I, M> UpgradeToMalicious<'a, I, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
+impl<C, I, M> UpgradeToMalicious<I, Vec<M>> for UpgradeContext<C, NoRecord>
 where
-    C: UpgradedContext<F>,
-    F: ExtendableField,
+    C: UpgradedContext,
     I: IntoIterator + Send + 'static,
     I::IntoIter: ExactSizeIterator + Send,
     I::Item: Send + 'static,
     M: Send + 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, I::Item, M>,
+    UpgradeContext<C, RecordId>: UpgradeToMalicious<I::Item, M>,
 {
     async fn upgrade(self, input: I) -> Result<Vec<M>, Error> {
         let iter = input.into_iter();
@@ -150,10 +139,9 @@ where
 }
 
 #[async_trait]
-impl<'a, C, F> UpgradeToMalicious<'a, Replicated<F>, C::Share>
-    for UpgradeContext<'a, C, F, RecordId>
+impl<C, F> UpgradeToMalicious<Replicated<F>, C::Share> for UpgradeContext<C, RecordId>
 where
-    C: UpgradedContext<F>,
+    C: UpgradedContext<Field = F>,
     F: ExtendableField,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<C::Share, Error> {
@@ -181,12 +169,12 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
 // Impl to upgrade a single `Replicated<F>` using a non-record-bound context. Used for tests.
 #[cfg(test)]
 #[async_trait]
-impl<'a, C, F, M> UpgradeToMalicious<'a, Replicated<F>, M> for UpgradeContext<'a, C, F, NoRecord>
+impl<C, F, M> UpgradeToMalicious<Replicated<F>, M> for UpgradeContext<C, NoRecord>
 where
-    C: UpgradedContext<F>,
+    C: UpgradedContext,
     F: ExtendableField,
     M: 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, Replicated<F>, M>,
+    UpgradeContext<C, RecordId>: UpgradeToMalicious<Replicated<F>, M>,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<M, Error> {
         let ctx = if self.ctx.total_records().is_specified() {

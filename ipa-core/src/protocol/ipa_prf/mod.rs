@@ -2,15 +2,16 @@ use std::{array, convert::Infallible, iter, num::NonZeroU32, ops::Add};
 
 use futures_util::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
-use ipa_macros::Step;
 use typenum::{Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, CustomArray, Serializable,
-        U128Conversions,
+        boolean::Boolean,
+        boolean_array::{BA5, BA64, BA8},
+        ec_prime_field::Fp25519,
+        CustomArray, Serializable, U128Conversions,
     },
     helpers::stream::{process_slice_by_chunks, ChunkData, TryFlattenItersExt},
     protocol::{
@@ -37,20 +38,41 @@ use crate::{
     sharding::NotSharded,
 };
 
-mod aggregation;
-mod boolean_ops;
+pub(crate) mod aggregation;
+pub mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
 
 #[cfg(all(test, unit_test))]
 mod malicious_security;
 mod quicksort;
-mod shuffle;
+pub(crate) mod shuffle;
+pub(crate) mod step;
 
 /// Match key type
 pub type MatchKey = BA64;
 /// Match key size
 pub const MK_BITS: usize = BA64::BITS as usize;
+
+// In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
+// ≤ 2^|bk|, with all three values distinct, but at present, there is no runtime configuration and
+// the latter two must be equal. The implementation of `move_single_value_to_bucket` does support a
+// runtime-specified count via the `breakdown_count` parameter, and implements a runtime check of
+// its value.
+//
+// It would usually be more appropriate to make `MAX_BREAKDOWNS` an associated constant rather than
+// a const parameter. However, we want to use it to enforce a correct pairing of the `BK` type
+// parameter and the `B` const parameter, and specifying a constraint like
+// `BreakdownKey<MAX_BREAKDOWNS = B>` on an associated constant is not currently supported. (Nor is
+// supplying an associated constant `<BK as BreakdownKey>::MAX_BREAKDOWNS` as the value of a const
+// parameter.) Structured the way we have it, it probably doesn't make sense to use the
+// `BreakdownKey` trait in places where the `B` const parameter is not already available.
+pub trait BreakdownKey<const MAX_BREAKDOWNS: usize>:
+    SharedValue + U128Conversions + CustomArray<Element = Boolean>
+{
+}
+impl BreakdownKey<32> for BA5 {}
+impl BreakdownKey<256> for BA8 {}
 
 /// Vectorization dimension for PRF
 pub const PRF_CHUNK: usize = 64;
@@ -61,14 +83,7 @@ pub const AGG_CHUNK: usize = 256;
 /// Vectorization dimension for sort.
 pub const SORT_CHUNK: usize = 256;
 
-#[derive(Step)]
-pub(crate) enum Step {
-    ConvertFp25519,
-    EvalPrf,
-    ConvertInputRowsToPrf,
-    Shuffle,
-    SortByTimestamp,
-}
+use step::IpaPrfStep as Step;
 
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -195,7 +210,7 @@ pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    BK: BreakdownKey<B>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -217,8 +232,7 @@ where
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
-    let mut prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), &shuffled).await?;
+    let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
@@ -233,7 +247,7 @@ where
     .await?;
 
     attribute_cap_aggregate::<_, _, _, _, SS_BITS, B>(
-        ctx,
+        ctx.narrow(&Step::Attribution),
         prfd_inputs,
         attribution_window_seconds,
         &histogram,
@@ -248,7 +262,7 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: SharedValue + CustomArray<Element = Boolean>,
     TV: SharedValue + CustomArray<Element = Boolean>,
     TS: SharedValue + CustomArray<Element = Boolean>,
@@ -259,7 +273,7 @@ where
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
     let eval_ctx = ctx.narrow(&Step::EvalPrf);
 
-    let prf_key = gen_prf_key(&convert_ctx);
+    let prf_key = gen_prf_key(&eval_ctx);
 
     seq_join(
         ctx.active_work(),
@@ -324,7 +338,7 @@ where
 pub mod tests {
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA3, BA8},
+            boolean_array::{BA20, BA3, BA5, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
@@ -365,7 +379,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None)
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
@@ -390,6 +404,8 @@ pub mod tests {
     #[test]
     fn duplicate_timestamps() {
         use rand::{seq::SliceRandom, thread_rng};
+
+        use crate::ff::boolean_array::BA16;
 
         const EXPECTED: &[u128] = &[0, 2, 10, 0, 0, 0, 0, 0];
 

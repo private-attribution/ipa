@@ -26,12 +26,11 @@ use crate::{
 };
 
 mod dzkp_malicious;
-#[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
+pub(in crate::protocol) mod step;
 
-#[cfg(feature = "descriptive-gate")]
-pub use semi_honest::multiply as semi_honest_multiply;
+pub use semi_honest::sh_multiply as semi_honest_multiply;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
@@ -39,27 +38,8 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
     /// Multiply and return the result of `a` * `b`.
     async fn multiply<'fut>(&self, rhs: &Self, ctx: C, record_id: RecordId) -> Result<Self, Error>
     where
-        C: 'fut,
-    {
-        self.multiply_sparse(rhs, ctx, record_id).await
-    }
-
-    /// Multiply and return the result of `a` * `b`.
-    /// This takes a profile of which helpers are expected to send
-    /// in the form (self, left, right).
-    /// This is the implementation you should invoke if you want to
-    /// save work when you have sparse values.
-    async fn multiply_sparse<'fut>(
-        &self,
-        rhs: &Self,
-        ctx: C,
-        record_id: RecordId,
-    ) -> Result<Self, Error>
-    where
         C: 'fut;
 }
-
-use semi_honest::multiply as semi_honest_mul;
 
 // The BooleanArrayMul trait is implemented for types like `Replicated<BA32>`. It hides the `N`
 // const parameter so that implementations parameterized with a Boolean array type parameter (e.g.
@@ -120,7 +100,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestContext<'a, B>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b)
+                semi_honest_multiply(ctx, record_id, a, b)
             }
         }
 
@@ -140,7 +120,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestUpgraded<'a, B, F>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b)
+                semi_honest_multiply(ctx, record_id, a, b)
             }
         }
 
@@ -159,7 +139,7 @@ macro_rules! boolean_array_mul {
             where
                 SemiHonestDZKPUpgraded<'a, B>: 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b)
+                semi_honest_multiply(ctx, record_id, a, b)
             }
         }
 
@@ -175,8 +155,8 @@ macro_rules! boolean_array_mul {
             where
                 DZKPUpgradedMaliciousContext<'a>: 'fut,
             {
-                use crate::protocol::basics::mul::dzkp_malicious::multiply;
-                multiply(ctx, record_id, a, b)
+                use crate::protocol::basics::mul::dzkp_malicious::zkp_multiply;
+                zkp_multiply(ctx, record_id, a, b)
             }
         }
     };

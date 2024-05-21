@@ -15,15 +15,13 @@ use std::{
 pub use basics::{BasicProtocols, BooleanProtocols};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    error::Error,
-    ff::{Gf20Bit, Gf3Bit, Gf40Bit, Gf8Bit},
-};
+use crate::error::Error;
 
-pub type MatchKey = Gf40Bit;
-pub type BreakdownKey = Gf8Bit;
-pub type TriggerValue = Gf3Bit;
-pub type Timestamp = Gf20Bit;
+// These two cfg flags are defined to be mutually exclusive.
+#[cfg(compact_gate)]
+pub type Gate = step::ProtocolGate;
+#[cfg(descriptive_gate)]
+pub type Gate = ipa_step::descriptive::Descriptive;
 
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO(615): Generating this unique id may be tricky as it may involve communication between helpers and

@@ -1,40 +1,17 @@
 use embed_doc_image::embed_doc_image;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::boolean::Boolean,
     helpers::repeat_n,
-    protocol::{basics::SecureMul, boolean::and::bool_and_8_bit, context::Context, RecordId},
+    protocol::{
+        basics::SecureMul, boolean::and::bool_and_8_bit, context::Context,
+        ipa_prf::aggregation::step::BucketStep, RecordId,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
 const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
-
-#[derive(Step)]
-pub enum BucketStep {
-    #[dynamic(512)] // should be equal to MAX_BREAKDOWNS
-    Bit(usize),
-}
-
-impl TryFrom<u32> for BucketStep {
-    type Error = String;
-
-    fn try_from(v: u32) -> Result<Self, Self::Error> {
-        let val = usize::try_from(v);
-        let val = match val {
-            Ok(val) => Self::Bit(val),
-            Err(error) => panic!("{error:?}"),
-        };
-        Ok(val)
-    }
-}
-
-impl From<usize> for BucketStep {
-    fn from(v: usize) -> Self {
-        Self::Bit(v)
-    }
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum MoveToBucketError {

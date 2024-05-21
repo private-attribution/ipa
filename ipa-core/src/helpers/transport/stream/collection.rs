@@ -8,7 +8,7 @@ use futures::Stream;
 
 use crate::{
     helpers::TransportIdentity,
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
     sync::{Arc, Mutex},
 };
 

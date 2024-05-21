@@ -92,7 +92,6 @@ where
 mod test {
     use std::ops::Neg;
 
-    use ipa_macros::Step;
     use rand::{thread_rng, Rng};
 
     use crate::{
@@ -105,13 +104,6 @@ mod test {
         test_executor::run,
         test_fixture::{Runner, TestWorld},
     };
-
-    #[derive(Step)]
-    pub(crate) enum Step {
-        Correctness,
-        Misaligned,
-        Changed,
-    }
 
     // Test three two way shares of zero
     // we generated replicated shares of a vector of random values
@@ -139,7 +131,7 @@ mod test {
                         .collect::<Vec<_>>();
 
                     validate_three_two_way_sharing_of_zero(
-                        ctx.narrow(&Step::Correctness),
+                        ctx.narrow("correctness"),
                         &r_left,
                         &r_right,
                     )
@@ -148,7 +140,7 @@ mod test {
 
                     // check misaligned causes error
                     let error = validate_three_two_way_sharing_of_zero(
-                        ctx.narrow(&Step::Misaligned),
+                        ctx.narrow("misaligned"),
                         &r_left[0..len - 1],
                         &r_right[1..len],
                     )
@@ -160,7 +152,7 @@ mod test {
                     r_left[5] += Fp61BitPrime::ONE;
 
                     let error = validate_three_two_way_sharing_of_zero(
-                        ctx.narrow(&Step::Changed),
+                        ctx.narrow("changed"),
                         &r_left[0..len - 1],
                         &r_right[1..len],
                     )

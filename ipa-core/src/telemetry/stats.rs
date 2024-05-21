@@ -9,7 +9,7 @@ use metrics_util::{
     CompositeKey, MetricKind,
 };
 
-use crate::{helpers::Role, protocol::step::Gate, telemetry::labels};
+use crate::{helpers::Role, protocol::Gate, telemetry::labels};
 
 /// Simple counter stats
 #[derive(Debug, Default)]

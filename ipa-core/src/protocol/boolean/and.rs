@@ -1,21 +1,16 @@
 use std::iter::zip;
 
-use ipa_macros::Step;
-
 use crate::{
     error::Error,
     ff::boolean::Boolean,
-    protocol::{basics::SecureMul, context::Context, RecordId},
+    protocol::{
+        basics::SecureMul,
+        boolean::{step::EightBitStep, NBitStep},
+        context::Context,
+        RecordId,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
-
-const MAX_BITS: usize = 8;
-
-#[derive(Step)]
-pub(crate) enum BoolAndStep {
-    #[dynamic(8)] // keep in sync with MAX_BITS
-    Bit(usize),
-}
 
 /// Matrix bitwise AND for use with vectors of bit-decomposed values. Supports up to 8 bits of input
 /// that is enough to support both WALR and PRF IPA use cases.
@@ -48,14 +43,15 @@ where
     let b = b.into_iter();
     assert_eq!(a.len(), b.len());
     assert!(
-        a.len() <= MAX_BITS,
-        "Up to {MAX_BITS} values are supported, but was given a value of {len} bits",
+        a.len() <= usize::try_from(EightBitStep::BITS).unwrap(),
+        "Up to {max_bits} bit values are supported, but was given a value of {len} bits",
+        max_bits = EightBitStep::BITS,
         len = a.len()
     );
 
     BitDecomposed::try_from(
         ctx.parallel_join(zip(a.iter(), b).enumerate().map(|(i, (a, b))| {
-            let ctx = ctx.narrow(&BoolAndStep::Bit(i));
+            let ctx = ctx.narrow(&EightBitStep::Bit(i));
             a.multiply(b, ctx, record_id)
         }))
         .await?,

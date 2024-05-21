@@ -6,28 +6,20 @@
 
 use std::iter::repeat;
 
-#[cfg(all(test, unit_test))]
-use ipa_macros::Step;
+use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, ArrayAccessRef, Field},
+    ff::{boolean::Boolean, ArrayAccessRef, CustomArray, Field},
     protocol::{
-        basics::{BooleanProtocols, SecureMul, ShareKnownValue},
-        context::Context,
-        step::BitOpStep,
-        RecordId,
+        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
+        boolean::NBitStep,
+        context::{Context, SemiHonestContext},
+        Gate, RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
-};
-#[cfg(all(test, unit_test))]
-use crate::{
-    ff::CustomArray,
-    protocol::{
-        basics::{select, BooleanArrayMul},
-        context::SemiHonestContext,
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd, SharedValue,
     },
-    secret_sharing::SharedValue,
 };
 
 /// Comparison operation
@@ -35,8 +27,8 @@ use crate::{
 /// Outputs x>=y for length(x) >= log2(y).
 /// # Errors
 /// Propagates errors from multiply
-#[cfg(all(test, unit_test))]
-pub async fn compare_geq<C>(
+#[allow(dead_code)]
+pub async fn compare_geq<C, S>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean>>,
@@ -44,12 +36,14 @@ pub async fn compare_geq<C>(
 ) -> Result<AdditiveShare<Boolean>, Error>
 where
     C: Context,
+    S: NBitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
+    Gate: StepNarrow<S>,
 {
     // we need to initialize carry to 1 for x>=y,
     let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
     // We don't care about the subtraction, we just want the carry
-    subtraction_circuit(ctx, record_id, x, y, &mut carry).await?;
+    subtraction_circuit::<_, S, 1>(ctx, record_id, x, y, &mut carry).await?;
     Ok(carry)
 }
 
@@ -58,7 +52,7 @@ where
 /// Outputs x>y for length(x) >= log2(y).
 /// # Errors
 /// propagates errors from multiply
-pub async fn compare_gt<C, const N: usize>(
+pub async fn compare_gt<C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -66,12 +60,14 @@ pub async fn compare_gt<C, const N: usize>(
 ) -> Result<AdditiveShare<Boolean, N>, Error>
 where
     C: Context,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     // we need to initialize carry to 0 for x>y
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
-    subtraction_circuit(ctx, record_id, x, y, &mut carry).await?;
+    subtraction_circuit::<_, S, N>(ctx, record_id, x, y, &mut carry).await?;
     Ok(carry)
 }
 
@@ -81,7 +77,7 @@ where
 /// length(x) bits of y.
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sub<C>(
+pub async fn integer_sub<C, S>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean>>,
@@ -89,11 +85,13 @@ pub async fn integer_sub<C>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean>>, Error>
 where
     C: Context,
+    S: NBitStep,
     AdditiveShare<Boolean>: BooleanProtocols<C>,
+    Gate: StepNarrow<S>,
 {
     // we need to initialize carry to 1 for a subtraction
     let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
-    subtraction_circuit(ctx, record_id, x, y, &mut carry).await
+    subtraction_circuit::<_, S, 1>(ctx, record_id, x, y, &mut carry).await
 }
 
 /// saturated unsigned integer subtraction
@@ -101,8 +99,8 @@ where
 /// when y>x, it outputs 0. Only correct when length(x) >= log2(y).
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
-pub async fn integer_sat_sub<S>(
+#[allow(dead_code)]
+pub async fn integer_sat_sub<S, St>(
     ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     x: &AdditiveShare<S>,
@@ -110,19 +108,16 @@ pub async fn integer_sat_sub<S>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     S: SharedValue + CustomArray<Element = Boolean>,
+    St: NBitStep,
     for<'a> AdditiveShare<S>: BooleanArrayMul<SemiHonestContext<'a>>,
+    Gate: StepNarrow<St>,
 {
+    use super::step::SaturatedSubtractionStep as Step;
     use crate::ff::ArrayAccess;
 
-    #[derive(Step)]
-    enum Step {
-        Subtract,
-        Select,
-    }
-
     let mut carry = !AdditiveShare::<Boolean>::ZERO;
-    let result = subtraction_circuit(
-        ctx.narrow(&Step::Subtract),
+    let result = subtraction_circuit::<_, St, 1>(
+        ctx.narrow::<Step>(&Step::Subtract),
         record_id,
         &x.to_bits(),
         &y.to_bits(),
@@ -134,7 +129,7 @@ where
     // carry computes carry=(x>=y)
     // if carry==0 then {zero} else {result}
     select(
-        ctx.narrow(&Step::Select),
+        ctx.narrow::<Step>(&Step::Select),
         record_id,
         &carry,
         &result,
@@ -150,7 +145,7 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-async fn subtraction_circuit<C, const N: usize>(
+async fn subtraction_circuit<C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -159,8 +154,10 @@ async fn subtraction_circuit<C, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let x = x.iter();
     let y = y.iter();
@@ -171,8 +168,7 @@ where
         .zip(y.chain(repeat(&AdditiveShare::<Boolean, N>::ZERO)))
         .enumerate()
     {
-        result
-            .push(bit_subtractor(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry).await?);
+        result.push(bit_subtractor(ctx.narrow(&S::from(i)), record_id, xb, yb, carry).await?);
     }
     Ok(result)
 }
@@ -233,6 +229,7 @@ mod test {
         },
         protocol::{
             self,
+            boolean::step::DefaultBitStep,
             context::Context,
             ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
                 compare_geq, compare_gt, integer_sat_sub, integer_sub,
@@ -297,7 +294,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
-                    compare_geq(
+                    compare_geq::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -313,7 +310,7 @@ mod test {
 
             let result2 = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    compare_geq(
+                    compare_geq::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -344,7 +341,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
-                    compare_gt::<_, 1>(
+                    compare_gt::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -361,7 +358,7 @@ mod test {
             // check that x is not greater than itself
             let result2 = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    compare_gt::<_, 1>(
+                    compare_gt::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -406,7 +403,13 @@ mod test {
                         ctx.active_work(),
                         stream_iter(x.into_iter().zip(repeat((ctx, y))).enumerate().map(
                             |(i, (x, (ctx, y)))| async move {
-                                compare_gt(ctx, RecordId::from(i), &x.to_bits(), &y.to_bits()).await
+                                compare_gt::<_, DefaultBitStep, 1>(
+                                    ctx,
+                                    RecordId::from(i),
+                                    &x.to_bits(),
+                                    &y.to_bits(),
+                                )
+                                .await
                             },
                         )),
                     )
@@ -483,7 +486,8 @@ mod test {
                         ctx.active_work(),
                         stream_iter(x.into_iter().zip(repeat((ctx, y))).enumerate().map(
                             |(i, (x, (ctx, y)))| async move {
-                                compare_gt(ctx, RecordId::from(i), &x, &y).await
+                                compare_gt::<_, DefaultBitStep, N>(ctx, RecordId::from(i), &x, &y)
+                                    .await
                             },
                         )),
                     )
@@ -526,7 +530,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sub(
+                    integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0].to_bits(),
@@ -557,7 +561,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sat_sub::<_>(
+                    integer_sat_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0],
@@ -584,7 +588,7 @@ mod test {
 
             let result = world
                 .semi_honest((x, y), |ctx, x_y| async move {
-                    integer_sub(
+                    integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0.to_bits(),
@@ -616,7 +620,7 @@ mod test {
 
             let result = world
                 .semi_honest(records, |ctx, x_y| async move {
-                    integer_sub(
+                    integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0.to_bits(),

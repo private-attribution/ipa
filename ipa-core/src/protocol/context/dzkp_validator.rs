@@ -1,34 +1,27 @@
-#[cfg(feature = "descriptive-gate")]
-use std::sync::Arc;
-use std::{
-    cmp,
-    collections::HashMap,
-    fmt::Debug,
-    sync::{Mutex, Weak},
-};
+use std::{cmp, collections::HashMap, fmt::Debug};
 
 use async_trait::async_trait;
 use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
 use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
 
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::context::{
-    dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded, Context, MaliciousContext,
-};
+use super::step::ZeroKnowledgeProofValidateStep as Step;
+#[cfg(all(test, unit_test))]
+use crate::protocol::context::dzkp_field::{UVSingleBlock, UVTupleBlock};
 use crate::{
     error::{BoxError, Error},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_field::DZKPBaseField, dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
-            Base, SemiHonestContext, UpgradableContext,
+            dzkp_field::DZKPBaseField, dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, Context,
+            MaliciousContext, SemiHonestContext, UpgradableContext,
         },
-        step::Gate,
-        RecordId,
+        Gate, RecordId,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::ShardBinding,
+    sync::{Arc, Mutex, Weak},
     telemetry::metrics::DZKP_BATCH_INCREMENTS,
 };
 
@@ -102,23 +95,40 @@ impl MultiplicationInputsBlock {
         Ok(())
     }
 
-    /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
-    /// Converted values will take more space in memory.
-    #[allow(dead_code)]
-    fn convert<DF: DZKPBaseField>(&self) -> DF::UnverifiedFieldValues {
-        DF::convert(
+    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
+    /// This is the convert function called by the prover.
+    #[cfg(all(test, unit_test))]
+    fn convert_prover<DF: DZKPBaseField>(&self) -> Vec<UVTupleBlock<DF>> {
+        DF::convert_prover(
             &self.x_left,
             &self.x_right,
             &self.y_left,
             &self.y_right,
-            &self.prss_left,
+            &self.prss_right,
+        )
+    }
+
+    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
+    /// This is the convert function called by the verifier on the left.
+    #[cfg(all(test, unit_test))]
+    fn convert_verifier_left<DF: DZKPBaseField>(&self) -> Vec<UVSingleBlock<DF>> {
+        DF::convert_verifier_left(
+            &self.x_right,
+            &self.y_right,
             &self.prss_right,
             &self.z_right,
         )
     }
+
+    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
+    /// This is the convert function called by the verifier on the right.
+    #[cfg(all(test, unit_test))]
+    fn convert_verifier_right<DF: DZKPBaseField>(&self) -> Vec<UVSingleBlock<DF>> {
+        DF::convert_verifier_right(&self.x_left, &self.y_left, &self.prss_left)
+    }
 }
 
-/// `Segment` is a variable size set or subset of `UnverifiedValues` using a `BitSlice`
+/// `Segment` is a variable size set or subset of `MultiplicationInputs` using a `BitSlice`
 /// For efficiency reasons we constrain the segments size in bits to be a divisor of 256
 /// when less than 256 or a multiple of 256 when more than 256.
 /// Therefore, segments eventually need to be filled with `0` to be a multiple of 256
@@ -271,12 +281,12 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// `increment_batch` increments the current batch to the next set of records.
+    /// `increment_record_ids` increments the current batch to the next set of records.
     /// it maintains all the allocated memory and increments the `RecordIds` as follows:
     /// It sets `last_record` and `first_record` to the record that follows `last_record`.
     fn increment_record_ids(&mut self) {
         // measure the amount of records stored using metrics
-        // currently, UnverifiedValueStore does not store the Gate information, maybe we should store it here
+        // currently, MultiplicationInputsBatch does not store the Gate information, maybe we should store it here
         // such that we can add it to the metrics counter
         metrics::increment_counter!(DZKP_BATCH_INCREMENTS,
             ALLOCATED_AMOUNT => self.max_multiplications.to_string(),
@@ -408,32 +418,54 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// `get_unverified_field_value` converts a `UnverifiedValuesStore` into an iterator over `UnverifiedFieldValues`
-    /// compatible with DZKPs
-    #[allow(dead_code)]
-    fn get_unverified_field_values<DF: DZKPBaseField>(
+    /// `get_field_values_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
+    /// values used by the prover of the DZKPs
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
         self.vec
             .iter()
-            .map(MultiplicationInputsBlock::convert::<DF>)
+            .flat_map(MultiplicationInputsBlock::convert_prover::<DF>)
+    }
+
+    /// `get_field_values_verifier_left` converts a `MultiplicationInputsBatch` into an iterator over `field`
+    /// values used by the verifier of the DZKPs on the left side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_left<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
+        self.vec
+            .iter()
+            .flat_map(MultiplicationInputsBlock::convert_verifier_left::<DF>)
+    }
+
+    /// `get_field_values_verifier_right` converts a `MultiplicationInputsBatch` into an iterator over `field`
+    /// values used by the verifier of the DZKPs on the right side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_right<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
+        self.vec
+            .iter()
+            .flat_map(MultiplicationInputsBlock::convert_verifier_right::<DF>)
     }
 }
 
-/// `Batch` collects a batch of `UnverifiedValuesStore` in a hashmap.
+/// `Batch` collects a batch of `MultiplicationInputsBatch` in a hashmap.
 /// The size of the batch is limited due to the memory costs and verifier specific constraints.
 ///
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
 #[derive(Clone, Debug)]
 struct Batch {
-    multiplication_amount: usize,
+    max_multiplications_per_gate: usize,
     inner: HashMap<Gate, MultiplicationInputsBatch>,
 }
 
 impl Batch {
-    fn new(multiplication_amount: usize) -> Self {
+    fn new(max_multiplications_per_gate: usize) -> Self {
         Self {
-            multiplication_amount,
+            max_multiplications_per_gate,
             inner: HashMap::<Gate, MultiplicationInputsBatch>::new(),
         }
     }
@@ -448,33 +480,54 @@ impl Batch {
         self.inner
             .entry(gate)
             .or_insert_with(|| {
-                MultiplicationInputsBatch::new(self.multiplication_amount, segment.len())
+                MultiplicationInputsBatch::new(self.max_multiplications_per_gate, segment.len())
             })
             .insert_segment(record_id, segment);
     }
 
     /// This function should only be called by `validate`!
     ///
-    /// Updates all `UnverifiedValueStores` in hashmap by incrementing the offset to next chunk
-    /// and deallocating `vec`.
+    /// Updates all `MultiplicationInputsBatch` in hashmap by incrementing the record ids to next chunk
     ///
     /// ## Panics
-    /// Panics when `UnverifiedValuesStore` panics, i.e. when `segment_size` is `None`
-    fn update(&mut self) {
+    /// Panics when `MultiplicationInputsBatch` panics, i.e. when `segment_size` is `None`
+    fn increment_record_ids(&mut self) {
         self.inner
             .values_mut()
             .for_each(MultiplicationInputsBatch::increment_record_ids);
     }
 
-    /// `get_unverified_field_value` converts a `Batch` into an iterator over `UnverifiedFieldValues`
-    /// compatible with DZKPs
-    #[allow(dead_code)]
-    fn get_unverified_field_values<DF: DZKPBaseField>(
+    /// `get_field_values_prover` converts a `Batch` into an iterator over field values
+    /// which is used by the prover of the DZKP
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
         self.inner
             .values()
-            .flat_map(MultiplicationInputsBatch::get_unverified_field_values::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_prover::<DF>)
+    }
+
+    /// `get_field_values_verifier_left` converts a `Batch` into an iterator over field values
+    /// which is used by the verifier of the DZKP on the left side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_left<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
+        self.inner
+            .values()
+            .flat_map(MultiplicationInputsBatch::get_field_values_verifier_left::<DF>)
+    }
+
+    /// `get_field_values_verifier_right` converts a `Batch` into an iterator over field values
+    /// which is used by the verifier of the DZKP on the right side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_right<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
+        self.inner
+            .values()
+            .flat_map(MultiplicationInputsBatch::get_field_values_verifier_right::<DF>)
     }
 }
 
@@ -509,15 +562,6 @@ impl DZKPBatch {
     }
 }
 
-/// Steps used by the validation component of the DZKP
-#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
-pub(crate) enum Step {
-    /// For the execution of the malicious protocol.
-    DZKPMaliciousProtocol,
-    /// Step for validating the DZK proof.
-    DZKPValidate,
-}
-
 /// Validator Trait for DZKPs
 /// It is different from the validator trait since context outputs a `DZKPUpgradedContext`
 /// that is tied to a `DZKPBatch` rather than an `accumulator`.
@@ -532,10 +576,11 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
     async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
 
-    /// `is_verified` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
+    /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
+    /// within the associated `DZKPBatch`
     ///
     /// ## Errors
-    /// Errors when there are `UnverifiedValues` left.
+    /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error>;
 
     /// `validated_seq_join` in this trait is a validated version of `seq_join`. It splits the input stream into `chunks` where
@@ -595,7 +640,6 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
 /// `MaliciousDZKPValidator` corresponds to pub struct `Malicious` and implements the trait `DZKPValidator`
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
 #[allow(dead_code)]
-#[cfg(feature = "descriptive-gate")]
 // dead code: validate_ctx is not used yet
 pub struct MaliciousDZKPValidator<'a> {
     batch_ref: Arc<Mutex<Batch>>,
@@ -603,7 +647,6 @@ pub struct MaliciousDZKPValidator<'a> {
     validate_ctx: Base<'a>,
 }
 
-#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     fn context(&self) -> MaliciousDZKPUpgraded<'a> {
@@ -617,20 +660,19 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             Ok(())
         } else {
             // todo: generate proofs and validate them using `batch_list`
-            // use get_values to get iterator over `UnverifiedFieldValues`
-            //batch.get_unverified_field_values::<DF>()
+            // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
-            batch.update();
+            batch.increment_record_ids();
             Ok(())
         }
         // LOCK END
     }
 
-    /// `is_verified` checks that there are no `UnverifiedValues`.
+    /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified.
     /// This function is called by drop() to ensure that the validator is safe to be dropped.
     ///
     /// ## Errors
-    /// Errors when there are `UnverifiedValues` left.
+    /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error> {
         if self.batch_ref.lock().unwrap().is_empty() {
             Ok(())
@@ -640,11 +682,10 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<'a> MaliciousDZKPValidator<'a> {
     #[must_use]
-    pub fn new(ctx: MaliciousContext<'a>, multiplication_amount: usize) -> Self {
-        let list = Batch::new(multiplication_amount);
+    pub fn new(ctx: MaliciousContext<'a>, max_multiplications_per_gate: usize) -> Self {
+        let list = Batch::new(max_multiplications_per_gate);
         let batch_list = Arc::new(Mutex::new(list));
         let dzkp_batch = DZKPBatch {
             inner: Arc::downgrade(&batch_list),
@@ -659,7 +700,6 @@ impl<'a> MaliciousDZKPValidator<'a> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
         self.is_verified().unwrap();
@@ -670,7 +710,7 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 mod tests {
     use std::iter::{repeat, zip};
 
-    use bitvec::{field::BitField, order::Lsb0, prelude::BitArray, vec::BitVec};
+    use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
     use futures::TryStreamExt;
     use futures_util::stream::iter;
     use proptest::{prop_compose, proptest, sample::select};
@@ -678,16 +718,14 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Fp31, U128Conversions},
+        ff::Fp61BitPrime,
         protocol::{
             basics::SecureMul,
             context::{
-                dzkp_field::DZKPBaseField,
-                dzkp_validator::{Array256Bit, Batch, DZKPValidator, Segment, SegmentEntry, Step},
+                dzkp_validator::{Batch, DZKPValidator, Segment, SegmentEntry, Step},
                 Context, DZKPContext, UpgradableContext,
             },
-            step::Gate,
-            RecordId,
+            Gate, RecordId,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{join3v, Reconstruct, TestWorld},
@@ -698,24 +736,26 @@ mod tests {
     async fn complex_circuit_dzkp(
         count: usize,
         chunk_size: usize,
-        multiplication_amount: usize,
+        max_multiplications_per_gate: usize,
     ) -> Result<(), Error> {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
 
-        let mut original_inputs = Vec::with_capacity(count);
-        for _ in 0..count {
-            let x = rng.gen::<Fp31>();
-            original_inputs.push(x);
-        }
-        let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
+        let original_inputs = (0..count)
+            .map(|_| rng.gen::<Fp61BitPrime>())
+            .collect::<Vec<_>>();
+
+        let shared_inputs: Vec<[Replicated<Fp61BitPrime>; 3]> = original_inputs
             .iter()
             .map(|x| x.share_with(&mut rng))
             .collect();
-        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
-        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
-        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
+        let h1_shares: Vec<Replicated<Fp61BitPrime>> =
+            shared_inputs.iter().map(|x| x[0].clone()).collect();
+        let h2_shares: Vec<Replicated<Fp61BitPrime>> =
+            shared_inputs.iter().map(|x| x[1].clone()).collect();
+        let h3_shares: Vec<Replicated<Fp61BitPrime>> =
+            shared_inputs.iter().map(|x| x[2].clone()).collect();
 
         // todo(DM): change to malicious once we can run the dzkps
         let futures = world
@@ -723,12 +763,12 @@ mod tests {
             .into_iter()
             .zip([h1_shares.clone(), h2_shares.clone(), h3_shares.clone()])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(multiplication_amount);
+                let v = ctx.dzkp_validator(max_multiplications_per_gate);
                 // test whether narrow works
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join::<_, _, _, Fp31>(
+                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
                         chunk_size,
                         iter(
                             zip(
@@ -760,12 +800,12 @@ mod tests {
             .into_iter()
             .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(chunk_size);
+                let v = ctx.dzkp_validator(max_multiplications_per_gate);
                 // test whether narrow works
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join::<_, _, _, Fp31>(
+                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
                         chunk_size,
                         iter(
                             zip(
@@ -830,219 +870,161 @@ mod tests {
         }
     }
 
-    pub struct UnverifiedFp31Values {
-        x_left: Vec<Fp31>,
-        x_right: Vec<Fp31>,
-        y_left: Vec<Fp31>,
-        y_right: Vec<Fp31>,
-        prss_left: Vec<Fp31>,
-        prss_right: Vec<Fp31>,
-        z_right: Vec<Fp31>,
-    }
+    fn populate_batch(
+        segment_size: usize,
+        batch_prover: &mut Batch,
+        batch_left: &mut Batch,
+        batch_right: &mut Batch,
+    ) {
+        let mut rng = thread_rng();
 
-    impl DZKPBaseField for Fp31 {
-        type UnverifiedFieldValues = UnverifiedFp31Values;
+        // vec for segments
+        let vec_x_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_x_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
 
-        fn convert(
-            x_left: &Array256Bit,
-            x_right: &Array256Bit,
-            y_left: &Array256Bit,
-            y_right: &Array256Bit,
-            prss_left: &Array256Bit,
-            prss_right: &Array256Bit,
-            z_right: &Array256Bit,
-        ) -> Self::UnverifiedFieldValues {
-            UnverifiedFp31Values {
-                x_left: x_left
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                x_right: x_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                y_left: y_left
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                y_right: y_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                prss_left: prss_left
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                prss_right: prss_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                z_right: z_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-            }
+        // compute z
+        let vec_z_left = vec_x_left.clone() & vec_y_left.clone()
+            ^ (vec_x_left.clone() & vec_y_right.clone())
+            ^ (vec_x_right.clone() & vec_y_left.clone())
+            ^ vec_prss_left.clone()
+            ^ vec_prss_right.clone();
+
+        // vector for unchecked elements
+        // i.e. these are used to fill the segments of the verifier and prover that are not part
+        // of this povers proof
+        let vec_z_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_x_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_z_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+
+        // generate and push segments
+        for i in 0..1024 / segment_size {
+            // prover
+            // generate segments
+            let segment_prover = Segment::from_entries(
+                SegmentEntry::from_bitslice(
+                    &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_z_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+            );
+            // push segment into batch
+            batch_prover.push(Gate::default(), RecordId::from(i), segment_prover);
+
+            // verifier to the left
+            // generate segments
+            let segment_left = Segment::from_entries(
+                SegmentEntry::from_bitslice(
+                    &vec_x_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_z_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+            );
+            // push segment into batch
+            batch_left.push(Gate::default(), RecordId::from(i), segment_left);
+
+            // verifier to the right
+            // generate segments
+            let segment_right = Segment::from_entries(
+                SegmentEntry::from_bitslice(
+                    &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_x_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_z_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+            );
+            // push segment into batch
+            batch_right.push(Gate::default(), RecordId::from(i), segment_right);
         }
     }
 
     #[test]
-    fn batch_and_convert() {
-        let mut rng = thread_rng();
-
+    fn batch_convert() {
         // test for small and large segments, i.e. 8bit and 512 bit
         for segment_size in [8usize, 512usize] {
-            // chunk size is equal to amount of segments which is 1024/segment_size
-            let mut batch = Batch::new(1024 / segment_size);
+            // generate batch for the prover
+            let mut batch_prover = Batch::new(1024 / segment_size);
 
-            // vec to collect expected
-            let mut expected_x_left = Vec::<Fp31>::new();
-            let mut expected_x_right = Vec::<Fp31>::new();
-            let mut expected_y_left = Vec::<Fp31>::new();
-            let mut expected_y_right = Vec::<Fp31>::new();
-            let mut expected_prss_left = Vec::<Fp31>::new();
-            let mut expected_prss_right = Vec::<Fp31>::new();
-            let mut expected_z_right = Vec::<Fp31>::new();
+            // generate batch for the verifier on the left of the prover
+            let mut batch_left = Batch::new(1024 / segment_size);
 
-            // vec for segments
-            let mut vec_x_left = Vec::<u8>::new();
-            let mut vec_x_right = Vec::<u8>::new();
-            let mut vec_y_left = Vec::<u8>::new();
-            let mut vec_y_right = Vec::<u8>::new();
-            let mut vec_prss_left = Vec::<u8>::new();
-            let mut vec_prss_right = Vec::<u8>::new();
-            let mut vec_z_right = Vec::<u8>::new();
+            // generate batch for the verifier on the right of the prover
+            let mut batch_right = Batch::new(1024 / segment_size);
 
-            // gen 1024 random values
-            for _i in 0..1024 {
-                let x_left: u8 = rng.gen();
-                let x_right: u8 = rng.gen();
-                let y_left: u8 = rng.gen();
-                let y_right: u8 = rng.gen();
-                let prss_left: u8 = rng.gen();
-                let prss_right: u8 = rng.gen();
-                let z_right: u8 = rng.gen();
-
-                // fill expected
-                expected_x_left.push(Fp31::truncate_from(x_left));
-                expected_x_right.push(Fp31::truncate_from(x_right));
-                expected_y_left.push(Fp31::truncate_from(y_left));
-                expected_y_right.push(Fp31::truncate_from(y_right));
-                expected_prss_left.push(Fp31::truncate_from(prss_left));
-                expected_prss_right.push(Fp31::truncate_from(prss_right));
-                expected_z_right.push(Fp31::truncate_from(z_right));
-
-                // fill segment vec
-                vec_x_left.push(x_left);
-                vec_x_right.push(x_right);
-                vec_y_left.push(y_left);
-                vec_y_right.push(y_right);
-                vec_prss_left.push(prss_left);
-                vec_prss_right.push(prss_right);
-                vec_z_right.push(z_right);
-            }
-
-            // generate and push segments
-            for i in 0..1024 / segment_size {
-                // conv to BitVec
-                let x_left =
-                    BitVec::<u8>::from_slice(&vec_x_left[i * segment_size..(i + 1) * segment_size]);
-                let x_right = BitVec::<u8>::from_slice(
-                    &vec_x_right[i * segment_size..(i + 1) * segment_size],
-                );
-                let y_left =
-                    BitVec::<u8>::from_slice(&vec_y_left[i * segment_size..(i + 1) * segment_size]);
-                let y_right = BitVec::<u8>::from_slice(
-                    &vec_y_right[i * segment_size..(i + 1) * segment_size],
-                );
-                let prss_left = BitVec::<u8>::from_slice(
-                    &vec_prss_left[i * segment_size..(i + 1) * segment_size],
-                );
-                let prss_right = BitVec::<u8>::from_slice(
-                    &vec_prss_right[i * segment_size..(i + 1) * segment_size],
-                );
-                let z_right = BitVec::<u8>::from_slice(
-                    &vec_z_right[i * segment_size..(i + 1) * segment_size],
-                );
-
-                // define segment
-                let segment = Segment::from_entries(
-                    SegmentEntry::from_bitslice(&x_left),
-                    SegmentEntry::from_bitslice(&x_right),
-                    SegmentEntry::from_bitslice(&y_left),
-                    SegmentEntry::from_bitslice(&y_right),
-                    SegmentEntry::from_bitslice(&prss_left),
-                    SegmentEntry::from_bitslice(&prss_right),
-                    SegmentEntry::from_bitslice(&z_right),
-                );
-
-                // push segment into batch
-                batch.push(Gate::default(), RecordId::from(i), segment);
-            }
+            // fill the batches with random values
+            populate_batch(
+                segment_size,
+                &mut batch_prover,
+                &mut batch_left,
+                &mut batch_right,
+            );
 
             // check correctness of batch
-            assert_batch(
-                &batch,
-                &expected_x_left,
-                &expected_x_right,
-                &expected_y_left,
-                &expected_y_right,
-                &expected_prss_left,
-                &expected_prss_right,
-                &expected_z_right,
-            );
+            assert_batch_convert(&batch_prover, &batch_left, &batch_right);
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn assert_batch(
-        batch: &Batch,
-        expected_x_left: &[Fp31],
-        expected_x_right: &[Fp31],
-        expected_y_left: &[Fp31],
-        expected_y_right: &[Fp31],
-        expected_prss_left: &[Fp31],
-        expected_prss_right: &[Fp31],
-        expected_z_right: &[Fp31],
-    ) {
-        // assert that it is not empty
-        assert!(!batch.is_empty());
-
-        // check that length in bits matches, i.e. offset and allocation are correct and minimal
-        assert_eq!(
-            1024usize * 8usize,
-            batch
-                .inner
-                .values()
-                .map(|x| x.multiplication_bit_size
-                    * (usize::from(x.last_record) - usize::from(x.first_record) + 1usize))
-                .sum::<usize>()
-        );
-
-        // check that batch is filled with non-trivial values
-        for x in batch.inner.values() {
-            for uv in &x.vec {
-                assert_ne!(uv.x_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.x_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.y_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.y_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.prss_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.prss_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.z_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-            }
-        }
-
-        // compare converted values from batch iter to expected
-        for (i, x) in batch.get_unverified_field_values::<Fp31>().enumerate() {
-            for j in 0..32 {
-                assert_eq!((i, x.x_left[j]), (i, expected_x_left[32 * i + j]));
-                assert_eq!((i, x.x_right[j]), (i, expected_x_right[32 * i + j]));
-                assert_eq!((i, x.y_left[j]), (i, expected_y_left[32 * i + j]));
-                assert_eq!((i, x.y_right[j]), (i, expected_y_right[32 * i + j]));
-                assert_eq!((i, x.prss_left[j]), (i, expected_prss_left[32 * i + j]));
-                assert_eq!((i, x.prss_right[j]), (i, expected_prss_right[32 * i + j]));
-                assert_eq!((i, x.z_right[j]), (i, expected_z_right[32 * i + j]));
-            }
-        }
+    fn assert_batch_convert(batch_prover: &Batch, batch_left: &Batch, batch_right: &Batch) {
+        batch_prover
+            .get_field_values_prover::<Fp61BitPrime>()
+            .zip(batch_left.get_field_values_verifier_left::<Fp61BitPrime>())
+            .zip(batch_right.get_field_values_verifier_right::<Fp61BitPrime>())
+            .for_each(|((prover, verifier_left), verifier_right)| {
+                assert_eq!(prover.0, verifier_left);
+                assert_eq!(prover.1, verifier_right);
+            });
     }
 
     #[test]
