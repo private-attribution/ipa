@@ -8,6 +8,8 @@ pub(crate) enum AggregationStep {
     Aggregate(usize),
 }
 
+/// the number of steps must be kept in sync with `MAX_BREAKDOWNS` defined
+/// [here](https://tinyurl.com/mwnbbnj6)
 #[derive(CompactStep)]
 #[step(count = 512, child = crate::protocol::boolean::step::EightBitStep, name = "b")]
 pub struct BucketStep(usize);
