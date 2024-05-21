@@ -199,7 +199,7 @@ where
             .try_flatten_iters(),
     );
     let aggregated_result =
-        aggregate_values::<HV, B>(ctx, aggregation_input, num_chunks * N).await?;
+        aggregate_values::<HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
     Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
