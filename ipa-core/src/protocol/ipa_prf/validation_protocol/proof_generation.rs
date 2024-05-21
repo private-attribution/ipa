@@ -285,7 +285,7 @@ where
         // generate next proof
         // from iterator
         let mut prover_left_proof =
-            ZeroKnowledgeProof::<F, R>::compute_proof(uv.clone(), &lagrange_table);
+            ZeroKnowledgeProof::<F, R>::compute_proof(uv.clone(), lagrange_table);
 
         // generate proof shares
         let (verifier_left_proof, prover_right_proof) =
@@ -382,10 +382,10 @@ where
 mod test {
     use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
     use rand::{thread_rng, Rng};
-    use typenum::{Unsigned, U32, U8};
+    use typenum::{Unsigned, U8};
 
     use crate::{
-        ff::{Field, Fp61BitPrime, U128Conversions},
+        ff::{Fp61BitPrime, U128Conversions},
         protocol::{
             context::dzkp_field::BlockSize,
             ipa_prf::{
@@ -421,7 +421,7 @@ mod test {
                     // generate u values as (1h,2h,3h,....,10h*BlockSize) split into Blocksize chunks
                     // where BlockSize = 32
                     // v values are identical to u
-                    let uv_tuple_vec = (0usize..1)
+                    let uv_tuple_vec = (0usize..100)
                         .map(|i| {
                             (
                                 GenericArray::<Fp61BitPrime, BlockSize>::generate(|j| {
@@ -486,7 +486,7 @@ mod test {
         // check first proof,
         // compute simple proof without lagrange interpolated points
         let block_to_polynomial = BlockSize::USIZE / R::USIZE;
-        let simple_proof_uv = (0usize..1 * block_to_polynomial)
+        let simple_proof_uv = (0usize..100 * block_to_polynomial)
             .map(|i| {
                 (
                     GenericArray::<Fp61BitPrime, R>::generate(|j| {
