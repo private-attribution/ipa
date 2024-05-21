@@ -68,6 +68,8 @@ pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
     // Attempt 1)
     // let aggregation_input: Pin<Box<Iter<IntoIter<BitDecomposed<AdditiveShare<Boolean, { B }>>>>>> =
     //     Box::pin(stream::iter(vector_input_to_agg.into_iter()));
+    let aggregation_input =
+        Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
 
     // Attempt 2)
     // let aggregation_input: Pin<Box<dyn Stream<Item = Result<BitDecomposed<AdditiveShare<Boolean, B>>, Error>> + Send>> =
@@ -80,17 +82,17 @@ pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
     //     }));
 
     // Attempt 3)
-    let aggregation_input: Pin<Box<dyn Stream<Item = Result<BitDecomposed<AdditiveShare<Boolean, B>>, Error>> + Send>> =
-        Box::pin(stream::unfold(vector_input_to_agg.into_iter(), |mut iter| {
-            async move {
-                let next = iter.next();
-                match next {
-                    Some(value) => Ok((Ok(value), iter)),
-                    None => Ok((Err(Error::AggregationStream), iter)),
-                }
-            }
-        })
-            .boxed());
+    // let aggregation_input: Pin<Box<dyn Stream<Item = Result<BitDecomposed<AdditiveShare<Boolean, B>>, Error>> + Send>> =
+    //     Box::pin(stream::unfold(vector_input_to_agg.into_iter(), |mut iter| {
+    //         async move {
+    //             let next = iter.next();
+    //             match next {
+    //                 Some(value) => Ok((Ok(value), iter)),
+    //                 None => Ok((Err(Error::AggregationStream), iter)),
+    //             }
+    //         }
+    //     })
+    //         .boxed());
 
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
 
