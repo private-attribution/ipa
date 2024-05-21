@@ -10,12 +10,13 @@ cargo build --all-targets
 
 # Need to be kept in sync manually with tests we run inside check.yml.
 cargo test
-for gate in "compact" "descriptive"; do
-  cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate-gate"
+
+# descriptive-gate does not require a feature flag.
+for gate in "compact-gate" ""; do
+  cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate"
 done
 
-cargo test --bench oneshot_ipa --no-default-features --features "enable-benches descriptive-gate" -- -n 62 -c 16
-
-cargo test --bench criterion_arithmetic --no-default-features --features "enable-benches descriptive-gate"
+cargo test --bench oneshot_ipa --no-default-features --features "enable-benches compact-gate" -- -n 62 -c 16
+cargo test --bench criterion_arithmetic --no-default-features --features "enable-benches compact-gate"
 
 cargo llvm-cov report "$@"

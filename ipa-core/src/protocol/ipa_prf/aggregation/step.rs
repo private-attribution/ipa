@@ -1,0 +1,27 @@
+use ipa_step_derive::CompactStep;
+
+#[derive(CompactStep)]
+pub(crate) enum AggregationStep {
+    #[step(child = BucketStep)]
+    MoveToBucket,
+    #[step(count = 32, child = AggregateValuesStep)]
+    Aggregate(usize),
+}
+
+#[derive(CompactStep)]
+#[step(count = 512, child = crate::protocol::boolean::step::EightBitStep, name = "b")]
+pub struct BucketStep(usize);
+
+impl From<usize> for BucketStep {
+    fn from(v: usize) -> Self {
+        Self(v)
+    }
+}
+
+#[derive(CompactStep)]
+pub(crate) enum AggregateValuesStep {
+    #[step(child = crate::protocol::boolean::step::SixteenBitStep)]
+    Add,
+    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
+    SaturatingAdd,
+}

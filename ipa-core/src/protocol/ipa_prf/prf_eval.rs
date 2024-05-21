@@ -1,13 +1,12 @@
 use std::iter::zip;
 
-use ipa_macros::Step;
-
 use crate::{
     error::Error,
     ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
     protocol::{
         basics::{Reveal, SecureMul},
         context::Context,
+        ipa_prf::step::PrfStep as Step,
         prss::{FromPrss, SharedRandomness},
         RecordId,
     },
@@ -15,15 +14,6 @@ use crate::{
         replicated::semi_honest::AdditiveShare, FieldSimd, Sendable, StdArray, Vectorizable,
     },
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    PRFKeyGen,
-    GenRandomMask,
-    MultMaskWithPRFInput,
-    RevealR,
-    Revealz,
-}
 
 /// generates match key pseudonyms from match keys (in Fp25519 format) and PRF key
 /// PRF key needs to be generated separately using `gen_prf_key`

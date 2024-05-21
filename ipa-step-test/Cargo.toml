@@ -1,0 +1,13 @@
+[package]
+name = "ipa-step-test"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+ipa-step = { path = "../ipa-step" }
+ipa-step-derive = { path = "../ipa-step-derive" }
+
+[build-dependencies]
+ipa-step = { path = "../ipa-step", features = ["build"] }
+ipa-step-derive = { path = "../ipa-step-derive", features = ["build"] }

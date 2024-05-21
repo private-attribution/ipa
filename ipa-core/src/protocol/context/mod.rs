@@ -4,10 +4,10 @@ pub mod dzkp_malicious;
 pub mod dzkp_semi_honest;
 #[allow(dead_code)]
 pub mod dzkp_validator;
-#[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
 pub mod semi_honest;
+pub mod step;
 pub mod upgrade;
 
 /// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
@@ -20,7 +20,7 @@ use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 use async_trait::async_trait;
 pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
 use futures::{stream, Stream, StreamExt};
-#[cfg(feature = "descriptive-gate")]
+use ipa_step::{Step, StepNarrow};
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
@@ -29,8 +29,6 @@ pub use validator::Validator;
 pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::NoRecord;
 use crate::{
     error::Error,
     helpers::{
@@ -38,11 +36,9 @@ use crate::{
         ShardReceivingEnd, TotalRecords,
     },
     protocol::{
-        basics::ZeroPositions,
         context::dzkp_validator::{DZKPValidator, Segment},
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
-        step::{Gate, Step, StepNarrow},
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -111,7 +107,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 }
 
 pub trait UpgradableContext: Context {
-    type UpgradedContext<F: ExtendableField>: UpgradedContext<F>;
+    type UpgradedContext<F: ExtendableField>: UpgradedContext;
     type Validator<F: ExtendableField>: Validator<Self, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
@@ -119,28 +115,18 @@ pub trait UpgradableContext: Context {
     type DZKPUpgradedContext: DZKPContext;
     type DZKPValidator: DZKPValidator<Self>;
 
-    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator;
-}
-
-/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
-#[cfg(feature = "descriptive-gate")]
-#[derive(ipa_macros::Step)]
-pub(crate) enum UpgradeStep {
-    Upgrade,
+    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator;
 }
 
 #[async_trait]
-pub trait UpgradedContext<F: ExtendableField>: Context {
-    // TODO: can we add BasicProtocols to this so that we don't need it as a constraint everywhere.
-    type Share: SecretSharing<F> + 'static;
-
-    fn share_known_value(&self, value: F) -> Self::Share;
+pub trait UpgradedContext: Context {
+    type Field: ExtendableField;
+    type Share: SecretSharing<Self::Field> + 'static;
 
     async fn upgrade_one(
         &self,
         record_id: RecordId,
-        x: Replicated<F>,
-        zeros_at: ZeroPositions,
+        x: Replicated<Self::Field>,
     ) -> Result<Self::Share, Error>;
 
     /// Upgrade an input using this context.
@@ -150,15 +136,17 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
+        UpgradeContext<Self>: UpgradeToMalicious<T, M>,
     {
-        #[cfg(feature = "descriptive-gate")]
+        #[cfg(descriptive_gate)]
         {
-            UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
+            use crate::protocol::{context::step::UpgradeStep, NoRecord};
+
+            UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
                 .upgrade(input)
                 .await
         }
-        #[cfg(not(feature = "descriptive-gate"))]
+        #[cfg(not(descriptive_gate))]
         {
             let _ = input;
             unimplemented!()
@@ -172,34 +160,25 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
+        UpgradeContext<Self, RecordId>: UpgradeToMalicious<T, M>,
     {
-        #[cfg(feature = "descriptive-gate")]
+        #[cfg(descriptive_gate)]
         {
-            UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
+            use crate::protocol::context::step::UpgradeStep;
+
+            UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
                 .upgrade(input)
                 .await
         }
-        #[cfg(not(feature = "descriptive-gate"))]
+        #[cfg(not(descriptive_gate))]
         {
             let _ = (record_id, input);
             unimplemented!()
         }
     }
-
-    /// Upgrade a sparse input using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<Self::Share, Error>;
 }
 
-pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
+pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext {
     /// This is the base context type.  This will always be `Base`, but use
     /// an associated type to avoid having to bind this trait to the lifetime
     /// associated with the `Base` struct.
@@ -225,18 +204,6 @@ pub struct Base<'a, B: ShardBinding = NotSharded> {
     /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
     /// would be to move it to [`Inner`] struct.
     sharding: B,
-}
-
-impl<'a, B: ShardBinding> Base<'a, B> {
-    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway, sharding: B) -> Self {
-        Self::new_complete(
-            participant,
-            gateway,
-            Gate::default(),
-            TotalRecords::Unspecified,
-            sharding,
-        )
-    }
 }
 
 impl<'a, B: ShardBinding> Base<'a, B> {
@@ -559,12 +526,12 @@ where
 
 /// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
 pub trait DZKPContext: Context {
-    /// `is_verified()` allows to confirm that there are currently no unverified shares,
+    /// `is_verified()` allows to confirm that there are currently no unverified multiplications,
     /// i.e. shares that might have been manipulated.
     /// when this is the case, it is safe to call functions like `reveal`
     ///
     /// ## Errors
-    /// Returns error when context contains unverified values
+    /// Returns error when context contains unverified multiplications
     fn is_verified(&self) -> Result<(), Error>;
 
     /// This function allows to add segments to a batch. This function is called by `multiply` to add
@@ -577,6 +544,7 @@ mod tests {
     use std::{iter, iter::repeat};
 
     use futures::{future::join_all, stream::StreamExt, try_join};
+    use ipa_step::StepNarrow;
     use rand::{
         distributions::{Distribution, Standard},
         Rng,
@@ -592,11 +560,10 @@ mod tests {
         protocol::{
             basics::ShareKnownValue,
             context::{
-                reshard, validator::Step::MaliciousProtocol, Context, ShardedContext,
+                reshard, step::MaliciousProtocolStep::MaliciousProtocol, Context, ShardedContext,
                 UpgradableContext, UpgradedContext, Validator,
             },
             prss::SharedRandomness,
-            step::{Gate, StepNarrow},
             RecordId,
         },
         secret_sharing::replicated::{
@@ -610,8 +577,8 @@ mod tests {
         },
         test_executor::run,
         test_fixture::{
-            Reconstruct, RoundRobinInputDistribution, Runner, TestExecutionStep, TestWorld,
-            TestWorldConfig, WithShards,
+            Reconstruct, RoundRobinInputDistribution, Runner, TestWorld, TestWorldConfig,
+            WithShards,
         },
     };
 
@@ -682,6 +649,7 @@ mod tests {
         let input = (0..10u128).map(Fp31::truncate_from).collect::<Vec<_>>();
         let input_len = input.len();
         let field_size = <Fp31 as Serializable>::Size::USIZE;
+        let metrics_step = world.gate().narrow("metrics");
 
         let result = world
             .semi_honest(input.clone().into_iter(), |ctx, shares| async move {
@@ -702,9 +670,6 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
-        let metrics_step = Gate::default()
-            .narrow(&TestExecutionStep::Iter(0))
-            .narrow("metrics");
 
         // for semi-honest protocols, amplification factor per helper is 1.
         // that is, for every communication, there is exactly one send and receive of the same data
@@ -744,6 +709,11 @@ mod tests {
         let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
         let input_len = input.len();
         let field_size = <Fp31 as Serializable>::Size::USIZE;
+        let metrics_step = world
+            .gate()
+            // TODO: leaky abstraction, test world should tell us the exact step
+            .narrow(&MaliciousProtocol)
+            .narrow("metrics");
 
         let _result = world
             .upgraded_malicious(input.clone().into_iter(), |ctx, a| async move {
@@ -758,12 +728,6 @@ mod tests {
                 a
             })
             .await;
-
-        let metrics_step = Gate::default()
-            .narrow(&TestExecutionStep::Iter(0))
-            // TODO: leaky abstraction, test world should tell us the exact step
-            .narrow(&MaliciousProtocol)
-            .narrow("metrics");
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();

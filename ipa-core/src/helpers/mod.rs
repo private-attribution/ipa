@@ -82,7 +82,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::{step::Gate, RecordId},
+    protocol::{Gate, RecordId},
     secret_sharing::Sendable,
     sharding::ShardIndex,
 };
@@ -248,6 +248,7 @@ const_assert!(Role::eq(Role::H3.peer(Direction::Right), Role::H1));
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(transparent)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }

@@ -5,7 +5,6 @@ use crate::{
     ff::{Field, PrimeField},
     helpers::Direction,
     protocol::{
-        basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
         context::{
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext},
@@ -15,26 +14,23 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, SharedValueArray,
-        Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, Vectorizable,
     },
     sharding,
 };
 
-/// This function allows to multiply secret shared values.
 /// This is a wrapper function around the actual MPC multiplication protocol
-///
-/// The `zeros_at` argument indicates where there are known zeros in the inputs.
+/// It exists because there are a few implementations that share the same code for
+/// generating random masks with PRSS and which then invoke the same multiplication protocol.
 ///
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn multiply<C, F, const N: usize>(
+pub async fn sh_multiply<C, F, const N: usize>(
     ctx: C,
     record_id: RecordId,
     a: &Replicated<F, N>,
     b: &Replicated<F, N>,
-    zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F, N>, Error>
 where
     C: Context,
@@ -46,7 +42,7 @@ where
         .prss()
         .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
-    multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right, zeros).await
+    multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right).await
 }
 
 /// IKHC multiplication protocol
@@ -69,54 +65,29 @@ pub async fn multiplication_protocol<C, F, const N: usize>(
     b: &Replicated<F, N>,
     prss_left: &<F as Vectorizable<N>>::Array,
     prss_right: &<F as Vectorizable<N>>::Array,
-    zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F, N>, Error>
 where
     C: Context,
     F: Field + FieldSimd<N>,
 {
     let role = ctx.role();
-    let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
-    zeros.0.check(role, "a", a);
-    zeros.1.check(role, "b", b);
 
-    let mut rhs = a.right_arr().clone() * b.right_arr();
+    // Compute the value (d_i) we want to send to the right helper (i+1).
+    let right_d =
+        a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - prss_left;
 
-    if need_to_send {
-        // Compute the value (d_i) we want to send to the right helper (i+1).
-        let right_d =
-            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - prss_left;
+    ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
+        .send(record_id, &right_d)
+        .await?;
 
-        ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
-            .send(record_id, &right_d)
-            .await?;
-        rhs += right_d;
-    } else {
-        debug_assert_eq!(
-            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr(),
-            <<F as Vectorizable<N>>::Array as SharedValueArray<F>>::ZERO_ARRAY
-        );
-    }
-    // Add randomness to this value whether we sent or not, depending on whether the
-    // peer to the right needed to send.  If they send, they subtract randomness,
-    // and we need to add to our share to compensate.
-    if need_random_right {
-        rhs += prss_right;
-    }
+    let rhs = a.right_arr().clone() * b.right_arr() + right_d + prss_right;
 
     // Sleep until helper on the left sends us their (d_i-1) value.
-    let mut lhs = a.left_arr().clone() * b.left_arr();
-    if need_to_recv {
-        let left_d: <F as Vectorizable<N>>::Array = ctx
-            .recv_channel(role.peer(Direction::Left))
-            .receive(record_id)
-            .await?;
-        lhs += left_d;
-    }
-    // If we send, we subtract randomness, so we need to add to our share.
-    if need_to_send {
-        lhs += prss_left;
-    }
+    let left_d: <F as Vectorizable<N>>::Array = ctx
+        .recv_channel(role.peer(Direction::Left))
+        .receive(record_id)
+        .await?;
+    let lhs = a.left_arr().clone() * b.left_arr() + left_d + prss_left;
 
     Ok(Replicated::new_arr(lhs, rhs))
 }
@@ -133,17 +104,16 @@ where
     B: sharding::ShardBinding,
     F: Field + FieldSimd<N>,
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: SemiHonestContext<'a, B>,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         SemiHonestContext<'a, B>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs, zeros_at).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -155,17 +125,16 @@ where
     B: sharding::ShardBinding,
     F: PrimeField + FieldSimd<N>,
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: UpgradedSemiHonestContext<'a, B, F>,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         UpgradedSemiHonestContext<'a, B, F>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs, zeros_at).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -176,17 +145,16 @@ where
     B: sharding::ShardBinding,
     F: Field + FieldSimd<N>,
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: SemiHonestDZKPUpgraded<'a, B>,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         SemiHonestDZKPUpgraded<'a, B>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs, zeros_at).await
+        sh_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -200,15 +168,11 @@ mod test {
 
     use rand::distributions::{Distribution, Standard};
 
-    use super::multiply;
+    use super::sh_multiply;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
         helpers::TotalRecords,
-        protocol::{
-            basics::{SecureMul, ZeroPositions},
-            context::Context,
-            RecordId,
-        },
+        protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
         secret_sharing::replicated::semi_honest::AdditiveShare,
         seq_join::SeqJoin,
@@ -318,12 +282,11 @@ mod test {
             .unwrap();
         let results = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                multiply(
+                sh_multiply(
                     ctx.set_total_records(1),
                     RecordId::from(0),
                     &a_shares,
                     &b_shares,
-                    ZeroPositions::NONE,
                 )
                 .await
                 .unwrap()
@@ -418,12 +381,11 @@ mod test {
                     let mut iter = share.iter();
                     let mut val = iter.next().unwrap().clone();
                     for i in 1..MANYMULT_ITERS {
-                        val = multiply(
+                        val = sh_multiply(
                             ctx.clone(),
                             RecordId::from(i - 1),
                             &val,
                             iter.next().unwrap(),
-                            ZeroPositions::NONE,
                         )
                         .await
                         .unwrap();

@@ -2,7 +2,6 @@ use std::{array, convert::Infallible, iter, num::NonZeroU32, ops::Add};
 
 use futures_util::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
-use ipa_macros::Step;
 use typenum::{Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
@@ -37,15 +36,16 @@ use crate::{
     sharding::NotSharded,
 };
 
-mod aggregation;
-mod boolean_ops;
+pub(crate) mod aggregation;
+pub mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
 
 #[cfg(all(test, unit_test))]
 mod malicious_security;
 mod quicksort;
-mod shuffle;
+pub(crate) mod shuffle;
+pub(crate) mod step;
 
 /// Match key type
 pub type MatchKey = BA64;
@@ -61,14 +61,7 @@ pub const AGG_CHUNK: usize = 256;
 /// Vectorization dimension for sort.
 pub const SORT_CHUNK: usize = 256;
 
-#[derive(Step)]
-pub(crate) enum Step {
-    ConvertFp25519,
-    EvalPrf,
-    ConvertInputRowsToPrf,
-    Shuffle,
-    SortByTimestamp,
-}
+use step::IpaPrfStep as Step;
 
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -202,9 +195,9 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TS>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
+    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -217,8 +210,7 @@ where
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
-    let mut prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), &shuffled).await?;
+    let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
@@ -233,7 +225,7 @@ where
     .await?;
 
     attribute_cap_aggregate::<_, _, _, _, SS_BITS, B>(
-        ctx,
+        ctx.narrow(&Step::Attribution),
         prfd_inputs,
         attribution_window_seconds,
         &histogram,
@@ -248,7 +240,7 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: SharedValue + CustomArray<Element = Boolean>,
     TV: SharedValue + CustomArray<Element = Boolean>,
     TS: SharedValue + CustomArray<Element = Boolean>,
@@ -259,7 +251,7 @@ where
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
     let eval_ctx = ctx.narrow(&Step::EvalPrf);
 
-    let prf_key = gen_prf_key(&convert_ctx);
+    let prf_key = gen_prf_key(&eval_ctx);
 
     seq_join(
         ctx.active_work(),

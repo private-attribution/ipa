@@ -2,9 +2,12 @@ use std::fmt::{Debug, Display, Formatter};
 
 use serde::Deserialize;
 
-use super::{Step, StepNarrow};
-#[cfg(feature = "step-trace")]
-use crate::telemetry::{labels::STEP, metrics::STEP_NARROWED};
+use crate::{Gate, Step, StepNarrow};
+
+pub mod labels {
+    pub const STEP_NARROWED: &str = "step.narrowed";
+    pub const STEP: &str = "step";
+}
 
 /// A descriptive representation of a unique step in protocol execution.
 ///
@@ -30,46 +33,19 @@ pub struct Descriptive {
     id: String,
 }
 
-impl Display for Descriptive {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
+impl Descriptive {
+    pub fn new(n: impl AsRef<str>) -> Self {
+        Self {
+            id: String::from(n.as_ref()),
+        }
     }
 }
 
-impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
-    /// Narrow the scope of the step identifier.
-    /// # Panics
-    /// In a debug build, this checks that the same refine call isn't run twice and that the string
-    /// value of the step doesn't include '/' (which would lead to a bad outcome).
-    fn narrow(&self, step: &S) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            let s = String::from(step.as_ref());
-            assert!(!s.contains('/'), "The string for a step cannot contain '/'");
-        }
-
-        let mut id = self.id.clone() + "/";
-        #[cfg(all(feature = "step-trace", feature = "in-memory-infra"))]
-        {
-            id += [std::any::type_name::<S>(), "::"].concat().as_ref();
-        }
-        id += step.as_ref();
-        #[cfg(feature = "step-trace")]
-        {
-            metrics::increment_counter!(STEP_NARROWED, STEP => id.clone());
-        }
-
-        Self { id }
-    }
-}
+impl Gate for Descriptive {}
 
 impl Default for Descriptive {
-    // TODO(mt): this should might be better if it were to be constructed from
-    // a QueryId rather than using a default.
     fn default() -> Self {
-        Self {
-            id: String::from("protocol"),
-        }
+        Self::new("protocol")
     }
 }
 
@@ -86,8 +62,42 @@ impl From<&str> for Descriptive {
     }
 }
 
+impl Display for Descriptive {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.id)
+    }
+}
+
 impl Debug for Descriptive {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "step={}", self.id)
+        f.write_str("gate=")?;
+        <Self as Display>::fmt(self, f)
+    }
+}
+
+impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
+    /// Narrow the scope of the step identifier.
+    /// # Panics
+    /// In a debug build, this checks that the same refine call isn't run twice and that the string
+    /// value of the step doesn't include '/' (which would lead to a bad outcome).
+    fn narrow(&self, step: &S) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            let s = String::from(step.as_ref());
+            assert!(!s.contains('/'), "The string for a step cannot contain '/'");
+        }
+
+        let mut id = self.id.clone() + "/";
+        #[cfg(feature = "trace")]
+        {
+            id += [std::any::type_name::<S>(), "::"].concat().as_ref();
+        }
+        id += step.as_ref();
+        #[cfg(feature = "trace")]
+        {
+            metrics::increment_counter!(STEP_NARROWED, STEP => id.clone());
+        }
+
+        Self { id }
     }
 }

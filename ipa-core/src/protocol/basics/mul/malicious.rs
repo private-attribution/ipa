@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use futures::future::try_join;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
     protocol::{
-        basics::{mul::semi_honest_multiply, MultiplyZeroPositions, SecureMul, ZeroPositions},
+        basics::{
+            mul::{semi_honest_multiply, step::MaliciousMultiplyStep},
+            SecureMul,
+        },
         context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
@@ -15,13 +17,6 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    DuplicateMultiply,
-    RandomnessForValidation,
-    ReshareRx,
-}
 
 ///
 /// Implementation drawn from:
@@ -54,12 +49,11 @@ pub(crate) enum Step {
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn multiply<F>(
+pub async fn mac_multiply<F>(
     ctx: UpgradedMaliciousContext<'_, F>,
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
     b: &MaliciousReplicated<F>,
-    zeros_at: MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: ExtendableField,
@@ -69,8 +63,8 @@ where
         secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
     };
 
-    let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
-    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
+    let duplicate_multiply_ctx = ctx.narrow(&MaliciousMultiplyStep::DuplicateMultiply);
+    let random_constant_ctx = ctx.narrow(&MaliciousMultiplyStep::RandomnessForValidation);
     let b_x = b.x().access_without_downgrade();
 
     //
@@ -95,14 +89,12 @@ where
             record_id,
             a.x().access_without_downgrade(),
             b_x,
-            zeros_at,
         ),
         semi_honest_multiply(
             duplicate_multiply_ctx.base_context(),
             record_id,
             a.rx(),
             &b_induced_share,
-            (ZeroPositions::Pvvv, zeros_at.1),
         ),
     )
     .await?;
@@ -116,17 +108,16 @@ where
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
 impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F> {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs, zeros_at).await
+        mac_multiply(ctx, record_id, self, rhs).await
     }
 }
 

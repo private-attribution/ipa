@@ -1,6 +1,6 @@
 use std::iter::repeat;
 
-use ipa_macros::Step;
+use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
@@ -8,10 +8,9 @@ use crate::{
     helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
-        boolean::or::bool_or,
+        boolean::{or::bool_or, NBitStep},
         context::{Context, UpgradedSemiHonestContext},
-        step::BitOpStep,
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
     sharding::ShardBinding,
@@ -25,7 +24,7 @@ use crate::{
 ///
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_add<C, const N: usize>(
+pub async fn integer_add<C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -39,18 +38,14 @@ pub async fn integer_add<C, const N: usize>(
 >
 where
     C: Context,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let mut carry = AdditiveShare::ZERO;
-    let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
+    let sum = addition_circuit::<_, S, N>(ctx, record_id, x, y, &mut carry).await?;
     Ok((sum, carry))
-}
-
-#[derive(Step)]
-enum SatAddStep {
-    Add,
-    Select,
 }
 
 /// saturated unsigned integer addition
@@ -58,7 +53,7 @@ enum SatAddStep {
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sat_add<'a, SH, const N: usize>(
+pub async fn integer_sat_add<'a, SH, S, const N: usize>(
     ctx: UpgradedSemiHonestContext<'a, SH, Boolean>,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -66,16 +61,21 @@ pub async fn integer_sat_add<'a, SH, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     SH: ShardBinding,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
+    Gate: StepNarrow<S>,
 {
+    use super::step::SaturatedAdditionStep as Step;
+
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
     let result =
-        addition_circuit(ctx.narrow(&SatAddStep::Add), record_id, x, y, &mut carry).await?;
+        addition_circuit::<_, S, N>(ctx.narrow::<Step>(&Step::Add), record_id, x, y, &mut carry)
+            .await?;
 
     // if carry==1 then {all ones} else {result}
     bool_or(
-        ctx.narrow(&SatAddStep::Select),
+        ctx.narrow::<Step>(&Step::Select),
         record_id,
         &result,
         repeat_n(&carry, x.len()),
@@ -91,7 +91,7 @@ where
 /// propagates errors from multiply
 ///
 ///
-async fn addition_circuit<C, const N: usize>(
+async fn addition_circuit<C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -100,15 +100,17 @@ async fn addition_circuit<C, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let x = x.iter();
     let y = y.iter();
 
     let mut result = BitDecomposed::with_capacity(x.len());
     for (i, (xb, yb)) in x.zip(y.chain(repeat(&AdditiveShare::ZERO))).enumerate() {
-        result.push(bit_adder(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry).await?);
+        result.push(bit_adder(ctx.narrow(&S::from(i)), record_id, xb, yb, carry).await?);
     }
     Ok(result)
 }
@@ -160,10 +162,11 @@ mod test {
 
     use crate::{
         ff::{
-            boolean_array::{BA32, BA64},
+            boolean_array::{BA16, BA32, BA64},
             ArrayAccess, U128Conversions,
         },
         protocol::{
+            boolean::step::DefaultBitStep,
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             RecordId,
@@ -192,7 +195,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_add::<_, 1>(
+                    integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),
@@ -213,8 +216,8 @@ mod test {
     #[test]
     fn semi_honest_sat_add() {
         run(|| async move {
-            const BITS: usize = 64;
-            type BA = BA64;
+            const BITS: usize = 16;
+            type BA = BA16;
 
             let world = TestWorld::default();
 
@@ -233,7 +236,7 @@ mod test {
 
             let result = world
                 .upgraded_semi_honest((x_bits, y_bits), |ctx, x_y| async move {
-                    integer_sat_add::<_, 1>(
+                    integer_sat_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0,
@@ -269,7 +272,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
-                    integer_add::<_, 1>(
+                    integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),
@@ -290,7 +293,7 @@ mod test {
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
-                    integer_add::<_, 1>(
+                    integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0.to_bits(),

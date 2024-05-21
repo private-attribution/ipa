@@ -6,6 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
@@ -14,7 +15,6 @@ use crate::{
         TotalRecords,
     },
     protocol::{
-        basics::{ShareKnownValue, ZeroPositions},
         context::{
             dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
             validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
@@ -22,8 +22,7 @@ use crate::{
             UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -48,8 +47,17 @@ impl ShardConfiguration for Context<'_, Sharded> {
 
 impl<'a, B: ShardBinding> Context<'a, B> {
     pub fn new_complete(participant: &'a PrssEndpoint, gateway: &'a Gateway, shard: B) -> Self {
+        Self::new_with_gate(participant, gateway, shard, Gate::default())
+    }
+
+    pub fn new_with_gate(
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        shard: B,
+        gate: Gate,
+    ) -> Self {
         Self {
-            inner: Base::new(participant, gateway, shard),
+            inner: Base::new_complete(participant, gateway, gate, TotalRecords::Unspecified, shard),
         }
     }
 }
@@ -150,7 +158,7 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
     type DZKPValidator = SemiHonestDZKPValidator<'a, B>;
 
     #[allow(unused_variables)]
-    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
+    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator {
         Self::DZKPValidator::new(self.inner)
     }
 }
@@ -257,29 +265,16 @@ impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, B, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext for Upgraded<'a, B, F> {
+    type Field = F;
     type Share = Replicated<F>;
-
-    fn share_known_value(&self, value: F) -> Self::Share {
-        Replicated::share_known_value(&self.inner, value)
-    }
 
     async fn upgrade_one(
         &self,
         _record_id: RecordId,
         x: Replicated<F>,
-        _zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error> {
         Ok(x)
-    }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        _zeros_at: ZeroPositions,
-    ) -> Result<Self::Share, Error> {
-        Ok(input)
     }
 }
 

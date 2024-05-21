@@ -5,7 +5,6 @@ use std::{
 
 use futures::stream;
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
-use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
@@ -13,9 +12,12 @@ use crate::{
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
-        boolean::{and::bool_and, or::or},
+        boolean::{and::bool_and_8_bit, or::or},
         context::{Context, UpgradedSemiHonestContext},
-        ipa_prf::aggregation::aggregate_values,
+        ipa_prf::{
+            aggregation::aggregate_values,
+            prf_sharding::step::{FeatureLabelDotProductStep as Step, UserNthRowStep},
+        },
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
@@ -109,7 +111,7 @@ impl InputsRequiredFromPrevRow {
         bit_decomposed_output
             .transpose_from(&input_row.feature_vector)
             .unwrap_infallible();
-        let capped_attributed_feature_vector = bool_and(
+        let capped_attributed_feature_vector = bool_and_8_bit(
             ctx,
             record_id,
             &bit_decomposed_output,
@@ -122,27 +124,6 @@ impl InputsRequiredFromPrevRow {
 
         capped_attributed_feature_vector
     }
-}
-
-#[derive(Step)]
-pub enum UserNthRowStep {
-    #[dynamic(64)]
-    Row(usize),
-}
-
-impl From<usize> for UserNthRowStep {
-    fn from(v: usize) -> Self {
-        Self::Row(v)
-    }
-}
-
-#[derive(Step)]
-pub(crate) enum Step {
-    BinaryValidator,
-    EverEncounteredTriggerEvent,
-    DidSourceReceiveAttribution,
-    ComputeSaturatingSum,
-    IsAttributedSourceAndPrevRowNotSaturated,
 }
 
 fn set_up_contexts<C>(root_ctx: &C, users_having_n_records: &[usize]) -> Vec<C>

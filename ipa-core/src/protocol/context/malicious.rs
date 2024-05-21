@@ -5,14 +5,15 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         basics::{
-            mul::{malicious::Step::RandomnessForValidation, semi_honest_multiply},
-            ShareKnownValue, ZeroPositions,
+            mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
+            ShareKnownValue,
         },
         context::{
             dzkp_malicious::DZKPUpgraded,
@@ -23,8 +24,7 @@ use crate::{
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -43,8 +43,18 @@ pub struct Context<'a> {
 
 impl<'a> Context<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self::new_with_gate(participant, gateway, Gate::default())
+    }
+
+    pub fn new_with_gate(participant: &'a PrssEndpoint, gateway: &'a Gateway, gate: Gate) -> Self {
         Self {
-            inner: Base::new(participant, gateway, NotSharded),
+            inner: Base::new_complete(
+                participant,
+                gateway,
+                gate,
+                TotalRecords::Unspecified,
+                NotSharded,
+            ),
         }
     }
 
@@ -147,8 +157,8 @@ impl<'a> UpgradableContext for Context<'a> {
     type DZKPUpgradedContext = DZKPUpgraded<'a>;
     type DZKPValidator = MaliciousDZKPValidator<'a>;
 
-    fn dzkp_validator(self, multiplication_amount: usize) -> Self::DZKPValidator {
-        MaliciousDZKPValidator::new(self, multiplication_amount)
+    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator {
+        MaliciousDZKPValidator::new(self, max_multiplications_per_gate)
     }
 }
 
@@ -208,24 +218,24 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
             NotSharded,
         )
     }
-}
 
-#[async_trait]
-impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
-    type Share = MaliciousReplicated<F>;
-
-    fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
+    pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().base_context(), value),
             &self.inner.r_share * value.to_extended(),
         )
     }
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
+    type Field = F;
+    type Share = MaliciousReplicated<F>;
 
     async fn upgrade_one(
         &self,
         record_id: RecordId,
         x: Replicated<F>,
-        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
         //
         // This code is drawn from:
@@ -247,7 +257,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
             record_id,
             &induced_share,
             &self.inner.r_share,
-            (zeros_at, ZeroPositions::Pvvv),
         )
         .await?;
         let m = MaliciousReplicated::new(x, rx);
@@ -255,22 +264,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         let prss = narrowed.prss();
         self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
-    }
-
-    #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::{
-            context::{upgrade::UpgradeContext, UpgradeStep},
-            NoRecord,
-        };
-
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade_sparse(input, zeros_at)
-            .await
     }
 }
 

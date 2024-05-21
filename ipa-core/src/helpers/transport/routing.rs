@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     helpers::{QueryIdBinding, RouteParams, StepBinding, TransportIdentity},
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
 };
 
 // The type of request made to an MPC helper.

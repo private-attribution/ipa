@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{mul::semi_honest::multiplication_protocol, MultiplyZeroPositions, SecureMul},
+        basics::{mul::semi_honest::multiplication_protocol, SecureMul},
         context::{
             dzkp_field::DZKPCompatibleField, dzkp_validator::Segment, Context, DZKPContext,
             DZKPUpgradedMaliciousContext,
@@ -27,12 +27,11 @@ use crate::{
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn multiply<'a, F, const N: usize>(
+pub async fn zkp_multiply<'a, F, const N: usize>(
     ctx: DZKPUpgradedMaliciousContext<'a>,
     record_id: RecordId,
     a: &Replicated<F, N>,
     b: &Replicated<F, N>,
-    zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F, N>, Error>
 where
     F: Field + DZKPCompatibleField<N>,
@@ -42,7 +41,7 @@ where
         .prss()
         .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
-    let z = multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right, zeros).await?;
+    let z = multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right).await?;
 
     // create segment
     let segment = Segment::from_entries(
@@ -66,17 +65,16 @@ where
 impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
     SecureMul<DZKPUpgradedMaliciousContext<'a>> for Replicated<F, N>
 {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: DZKPUpgradedMaliciousContext<'a>,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         DZKPUpgradedMaliciousContext<'a>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs, zeros_at).await
+        zkp_multiply(ctx, record_id, self, rhs).await
     }
 }
 
@@ -84,7 +82,7 @@ impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
 mod test {
     use crate::{
         error::Error,
-        ff::{boolean::Boolean, Fp31},
+        ff::{boolean::Boolean, Fp61BitPrime},
         protocol::{
             basics::SecureMul,
             context::{dzkp_validator::DZKPValidator, Context, DZKPContext, UpgradableContext},
@@ -115,7 +113,7 @@ mod test {
                 assert!(matches!(mctx.is_verified(), Err(Error::ContextUnsafe(_))));
 
                 // validate all elements in the batch
-                validator.validate::<Fp31>().await.unwrap();
+                validator.validate::<Fp61BitPrime>().await.unwrap();
 
                 // batch is empty now
                 assert!(mctx.is_verified().is_ok());

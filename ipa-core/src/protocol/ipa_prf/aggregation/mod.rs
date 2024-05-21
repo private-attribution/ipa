@@ -5,19 +5,20 @@ use std::{
 };
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, CustomArray, U128Conversions},
     helpers::{
-        stream::{process_stream_by_chunks, Chunk, ChunkBuffer, TryFlattenItersExt},
+        stream::{process_stream_by_chunks, Chunk, ChunkBuffer, FixedLength, TryFlattenItersExt},
         TotalRecords,
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols},
+        boolean::{step::SixteenBitStep, NBitStep},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
+            aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             prf_sharding::AttributionOutputs,
         },
@@ -31,6 +32,7 @@ use crate::{
 };
 
 mod bucket;
+pub(crate) mod step;
 
 type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
     BitDecomposed<Replicated<Boolean, N>>,
@@ -91,13 +93,6 @@ where
     }
 }
 
-#[derive(Step)]
-pub(crate) enum Step {
-    MoveToBucket,
-    #[dynamic(32)]
-    Aggregate(usize),
-}
-
 // Aggregation
 //
 // The input to aggregation is a stream of tuples of (attributed breakdown key, attributed trigger
@@ -139,8 +134,8 @@ where
     Boolean: FieldSimd<N> + FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
+    Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
     BitDecomposed<Replicated<Boolean, N>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, N>>:
@@ -242,42 +237,67 @@ where
     let mut depth = 0;
     while num_rows > 1 {
         // We reduce pairwise, passing through the odd record at the end if there is one, so the
-        // number of outputs (`num_rows`) gets rounded up. If calculating an explicit total
+        // number of outputs (`next_num_rows`) gets rounded up. If calculating an explicit total
         // records, that would get rounded down.
         let par_agg_ctx = ctx
             .narrow(&Step::Aggregate(depth))
             .set_total_records(TotalRecords::Indeterminate);
-        num_rows = (num_rows + 1) / 2;
-        aggregated_stream = Box::pin(aggregated_stream.try_chunks(2).enumerate().then(
-            move |(i, chunk_res)| {
-                let ctx = par_agg_ctx.clone();
-                async move {
-                    match chunk_res {
-                        Err(e) => {
-                            // `e.0` contains any elements that `try_chunks` buffered before the
-                            // error. We can drop them, since we don't try to recover from errors.
-                            Err(e.1)
-                        }
-                        Ok(mut chunk_vec) if chunk_vec.len() == 1 => Ok(chunk_vec.pop().unwrap()),
-                        Ok(mut chunk_pair) => {
-                            assert_eq!(chunk_pair.len(), 2);
-                            let b = chunk_pair.pop().unwrap();
-                            let a = chunk_pair.pop().unwrap();
-                            let record_id = RecordId::from(i);
-                            if a.len() < usize::try_from(OV::BITS).unwrap() {
-                                // If we have enough output bits, add and keep the carry.
-                                let (mut sum, carry) =
-                                    integer_add::<_, B>(ctx, record_id, &a, &b).await?;
-                                sum.push(carry);
-                                Ok(sum)
-                            } else {
-                                integer_sat_add::<_, B>(ctx, record_id, &a, &b).await
+        let next_num_rows = (num_rows + 1) / 2;
+        aggregated_stream = Box::pin(
+            FixedLength::new(aggregated_stream, num_rows)
+                .try_chunks(2)
+                .enumerate()
+                .then(move |(i, chunk_res)| {
+                    let ctx = par_agg_ctx.clone();
+                    async move {
+                        match chunk_res {
+                            Err(e) => {
+                                // `e.0` contains any elements that `try_chunks` buffered before the
+                                // error. We can drop them, since we don't try to recover from errors.
+                                Err(e.1)
+                            }
+                            Ok(mut chunk_vec) if chunk_vec.len() == 1 => {
+                                Ok(chunk_vec.pop().unwrap())
+                            }
+                            Ok(mut chunk_pair) => {
+                                assert_eq!(chunk_pair.len(), 2);
+                                let b = chunk_pair.pop().unwrap();
+                                let a = chunk_pair.pop().unwrap();
+                                let record_id = RecordId::from(i);
+                                if a.len() < usize::try_from(OV::BITS).unwrap() {
+                                    assert!(
+                                        OV::BITS <= SixteenBitStep::BITS,
+                                        "SixteenBitStep not large enough to accomodate this sum"
+                                    );
+                                    // If we have enough output bits, add and keep the carry.
+                                    let (mut sum, carry) = integer_add::<_, SixteenBitStep, B>(
+                                        ctx.narrow(&AggregateValuesStep::Add),
+                                        record_id,
+                                        &a,
+                                        &b,
+                                    )
+                                    .await?;
+                                    sum.push(carry);
+                                    Ok(sum)
+                                } else {
+                                    assert!(
+                                        OV::BITS <= SixteenBitStep::BITS,
+                                        "SixteenBitStep not large enough to accomodate this sum"
+                                    );
+                                    integer_sat_add::<_, SixteenBitStep, B>(
+                                        ctx.narrow(&AggregateValuesStep::SaturatingAdd),
+                                        record_id,
+                                        &a,
+                                        &b,
+                                    )
+                                    .await
+                                }
                             }
                         }
                     }
-                }
-            },
-        ));
+                }),
+        );
+        num_rows = next_num_rows;
         depth += 1;
     }
 
@@ -486,6 +506,48 @@ pub mod tests {
             for &role in Role::all() {
                 assert!(matches!(result[role], Err(Error::Internal)));
             }
+        });
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "FixedLength stream ended with 1 remaining")]
+    fn aggregate_too_few() {
+        // Test aggregation with less records than expected
+        run(|| async move {
+            let inputs = vec![Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0]))];
+
+            let _ = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len() + 1;
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct();
+        });
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "FixedLength stream ended with -1 remaining")]
+    fn aggregate_too_many() {
+        // Test aggregation with more records than expected
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
+                Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
+                Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
+            ];
+
+            let _ = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len() - 1;
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct();
         });
     }
 

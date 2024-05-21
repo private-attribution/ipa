@@ -433,6 +433,20 @@ mod fp32bit {
 mod fp61bit {
     field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951 }
 
+    impl Fp61BitPrime {
+        #[must_use]
+        pub const fn const_truncate(input: u64) -> Self {
+            Self(input % Self::PRIME)
+        }
+
+        /// `from_bit` is more efficient than `truncate_from` since it does not use a mod operation.
+        /// However, it only allows conversions from `bool`.
+        #[must_use]
+        pub fn from_bit(input: bool) -> Self {
+            Self(input.into())
+        }
+    }
+
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
         use super::*;

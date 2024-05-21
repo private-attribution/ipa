@@ -10,9 +10,7 @@ use futures::{
     stream::{self, unfold},
     FutureExt, Stream, StreamExt,
 };
-use ipa_macros::Step;
 
-use super::boolean_ops::expand_shared_array_in_place;
 use crate::{
     error::{Error, LengthError},
     ff::{
@@ -23,7 +21,11 @@ use crate::{
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
-        boolean::or::or,
+        boolean::{
+            or::or,
+            step::{EightBitStep, ThirtyTwoBitStep},
+            NBitStep,
+        },
         context::{
             Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
@@ -32,6 +34,12 @@ use crate::{
             boolean_ops::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+                expand_shared_array_in_place,
+            },
+            prf_sharding::step::{
+                AttributionPerRowStep as PerRowStep, AttributionStep as Step,
+                AttributionWindowStep as WindowStep,
+                AttributionZeroOutTriggerStep as ZeroOutTriggerStep, UserNthRowStep,
             },
             AGG_CHUNK,
         },
@@ -45,8 +53,8 @@ use crate::{
     sharding::NotSharded,
 };
 
-#[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
+pub(crate) mod step;
 
 #[derive(Debug)]
 pub struct PrfShardedIpaInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
@@ -108,9 +116,6 @@ where
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TS>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
 {
     ///
     /// This function contains the main logic for the per-user attribution circuit.
@@ -142,7 +147,12 @@ where
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error> {
+    ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>
+    where
+        Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+        Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+        Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
         let (
@@ -151,20 +161,20 @@ where
             source_event_timestamp,
         ) = try_join3(
             or(
-                ctx.narrow(&Step::EverEncounteredSourceEvent),
+                ctx.narrow(&PerRowStep::EverEncounteredSourceEvent),
                 record_id,
                 &is_source_event,
                 &self.ever_encountered_a_source_event,
             ),
             breakdown_key_of_most_recent_source_event(
-                ctx.narrow(&Step::AttributedBreakdownKey),
+                ctx.narrow(&PerRowStep::AttributedBreakdownKey),
                 record_id,
                 &input_row.is_trigger_bit,
                 &self.attributed_breakdown_key_bits,
                 &input_row.breakdown_key,
             ),
             timestamp_of_most_recent_source_event(
-                ctx.narrow(&Step::SourceEventTimestamp),
+                ctx.narrow(&PerRowStep::SourceEventTimestamp),
                 record_id,
                 attribution_window_seconds,
                 &input_row.is_trigger_bit,
@@ -175,7 +185,7 @@ where
         .await?;
 
         let attributed_trigger_value = zero_out_trigger_value_unless_attributed(
-            ctx.narrow(&Step::AttributedTriggerValue),
+            ctx.narrow(&PerRowStep::AttributedTriggerValue),
             record_id,
             &input_row.is_trigger_bit,
             &ever_encountered_a_source_event,
@@ -186,18 +196,26 @@ where
         )
         .await?;
 
-        let (updated_sum, overflow_bit) = integer_add(
-            ctx.narrow(&Step::ComputeSaturatingSum),
+        assert!(
+            TV::BITS <= EightBitStep::BITS,
+            "EightBitStep not large enough to accomodate this sum"
+        );
+        let (updated_sum, overflow_bit) = integer_add::<_, EightBitStep, 1>(
+            ctx.narrow(&PerRowStep::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
             &attributed_trigger_value.to_bits(),
         )
         .await?;
 
+        assert!(
+            TV::BITS <= EightBitStep::BITS,
+            "EightBitStep not large enough to accomodate this subtraction"
+        );
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
             overflow_bit.multiply(
                 &self.is_saturated.clone().not(),
-                ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
+                ctx.narrow(&PerRowStep::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
             // It is okay that we are calling `integer_sub` with length(y) > length(x) here.
@@ -205,8 +223,8 @@ where
             // overflow. When that is the case, `updated_sum` must be within `2^TV::BITS` of the
             // cap, and a `TV::BITS` subtraction of the `TV::BITS` least significant bits of
             // `updated_sum` from zero will correctly compute the difference to the cap.
-            integer_sub(
-                ctx.narrow(&Step::ComputeDifferenceToCap),
+            integer_sub::<_, EightBitStep>(
+                ctx.narrow(&PerRowStep::ComputeDifferenceToCap),
                 record_id,
                 &BitDecomposed::new(repeat_n(
                     Replicated::ZERO,
@@ -259,50 +277,6 @@ where
 pub struct AttributionOutputs<BK, TV> {
     pub attributed_breakdown_key_bits: BK,
     pub capped_attributed_trigger_value: TV,
-}
-
-#[derive(Step)]
-pub enum UserNthRowStep {
-    #[dynamic(64)]
-    Row(usize),
-}
-
-impl From<usize> for UserNthRowStep {
-    fn from(v: usize) -> Self {
-        Self::Row(v)
-    }
-}
-
-#[derive(Step)]
-pub enum BinaryTreeDepthStep {
-    #[dynamic(64)]
-    Depth(usize),
-}
-
-impl From<usize> for BinaryTreeDepthStep {
-    fn from(v: usize) -> Self {
-        Self::Depth(v)
-    }
-}
-
-#[derive(Step)]
-pub(crate) enum Step {
-    BinaryValidator,
-    EverEncounteredSourceEvent,
-    DidTriggerGetAttributed,
-    AttributedBreakdownKey,
-    AttributedTriggerValue,
-    AttributedEventCheckFlag,
-    CheckAttributionWindow,
-    ComputeTimeDelta,
-    CompareTimeDeltaToAttributionWindow,
-    SourceEventTimestamp,
-    ComputeSaturatingSum,
-    IsSaturatedAndPrevRowNotSaturated,
-    ComputeDifferenceToCap,
-    ComputedCappedAttributedTriggerValueNotSaturatedCase,
-    ComputedCappedAttributedTriggerValueJustSaturatedCase,
-    Aggregate,
 }
 
 pub trait GroupingKey {
@@ -433,9 +407,9 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TS>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
+    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -488,8 +462,10 @@ where
             .collect()
             .await;
 
+    let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
+    let ctx = attribution_validator.context();
     aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
-        binary_m_ctx.narrow(&Step::Aggregate),
+        ctx,
         stream::iter(flattened_user_results),
         num_outputs,
     )
@@ -506,9 +482,9 @@ where
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<BK>: BooleanArrayMul,
-    Replicated<TS>: BooleanArrayMul,
-    Replicated<TV>: BooleanArrayMul,
+    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -570,7 +546,7 @@ async fn breakdown_key_of_most_recent_source_event<C, BK>(
 where
     C: Context,
     BK: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<BK>: BooleanArrayMul,
+    Replicated<BK>: BooleanArrayMul<C>,
 {
     select(
         ctx,
@@ -595,7 +571,7 @@ async fn timestamp_of_most_recent_source_event<C, TS>(
 where
     C: Context,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<TS>: BooleanArrayMul,
+    Replicated<TS>: BooleanArrayMul<C>,
 {
     match attribution_window_seconds {
         None => Ok(prev_row_timestamp_bits.clone()),
@@ -635,16 +611,16 @@ async fn zero_out_trigger_value_unless_attributed<'a, TV, TS>(
 where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<TV>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
             ever_encountered_a_source_event,
-            ctx.narrow(&Step::DidTriggerGetAttributed),
+            ctx.narrow(&ZeroOutTriggerStep::DidTriggerGetAttributed),
             record_id,
         ),
         is_trigger_event_within_attribution_window(
-            ctx.narrow(&Step::CheckAttributionWindow),
+            ctx.narrow(&ZeroOutTriggerStep::CheckAttributionWindow),
             record_id,
             attribution_window_seconds,
             trigger_event_timestamp,
@@ -655,7 +631,7 @@ where
 
     // save 1 multiplication if there is no attribution window
     let zero_out_flag = if attribution_window_seconds.is_some() {
-        let c = ctx.narrow(&Step::AttributedEventCheckFlag);
+        let c = ctx.narrow(&ZeroOutTriggerStep::AttributedEventCheckFlag);
         did_trigger_get_attributed
             .multiply(&is_trigger_within_window, c, record_id)
             .await?
@@ -690,8 +666,12 @@ where
     Replicated<Boolean>: BooleanProtocols<C>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
-        let time_delta_bits = integer_sub(
-            ctx.narrow(&Step::ComputeTimeDelta),
+        assert!(
+            TS::BITS <= ThirtyTwoBitStep::BITS,
+            "ThirtyTwoBitStep is not large enough to accomodate this subtraction"
+        );
+        let time_delta_bits = integer_sub::<_, ThirtyTwoBitStep>(
+            ctx.narrow(&WindowStep::ComputeTimeDelta),
             record_id,
             &trigger_event_timestamp.to_bits(),
             &source_event_timestamp.to_bits(),
@@ -705,8 +685,8 @@ where
             )
         });
 
-        let time_delta_gt_attribution_window = compare_gt(
-            ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
+        let time_delta_gt_attribution_window = compare_gt::<_, ThirtyTwoBitStep, 1>(
+            ctx.narrow(&WindowStep::CompareTimeDeltaToAttributionWindow),
             record_id,
             &time_delta_bits,
             &attribution_window_bits,
@@ -749,10 +729,12 @@ async fn compute_capped_trigger_value<C, TV>(
 where
     C: Context,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<TV>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul<C>,
 {
-    let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
-    let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
+    let narrowed_ctx1 =
+        ctx.narrow(&PerRowStep::ComputedCappedAttributedTriggerValueNotSaturatedCase);
+    let narrowed_ctx2 =
+        ctx.narrow(&PerRowStep::ComputedCappedAttributedTriggerValueJustSaturatedCase);
 
     let attributed_trigger_value_or_zero = select(
         narrowed_ctx1,
