@@ -40,15 +40,15 @@ type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
 >;
 
 impl<BK, TV, const N: usize> ChunkBuffer<N>
-for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
-    where
-        Boolean: Vectorizable<N>,
-        BK: SharedValue,
-        TV: SharedValue,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+    for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
+where
+    Boolean: Vectorizable<N>,
+    BK: SharedValue,
+    TV: SharedValue,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
 {
     type Item = AttributionOutputs<Replicated<BK>, Replicated<TV>>;
     type Chunk = AttributionOutputsChunk<N>;
@@ -126,24 +126,24 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<Vec<Replicated<HV>>, Error>
-    where
-        St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
-        BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Boolean: FieldSimd<N> + FieldSimd<B>,
-        Replicated<Boolean, B>:
+where
+    St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
+    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Boolean: FieldSimd<N> + FieldSimd<B>,
+    Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-        Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-        Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-        Vec<BitDecomposed<Replicated<Boolean, B>>>:
-            for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
-        Vec<Replicated<HV>>:
-            for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+    Vec<BitDecomposed<Replicated<Boolean, B>>>:
+        for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let num_chunks = (contributions_stream_len + N - 1) / N;
     // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
@@ -170,7 +170,7 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
                     B,
                     false,
                 )
-                    .await
+                .await
             }
         },
         || AttributionOutputs {
@@ -226,11 +226,11 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-    where
-        'ctx: 'fut,
-        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Boolean: FieldSimd<B>,
-        Replicated<Boolean, B>:
+where
+    'ctx: 'fut,
+    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
     let mut depth = 0;
@@ -275,7 +275,7 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
                                         &a,
                                         &b,
                                     )
-                                        .await?;
+                                    .await?;
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
@@ -289,7 +289,7 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
                                         &a,
                                         &b,
                                     )
-                                        .await
+                                    .await
                                 }
                             }
                         }
@@ -322,15 +322,13 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
 pub mod tests {
 
     use futures::{stream, StreamExt};
-    use proptest::prelude::*;
 
     use super::aggregate_values;
     use crate::{
-        const_assert,
         error::Error,
-        ff::{boolean::Boolean, boolean_array::BA8, U128Conversions},
+        ff::{boolean::Boolean, boolean_array::BA8},
         helpers::Role,
-        secret_sharing::{BitDecomposed, SharedValue},
+        secret_sharing::BitDecomposed,
         test_executor::run,
         test_fixture::{ReconstructArr, Runner, TestWorld},
     };
@@ -573,92 +571,91 @@ pub mod tests {
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
     // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
     // saturated addition at the output.
-//     const PROP_MAX_INPUT_LEN: usize = 10;
-//     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
-// const PROP_BUCKETS: usize = 8;
-//     type PropHistogramValue = BA8;
-//
-//     // We want to capture everything in this struct for visibility in the output of failing runs,
-//     // even if it isn't used by the test.
-//     #[allow(dead_code)]
-//     #[derive(Debug)]
-//     struct AggregatePropTestInputs {
-//         inputs: Vec<[u32; PROP_BUCKETS]>,
-//         expected: Vec<PropHistogramValue>,
-//         seed: u64,
-//         len: usize,
-//         tv_bits: usize,
-//     }
-//
-//     const_assert!(
-//         PropHistogramValue::BITS < 64,
-//         "(1 << PropHistogramValue::BITS) must fit in u64"
-//     );
-//
-//     prop_compose! {
-//         fn arb_aggregate_values_inputs(max_len: usize)
-//                                       (
-//                                           len in 0..=max_len,
-//                                           tv_bits in 0..=PROP_MAX_TV_BITS,
-//                                           seed in any::<u64>(),
-//                                       )
-//         -> AggregatePropTestInputs {
-//             let mut rng = StdRng::seed_from_u64(seed);
-//             let mut expected = vec![0u64; PROP_BUCKETS];
-//             let inputs = repeat_with(|| {
-//                 let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
-//                 for (exp, val) in expected.iter_mut().zip(row) {
-//                     *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
-//                 }
-//                 row
-//             })
-//             .take(len)
-//             .collect();
-//
-//             // let expected : Vec<u64>  = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
-//             //
-//             // let expected = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
-//             let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
-//
-//             AggregatePropTestInputs {
-//                 inputs,
-//                 expected,
-//                 seed,
-//                 len,
-//                 tv_bits,
-//             }
-//         }
-//     }
-//     proptest! {
-//         #[test]
-//         fn aggregate_proptest(
-//             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
-//         ) {
-//             tokio::runtime::Runtime::new().unwrap().block_on(async {
-//                 let AggregatePropTestInputs {
-//                     inputs,
-//                     expected,
-//                     tv_bits,
-//                     ..
-//                 } = input_struct;
-//                 let inputs = inputs.into_iter().map(move |row| {
-//                     Ok(input_row(tv_bits, &row))
-//                 });
-//                 let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
-//                     let num_rows = inputs.len();
-//                     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
-//                         ctx,
-//                         stream::iter(inputs).boxed(),
-//                         num_rows,
-//                     )
-//                 })
-//                 .await
-//                 .map(Result::unwrap)
-//                 .reconstruct_arr();
-//                 let expected_vectorized = input_row_u64(tv_bits, &expected.try_into().unwrap() );
-//                 assert_eq!(result, expected_vectorized);
-//             });
-//         }
-//     }
-
+    //     const PROP_MAX_INPUT_LEN: usize = 10;
+    //     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
+    // const PROP_BUCKETS: usize = 8;
+    //     type PropHistogramValue = BA8;
+    //
+    //     // We want to capture everything in this struct for visibility in the output of failing runs,
+    //     // even if it isn't used by the test.
+    //     #[allow(dead_code)]
+    //     #[derive(Debug)]
+    //     struct AggregatePropTestInputs {
+    //         inputs: Vec<[u32; PROP_BUCKETS]>,
+    //         expected: Vec<PropHistogramValue>,
+    //         seed: u64,
+    //         len: usize,
+    //         tv_bits: usize,
+    //     }
+    //
+    //     const_assert!(
+    //         PropHistogramValue::BITS < 64,
+    //         "(1 << PropHistogramValue::BITS) must fit in u64"
+    //     );
+    //
+    //     prop_compose! {
+    //         fn arb_aggregate_values_inputs(max_len: usize)
+    //                                       (
+    //                                           len in 0..=max_len,
+    //                                           tv_bits in 0..=PROP_MAX_TV_BITS,
+    //                                           seed in any::<u64>(),
+    //                                       )
+    //         -> AggregatePropTestInputs {
+    //             let mut rng = StdRng::seed_from_u64(seed);
+    //             let mut expected = vec![0u64; PROP_BUCKETS];
+    //             let inputs = repeat_with(|| {
+    //                 let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
+    //                 for (exp, val) in expected.iter_mut().zip(row) {
+    //                     *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
+    //                 }
+    //                 row
+    //             })
+    //             .take(len)
+    //             .collect();
+    //
+    //             // let expected : Vec<u64>  = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
+    //             //
+    //             // let expected = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
+    //             let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
+    //
+    //             AggregatePropTestInputs {
+    //                 inputs,
+    //                 expected,
+    //                 seed,
+    //                 len,
+    //                 tv_bits,
+    //             }
+    //         }
+    //     }
+    //     proptest! {
+    //         #[test]
+    //         fn aggregate_proptest(
+    //             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
+    //         ) {
+    //             tokio::runtime::Runtime::new().unwrap().block_on(async {
+    //                 let AggregatePropTestInputs {
+    //                     inputs,
+    //                     expected,
+    //                     tv_bits,
+    //                     ..
+    //                 } = input_struct;
+    //                 let inputs = inputs.into_iter().map(move |row| {
+    //                     Ok(input_row(tv_bits, &row))
+    //                 });
+    //                 let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
+    //                     let num_rows = inputs.len();
+    //                     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
+    //                         ctx,
+    //                         stream::iter(inputs).boxed(),
+    //                         num_rows,
+    //                     )
+    //                 })
+    //                 .await
+    //                 .map(Result::unwrap)
+    //                 .reconstruct_arr();
+    //                 let expected_vectorized = input_row_u64(tv_bits, &expected.try_into().unwrap() );
+    //                 assert_eq!(result, expected_vectorized);
+    //             });
+    //         }
+    //     }
 }
