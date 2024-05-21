@@ -195,7 +195,7 @@ where
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
     );
     let aggregated_result =
-        aggregate_values::<TV, B>(ctx, aggregation_input, num_chunks * N).await?;
+        aggregate_values::<HV, B>(ctx, aggregation_input, num_chunks * N).await?;
     Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
