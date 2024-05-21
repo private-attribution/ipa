@@ -161,11 +161,11 @@ where
     /// and `verifier_left_batch` as its right output.
     /// Further, it outputs the generated masks included in the last proof of the batch.
     ///
-    /// `PRSS` is invoked since `PRSS` left is used to generate `prover_left_batch`.
-    /// Since it cannot be invoked later again on the same `Gate` and `Index`,
-    /// we use `PRSS` right to generate `verifier_left_batch` and output it as well.
+    /// `PRSS` is invoked since `PRSS` right is used to generate `prover_left_batch`.
+    /// Since `PRSS` cannot be invoked later again on the same `Gate` and `Index`,
+    /// we use `PRSS` left to generate `verifier_left_batch` and output it as well.
     ///
-    /// Outputs `(prover_left_batch, verifier_left_batch)`
+    /// Outputs `(prover_left_batch, verifier_left_batch, (p_mask, q_mask))`
     fn compute_proof_batch<C, I>(ctx: &C, uv_tuple_block: I) -> (Self, Self, (F, F))
     where
         C: Context,
@@ -178,12 +178,11 @@ where
 
         // precomputation
         // N is the proof length,
-        // i.e. polynomial of degree 2*λ-1
-        // where λ is the recursion factor
-        // the denominator takes as parameter λ = (N+1)/2
+        // i.e. polynomial of degree 2*R-1
+        // where R is the recursion factor
+        // the denominator takes as parameter R
         let denominator = CanonicalLagrangeDenominator::<F, R>::new();
-        // the lagrange table takes as parameter λ, and λ-1
-        // i.e. (N+1)/2 and (N+1)/2-1
+        // the lagrange table takes as parameter R, and R-1
         let lagrange_table = LagrangeTable::<F, R, <R as Sub<U1>>::Output>::from(denominator);
 
         // set up record counter
@@ -202,6 +201,10 @@ where
         // recursively generate proofs
         // until there are less than `R::USIZE * (R::USIZE-1)` many (u,v) field elements
         // and then do one more iteration
+        // This ensures that after the last iteration,
+        // there are at most R::USIZE-1 many real (u,v) field elements
+        // Therefore at least the last field element is a `F:ZERO` filler that can be replaced
+        // Therefore we have space to include the masks during the final proof
         //
         // notice that uv_store.len() will always be at least 1
         // further, polynomial uv_store.uv[0].0 and .1 will always have
@@ -225,11 +228,14 @@ where
         }
 
         // generate masks
-        // the right mask are used during the proof generation
-        // and the verifier on the right generate the same masks
-        // as his left_mask which are then used during the verification
-        // this prover stores its left masks
-        // which he uses once he plays the role of the verifier to the left
+        // The right masks are used during the proof generation.
+        // The left masks are later used during the verification.
+        //
+        // Notice that this helper party's left masks are the helper party on the left's right masks
+        // which it uses for its proof generation
+        // Therefore, when this helper party plays the role of a verifier
+        // (for the proof from the party on the left)
+        // it will need to use the masks.
         let (left_p_mask, right_p_mask): (F, F) =
             ctx.prss().generate_fields(RecordId::from(record_counter));
         record_counter += 1;
@@ -330,7 +336,7 @@ where
     /// `record_counter` is used to generate the `RecordId` input for `PRSS`
     ///
     /// The goal of this function is to generate three proof shares.
-    /// First, it replaces the input `proof` with the left share of the proof
+    /// First, it replaces the input proof with the left share of the proof
     /// for which this helper party is the prover, i.e. `prover_left_proof`.
     /// Second, it outputs the other share, i.e. `prover_right_proof`.
     /// Third, the `PRSS` is also used to generate the left share of the proof for which this helper party
@@ -338,7 +344,7 @@ where
     ///
     /// Outputs `(verifier_left_proof, prover_right_proof)`
     fn share_via_prss<C>(
-        proof: &mut ZeroKnowledgeProof<F, R>,
+        prover_left_proof: &mut ZeroKnowledgeProof<F, R>,
         ctx: &C,
         record_counter: &mut usize,
     ) -> (ZeroKnowledgeProof<F, R>, ZeroKnowledgeProof<F, R>)
@@ -357,16 +363,19 @@ where
 
             // mask proof such that party on the left does not know mask
             // i.e. use PRSS right
-            proof.g[i] -= right;
+            // subtract the shares from `prover_left_proof`
+            // such that `right` cancels out with `prover_right_proof`
+            // which is set to `right` below
+            prover_left_proof.g[i] -= right;
 
-            // set prover_left_proof
+            // set prover_right_proof
             // such that party on the right can compute it himself
             // i.e. use PRSS right
             prover_right_proof.g[i] = right;
 
             // set verifier_left
             // by using prss left
-            // which has been used by the prover on the right to generate `prover_left_proof`
+            // which has been used by the prover on the right to generate `prover_right_proof`
             verifier_left_proof.g[i] = left;
         }
 
@@ -412,6 +421,7 @@ mod test {
             let mut rng = thread_rng();
 
             // each helper samples a random value h
+            // which is later used to generate distinct values across helpers
             let h = Fp61BitPrime::truncate_from(rng.gen_range(0u128..100));
 
             let result = world
@@ -425,13 +435,11 @@ mod test {
                         .map(|i| {
                             (
                                 GenericArray::<Fp61BitPrime, BlockSize>::generate(|j| {
-                                    // Fp61BitPrime::truncate_from(u128::try_from((j%8) *usize::from(j>=5&&j<6)).unwrap())
                                     Fp61BitPrime::truncate_from(
                                         u128::try_from(BlockSize::USIZE * i + j).unwrap(),
                                     ) * h
                                 }),
                                 GenericArray::<Fp61BitPrime, BlockSize>::generate(|j| {
-                                    // Fp61BitPrime::truncate_from(u128::try_from((j%8) *usize::from(j>=5&&j<6)).unwrap())
                                     Fp61BitPrime::truncate_from(
                                         u128::try_from(BlockSize::USIZE * i + j).unwrap(),
                                     ) * h
