@@ -14,19 +14,26 @@ use typenum::Unsigned;
 
 use crate::{
     cli::IpaQueryResult,
-    ff::{Serializable, U128Conversions},
+    ff::{
+        boolean_array::{BA20, BA3, BA8},
+        Serializable, U128Conversions,
+    },
     helpers::{
         query::{IpaQueryConfig, QueryInput, QuerySize},
         BodyStream,
     },
     hpke::PublicKeyRegistry,
     net::MpcHelperClient,
-    protocol::{ipa_prf::OPRFIPAInputRow, BreakdownKey, QueryId, Timestamp, TriggerValue},
+    protocol::{ipa_prf::OPRFIPAInputRow, QueryId},
     query::QueryStatus,
     report::{KeyIdentifier, OprfReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares, SharedValue},
     test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
+
+type BreakdownKey = BA8;
+type Timestamp = BA20;
+type TriggerValue = BA3;
 
 /// Executes the IPA v3 protocol.
 ///
