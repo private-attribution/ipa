@@ -25,12 +25,7 @@ use crate::protocol::context::UpgradedSemiHonestContext;
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 use crate::sharding::NotSharded;
 
-#[derive(Step)]
-pub(crate) enum Step {
-    NoiseGen,
-    #[dynamic(32)]
-    ApplyNoise(usize),
-}
+
 
 #[cfg(test)]
 pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
@@ -58,15 +53,11 @@ pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
     }
 
     // Step 2: Convert to input from needed for aggregate_values
-    // may need to transpose to be vectorized by B, the number of histogram bins, which is how
-    // aggregation calls `aggregate_values` and similar to how `feature_label_dot_product` uses
-    // number of features
     let aggregation_input =
         Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
 
 
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
-
     let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> = aggregate_values::<OV,B>(
         ctx,
         aggregation_input,
@@ -75,42 +66,9 @@ pub async fn gen_binomial_noise<'ctx, const B: usize,OV>(
 }
 
 
-#[cfg(test)]
-pub async fn apply_dp_noise<'ctx, const B: usize,OV>(
-    ctx: UpgradedSemiHonestContext<'ctx, NotSharded,Boolean>,
-    histogram_bin_values: BitDecomposed<Replicated<Boolean,B>>,
-    num_histogram_bins: u32,
-    ) -> Result<Vec<Replicated<OV>>, Error>
-    where
-        Boolean: Vectorizable<B> + FieldSimd<B>,
-        BitDecomposed<Replicated<Boolean,B>>: FromPrss<usize>,
-        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded,Boolean>, B>,
-{
-    assert_eq!(num_histogram_bins, B as u32);
-    // in the future there could be some calculation there to go from a passed in
-    // epsilon, delta to the num_bernoulli, but for now it is fixed.
-    let num_bernoulli: u32 = 1000;
-    let noise_gen_ctx = ctx.narrow(&Step::NoiseGen);
-    let noise_vector = gen_binomial_noise::<B,OV>(noise_gen_ctx,histogram_bin_values,num_bernoulli,num_histogram_bins);
-
-
-    // Step 4:  Add DP noise to output values
-    // let apply_noise_ctx =  ctx.narrow(&Step::ApplyNoise).set_total_records(1);
-    // let histogram_noised = integer_add::<_,_,B>(
-    //                                                     apply_noise_ctx,
-    //                                                     RecordId::FIRST,
-    //                                                     noise_vector,
-    //                                                     histogram_bin_values);
-
-    // Step 5 Transpose output representation
-    Ok(Vec::transposed_from(&noise_vector)?)
-
-}
-
 #[cfg(all(test, unit_test))]
 mod test {
-    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::{apply_dp_noise,gen_binomial_noise};
+    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::{gen_binomial_noise};
     use rand::distributions::{Distribution};
     use crate::{ff::{Field, Fp31, Fp32BitPrime, U128Conversions, boolean_array::BA4}, helpers::TotalRecords, protocol::{
         basics::{SecureMul},
@@ -123,8 +81,7 @@ mod test {
     use crate::secret_sharing::replicated::malicious::AdditiveShare;
     use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
     use crate::protocol::ipa_prf::dp_in_mpc;
-    use crate::secret_sharing::BitDecomposed;
-
+    use crate::secret_sharing::{BitDecomposed, TransposeFrom};
 
     fn input_row<const B: usize>(bit_width: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
         let values = <&[u32; B]>::try_from(values).unwrap();
@@ -132,18 +89,6 @@ mod test {
         BitDecomposed::decompose(bit_width, |i| {
             values.map(|v| Boolean::from((v >> i) & 1 == 1))
         })
-    }
-
-    #[tokio::test]
-    pub async fn test_apply_dp_noise(){
-        let world = TestWorld::default();
-        type OutputValue = BA8;
-        const NUM_BREAKDOWNS: u32 = 8;
-        let input = input_row(8, &[10,8,6,41,0,0,0,0]);
-        let result = world.upgraded_semi_honest(
-            input.into_iter(), | ctx,input  | async move {
-                apply_dp_noise::<{NUM_BREAKDOWNS as usize},OutputValue>(ctx, input,NUM_BREAKDOWNS).await.unwrap()
-            }).await;
     }
 
     #[tokio::test]
@@ -160,7 +105,8 @@ mod test {
                 gen_binomial_noise::<{NUM_BREAKDOWNS as usize},OutputValue>(ctx, input, num_bernoulli,NUM_BREAKDOWNS).await.unwrap()
             }).await;
         let result_reconstructed = result.reconstruct_arr();
-
+        // let result_transposed = Vec::transposed_from(result_reconstructed); //not working to transpose
+        // println!("result vectorized: {:?}", result_reconstructed);
     }
 
 
