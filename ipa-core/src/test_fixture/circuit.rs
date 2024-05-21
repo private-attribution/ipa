@@ -1,7 +1,7 @@
 use std::{array, num::NonZeroUsize};
 
 use futures::{future::join3, stream, StreamExt};
-use ipa_macros::Step;
+use ipa_step::StepNarrow;
 use rand::distributions::{Distribution, Standard};
 
 use crate::{
@@ -10,12 +10,13 @@ use crate::{
     protocol::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
-        RecordId,
+        step::ProtocolStep,
+        Gate, RecordId,
     },
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
     seq_join::seq_join,
-    test_fixture::{ReconstructArr, TestWorld, TestWorldConfig},
+    test_fixture::{step::TestExecutionStep as Step, ReconstructArr, TestWorld, TestWorldConfig},
     utils::array::zip3,
 };
 
@@ -77,6 +78,7 @@ pub async fn arithmetic<F, const N: usize>(
 {
     let config = TestWorldConfig {
         gateway_config: GatewayConfig::new(active_work),
+        initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test(0))),
         ..Default::default()
     };
     let world = TestWorld::new_with(config);
@@ -113,12 +115,6 @@ pub async fn arithmetic<F, const N: usize>(
     assert_eq!(sum, u128::from(width));
 }
 
-#[derive(Step)]
-enum Step {
-    #[dynamic(1024)]
-    Stripe(usize),
-}
-
 async fn circuit<'a, F, const N: usize>(
     ctx: SemiHonestContext<'a>,
     record_id: RecordId,
@@ -132,7 +128,7 @@ where
 {
     assert_eq!(b.len(), usize::from(depth));
     for (stripe_ix, stripe) in b.iter().enumerate() {
-        let stripe_ctx = ctx.narrow(&Step::Stripe(stripe_ix));
+        let stripe_ctx = ctx.narrow(&Step::Iter(stripe_ix));
         a = a.multiply(stripe, stripe_ctx, record_id).await.unwrap();
     }
 

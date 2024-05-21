@@ -9,27 +9,29 @@ use async_trait::async_trait;
 use crate::{
     error::Error,
     ff::Field,
+    helpers::Direction,
     protocol::{
-        context::{Base, UpgradableContext, UpgradedSemiHonestContext},
+        basics::Reveal,
+        context::{
+            step::{MaliciousProtocolStep as Step, ValidateStep},
+            Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext,
+        },
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField},
-        semi_honest::AdditiveShare as Replicated,
-        ReplicatedSecretSharing,
+    secret_sharing::{
+        replicated::{
+            malicious::{
+                AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
+            },
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
+        },
+        SharedValue,
     },
     sharding::ShardBinding,
-    sync::{Mutex, Weak},
-};
-#[cfg(feature = "descriptive-gate")]
-use crate::{
-    helpers::Direction,
-    protocol::basics::Reveal,
-    protocol::context::Context,
-    protocol::context::{MaliciousContext, UpgradedMaliciousContext},
-    secret_sharing::SharedValue,
-    sync::Arc,
+    sync::{Arc, Mutex, Weak},
 };
 
 #[async_trait]
@@ -75,26 +77,6 @@ impl<B: ShardBinding, F: ExtendableField> Debug for SemiHonest<'_, B, F> {
             type_name::<F>()
         )
     }
-}
-
-/// Steps used by the validation component of malicious protocol execution.
-/// In addition to these, an implicit step is used to initialize the value of `r`.
-#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
-pub(crate) enum Step {
-    /// For the execution of the malicious protocol.
-    MaliciousProtocol,
-    /// The final validation steps.
-    Validate,
-}
-
-#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
-pub(crate) enum ValidateStep {
-    /// Propagate the accumulated values of `u` and `w`.
-    PropagateUAndW,
-    /// Reveal the value of `r`, necessary for validation.
-    RevealR,
-    /// Check that there is no disagreement between accumulated values.
-    CheckZero,
 }
 
 /// This code is an implementation of the approach found in the paper:
@@ -204,7 +186,6 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 pub struct Malicious<'a, F: ExtendableField> {
     r_share: Replicated<F::ExtendedField>,
     u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
@@ -212,7 +193,6 @@ pub struct Malicious<'a, F: ExtendableField> {
     validate_ctx: Base<'a>,
 }
 
-#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
     /// Get a copy of the context that can be used for malicious protocol execution.
@@ -260,7 +240,6 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
@@ -322,7 +301,6 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<F: ExtendableField> Debug for Malicious<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())

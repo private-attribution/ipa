@@ -9,7 +9,7 @@ use futures::Stream;
 
 use crate::{
     helpers::HelperIdentity,
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
 };
 
 mod handler;

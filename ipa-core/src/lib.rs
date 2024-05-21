@@ -30,7 +30,7 @@ pub mod test_fixture;
 mod app;
 mod seq_join;
 mod serde;
-mod sharding;
+pub mod sharding;
 mod utils;
 
 pub use app::{HelperApp, Setup as AppSetup};
@@ -182,7 +182,3 @@ macro_rules! mutually_incompatible {
 }
 
 mutually_incompatible!("in-memory-infra", "real-world-infra");
-mutually_incompatible!("compact-gate", "descriptive-gate");
-
-#[cfg(all(not(feature = "compact-gate"), not(feature = "descriptive-gate")))]
-compile_error!("feature \"compact-gate\" or \"descriptive-gate\" must be enabled");

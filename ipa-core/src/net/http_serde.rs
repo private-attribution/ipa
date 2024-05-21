@@ -329,7 +329,7 @@ pub mod query {
 
         use crate::{
             net::{http_serde::query::BASE_AXUM_PATH, Error},
-            protocol::{step::Gate, QueryId},
+            protocol::{Gate, QueryId},
         };
 
         // When this type is used on the client side, `B` is `hyper::Body`. When this type

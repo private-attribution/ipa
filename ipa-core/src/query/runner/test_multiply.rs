@@ -8,6 +8,7 @@ use crate::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
         prss::Endpoint as PrssEndpoint,
+        step::ProtocolStep,
         RecordId,
     },
     query::runner::QueryResult,
@@ -23,7 +24,7 @@ where
     F: PrimeField,
     Replicated<F>: Serializable,
 {
-    let ctx = SemiHonestContext::new(prss, gateway);
+    let ctx = SemiHonestContext::new(prss, gateway).narrow(&ProtocolStep::Multiply);
     Ok(Box::new(
         execute_test_multiply_internal::<F>(ctx, input).await?,
     ))

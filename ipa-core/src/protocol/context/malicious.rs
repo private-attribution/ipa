@@ -5,13 +5,14 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         basics::{
-            mul::{malicious::Step::RandomnessForValidation, semi_honest_multiply},
+            mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
             ShareKnownValue,
         },
         context::{
@@ -23,8 +24,7 @@ use crate::{
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -43,8 +43,18 @@ pub struct Context<'a> {
 
 impl<'a> Context<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self::new_with_gate(participant, gateway, Gate::default())
+    }
+
+    pub fn new_with_gate(participant: &'a PrssEndpoint, gateway: &'a Gateway, gate: Gate) -> Self {
         Self {
-            inner: Base::new(participant, gateway, NotSharded),
+            inner: Base::new_complete(
+                participant,
+                gateway,
+                gate,
+                TotalRecords::Unspecified,
+                NotSharded,
+            ),
         }
     }
 
@@ -208,18 +218,19 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
             NotSharded,
         )
     }
-}
 
-#[async_trait]
-impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
-    type Share = MaliciousReplicated<F>;
-
-    fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
+    pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().base_context(), value),
             &self.inner.r_share * value.to_extended(),
         )
     }
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
+    type Field = F;
+    type Share = MaliciousReplicated<F>;
 
     async fn upgrade_one(
         &self,

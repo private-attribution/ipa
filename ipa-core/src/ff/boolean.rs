@@ -1,9 +1,11 @@
+use std::iter::Once;
+
 use bitvec::prelude::BitSlice;
 use generic_array::GenericArray;
 use typenum::U1;
 
 use crate::{
-    ff::{Field, PrimeField, Serializable, U128Conversions},
+    ff::{ArrayAccess, Field, PrimeField, Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::{
         context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
@@ -11,7 +13,6 @@ use crate::{
     },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
-
 impl Block for bool {
     type Size = U1;
 }
@@ -27,6 +28,28 @@ impl Boolean {
     #[must_use]
     pub fn as_u128(&self) -> u128 {
         u128::from(bool::from(*self))
+    }
+}
+
+impl ArrayAccess for Boolean {
+    type Output = Boolean;
+    type Iter<'a> = Once<Boolean>;
+
+    fn get(&self, index: usize) -> Option<Self::Output> {
+        if index < 1 {
+            Some(*self)
+        } else {
+            None
+        }
+    }
+
+    fn set(&mut self, index: usize, e: Self::Output) {
+        debug_assert!(index < 1);
+        *self = e;
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        std::iter::once(*self)
     }
 }
 
@@ -211,7 +234,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U1;
 
-    use crate::ff::{boolean::Boolean, Serializable};
+    use crate::ff::{boolean::Boolean, ArrayAccess, Serializable};
 
     impl Arbitrary for Boolean {
         type Parameters = <bool as Arbitrary>::Parameters;
@@ -250,5 +273,22 @@ mod test {
         let mut rng = thread_rng();
         let a = rng.gen::<Boolean>();
         assert_ne!(a, !a);
+    }
+
+    /// test `ArrayAccess` for Boolean
+    #[test]
+    fn test_array_access() {
+        let mut b = Boolean::from(true);
+
+        // Test get()
+        assert_eq!(b.get(0), Some(Boolean::from(true)));
+        assert_eq!(b.get(1), None);
+
+        // Test set()
+        b.set(0, Boolean::from(false));
+        assert_eq!(b.get(0), Some(Boolean::from(false)));
+
+        // Test iter()
+        assert_eq!(vec![Boolean::from(false)], b.iter().collect::<Vec<_>>());
     }
 }
