@@ -157,7 +157,7 @@ where
         );
 
         // assertion that table is not too large for the stack
-        assert!(<F as Serializable>::Size::USIZE * N::USIZE * M::USIZE < 2024);
+        assert!(<F as Serializable>::Size::USIZE * N::USIZE * M::USIZE < 8192);
 
         LagrangeTable {
             table: (N::U128..(N::U128 + M::U128))

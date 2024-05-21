@@ -35,6 +35,7 @@ pub trait ProofArray {
 ///
 /// Parameter `R` represents the recursion factor, which is a parameter
 /// used during the proof generation and verification.
+#[derive(Debug)]
 pub struct ZeroKnowledgeProof<F, R>
 where
     Self: ProofArray,
@@ -154,7 +155,7 @@ where
     /// Use `FP61BitPrime` instead when using this function in test cases.
     pub fn set_masks(&mut self, p_0: F, q_0: F) {
         // assert that there are only two polynomials
-        debug_assert_eq!(self.len(), 1usize);
+        debug_assert_eq!(self.uv.len(), 1usize);
         // assert that last point of p,q is really `F::Zero`
         // such that we can safely set the 0 points to be the last points
         // p is the polynomial uv_store.first().0

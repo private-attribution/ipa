@@ -35,6 +35,7 @@ use crate::{
 /// On the `right` batch of `ZeroKnowledgeProofs` these values are set to `F::ZERO`.
 /// These masks mask sensitive information when the right verifier sends a field value to the left verifier,
 /// i.e. using a channel with `Direction:Right`, who does not have access to these masks.
+#[derive(Debug)]
 pub struct VerifierBatch<F, R>
 where
     F: PrimeField,
@@ -82,7 +83,7 @@ where
 ///
 /// It uses parameter `R` which is the recursion factor of the zero-knowledge proofs
 /// A zero-knowledge proof with recursion factor `R` has length `2*R::USIZE-1`
-pub struct ProofBatch<F, R>
+struct ProofBatch<F, R>
 where
     F: PrimeField,
     ZeroKnowledgeProof<F, R>: ProofArray,
@@ -95,10 +96,6 @@ where
     F: PrimeField + Default,
     ZeroKnowledgeProof<F, R>: ProofArray,
 {
-    fn is_empty(&self) -> bool {
-        self.proofs.is_empty()
-    }
-
     fn len(&self) -> usize {
         self.proofs.len() * <ZeroKnowledgeProof<F, R> as ProofArray>::Length::USIZE
     }
@@ -167,6 +164,8 @@ where
     /// `PRSS` is invoked since `PRSS` left is used to generate `prover_left_batch`.
     /// Since it cannot be invoked later again on the same `Gate` and `Index`,
     /// we use `PRSS` right to generate `verifier_left_batch` and output it as well.
+    ///
+    /// Outputs `(prover_left_batch, verifier_left_batch)`
     fn compute_proof_batch<C, I>(ctx: &C, uv_tuple_block: I) -> (Self, Self, (F, F))
     where
         C: Context,
@@ -201,14 +200,14 @@ where
         );
 
         // recursively generate proofs
-        // until there are less than `R::USIZE` many (u,v) field elements
+        // until there are less than `R::USIZE * (R::USIZE-1)` many (u,v) field elements
         // and then do one more iteration
         //
         // notice that uv_store.len() will always be at least 1
         // further, polynomial uv_store.uv[0].0 and .1 will always have
         // R::USIZE many points since they are filled with `F::ZERO`.
         loop {
-            let stop = uv_store.len() < R::USIZE;
+            let stop = uv_store.len() < R::USIZE * (R::USIZE - 1);
 
             // generate next proof
             uv_store = Self::compute_next_proof(
@@ -285,15 +284,17 @@ where
     {
         // generate next proof
         // from iterator
-        let mut proof = ZeroKnowledgeProof::<F, R>::compute_proof(uv.clone(), &lagrange_table);
+        let mut prover_left_proof =
+            ZeroKnowledgeProof::<F, R>::compute_proof(uv.clone(), &lagrange_table);
 
         // generate proof shares
-        let (prover_left_proof, verifier_left_proof) =
-            Self::share_via_prss(&mut proof, ctx, record_counter);
+        let (verifier_left_proof, prover_right_proof) =
+            Self::share_via_prss(&mut prover_left_proof, ctx, record_counter);
 
         // compute next uv values
         // from iterator
-        let uv_store = UVStore::<F, R>::gen_challenge_and_recurse(&prover_left_proof, &proof, uv);
+        let uv_store =
+            UVStore::<F, R>::gen_challenge_and_recurse(&prover_left_proof, &prover_right_proof, uv);
 
         // store proofs
         prover_left_batch.push(prover_left_proof);
@@ -314,16 +315,10 @@ where
         blocks.flat_map(|x| {
             (0usize..(BlockSize::USIZE / M::USIZE)).map(move |i| {
                 (
-                    GenericArray::<F, M>::from_slice(
-                        &x.0[i * (BlockSize::USIZE / M::USIZE)
-                            ..i * (BlockSize::USIZE / M::USIZE) + M::USIZE],
-                    )
-                    .clone(),
-                    GenericArray::<F, M>::from_slice(
-                        &x.1[i * (BlockSize::USIZE / M::USIZE)
-                            ..i * (BlockSize::USIZE / M::USIZE) + M::USIZE],
-                    )
-                    .clone(),
+                    GenericArray::<F, M>::from_slice(&x.0[i * M::USIZE..(i + 1) * M::USIZE])
+                        .clone(),
+                    GenericArray::<F, M>::from_slice(&x.1[i * M::USIZE..(i + 1) * M::USIZE])
+                        .clone(),
                 )
             })
         })
@@ -335,11 +330,13 @@ where
     /// `record_counter` is used to generate the `RecordId` input for `PRSS`
     ///
     /// The goal of this function is to generate three proof shares.
-    /// First, it replaces the input `proof` with the right share of the proof
-    /// for which this helper party is the prover, i.e. `prover_right_proof`.
-    /// Second, it outputs the other share, i.e. `prover_left_proof`.
-    /// Third, the `PRSS` is also used to generate the right share of the proof for which this helper party
-    /// is the verifier, i.e. `verifier_right_proof`. This share is part of the output.
+    /// First, it replaces the input `proof` with the left share of the proof
+    /// for which this helper party is the prover, i.e. `prover_left_proof`.
+    /// Second, it outputs the other share, i.e. `prover_right_proof`.
+    /// Third, the `PRSS` is also used to generate the left share of the proof for which this helper party
+    /// is the verifier, i.e. `verifier_left_proof`. This share is part of the output.
+    ///
+    /// Outputs `(verifier_left_proof, prover_right_proof)`
     fn share_via_prss<C>(
         proof: &mut ZeroKnowledgeProof<F, R>,
         ctx: &C,
@@ -349,8 +346,8 @@ where
         C: Context,
     {
         // variables for outputs
-        let mut prover_left_proof = <ZeroKnowledgeProof<F, R>>::default();
-        let mut verifier_right_proof = <ZeroKnowledgeProof<F, R>>::default();
+        let mut prover_right_proof = <ZeroKnowledgeProof<F, R>>::default();
+        let mut verifier_left_proof = <ZeroKnowledgeProof<F, R>>::default();
 
         // use PRSS
         for i in 0..<ZeroKnowledgeProof<F, R> as ProofArray>::Length::USIZE {
@@ -358,25 +355,174 @@ where
                 .prss()
                 .generate_fields::<F, RecordId>(RecordId::from(i + *record_counter));
 
-            // mask proof such that party on the right does not know mask
-            // i.e. use PRSS left
-            proof.g[i] += left;
+            // mask proof such that party on the left does not know mask
+            // i.e. use PRSS right
+            proof.g[i] -= right;
 
             // set prover_left_proof
-            // such that party on the left can compute it himself
-            // i.e. use PRSS left
-            prover_left_proof.g[i] = left;
+            // such that party on the right can compute it himself
+            // i.e. use PRSS right
+            prover_right_proof.g[i] = right;
 
-            // set verifier_right
-            // by using prss right
+            // set verifier_left
+            // by using prss left
             // which has been used by the prover on the right to generate `prover_left_proof`
-            verifier_right_proof.g[i] = right;
+            verifier_left_proof.g[i] = left;
         }
 
         // update record_counter
         *record_counter += <ZeroKnowledgeProof<F, R> as ProofArray>::Length::USIZE;
 
         //output
-        (prover_left_proof, verifier_right_proof)
+        (verifier_left_proof, prover_right_proof)
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod test {
+    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+    use rand::{thread_rng, Rng};
+    use typenum::{Unsigned, U32, U8};
+
+    use crate::{
+        ff::{Field, Fp61BitPrime, U128Conversions},
+        protocol::{
+            context::dzkp_field::BlockSize,
+            ipa_prf::{
+                malicious_security::prover::{ProofArray, ZeroKnowledgeProof},
+                validation_protocol::proof_generation::VerifierBatch,
+            },
+        },
+        secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
+        test_executor::run,
+        test_fixture::{Runner, TestWorld},
+    };
+
+    impl Default for Fp61BitPrime {
+        fn default() -> Self {
+            Fp61BitPrime::ZERO
+        }
+    }
+
+    #[test]
+    fn generate_verifier_batch() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let mut rng = thread_rng();
+
+            // each helper samples a random value h
+            let h = Fp61BitPrime::truncate_from(rng.gen_range(0u128..100));
+
+            let result = world
+                .semi_honest(h, |ctx, h| async move {
+                    let h = Fp61BitPrime::truncate_from(h.left().as_u128() % 100);
+                    // generate blocks of UV values
+                    // generate u values as (1h,2h,3h,....,10h*BlockSize) split into Blocksize chunks
+                    // where BlockSize = 32
+                    // v values are identical to u
+                    let uv_tuple_vec = (0usize..1)
+                        .map(|i| {
+                            (
+                                GenericArray::<Fp61BitPrime, BlockSize>::generate(|j| {
+                                    // Fp61BitPrime::truncate_from(u128::try_from((j%8) *usize::from(j>=5&&j<6)).unwrap())
+                                    Fp61BitPrime::truncate_from(
+                                        u128::try_from(BlockSize::USIZE * i + j).unwrap(),
+                                    ) * h
+                                }),
+                                GenericArray::<Fp61BitPrime, BlockSize>::generate(|j| {
+                                    // Fp61BitPrime::truncate_from(u128::try_from((j%8) *usize::from(j>=5&&j<6)).unwrap())
+                                    Fp61BitPrime::truncate_from(
+                                        u128::try_from(BlockSize::USIZE * i + j).unwrap(),
+                                    ) * h
+                                }),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+
+                    // generate and output VerifierBatch together with h value
+                    (
+                        h,
+                        VerifierBatch::<Fp61BitPrime, U8>::generate_and_distribute_proofs(
+                            ctx,
+                            uv_tuple_vec.into_iter(),
+                        )
+                        .await,
+                    )
+                })
+                .await;
+
+            // proof from first party
+            simple_proof_check::<U8>(result[0].0, &result[2].1, &result[1].1);
+
+            // proof from second party
+            simple_proof_check::<U8>(result[1].0, &result[0].1, &result[2].1);
+
+            // proof from third party
+            simple_proof_check::<U8>(result[2].0, &result[1].1, &result[0].1);
+        });
+    }
+
+    fn simple_proof_check<R>(
+        h: Fp61BitPrime,
+        left_verifier: &VerifierBatch<Fp61BitPrime, R>,
+        right_verifier: &VerifierBatch<Fp61BitPrime, R>,
+    ) where
+        R: ArrayLength,
+        ZeroKnowledgeProof<Fp61BitPrime, R>: ProofArray,
+    {
+        // check lengths
+        // i.e. each proof has length 2*R::SIZE -1
+        for i in 0..left_verifier.right.len() {
+            assert_eq!((i, left_verifier.right[i].g.len()), (i, 2 * R::USIZE - 1));
+        }
+
+        // check that masks are not 0
+        assert_ne!(
+            right_verifier.left_masks,
+            (Fp61BitPrime::ZERO, Fp61BitPrime::ZERO)
+        );
+
+        // check first proof,
+        // compute simple proof without lagrange interpolated points
+        let block_to_polynomial = BlockSize::USIZE / R::USIZE;
+        let simple_proof_uv = (0usize..1 * block_to_polynomial)
+            .map(|i| {
+                (
+                    GenericArray::<Fp61BitPrime, R>::generate(|j| {
+                        Fp61BitPrime::truncate_from(u128::try_from(R::USIZE * i + j).unwrap()) * h
+                    }),
+                    GenericArray::<Fp61BitPrime, R>::generate(|j| {
+                        Fp61BitPrime::truncate_from(u128::try_from(R::USIZE * i + j).unwrap()) * h
+                    }),
+                )
+            })
+            .collect::<Vec<(GenericArray<Fp61BitPrime, R>, GenericArray<Fp61BitPrime, R>)>>();
+
+        let simple_proof = simple_proof_uv.iter().fold(
+            GenericArray::<Fp61BitPrime, R>::default(),
+            |mut acc, (left, right)| {
+                for i in 0..R::USIZE {
+                    acc[i] += left[i] * right[i];
+                }
+                acc
+            },
+        );
+
+        // reconstruct computed proof
+        // by adding shares left and right
+        let proof_computed = left_verifier.right[0]
+            .g
+            .iter()
+            .zip(right_verifier.left[0].g.iter())
+            .map(|(&left, &right)| left + right)
+            .collect::<Vec<Fp61BitPrime>>();
+
+        // check for consistency
+        // only check first R::USIZE field elements
+        assert_eq!(
+            (h.as_u128(), simple_proof.to_vec()),
+            (h.as_u128(), proof_computed[0..R::USIZE].to_vec())
+        );
     }
 }
