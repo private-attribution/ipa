@@ -190,15 +190,6 @@ impl<'a> Segment<'a> {
         self.x_left.len()
     }
 
-    /// This function returns the bit length of the `segment` in bits rounded up to a power of two.
-    ///
-    /// ## Panics
-    /// Panics when conversion from `u32` to `usize` fails.
-    #[must_use]
-    pub fn power_of_two_bit_len(&self) -> usize {
-        self.x_left.power_of_two_bit_len()
-    }
-
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.x_left.is_empty()
@@ -225,17 +216,6 @@ impl<'a> SegmentEntry<'a> {
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
-    }
-
-    /// This function returns the bit length of the `SegmentEntry` in bits rounded up to a power of two.
-    ///
-    /// ## Panics
-    /// Panics when conversion from `u32` to `usize` fails.
-    #[must_use]
-    pub fn power_of_two_bit_len(&self) -> usize {
-        1usize
-            << ((std::mem::size_of::<usize>() * 8)
-                - (usize::try_from((self.len() - 1usize).leading_zeros()).unwrap()))
     }
 
     #[must_use]
