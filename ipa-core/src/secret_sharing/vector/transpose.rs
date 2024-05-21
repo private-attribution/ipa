@@ -514,6 +514,11 @@ macro_rules! impl_transpose_ba_to_ba {
     };
 }
 
+// Input: MxN as `[BA{N}; {M}]` or similar
+// Output: NxM as `[BA{M}; {N}]` or similar
+// Arguments: BA{M}, BA{N}, M, N
+// Dimensions: Multiples of 16.
+
 // Usage: Transpose benchmark.
 impl_transpose_ba_to_ba!(BA64, BA64, 64, 64, test_transpose_ba_64x64);
 
@@ -524,6 +529,8 @@ impl_transpose_ba_to_ba!(BA256, BA256, 256, 256, test_transpose_ba_256x256);
 /// `[AdditiveShare<Boolean, N>; <M>]` into a NxM bit matrix represented as `[AdditiveShare<BA<M>>; N]`.
 ///
 /// For MxN = 256x64, the invocation looks like `impl_transpose_shares_bool_to_ba!(BA256, 256, 64)`.
+///
+/// The dimensions must be multiples of 16.
 macro_rules! impl_transpose_shares_bool_to_ba {
     ($dst_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident) => {
         impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>; $src_rows]>
@@ -556,9 +563,7 @@ macro_rules! impl_transpose_shares_bool_to_ba {
     };
 }
 
-// Usage: Share conversion output (r/s). M = Fp25519::BITS, N = CONV_CHUNK.
-impl_transpose_shares_bool_to_ba!(BA256, 256, 256, test_transpose_shares_bool_to_ba_256x256);
-
+/// Variant of `impl_transpose_shares_bool_to_ba` supporting dimensions that are multiples of 8.
 macro_rules! impl_transpose_shares_bool_to_ba_small {
     ($dst_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident) => {
         impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>; $src_rows]>
@@ -590,6 +595,14 @@ macro_rules! impl_transpose_shares_bool_to_ba_small {
         );
     };
 }
+
+// Input: MxN as `[AdditiveShare<Boolean, N>; {M}]` or similar
+// Output: NxM as `[AdditiveShare<BA{M}>; N]` or similar
+// Arguments: BA{M}, M, N
+// Dimensions: Multiples of 16, or 8 for small variant.
+
+// Usage: Share conversion output (r/s). M = Fp25519::BITS, N = CONV_CHUNK.
+impl_transpose_shares_bool_to_ba!(BA256, 256, 256, test_transpose_shares_bool_to_ba_256x256);
 
 // Usage: Aggregation output. M = HV bits, N = number of breakdowns.
 // (for feature_label_dot_product, N = number of features)
@@ -640,8 +653,13 @@ macro_rules! impl_transpose_shares_ba_to_bool {
     };
 }
 
+// Input: MxN as `[AdditiveShare<BA{N}>; M]` or similar
+// Output: NxM as `[AdditiveShare<Boolean, M>; N]` or similar
+// Arguments: BA{N}, M, N
+//  --> Note: first macro argument is `BA{N}`, not `BA{M}`.
+// Dimensions: Multiples of 16.
+
 // Usage: Share conversion input (convert_to_fp25519 test). M = CONV_CHUNK, N = MK_BITS.
-// Note first macro argument is `BA{N}`, not `BA{M}`.
 impl_transpose_shares_ba_to_bool!(BA64, 256, 64, test_transpose_shares_ba_to_bool_256x64);
 
 // Usage: Quicksort. M = SORT_CHUNK, N = sort key bits.
@@ -686,8 +704,13 @@ macro_rules! impl_transpose_shares_ba_fn_to_bool {
     };
 }
 
+// Input: MxN as `&dyn Fn(usize) -> AdditiveShare<BA{N}>`
+// Output: NxM as `[AdditiveShare<Boolean, M>; N]` or similar
+// Arguments: BA{N}, M, N
+//  --> Note: first macro argument is `BA{N}`, not `BA{M}`.
+// Dimensions: Multiples of 16.
+
 // Usage: Share conversion input (compute_prf_for_inputs). M = CONV_CHUNK, N = MK_BITS.
-// Note first macro argument is `BA{N}`, not `BA{M}`.
 impl_transpose_shares_ba_fn_to_bool!(BA64, 256, 64, test_transpose_shares_ba_fn_to_bool_256x64);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
@@ -743,6 +766,12 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
         );
     };
 }
+
+// Input: MxN as `[AdditiveShare<BA{N}>; M]` or similar
+// Output: NxM as `[AdditiveShare<Boolean, M>; N]` or similar
+// Arguments: BA{N}, M, N
+//  --> Note: first macro argument is `BA{N}`, not `BA{M}`.
+// Dimensions: Arbitrary (rows are padded to whole bytes).
 
 // Usage: Aggregation input. M = AGG_CHUNK, N = BK or TV bits.
 impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to_bool_256x8);
@@ -844,6 +873,7 @@ macro_rules! impl_aggregation_transpose {
 }
 
 // Usage: aggregation intermediate. M = number of breakdowns (2^|bk|), N = AGG_CHUNK
+// Arguments: BA{M}, BA{N}, M, N
 impl_aggregation_transpose!(BA256, BA256, 256, 256, test_aggregation_transpose_256x256);
 impl_aggregation_transpose!(BA32, BA256, 32, 256, test_aggregation_transpose_32x256);
 
