@@ -332,11 +332,9 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::{array, cmp::min, iter::repeat_with};
 
     use futures::{stream, StreamExt};
     use proptest::prelude::*;
-    use rand::{rngs::StdRng, SeedableRng};
 
     use super::aggregate_values;
     use crate::{
