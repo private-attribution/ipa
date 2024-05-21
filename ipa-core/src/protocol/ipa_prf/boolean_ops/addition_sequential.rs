@@ -162,7 +162,7 @@ mod test {
 
     use crate::{
         ff::{
-            boolean_array::{BA32, BA64},
+            boolean_array::{BA16, BA32, BA64},
             ArrayAccess, U128Conversions,
         },
         protocol::{
@@ -216,8 +216,8 @@ mod test {
     #[test]
     fn semi_honest_sat_add() {
         run(|| async move {
-            const BITS: usize = 64;
-            type BA = BA64;
+            const BITS: usize = 16;
+            type BA = BA16;
 
             let world = TestWorld::default();
 
