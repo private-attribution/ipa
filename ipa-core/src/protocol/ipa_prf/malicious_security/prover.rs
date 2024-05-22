@@ -73,7 +73,7 @@ where
     F: PrimeField,
     Self: ProofArray,
 {
-    // todo: deprecate
+    // todo: deprecate since only used in tests
     pub fn new<I>(g: I) -> Self
     where
         I: IntoIterator<Item = F>,
@@ -88,7 +88,7 @@ where
     ///
     /// Uses Andy's borrow trick to work with references and owned values :)
     pub fn compute_proof<J, B>(
-        uv: J,
+        uv_iterator: J,
         lagrange_table: &LagrangeTable<F, R, <R as Sub<U1>>::Output>,
     ) -> Self
     where
@@ -98,12 +98,12 @@ where
         B: Borrow<UVPolynomial<F, R>>,
     {
         let mut proof = Self::default();
-        for uv in uv {
+        for uv_polynomial in uv_iterator {
             for i in 0..R::USIZE {
-                proof.g[i] += uv.borrow().0[i] * uv.borrow().1[i];
+                proof.g[i] += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
             }
-            let p_extrapolated = lagrange_table.eval(&uv.borrow().0);
-            let q_extrapolated = lagrange_table.eval(&uv.borrow().1);
+            let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
+            let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
 
             for (i, (x, y)) in
                 zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
@@ -223,7 +223,7 @@ where
     pub fn gen_challenge_and_recurse<J, B>(
         proof_left: &ZeroKnowledgeProof<F, R>,
         proof_right: &ZeroKnowledgeProof<F, R>,
-        mut uv: J,
+        mut uv_iterator: J,
     ) -> Self
     where
         F: Default,
@@ -237,13 +237,13 @@ where
 
         // iter over chunks of size R
         // and interpolate at x coordinate r
-        while let Some(polynomial) = uv.next() {
+        while let Some(polynomial) = uv_iterator.next() {
             let mut u = GenericArray::<F, R>::default();
             let mut v = GenericArray::<F, R>::default();
             u[0] = lagrange_table_r.eval(&polynomial.borrow().0)[0];
             v[0] = lagrange_table_r.eval(&polynomial.borrow().1)[0];
             for i in 1..R::USIZE {
-                if let Some(polynomial) = uv.next() {
+                if let Some(polynomial) = uv_iterator.next() {
                     u[i] = lagrange_table_r.eval(&polynomial.borrow().0)[0];
                     v[i] = lagrange_table_r.eval(&polynomial.borrow().1)[0];
                 } else {
