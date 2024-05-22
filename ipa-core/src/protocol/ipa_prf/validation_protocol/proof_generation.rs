@@ -29,7 +29,7 @@ use crate::{
 /// It uses parameter `R` which is the recursion factor of the zero-knowledge proofs
 /// A zero-knowledge proof with recursion factor `R` has length `2*R::USIZE-1`
 ///
-/// The `VerifierBatch` also contains two masks `p_0` and `q_0` in `masks` stored as `(p_0,q_0)`
+/// The `VerifierBatch` also contains two masks `p_0` and `q_0` in `left_masks` stored as `(p_0,q_0)`
 /// These masks are used as additional `u,v` values for the final proof
 /// of the `left` batch of `ZeroKnowledgeProofs`.
 /// On the `right` batch of `ZeroKnowledgeProofs` these values are set to `F::ZERO`.
@@ -166,6 +166,10 @@ where
     /// we use `PRSS` left to generate `verifier_left_batch` and output it as well.
     ///
     /// Outputs `(prover_left_batch, verifier_left_batch, (p_mask, q_mask))`
+    ///
+    /// ## Panics
+    /// Panics when there is an issue with the implementation of this function
+    /// and masks cannot be set safely (which should not happen).
     fn compute_proof_batch<C, I>(ctx: &C, uv_tuple_block: I) -> (Self, Self, (F, F))
     where
         C: Context,
@@ -186,7 +190,7 @@ where
         let lagrange_table = LagrangeTable::<F, R, <R as Sub<U1>>::Output>::from(denominator);
 
         // set up record counter
-        let mut record_counter = 0usize;
+        let mut record_counter = RecordId::from(0);
 
         // generate first proof from input
         let mut uv_store = Self::compute_next_proof(
@@ -209,8 +213,10 @@ where
         // notice that uv_store.len() will always be at least 1
         // further, polynomial uv_store.uv[0].0 and .1 will always have
         // R::USIZE many points since they are filled with `F::ZERO`.
-        loop {
-            let stop = uv_store.len() < R::USIZE * (R::USIZE - 1);
+        assert!(R::USIZE > 1usize);
+        let two_r_minus_one = R::USIZE * (R::USIZE - 1);
+        uv_store = loop {
+            let stop = uv_store.len() < two_r_minus_one;
 
             // generate next proof
             uv_store = Self::compute_next_proof(
@@ -223,9 +229,9 @@ where
             );
 
             if stop {
-                break;
+                break uv_store;
             }
-        }
+        };
 
         // generate masks
         // The right masks are used during the proof generation.
@@ -236,15 +242,15 @@ where
         // Therefore, when this helper party plays the role of a verifier
         // (for the proof from the party on the left)
         // it will need to use the masks.
-        let (left_p_mask, right_p_mask): (F, F) =
-            ctx.prss().generate_fields(RecordId::from(record_counter));
+        let (left_p_mask, right_p_mask): (F, F) = ctx.prss().generate_fields(record_counter);
         record_counter += 1;
-        let (left_q_mask, right_q_mask): (F, F) =
-            ctx.prss().generate_fields(RecordId::from(record_counter));
+        let (left_q_mask, right_q_mask): (F, F) = ctx.prss().generate_fields(record_counter);
         record_counter += 1;
 
-        // set masks
-        uv_store.set_masks(right_p_mask, right_q_mask);
+        // set masks & panic when setting masks is unsafe
+        // which only happens when there are issues with the implementation
+        // (i.e. input independent panic)
+        uv_store.set_masks(right_p_mask, right_q_mask).unwrap();
 
         // generate last proof
         _ = Self::compute_next_proof(
@@ -276,7 +282,7 @@ where
     fn compute_next_proof<C, J, B>(
         prover_left_batch: &mut Vec<ZeroKnowledgeProof<F, R>>,
         verifier_left_batch: &mut Vec<ZeroKnowledgeProof<F, R>>,
-        record_counter: &mut usize,
+        record_counter: &mut RecordId,
         ctx: &C,
         lagrange_table: &LagrangeTable<F, R, <R as Sub<U1>>::Output>,
         uv: J,
@@ -346,7 +352,7 @@ where
     fn share_via_prss<C>(
         prover_left_proof: &mut ZeroKnowledgeProof<F, R>,
         ctx: &C,
-        record_counter: &mut usize,
+        record_counter: &mut RecordId,
     ) -> (ZeroKnowledgeProof<F, R>, ZeroKnowledgeProof<F, R>)
     where
         C: Context,
@@ -357,9 +363,9 @@ where
 
         // use PRSS
         for i in 0..<ZeroKnowledgeProof<F, R> as ProofArray>::Length::USIZE {
-            let (left, right) = ctx
-                .prss()
-                .generate_fields::<F, RecordId>(RecordId::from(i + *record_counter));
+            let (left, right) = ctx.prss().generate_fields::<F, RecordId>(*record_counter);
+
+            *record_counter += 1;
 
             // mask proof such that party on the left does not know mask
             // i.e. use PRSS right
@@ -378,9 +384,6 @@ where
             // which has been used by the prover on the right to generate `prover_right_proof`
             verifier_left_proof.g[i] = left;
         }
-
-        // update record_counter
-        *record_counter += <ZeroKnowledgeProof<F, R> as ProofArray>::Length::USIZE;
 
         //output
         (verifier_left_proof, prover_right_proof)

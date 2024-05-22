@@ -8,6 +8,7 @@ use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use typenum::{Diff, Sum, U1};
 
 use crate::{
+    error::Error,
     ff::PrimeField,
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::ipa_prf::malicious_security::lagrange::{
@@ -18,7 +19,7 @@ use crate::{
 pub type UVPolynomial<F, N> = (GenericArray<F, N>, GenericArray<F, N>);
 pub type TwoNMinusOne<R> = Diff<Sum<R, R>, U1>;
 
-// todo: deprecate
+// todo: deprecate since final proof is no longer needed and only final proof uses this
 pub type TwoNPlusOne<R> = Sum<Sum<R, R>, U1>;
 
 /// The purpose of this trait is to define an associated type,
@@ -140,8 +141,38 @@ where
         self.uv.iter()
     }
 
+    /// This function returns the first tuple.
     pub fn first(&self) -> &UVPolynomial<F, R> {
         &self.uv[0]
+    }
+
+    /// This function returns the first tuple as mutable reference.
+    pub fn first_mut(&mut self) -> &mut UVPolynomial<F, R> {
+        &mut self.uv[0]
+    }
+
+    /// This function returns the first `p` polynomial,
+    /// i.e. the polynomial on the left of the first tuple.
+    pub fn first_p(&self) -> &GenericArray<F, R> {
+        &self.first().0
+    }
+
+    /// This function returns the first `q` polynomial,
+    /// i.e. the polynomial on the right of the first tuple.
+    pub fn first_q(&self) -> &GenericArray<F, R> {
+        &self.first().1
+    }
+
+    /// This function returns the first `p` polynomial,
+    /// i.e. the polynomial on the left of the first tuple.
+    pub fn first_p_mut(&mut self) -> &mut GenericArray<F, R> {
+        &mut self.first_mut().0
+    }
+
+    /// This function returns the first `q` polynomial,
+    /// i.e. the polynomial on the right of the first tuple.
+    pub fn first_q_mut(&mut self) -> &mut GenericArray<F, R> {
+        &mut self.first_mut().1
     }
 
     /// This function allows to set masks to protect sensitive information.
@@ -153,8 +184,11 @@ where
     /// The latter is the case when there are too many points for a polynomial of degree `R minus 1`.
     /// This function likely panics when used with small fields like `Fp31`
     /// Use `FP61BitPrime` instead when using this function in test cases.
-    pub fn set_masks(&mut self, p_0: F, q_0: F) {
+    pub fn set_masks(&mut self, p_0: F, q_0: F) -> Result<(), Error> {
         // assert that there are only two polynomials
+        if self.uv.len() != 1usize {
+            return Err(Error::DZKPMasksLength);
+        }
         debug_assert_eq!(self.uv.len(), 1usize);
         // assert that last point of p,q is really `F::Zero`
         // such that we can safely set the 0 points to be the last points
@@ -162,17 +196,18 @@ where
         // and q is the polynomial uv_store.first().1
         // this is likely to fail for small sized fields,
         // so dont use Fp31 (but rather FP61BitPrime) in tests for this function.
-        debug_assert_eq!(
-            (self.first().0[R::USIZE - 1], self.first().1[R::USIZE - 1]),
-            (F::ZERO, F::ZERO)
-        );
+        if (self.first_p()[R::USIZE - 1], self.first_q()[R::USIZE - 1]) != (F::ZERO, F::ZERO) {
+            return Err(Error::DZKPMasks);
+        }
         // shift 0 positions to the back where no actual point is stored
         // (F::ZERO are overwhelmingly likely to be just 0 fillers)
-        self.uv[0].0[R::USIZE - 1] = self.uv[0].0[0];
-        self.uv[0].1[R::USIZE - 1] = self.uv[0].1[0];
+        self.first_p_mut()[R::USIZE - 1] = self.first_p()[0];
+        self.first_q_mut()[R::USIZE - 1] = self.first_q()[0];
         // set 0 positions of p, q polynomial to masks
-        self.uv[0].0[0] = p_0;
-        self.uv[0].1[0] = q_0;
+        self.first_p_mut()[0] = p_0;
+        self.first_q_mut()[0] = q_0;
+
+        Ok(())
     }
 
     /// This function generates a set of `UVPolynomial<F,R>` that is used for the next recursion.
@@ -200,7 +235,7 @@ where
 
         let mut output = Vec::<UVPolynomial<F, R>>::new();
 
-        // iter over chunks of size M
+        // iter over chunks of size R
         // and interpolate at x coordinate r
         while let Some(polynomial) = uv.next() {
             let mut u = GenericArray::<F, R>::default();
