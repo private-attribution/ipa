@@ -1,6 +1,6 @@
 use std::ops::{Add, Sub};
 
-use generic_array::ArrayLength;
+use generic_array::{ArrayLength, GenericArray};
 use typenum::{Sum, U1};
 
 use super::prover::{TwoNMinusOne, TwoNPlusOne, ZeroKnowledgeProof};
@@ -29,11 +29,7 @@ where
         Self { u_or_v, out_share }
     }
 
-    pub fn verify_proof<λ>(
-        &self,
-        zkp: &ZeroKnowledgeProof<F, TwoNMinusOne<λ>>,
-        r: F,
-    ) -> (F, ProofVerifier<F>)
+    pub fn verify_proof<λ>(&self, zkp: &ZeroKnowledgeProof<F, λ>, r: F) -> (F, ProofVerifier<F>)
     where
         λ: ArrayLength + Add + Sub<U1>,
         <λ as Add>::Output: Sub<U1>,
@@ -78,7 +74,7 @@ where
 
     pub fn verify_final_proof<λ>(
         &self,
-        zkp: &ZeroKnowledgeProof<F, TwoNPlusOne<λ>>,
+        zkp: &GenericArray<F, TwoNPlusOne<λ>>,
         r: F,
         p_or_q_0: F,
     ) -> (F, F)
@@ -100,7 +96,7 @@ where
 
         let denominator_g = CanonicalLagrangeDenominator::<F, TwoNPlusOne<λ>>::new();
         let lagrange_table_g = LagrangeTable::<F, TwoNPlusOne<λ>, U1>::new(&denominator_g, &r);
-        let out_share = lagrange_table_g.eval(&zkp.g)[0];
+        let out_share = lagrange_table_g.eval(zkp)[0];
 
         (p_or_q_extrapolated, out_share)
     }
@@ -108,7 +104,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use typenum::{U2, U4, U5, U7};
+    use typenum::{U2, U3, U4};
 
     use super::ProofVerifier;
     use crate::{
@@ -152,7 +148,7 @@ mod test {
         );
 
         // first iteration
-        let zkp_1 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_1 = ZeroKnowledgeProof::<Fp31, U4>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
 
         let (b_share_1, pv_2) = pv_1.verify_proof::<U4>(&zkp_1, Fp31::try_from(R_1).unwrap());
         assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
@@ -163,7 +159,7 @@ mod test {
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
-        let zkp_2 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_2.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_2 = ZeroKnowledgeProof::<Fp31, U4>::new(ZKP_2.map(|x| Fp31::try_from(x).unwrap()));
 
         let (b_share_2, pv_3) = pv_2.verify_proof::<U4>(&zkp_2, Fp31::try_from(R_2).unwrap());
         assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
@@ -174,10 +170,10 @@ mod test {
         assert_eq!(pv_3.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
-        let zkp_3 = ZeroKnowledgeProof::<Fp31, U5>::new(ZKP_3.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_3 = ZeroKnowledgeProof::<Fp31, U3>::new(ZKP_3.map(|x| Fp31::try_from(x).unwrap()));
 
         let (p_final, out_share) = pv_3.verify_final_proof::<U2>(
-            &zkp_3,
+            &zkp_3.g,
             Fp31::try_from(R_3).unwrap(),
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
         );
@@ -222,7 +218,7 @@ mod test {
         );
 
         // first iteration
-        let zkp_1 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_1 = ZeroKnowledgeProof::<Fp31, U4>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
 
         let (b_share_1, pv_2) = pv_1.verify_proof::<U4>(&zkp_1, Fp31::try_from(R_1).unwrap());
         assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
@@ -233,7 +229,7 @@ mod test {
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
-        let zkp_2 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_2.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_2 = ZeroKnowledgeProof::<Fp31, U4>::new(ZKP_2.map(|x| Fp31::try_from(x).unwrap()));
 
         let (b_share_2, pv_3) = pv_2.verify_proof::<U4>(&zkp_2, Fp31::try_from(R_2).unwrap());
         assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
@@ -244,10 +240,10 @@ mod test {
         assert_eq!(pv_3.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
-        let zkp_3 = ZeroKnowledgeProof::<Fp31, U5>::new(ZKP_3.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_3 = ZeroKnowledgeProof::<Fp31, U3>::new(ZKP_3.map(|x| Fp31::try_from(x).unwrap()));
 
         let (q_final, out_share) = pv_3.verify_final_proof::<U2>(
-            &zkp_3,
+            &zkp_3.g,
             Fp31::try_from(R_3).unwrap(),
             Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
         );
