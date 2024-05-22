@@ -196,7 +196,6 @@ impl ToTokens for StepModules {
         tokens.extend(quote! {
             #modules
             fn #fn_name() {
-                println!("cargo:rerun-if-changed={f}", f = ::std::file!());
                 assert!(
                     ::std::env::var(::ipa_step::COMPACT_GATE_INCLUDE_ENV).is_err(),
                     "setting `{e}` in the environment will cause build errors",
