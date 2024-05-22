@@ -8,7 +8,6 @@ use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use typenum::{Diff, Sum, U1};
 
 use crate::{
-    error::Error,
     ff::PrimeField,
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::ipa_prf::malicious_security::lagrange::{
