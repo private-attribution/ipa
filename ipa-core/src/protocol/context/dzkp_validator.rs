@@ -165,13 +165,11 @@ impl<'a> Segment<'a> {
         debug_assert_eq!(x_left.len(), prss_left.len());
         debug_assert_eq!(x_left.len(), prss_right.len());
         debug_assert_eq!(x_left.len(), z_right.len());
-        // check that length is either multiple of 256 or 256 is multiple of length
-        debug_assert_eq!(
-            (
-                x_left.len(),
-                x_left.len() % 256 == 0 || 256 % x_left.len() == 0
-            ),
-            (x_left.len(), true)
+        // check that length is either smaller or a multiple of 256
+        debug_assert!(
+            x_left.len() <= 256 || x_left.len() % 256 == 0,
+            "length {} needs to be smaller or a multiple of 256",
+            x_left.len()
         );
         // asserts passed, create struct
         Self {
@@ -207,6 +205,11 @@ impl<'a> SegmentEntry<'a> {
     #[must_use]
     pub fn from_bitslice(entry: &'a BitSliceType) -> Self {
         SegmentEntry(entry)
+    }
+
+    #[must_use]
+    pub fn as_bitslice(&self) -> &'a BitSliceType {
+        self.0
     }
 
     /// This function returns the size in bits.
@@ -283,38 +286,60 @@ impl MultiplicationInputsBatch {
         self.is_empty
     }
 
-    /// `insert_segment` allows to include a new segment in `MultiplicationInputsBatch`
+    /// `insert_segment` allows to include a new segment in `MultiplicationInputsBatch`.
+    /// It supports `segments` that are either smaller than 256 bits or multiple of 256 bits.
     ///
     /// ## Panics
-    /// Panics when segments have different lengths across records, the `record_id` is less than
-    /// `first_record` or when `record_id` is more than `first_record + max_multiplications`,
-    /// i.e. not enough space has been allocated.
+    /// Panics when segments have different lengths across records.
+    /// It also Panics when the `record_id` is smaller
+    /// than the first record of the batch, i.e. `first_record`
+    /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment(&mut self, record_id: RecordId, segment: Segment) {
         // check segment size
         debug_assert_eq!(segment.len(), self.multiplication_bit_size);
 
+        // panics when record_id is out of bounds
+        assert!(record_id >= self.first_record);
+        assert!(
+            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
+        );
+
         // update last record
         self.last_record = cmp::max(self.last_record, record_id);
 
-        // panics when record_id is less than first_record
-        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
-        let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
-
         // panics when record_id is too large to fit in, i.e. when it is out of bounds
-        if 256 % segment.len() == 0 {
-            self.insert_segment_small(id_within_batch, block_id, segment);
+        if segment.len() <= 256 {
+            self.insert_segment_small(record_id, segment);
         } else {
-            self.insert_segment_large(block_id, &segment);
+            self.insert_segment_large(record_id, &segment);
         }
     }
 
-    /// insert `segments` for `segments` that divide 256
+    /// insert `segments` that are smaller than or equal to 256
     ///
     /// ## Panics
     /// Panics when `bit_length` and `block_id` are out of bounds.
-    fn insert_segment_small(&mut self, id_within_batch: usize, block_id: usize, segment: Segment) {
+    /// It also Panics when the `record_id` is smaller
+    /// than the first record of the batch, i.e. `first_record`
+    /// or too large, i.e. `first_record+max_multiplications`
+    fn insert_segment_small(&mut self, record_id: RecordId, segment: Segment) {
+        // check length
+        debug_assert!(segment.len() <= 256);
+
+        // panics when record_id is out of bounds
+        assert!(record_id >= self.first_record);
+        assert!(
+            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
+        );
+
+        // panics when record_id is less than first_record
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        // round up segment length to a power of two since we want to have divisors of 256
+        let length = segment.len().next_power_of_two();
+
+        let block_id = (length * id_within_batch) >> BIT_ARRAY_SHIFT;
         // segments are small, pack one or more in each entry of `vec`
-        let position_within_block_start = (segment.len() * id_within_batch) % 256;
+        let position_within_block_start = (length * id_within_batch) % 256;
         let position_within_block_end = position_within_block_start + segment.len();
 
         let block = &mut self.vec[block_id];
@@ -337,11 +362,26 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// insert `segments` for `segments` that are multiples of 256
+    /// insert `segments` that are multiples of 256
     ///
     /// ## Panics
     /// Panics when segment is not a multiple of 256 or is out of bounds.
-    fn insert_segment_large(&mut self, block_id: usize, segment: &Segment) {
+    /// It also Panics when the `record_id` is smaller
+    /// than the first record of the batch, i.e. `first_record`
+    /// or too large, i.e. `first_record+max_multiplications`
+    fn insert_segment_large(&mut self, record_id: RecordId, segment: &Segment) {
+        // check length
+        debug_assert_eq!(segment.len() % 256, 0);
+
+        // panics when record_id is out of bounds
+        assert!(record_id >= self.first_record);
+        assert!(
+            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
+        );
+
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
+
         let length_in_blocks = segment.len() >> BIT_ARRAY_SHIFT;
         for i in 0..length_in_blocks {
             MultiplicationInputsBlock::set(
@@ -650,7 +690,7 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 mod tests {
     use std::iter::{repeat, zip};
 
-    use bitvec::vec::BitVec;
+    use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
     use futures::TryStreamExt;
     use futures_util::stream::iter;
     use proptest::{prop_compose, proptest, sample::select};
@@ -965,5 +1005,58 @@ mod tests {
                 assert_eq!(prover.0, verifier_left);
                 assert_eq!(prover.1, verifier_right);
             });
+    }
+
+    #[test]
+    fn powers_of_two() {
+        let bits = BitArray::<[u8; 32], Lsb0>::new([255u8; 32]);
+
+        // Boolean
+        assert_eq!(
+            1usize,
+            SegmentEntry::from_bitslice(bits.get(0..1).unwrap())
+                .len()
+                .next_power_of_two()
+        );
+
+        // BA3
+        assert_eq!(
+            4usize,
+            SegmentEntry::from_bitslice(bits.get(0..3).unwrap())
+                .len()
+                .next_power_of_two()
+        );
+
+        // BA8
+        assert_eq!(
+            8usize,
+            SegmentEntry::from_bitslice(bits.get(0..8).unwrap())
+                .len()
+                .next_power_of_two()
+        );
+
+        // BA20
+        assert_eq!(
+            32usize,
+            SegmentEntry::from_bitslice(bits.get(0..20).unwrap())
+                .len()
+                .next_power_of_two()
+        );
+
+        // BA64
+        assert_eq!(
+            64usize,
+            SegmentEntry::from_bitslice(bits.get(0..64).unwrap())
+                .len()
+                .next_power_of_two()
+        );
+
+        // BA256
+        assert_eq!(
+            256usize,
+            SegmentEntry::from_bitslice(bits.get(0..256).unwrap())
+                .len()
+                .next_power_of_two()
+        );
     }
 }
