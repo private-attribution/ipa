@@ -147,7 +147,7 @@ where
         mut uv_iterator: J,
     ) -> Self
     where
-    F: Default,
+        F: Default,
         ZeroKnowledgeProof<F, R>: ProofArray,
         J: Iterator<Item = B>,
         B: Borrow<UVPolynomial<F, R>>,
