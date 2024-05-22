@@ -153,8 +153,8 @@ where
         B: Borrow<UVPolynomial<F, R>>,
     {
         let r: F = hash_to_field(
-            &compute_hash(proof_left),
-            &compute_hash(proof_right),
+            &compute_hash(proof_left.iter()),
+            &compute_hash(proof_right.iter()),
             R::U128,
         );
 
