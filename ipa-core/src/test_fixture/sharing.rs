@@ -77,7 +77,7 @@ impl<V: SharedValue> Reconstruct<V> for [Replicated<V>; 3] {
 }
 
 impl<V: SharedValue + Vectorizable<N>, const N: usize> ReconstructArr<<V as Vectorizable<N>>::Array>
-for [Replicated<V, N>; 3]
+    for [Replicated<V, N>; 3]
 {
     fn reconstruct_arr(&self) -> <V as Vectorizable<N>>::Array {
         self.each_ref().reconstruct_arr()
@@ -85,7 +85,7 @@ for [Replicated<V, N>; 3]
 }
 
 impl<V: SharedValue + Vectorizable<N>, const N: usize> ReconstructArr<<V as Vectorizable<N>>::Array>
-for [&Replicated<V, N>; 3]
+    for [&Replicated<V, N>; 3]
 {
     fn reconstruct_arr(&self) -> <V as Vectorizable<N>>::Array {
         let s0l = self[0].left_arr();
@@ -106,9 +106,9 @@ for [&Replicated<V, N>; 3]
 }
 
 impl<V, const N: usize> ReconstructArr<BitDecomposed<<V as Vectorizable<N>>::Array>>
-for [BitDecomposed<Replicated<V, N>>; 3]
-    where
-        V: SharedValue + Vectorizable<N>,
+    for [BitDecomposed<Replicated<V, N>>; 3]
+where
+    V: SharedValue + Vectorizable<N>,
 {
     fn reconstruct_arr(&self) -> BitDecomposed<<V as Vectorizable<N>>::Array> {
         let [s0_bits, s1_bits, s2_bits] = self.each_ref();

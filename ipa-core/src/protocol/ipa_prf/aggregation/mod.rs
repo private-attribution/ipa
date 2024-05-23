@@ -4,13 +4,13 @@ use std::{
     pin::Pin,
 };
 
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, CustomArray, U128Conversions},
     helpers::{
-        stream::{process_stream_by_chunks, Chunk, ChunkBuffer, FixedLength, TryFlattenItersExt},
+        stream::{process_stream_by_chunks, ChunkBuffer, FixedLength, TryFlattenItersExt},
         TotalRecords,
     },
     protocol::{
@@ -21,6 +21,7 @@ use crate::{
             aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             prf_sharding::AttributionOutputs,
+            BreakdownKey,
         },
         RecordId,
     },
@@ -128,7 +129,7 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    BK: BreakdownKey<B>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<N> + FieldSimd<B>,
@@ -145,7 +146,6 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    let num_chunks = (contributions_stream_len + N - 1) / N;
     // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
     // parallel (thus cannot reach a batch of records).
     let bucket_ctx = ctx
@@ -181,21 +181,25 @@ where
 
     let aggregation_input = Box::pin(
         row_contribution_chunk_stream
-            // The final chunk from the previous stage is padded with zero-credit records. Rather
-            // than transpose out of vectorized form, flatten the chunked stream, discard the
-            // trailing records, and transpose again for final aggregation, we instead call into_raw
-            // to get the padded record chunk and transpose directly to the form we need for the
-            // final stage. Including the zero-credit padding records does not affect the final
-            // output.
-            .then(|fut| async move { fut.await.map(Chunk::into_raw) })
-            .map_ok(|chunk| {
-                // This is the aggregation intermediate transpose, see the function comment.
-                Vec::transposed_from(chunk.as_slice()).unwrap_infallible()
+            // Rather than transpose out of record-vectorized form and then transpose again back
+            // into bucket-vectorized form, we use a special transpose (the "aggregation
+            // intermediate transpose") that combines the two steps.
+            //
+            // Since the bucket-vectorized representation is separable by records, we do the
+            // transpose within the `Chunk` wrapper using `Chunk::map`, and then invoke
+            // `Chunk::into_iter` via `try_flatten_iters` to produce an unchunked stream of
+            // records, vectorized by buckets.
+            .then(|fut| {
+                fut.map(|res| {
+                    res.map(|chunk| {
+                        chunk.map(|data| Vec::transposed_from(data.as_slice()).unwrap_infallible())
+                    })
+                })
             })
-            .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
+            .try_flatten_iters(),
     );
     let aggregated_result =
-        aggregate_values::<TV, B>(ctx, aggregation_input, num_chunks * N).await?;
+        aggregate_values::<HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
     Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
@@ -552,110 +556,94 @@ pub mod tests {
         });
     }
 
-    // fn input_row_vec<const B: usize>(tv_bits: usize, values: &Vec<u64>) -> BitDecomposed<[Boolean; B]> {
-    //     let values = <&[u64; B]>::try_from(values).unwrap();
-    //
-    //     BitDecomposed::decompose(tv_bits, |i| {
-    //         values.map(|v| Boolean::from((v >> i) & 1 == 1))
-    //     })
-    // }
-
-    // fn input_row_u64<const B: usize>(tv_bits: usize, values: &[u64]) -> BitDecomposed<[Boolean; B]> {
-    //     let values = <&[u64; B]>::try_from(values).unwrap();
-    //
-    //     BitDecomposed::decompose(tv_bits, |i| {
-    //         values.map(|v| Boolean::from((v >> i) & 1 == 1))
-    //     })
-    // }
 
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
     // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
     // saturated addition at the output.
-    //     const PROP_MAX_INPUT_LEN: usize = 10;
-    //     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
-    // const PROP_BUCKETS: usize = 8;
-    //     type PropHistogramValue = BA8;
-    //
-    //     // We want to capture everything in this struct for visibility in the output of failing runs,
-    //     // even if it isn't used by the test.
-    //     #[allow(dead_code)]
-    //     #[derive(Debug)]
-    //     struct AggregatePropTestInputs {
-    //         inputs: Vec<[u32; PROP_BUCKETS]>,
-    //         expected: Vec<PropHistogramValue>,
-    //         seed: u64,
-    //         len: usize,
-    //         tv_bits: usize,
-    //     }
-    //
-    //     const_assert!(
-    //         PropHistogramValue::BITS < 64,
-    //         "(1 << PropHistogramValue::BITS) must fit in u64"
-    //     );
-    //
-    //     prop_compose! {
-    //         fn arb_aggregate_values_inputs(max_len: usize)
-    //                                       (
-    //                                           len in 0..=max_len,
-    //                                           tv_bits in 0..=PROP_MAX_TV_BITS,
-    //                                           seed in any::<u64>(),
-    //                                       )
-    //         -> AggregatePropTestInputs {
-    //             let mut rng = StdRng::seed_from_u64(seed);
-    //             let mut expected = vec![0u64; PROP_BUCKETS];
-    //             let inputs = repeat_with(|| {
-    //                 let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
-    //                 for (exp, val) in expected.iter_mut().zip(row) {
-    //                     *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
-    //                 }
-    //                 row
-    //             })
-    //             .take(len)
-    //             .collect();
-    //
-    //             // let expected : Vec<u64>  = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
-    //             //
-    //             // let expected = input_row_vec(tv_bits,&expected).into_iter().map(PropHistogramValue::truncate_from).collect();
-    //             let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
-    //
-    //             AggregatePropTestInputs {
-    //                 inputs,
-    //                 expected,
-    //                 seed,
-    //                 len,
-    //                 tv_bits,
-    //             }
-    //         }
-    //     }
-    //     proptest! {
-    //         #[test]
-    //         fn aggregate_proptest(
-    //             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
-    //         ) {
-    //             tokio::runtime::Runtime::new().unwrap().block_on(async {
-    //                 let AggregatePropTestInputs {
-    //                     inputs,
-    //                     expected,
-    //                     tv_bits,
-    //                     ..
-    //                 } = input_struct;
-    //                 let inputs = inputs.into_iter().map(move |row| {
-    //                     Ok(input_row(tv_bits, &row))
-    //                 });
-    //                 let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
-    //                     let num_rows = inputs.len();
-    //                     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
-    //                         ctx,
-    //                         stream::iter(inputs).boxed(),
-    //                         num_rows,
-    //                     )
-    //                 })
-    //                 .await
-    //                 .map(Result::unwrap)
-    //                 .reconstruct_arr();
-    //                 let expected_vectorized = input_row_u64(tv_bits, &expected.try_into().unwrap() );
-    //                 assert_eq!(result, expected_vectorized);
-    //             });
-    //         }
-    //     }
+
+    const PROP_MAX_INPUT_LEN: usize = 10;
+    const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
+    const PROP_BUCKETS: usize = 8;
+    type PropHistogramValue = BA8;
+
+    // We want to capture everything in this struct for visibility in the output of failing runs,
+    // even if it isn't used by the test.
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct AggregatePropTestInputs {
+        inputs: Vec<[u32; PROP_BUCKETS]>,
+        expected: BitDecomposed<BA8>,
+        seed: u64,
+        len: usize,
+        tv_bits: usize,
+    }
+
+    const_assert!(
+        PropHistogramValue::BITS < u32::BITS,
+        "(1 << PropHistogramValue::BITS) must fit in u32",
+    );
+
+    prop_compose! {
+        fn arb_aggregate_values_inputs(max_len: usize)
+                                      (
+                                          len in 0..=max_len,
+                                          tv_bits in 0..=PROP_MAX_TV_BITS,
+                                          seed in any::<u64>(),
+                                      )
+        -> AggregatePropTestInputs {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let mut expected = vec![0; PROP_BUCKETS];
+            let inputs = repeat_with(|| {
+                let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
+                for (exp, val) in expected.iter_mut().zip(row) {
+                    *exp = min(*exp + val, (1 << PropHistogramValue::BITS) - 1);
+                }
+                row
+            })
+            .take(len)
+            .collect();
+
+            let expected = input_row::<PROP_BUCKETS>(usize::try_from(PropHistogramValue::BITS).unwrap(), &expected)
+                .map(|x| x.into_iter().collect());
+
+            AggregatePropTestInputs {
+                inputs,
+                expected,
+                seed,
+                len,
+                tv_bits,
+            }
+        }
+    }
+    proptest! {
+        #[test]
+        fn aggregate_proptest(
+            input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
+        ) {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let AggregatePropTestInputs {
+                    inputs,
+                    expected,
+                    tv_bits,
+                    ..
+                } = input_struct;
+                let inputs = inputs.into_iter().map(move |row| {
+                    Ok(input_row(tv_bits, &row))
+                });
+                let result: BitDecomposed<BA8> = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                    )
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct_arr();
+
+                assert_eq!(result, expected);
+            });
+        }
+    }
 }

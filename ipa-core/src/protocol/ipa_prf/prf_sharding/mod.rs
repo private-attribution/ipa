@@ -41,7 +41,7 @@ use crate::{
                 AttributionWindowStep as WindowStep,
                 AttributionZeroOutTriggerStep as ZeroOutTriggerStep, UserNthRowStep,
             },
-            AGG_CHUNK,
+            BreakdownKey, AGG_CHUNK,
         },
         RecordId,
     },
@@ -400,7 +400,7 @@ pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, const SS_BITS: usize,
     histogram: &[usize],
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    BK: BreakdownKey<B>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
