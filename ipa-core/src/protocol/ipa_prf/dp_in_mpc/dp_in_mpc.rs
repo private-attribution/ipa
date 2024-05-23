@@ -64,6 +64,7 @@ mod test {
         secret_sharing::BitDecomposed,
         test_fixture::{ReconstructArr, Runner, TestWorld},
     };
+    use crate::secret_sharing::TransposeFrom;
 
     fn input_row<const B: usize>(bit_width: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
         let values = <&[u32; B]>::try_from(values).unwrap();
@@ -76,25 +77,27 @@ mod test {
     #[tokio::test]
     pub async fn test_gen_binomial_noise() {
         let world = TestWorld::default();
-        // const OUTPUT_WIDTH : u32 = 16;
         type OutputValue = BA8;
         const NUM_BREAKDOWNS: u32 = 8;
         let num_bernoulli: u32 = 1000;
-        let input: BitDecomposed<[Boolean; 8]> = input_row(8, &[0, 0, 0, 0, 0, 0, 0, 0]); // really no input
+        // There is no input to the noise gen circuit; but we have to pass in something
+        let never_used_input: BitDecomposed<[Boolean; 8]> = input_row(1, &[]);
         let result = world
-            .upgraded_semi_honest(input, |ctx, input| async move {
-                gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
-                    ctx,
-                    input,
-                    num_bernoulli,
-                    NUM_BREAKDOWNS,
-                )
-                .await
-                .unwrap()
+            .upgraded_semi_honest(never_used_input, |ctx, never_used_input| async move {
+                // Vec::transposed_from(
+                    gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
+                        ctx,
+                        never_used_input,
+                        num_bernoulli,
+                        NUM_BREAKDOWNS,
+                    )
+                    .await
+                    .unwrap().reconstruct_arr();
+                // )
             })
             .await;
-        let result_reconstructed = result.reconstruct_arr();
-        // let result_transposed = Vec::transposed_from(result_reconstructed); //not working to transpose
+        // let result_reconstructed = result.reconstruct_arr();
+        let result_transposed = Vec::transposed_from(result); //not working to transpose
         // println!("result vectorized: {:?}", result_reconstructed);
     }
 }

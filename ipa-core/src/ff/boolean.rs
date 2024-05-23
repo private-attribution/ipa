@@ -12,7 +12,6 @@ use crate::{
     },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
-use crate::ff::{ArrayAccess};
 
 impl Block for bool {
     type Size = U1;
