@@ -56,11 +56,6 @@ where
     F: PrimeField,
     λ: ArrayLength,
 {
-    // pub fn new(u: Vec<F>, v: Vec<F>) -> Self {
-    //     debug_assert_eq!(u.len(), v.len(), "u and v must be of equal length");
-    //     Self { u, v }
-    // }
-
     pub fn compute_proof<J, B>(
         uv_iterator: J,
         lagrange_table: &LagrangeTable<F, λ, <λ as Sub<U1>>::Output>,
