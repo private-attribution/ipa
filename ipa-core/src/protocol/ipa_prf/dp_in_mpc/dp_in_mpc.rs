@@ -74,7 +74,7 @@ mod test {
     }
 
     #[tokio::test]
-    pub async fn gen_binomial_noise() {
+    pub async fn test_gen_binomial_noise() {
         let world = TestWorld::default();
         // const OUTPUT_WIDTH : u32 = 16;
         type OutputValue = BA8;
