@@ -1,7 +1,7 @@
 use std::{borrow::Borrow, iter::zip, ops::Deref};
 
 use crate::{
-    ff::{Field, PrimeField, U128Conversions},
+    ff::{PrimeField, U128Conversions},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -76,10 +76,18 @@ impl<V: SharedValue> Reconstruct<V> for [Replicated<V>; 3] {
     }
 }
 
-impl<F: Field + Vectorizable<N>, const N: usize> ReconstructArr<<F as Vectorizable<N>>::Array>
-    for [Replicated<F, N>; 3]
+impl<V: SharedValue + Vectorizable<N>, const N: usize> ReconstructArr<<V as Vectorizable<N>>::Array>
+    for [Replicated<V, N>; 3]
 {
-    fn reconstruct_arr(&self) -> <F as Vectorizable<N>>::Array {
+    fn reconstruct_arr(&self) -> <V as Vectorizable<N>>::Array {
+        self.each_ref().reconstruct_arr()
+    }
+}
+
+impl<V: SharedValue + Vectorizable<N>, const N: usize> ReconstructArr<<V as Vectorizable<N>>::Array>
+    for [&Replicated<V, N>; 3]
+{
+    fn reconstruct_arr(&self) -> <V as Vectorizable<N>>::Array {
         let s0l = self[0].left_arr();
         let s0r = self[0].right_arr();
         let s1l = self[1].left_arr();
@@ -94,6 +102,23 @@ impl<F: Field + Vectorizable<N>, const N: usize> ReconstructArr<<F as Vectorizab
         assert_eq!(s2r, s0l);
 
         s0l.clone() + s1l + s2l
+    }
+}
+
+impl<V, const N: usize> ReconstructArr<BitDecomposed<<V as Vectorizable<N>>::Array>>
+    for [BitDecomposed<Replicated<V, N>>; 3]
+where
+    V: SharedValue + Vectorizable<N>,
+{
+    fn reconstruct_arr(&self) -> BitDecomposed<<V as Vectorizable<N>>::Array> {
+        let [s0_bits, s1_bits, s2_bits] = self.each_ref();
+
+        BitDecomposed::new(
+            s0_bits
+                .iter()
+                .zip(s1_bits.iter().zip(s2_bits.iter()))
+                .map(|(s0, (s1, s2))| [s0, s1, s2].reconstruct_arr()),
+        )
     }
 }
 
