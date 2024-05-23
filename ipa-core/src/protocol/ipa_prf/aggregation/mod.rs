@@ -198,8 +198,9 @@ where
             })
             .try_flatten_iters(),
     );
-
-    aggregate_values::<_, B>(ctx, aggregation_input, contributions_stream_len).await
+    let aggregated_result =
+        aggregate_values::<HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
+    Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
 /// A vector of histogram contributions for each output bucket.
@@ -228,15 +229,13 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
-) -> Result<Vec<Replicated<OV>>, Error>
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     'ctx: 'fut,
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Vec<Replicated<OV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let mut depth = 0;
     while num_rows > 1 {
@@ -319,8 +318,8 @@ where
         usize::try_from(OV::BITS).unwrap(),
         Replicated::<Boolean, B>::ZERO,
     );
-    // Aggregation output transpose
-    Ok(Vec::transposed_from(&result)?)
+    // Aggregation output to remain vectorized
+    Ok(result)
 }
 
 #[cfg(all(test, unit_test))]
@@ -335,11 +334,11 @@ pub mod tests {
     use crate::{
         const_assert,
         error::Error,
-        ff::{boolean::Boolean, boolean_array::BA8, U128Conversions},
+        ff::{boolean::Boolean, boolean_array::BA8},
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{ReconstructArr, Runner, TestWorld},
     };
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
@@ -364,17 +363,17 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 1, 1, 1])),
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 0, 1, 1])),
             ];
-
-            let result = TestWorld::default()
+            let result: BitDecomposed<BA8> = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
-
-            assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
+                .reconstruct_arr();
+            let expected: BitDecomposed<BA8> = input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>());
+            assert_eq!(result, expected);
         });
     }
 
@@ -387,7 +386,6 @@ pub mod tests {
                 Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
                 Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
             ];
-
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
@@ -395,9 +393,13 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
 
-            assert_eq!(result, [0u32, 1, 2, 3, 0, 0, 0, 0].map(BA8::truncate_from));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 0, 0, 0, 0])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -410,7 +412,6 @@ pub mod tests {
                 Ok(input_row(3, &[0, 1, 0, 1, 0, 2, 0, 7])),
                 Ok(input_row(3, &[0, 0, 0, 1, 3, 1, 2, 0])),
             ];
-
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
@@ -418,9 +419,13 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
 
-            assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -435,7 +440,6 @@ pub mod tests {
                 Ok(input_row(7, &[0, 0, 0, 1, 1, 1, 2, 3])),
                 Ok(input_row(7, &[0, 0, 0, 1, 0, 2, 2, 1])),
             ];
-
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
@@ -443,9 +447,13 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
 
-            assert_eq!(result, [0u32, 1, 2, 3, 4, 5, 6, 7].map(BA8::truncate_from));
+            assert_eq!(
+                result,
+                input_row(8, &[0u32, 1, 2, 3, 4, 5, 6, 7])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
+            );
         });
     }
 
@@ -459,7 +467,6 @@ pub mod tests {
                 Ok(input_row(7, &[1, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
                 Ok(input_row(7, &[0, 0x40, 0x7f, 1, 0, 0, 0, 0])),
             ];
-
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
@@ -467,11 +474,12 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
 
             assert_eq!(
                 result,
-                [0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0].map(BA8::truncate_from)
+                input_row(8, &[0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0])
+                    .map(|x: [Boolean; 8]| x.into_iter().collect::<BA8>())
             );
         });
     }
@@ -485,7 +493,7 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
 
             assert!(result.iter().all(|b| *b == 0));
         });
@@ -499,7 +507,6 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 0, 0, 0, 0, 0, 0])),
                 Err(Error::Internal),
             ];
-
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
@@ -520,7 +527,6 @@ pub mod tests {
         // Test aggregation with less records than expected
         run(|| async move {
             let inputs = vec![Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0]))];
-
             let _ = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() + 1;
@@ -528,7 +534,7 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
         });
     }
 
@@ -543,7 +549,6 @@ pub mod tests {
                 Ok(input_row(1, &[0, 1, 0, 1, 0, 0, 0, 0])),
                 Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
             ];
-
             let _ = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() - 1;
@@ -551,7 +556,7 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
         });
     }
 
@@ -569,15 +574,15 @@ pub mod tests {
     #[derive(Debug)]
     struct AggregatePropTestInputs {
         inputs: Vec<[u32; PROP_BUCKETS]>,
-        expected: Vec<PropHistogramValue>,
+        expected: BitDecomposed<BA8>,
         seed: u64,
         len: usize,
         tv_bits: usize,
     }
 
     const_assert!(
-        PropHistogramValue::BITS < 64,
-        "(1 << PropHistogramValue::BITS) must fit in u64"
+        PropHistogramValue::BITS < u32::BITS,
+        "(1 << PropHistogramValue::BITS) must fit in u32",
     );
 
     prop_compose! {
@@ -589,18 +594,19 @@ pub mod tests {
                                       )
         -> AggregatePropTestInputs {
             let mut rng = StdRng::seed_from_u64(seed);
-            let mut expected = vec![0u64; PROP_BUCKETS];
+            let mut expected = vec![0; PROP_BUCKETS];
             let inputs = repeat_with(|| {
                 let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
                 for (exp, val) in expected.iter_mut().zip(row) {
-                    *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
+                    *exp = min(*exp + val, (1 << PropHistogramValue::BITS) - 1);
                 }
                 row
             })
             .take(len)
             .collect();
 
-            let expected = expected.into_iter().map(PropHistogramValue::truncate_from).collect();
+            let expected = input_row::<PROP_BUCKETS>(usize::try_from(PropHistogramValue::BITS).unwrap(), &expected)
+                .map(|x| x.into_iter().collect());
 
             AggregatePropTestInputs {
                 inputs,
@@ -626,7 +632,7 @@ pub mod tests {
                 let inputs = inputs.into_iter().map(move |row| {
                     Ok(input_row(tv_bits, &row))
                 });
-                let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
+                let result : BitDecomposed<BA8> = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
                         ctx,
@@ -636,7 +642,7 @@ pub mod tests {
                 })
                 .await
                 .map(Result::unwrap)
-                .reconstruct();
+                .reconstruct_arr();
 
                 assert_eq!(result, expected);
             });
