@@ -153,11 +153,6 @@ where
                 if let Some(polynomial) = uv_iterator.next() {
                     u[i] = lagrange_table_r.eval(&polynomial.borrow().0)[0];
                     v[i] = lagrange_table_r.eval(&polynomial.borrow().1)[0];
-                } else {
-                    // fill GenericArray with zeros if there are not enough elements
-                    // i.e. length of uv_iterator is not a multiple of λ
-                    u[i] = F::ZERO;
-                    v[i] = F::ZERO;
                 }
             }
             output.push((u, v));
