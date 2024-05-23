@@ -69,13 +69,10 @@ where
         J: Iterator<Item = B>,
         B: Borrow<(GenericArray<F, λ>, GenericArray<F, λ>)>,
     {
-        let mut proof =
-            ZeroKnowledgeProof::<F, TwoNMinusOne<λ>>::new(
-                GenericArray::<F, TwoNMinusOne<λ>>::generate(|_| F::ZERO),
-            );
+        let mut proof = GenericArray::<F, TwoNMinusOne<λ>>::generate(|_| F::ZERO);
         for uv_polynomial in uv_iterator {
             for i in 0..λ::USIZE {
-                proof.g[i] += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
+                proof[i] += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
             }
             let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
             let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
@@ -83,10 +80,10 @@ where
             for (i, (x, y)) in
                 zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
             {
-                proof.g[λ::USIZE + i] += x * y;
+                proof[λ::USIZE + i] += x * y;
             }
         }
-        proof
+        ZeroKnowledgeProof::new(proof)
     }
 
     pub fn compute_final_proof<λ, I, J>(
