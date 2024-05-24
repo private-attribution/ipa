@@ -123,7 +123,7 @@ where
     pub fn gen_challenge_and_recurse<J, B>(
         proof_left: &GenericArray<F, TwoNMinusOne<λ>>,
         proof_right: &GenericArray<F, TwoNMinusOne<λ>>,
-        mut uv_iterator: J,
+        uv_iterator: J,
     ) -> Self
     where
         λ: Add + Sub<U1>,
@@ -142,22 +142,26 @@ where
         let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
         let lagrange_table_r = LagrangeTable::<F, λ, U1>::new(&denominator, &r);
 
-        // iter over chunks of size λ
-        // and interpolate at x coordinate r
-        while let Some(polynomial) = uv_iterator.next() {
-            let mut u = GenericArray::<F, λ>::generate(|_| F::ZERO);
-            let mut v = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        // iter and interpolate at x coordinate r
+        let mut index = 0;
+        let mut new_u_chunk = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let mut new_v_chunk = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        for polynomial in uv_iterator {
             let (u_chunk, v_chunk) = polynomial.borrow();
-            u[0] = lagrange_table_r.eval(u_chunk)[0];
-            v[0] = lagrange_table_r.eval(v_chunk)[0];
-            for i in 1..λ::USIZE {
-                if let Some(polynomial) = uv_iterator.next() {
-                    let (u_chunk, v_chunk) = polynomial.borrow();
-                    u[i] = lagrange_table_r.eval(u_chunk)[0];
-                    v[i] = lagrange_table_r.eval(v_chunk)[0];
-                }
+            let u = lagrange_table_r.eval(u_chunk)[0];
+            let v = lagrange_table_r.eval(v_chunk)[0];
+            if index >= λ::USIZE {
+                output.push((new_u_chunk, new_v_chunk));
+                new_u_chunk = GenericArray::<F, λ>::generate(|_| F::ZERO);
+                new_v_chunk = GenericArray::<F, λ>::generate(|_| F::ZERO);
+                index = 0;
             }
-            output.push((u, v));
+            new_u_chunk[index] = u;
+            new_v_chunk[index] = v;
+            index += 1;
+        }
+        if index != 0 {
+            output.push((new_u_chunk, new_v_chunk));
         }
 
         Self { uv: output }
