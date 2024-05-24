@@ -7,7 +7,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse2, parse_str, Ident, Path};
 
-use crate::{hashing::HashingSteps, name::GateName, CompactGateIndex, CompactStep};
+use crate::{hash::HashingSteps, name::GateName, CompactGateIndex, CompactStep};
 
 fn crate_path(p: &str) -> String {
     let Some((_, p)) = p.split_once("::") else {
@@ -102,9 +102,10 @@ fn compact_gate_impl<S: CompactStep>(gate_name: &str) -> TokenStream {
         impl ::std::str::FromStr for #ident {
             type Err = String;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
-                    "/" => Ok(Self::default()),
-                    v => GATE_LOOKUP.find(v).map(#ident).ok_or_else(|| format!(#from_panic)),
+                if s == "/" {
+                    Ok(Self::default())
+                } else {
+                    GATE_LOOKUP.find(s).map(#ident).ok_or_else(|| format!(#from_panic))
                 }
             }
         }

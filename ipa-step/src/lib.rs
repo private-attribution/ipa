@@ -8,6 +8,8 @@ mod hash;
 #[cfg(feature = "name")]
 pub mod name;
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 #[cfg(feature = "build")]
 pub use gate::build as build_gate;
 
@@ -76,3 +78,37 @@ pub trait CompactStep: Step {
 /// In most cases, implementations will also implement `StepNarrow` for different types,
 /// but this is not strictly required.
 pub trait Gate: Default + Clone + AsRef<str> + for<'a> From<&'a str> + Ord {}
+
+/// Trait to transform string representations of steps into a uniformly distributed integer values.
+///
+/// ## Hash collisions
+/// The implementations of this trait currently use the standard library [`Hasher`] interface
+/// to generate hashes that are limited to 8 bytes in size.
+/// This means that there is a small chance of hash collisions that increases
+/// with the overall increase in number of steps.
+///
+/// If that happens, a list of potential mitigations include
+/// * salt the hash (see the implementation of this trait for [`std::str`])
+/// * use a different hash algorithm
+/// * use a perfect hash function.
+///
+/// The latter may result in more work to be done at runtime, but likely shouldn't impact
+/// the latency as long as [`FromStr`] is only used to create HTTP requests.
+///
+/// This implementation panics if it detects hash collisions.
+///
+/// [`FromStr`]: std::str::FromStr
+pub trait StepHasher {
+    fn hash_step(&self) -> u64;
+}
+
+impl StepHasher for str {
+    fn hash_step(&self) -> u64 {
+        let mut hasher = DefaultHasher::default();
+        // If you get a collision, you can avoid that by adding:
+        // > hasher.write_u8(0);
+        // Tweak the value or remove the tweak if you get another collision.
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+}
