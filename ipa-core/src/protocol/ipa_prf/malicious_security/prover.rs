@@ -170,7 +170,8 @@ mod test {
         ff::{Fp31, U128Conversions},
         protocol::ipa_prf::malicious_security::lagrange::{
             CanonicalLagrangeDenominator, LagrangeTable,
-        }, secret_sharing::SharedValue,
+        },
+        secret_sharing::SharedValue,
     };
 
     #[test]
@@ -304,13 +305,9 @@ mod test {
         );
         assert_eq!(pg_3, (&U_3[..], &V_3[..]));
 
-        (pg_3.u, pg_3.v);
-
         // final iteration
-        let proof_3 = ProofGenerator::<Fp31>::compute_proof::<U4, _, _>(
-            uv_3.iter(),
-            &lagrange_table,
-        );
+        let proof_3 =
+            ProofGenerator::<Fp31>::compute_proof::<U4, _, _>(uv_3.iter(), &lagrange_table);
         assert_eq!(
             proof_3.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_3,
