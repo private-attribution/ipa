@@ -147,12 +147,14 @@ where
         while let Some(polynomial) = uv_iterator.next() {
             let mut u = GenericArray::<F, λ>::generate(|_| F::ZERO);
             let mut v = GenericArray::<F, λ>::generate(|_| F::ZERO);
-            u[0] = lagrange_table_r.eval(&polynomial.borrow().0)[0];
-            v[0] = lagrange_table_r.eval(&polynomial.borrow().1)[0];
+            let (u_chunk, v_chunk) = polynomial.borrow();
+            u[0] = lagrange_table_r.eval(u_chunk)[0];
+            v[0] = lagrange_table_r.eval(v_chunk)[0];
             for i in 1..λ::USIZE {
                 if let Some(polynomial) = uv_iterator.next() {
-                    u[i] = lagrange_table_r.eval(&polynomial.borrow().0)[0];
-                    v[i] = lagrange_table_r.eval(&polynomial.borrow().1)[0];
+                    let (u_chunk, v_chunk) = polynomial.borrow();
+                    u[i] = lagrange_table_r.eval(u_chunk)[0];
+                    v[i] = lagrange_table_r.eval(v_chunk)[0];
                 }
             }
             output.push((u, v));
