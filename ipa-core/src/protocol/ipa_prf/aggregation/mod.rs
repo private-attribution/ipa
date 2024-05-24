@@ -170,7 +170,7 @@ where
                     B,
                     false,
                 )
-                    .await
+                .await
             }
         },
         || AttributionOutputs {
@@ -279,7 +279,7 @@ where
                                         &a,
                                         &b,
                                     )
-                                        .await?;
+                                    .await?;
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
@@ -293,7 +293,7 @@ where
                                         &a,
                                         &b,
                                     )
-                                        .await
+                                    .await
                                 }
                             }
                         }
@@ -565,7 +565,7 @@ pub mod tests {
     // saturated addition at the output.
     const PROP_MAX_INPUT_LEN: usize = 10;
     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
-const PROP_BUCKETS: usize = 8;
+    const PROP_BUCKETS: usize = 8;
     type PropHistogramValue = BA8;
 
     // We want to capture everything in this struct for visibility in the output of failing runs,

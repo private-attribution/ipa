@@ -1,4 +1,5 @@
 use std::iter::Once;
+
 use bitvec::prelude::BitSlice;
 use generic_array::GenericArray;
 use typenum::U1;
@@ -12,7 +13,6 @@ use crate::{
     },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
-
 impl Block for bool {
     type Size = U1;
 }
@@ -69,7 +69,6 @@ impl SharedValue for Boolean {
 impl Vectorizable<1> for Boolean {
     type Array = StdArray<Boolean, 1>;
 }
-
 
 impl FieldVectorizable<1> for Boolean {
     type ArrayAlias = StdArray<Boolean, 1>;
