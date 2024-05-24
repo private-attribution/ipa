@@ -23,7 +23,6 @@ use crate::{
 #[cfg(test)]
 pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
-    _never_used_input: BitDecomposed<Replicated<Boolean, B>>,
     num_bernoulli: u32,
     num_histogram_bins: u32,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
@@ -67,6 +66,7 @@ mod test {
     use crate::ff::boolean_array::{BA16, BA32};
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::secret_sharing::{StdArray, TransposeFrom};
+    use crate::test_fixture::Reconstruct;
 
     fn input_row<const B: usize>(bit_width: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
         let values = <&[u32; B]>::try_from(values).unwrap();
@@ -82,14 +82,11 @@ mod test {
         type OutputValue = BA32;
         const NUM_BREAKDOWNS: u32 = 32;
         let num_bernoulli: u32 = 1000;
-        // There is no input to the noise gen circuit; but we have to pass in something
-        let never_used_input: BitDecomposed<[Boolean; 32]> = input_row(32, &[0,0,0,0,0,0,0,0]);
         let result = world
-            .upgraded_semi_honest(never_used_input, |ctx, never_used_input| async move {
+            .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
-                        never_used_input,
                         num_bernoulli,
                         NUM_BREAKDOWNS,
                     )
@@ -99,8 +96,8 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-
-        let result_reconstructed  = result.reconstruct_arr();
+        let result_type_confirm : [Vec<OutputValue>; 3] = result;
+        let result_reconstructed  = result.reconstruct();
         // let result_reconstructed  = result.reconstruct_arr();
         // let result_nonvectorized = Vec::transposed_from(result_reconstructed);
         // println!("result  {:?}", result_reconstructed);
