@@ -22,7 +22,7 @@ use crate::CompactGateIndex;
 /// with the overall increase in number of steps.
 ///
 /// If that happens, a list of potential mitigations include
-/// * salt the hash,
+/// * salt the hash (see code below),
 /// * use a different hash algorithm
 /// * use a perfect hash function.
 ///
@@ -39,7 +39,10 @@ pub(crate) struct HashingSteps {
 
 fn hash(s: &str) -> u64 {
     let mut hasher = DefaultHasher::default();
-    s.hash(&mut hasher);
+    // If you get a collision, you can avoid that by adding:
+    // > hasher.write_u8(0);
+    // Tweak the value or remove the tweak if you get another collision.
+    hasher.write_str(s);
     hasher.finish()
 }
 

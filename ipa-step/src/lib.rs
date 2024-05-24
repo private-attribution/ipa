@@ -4,7 +4,7 @@ pub mod descriptive;
 #[cfg(feature = "build")]
 pub mod gate;
 #[cfg(feature = "build")]
-mod hashing;
+mod hash;
 #[cfg(feature = "name")]
 pub mod name;
 
