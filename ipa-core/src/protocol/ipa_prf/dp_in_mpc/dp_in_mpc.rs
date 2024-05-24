@@ -64,7 +64,7 @@ mod test {
         secret_sharing::BitDecomposed,
         test_fixture::{ReconstructArr, Runner, TestWorld},
     };
-    use crate::ff::boolean_array::BA32;
+    use crate::ff::boolean_array::{BA16, BA32};
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::secret_sharing::{StdArray, TransposeFrom};
 
@@ -86,8 +86,8 @@ mod test {
         let never_used_input: BitDecomposed<[Boolean; 32]> = input_row(32, &[0,0,0,0,0,0,0,0]);
         let result = world
             .upgraded_semi_honest(never_used_input, |ctx, never_used_input| async move {
-                // Vec::transposed_from(
-                    gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
+                Vec::transposed_from(
+                    &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         never_used_input,
                         num_bernoulli,
@@ -95,12 +95,15 @@ mod test {
                     )
                     .await
                     .unwrap()
-                // )
+                )
             })
-            .await;
+            .await
+            .map(Result::unwrap);
+
         let result_reconstructed  = result.reconstruct_arr();
-        let result_nonvectorized = Vec::transposed_from(result_reconstructed);
-        println!("result  {:?}", result_nonvectorized);
+        // let result_reconstructed  = result.reconstruct_arr();
+        // let result_nonvectorized = Vec::transposed_from(result_reconstructed);
+        // println!("result  {:?}", result_reconstructed);
     }
 
 

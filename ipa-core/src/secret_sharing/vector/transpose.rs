@@ -634,6 +634,9 @@ impl_transpose_shares_bool_to_ba_small!(BA8, 8, 32, test_transpose_shares_bool_t
 // Usage: Aggregation output tests
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 8, test_transpose_shares_bool_to_ba_8x8);
 
+// Usage: Binomial Noise Gen
+impl_transpose_shares_bool_to_ba!(BA32, 32, 32, test_transpose_shares_bool_to_ba_32x32);
+
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<BA<N>>; M]` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
 ///
