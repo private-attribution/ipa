@@ -49,7 +49,7 @@ impl ToTokens for HashingSteps {
         let sz = self.inner.len();
         let hashes = self.inner.iter().map(|(h, i)| quote! {(#h, #i)});
         let hasher_path: Path = parse_str(
-            &std::any::type_name::<dyn StepHasher>()
+            std::any::type_name::<dyn StepHasher>()
                 .strip_prefix("dyn ")
                 .expect("typename for traits returns the path with dyn prefix"),
         )
