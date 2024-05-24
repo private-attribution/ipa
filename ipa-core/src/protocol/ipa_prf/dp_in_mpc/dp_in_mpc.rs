@@ -105,13 +105,6 @@ mod test {
         println!("************************************** PRINTING IN TEST ***********************************88")
     }
 
-    #[test]
-    pub fn test_for_printing(){
-        println!(" TEST PRINTING IN TESTS")
-    }
-
-    //closure
-    //  |, | {  }
 
 
 }

@@ -41,15 +41,15 @@ type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
 >;
 
 impl<BK, TV, const N: usize> ChunkBuffer<N>
-for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
-    where
-        Boolean: Vectorizable<N>,
-        BK: SharedValue,
-        TV: SharedValue,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-        BitDecomposed<Replicated<Boolean, N>>:
-            for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+    for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
+where
+    Boolean: Vectorizable<N>,
+    BK: SharedValue,
+    TV: SharedValue,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, N>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
 {
     type Item = AttributionOutputs<Replicated<BK>, Replicated<TV>>;
     type Chunk = AttributionOutputsChunk<N>;
