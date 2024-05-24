@@ -64,6 +64,7 @@ mod test {
         secret_sharing::BitDecomposed,
         test_fixture::{ReconstructArr, Runner, TestWorld},
     };
+    use crate::ff::boolean_array::BA32;
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::secret_sharing::{StdArray, TransposeFrom};
 
@@ -78,14 +79,14 @@ mod test {
     #[tokio::test]
     pub async fn test_gen_binomial_noise() {
         let world = TestWorld::default();
-        type OutputValue = BA8;
-        const NUM_BREAKDOWNS: u32 = 8;
+        type OutputValue = BA32;
+        const NUM_BREAKDOWNS: u32 = 32;
         let num_bernoulli: u32 = 1000;
         // There is no input to the noise gen circuit; but we have to pass in something
-        let never_used_input: BitDecomposed<[Boolean; 8]> = input_row(8, &[0,0,0,0,0,0,0,0]);
-        let result :[BitDecomposed<Replicated<Boolean,8>>;3]= world
+        let never_used_input: BitDecomposed<[Boolean; 32]> = input_row(32, &[0,0,0,0,0,0,0,0]);
+        let result = world
             .upgraded_semi_honest(never_used_input, |ctx, never_used_input| async move {
-                // Vec::transposed_from(
+                Vec::transposed_from(
                     gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         never_used_input,
@@ -94,14 +95,14 @@ mod test {
                     )
                     .await
                     .unwrap()
-                // )
+                )
             })
             .await;
             // .unwrap()
             // .reconstruct_arr();
-        let result_reconstructed : BitDecomposed<BA8> = result.reconstruct_arr();
+        let result_reconstructed  = result.reconstruct();
         // let result_transposed = Vec::transposed_from(result); //not working to transpose
-        println!("result  {:?}", result_reconstructed);
+        // println!("result  {:?}", result_reconstructed);
         println!("************************************** PRINTING IN TEST ***********************************88")
     }
 
