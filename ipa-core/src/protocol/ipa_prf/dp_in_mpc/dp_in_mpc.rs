@@ -86,7 +86,7 @@ mod test {
         let never_used_input: BitDecomposed<[Boolean; 32]> = input_row(32, &[0,0,0,0,0,0,0,0]);
         let result = world
             .upgraded_semi_honest(never_used_input, |ctx, never_used_input| async move {
-                Vec::transposed_from(
+                // Vec::transposed_from(
                     gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         never_used_input,
@@ -95,15 +95,12 @@ mod test {
                     )
                     .await
                     .unwrap()
-                )
+                // )
             })
             .await;
-            // .unwrap()
-            // .reconstruct_arr();
-        let result_reconstructed  = result.reconstruct();
-        // let result_transposed = Vec::transposed_from(result); //not working to transpose
-        // println!("result  {:?}", result_reconstructed);
-        println!("************************************** PRINTING IN TEST ***********************************88")
+        let result_reconstructed  = result.reconstruct_arr();
+        let result_nonvectorized = Vec::transposed_from(result_reconstructed);
+        println!("result  {:?}", result_nonvectorized);
     }
 
 
