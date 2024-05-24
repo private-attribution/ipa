@@ -159,6 +159,8 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::iter::zip;
+
     use generic_array::{sequence::GenericSequence, GenericArray};
     use typenum::{U3, U4, U7};
 
@@ -168,7 +170,6 @@ mod test {
         protocol::ipa_prf::malicious_security::lagrange::{
             CanonicalLagrangeDenominator, LagrangeTable,
         },
-        secret_sharing::SharedValue,
     };
 
     #[test]
@@ -198,63 +199,31 @@ mod test {
         let denominator = CanonicalLagrangeDenominator::<Fp31, U4>::new();
         let lagrange_table = LagrangeTable::<Fp31, U4, U3>::from(denominator);
 
-        // convert to field
-        let vec_u_1 = U_1
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-        let vec_v_1 = V_1
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-        let vec_u_2 = U_2
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-        let vec_v_2 = V_2
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-        let vec_u_3 = U_3
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-        let vec_v_3 = V_3
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-
-        // uv values in input format
-        let uv_1 = (0usize..8)
-            .map(|i| {
+        // uv values in input format (iterator of tuples of GenericArrays of length 4)
+        let uv_1 = zip(U_1.chunks(4), V_1.chunks(4))
+            .map(|(u_chunk, v_chunk)| {
                 (
-                    *GenericArray::<Fp31, U4>::from_slice(&vec_u_1[4 * i..4 * i + 4]),
-                    *GenericArray::<Fp31, U4>::from_slice(&vec_v_1[4 * i..4 * i + 4]),
+                    GenericArray::generate(|i| Fp31::try_from(u_chunk[i]).unwrap()),
+                    GenericArray::generate(|i| Fp31::try_from(v_chunk[i]).unwrap()),
                 )
             })
             .collect::<Vec<_>>();
-        let uv_2 = (0usize..2)
-            .map(|i| {
+        let uv_2 = zip(U_2.chunks(4), V_2.chunks(4))
+            .map(|(u_chunk, v_chunk)| {
                 (
-                    *GenericArray::<Fp31, U4>::from_slice(&vec_u_2[4 * i..4 * i + 4]),
-                    *GenericArray::<Fp31, U4>::from_slice(&vec_v_2[4 * i..4 * i + 4]),
+                    GenericArray::generate(|i| Fp31::try_from(u_chunk[i]).unwrap()),
+                    GenericArray::generate(|i| Fp31::try_from(v_chunk[i]).unwrap()),
                 )
             })
             .collect::<Vec<_>>();
-        let uv_3 = vec![(
-            GenericArray::<Fp31, U4>::from([
-                Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
-                vec_u_3[0],
-                vec_u_3[1],
-                Fp31::ZERO,
-            ]),
-            GenericArray::<Fp31, U4>::from([
-                Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
-                vec_v_3[0],
-                vec_v_3[1],
-                Fp31::ZERO,
-            ]),
-        )];
+        let uv_3 = {
+            let u_chunk = [P_RANDOM_WEIGHT, U_3[0], U_3[1], U_3[2]];
+            let v_chunk = [Q_RANDOM_WEIGHT, V_3[0], V_3[1], V_3[2]];
+            vec![(
+                GenericArray::generate(|i| Fp31::try_from(u_chunk[i]).unwrap()),
+                GenericArray::generate(|i| Fp31::try_from(v_chunk[i]).unwrap()),
+            )]
+        };
 
         // first iteration
         let proof_1 = ProofGenerator::<Fp31, U4>::compute_proof(uv_1.iter(), &lagrange_table);
