@@ -123,11 +123,11 @@ where
 }
 
 impl<T, U, V, W> Reconstruct<(V, W)> for [(T, U); 3]
-    where
-            for<'t> [&'t T; 3]: Reconstruct<V>,
-            for<'u> [&'u U; 3]: Reconstruct<W>,
-            V: Sized,
-            W: Sized,
+where
+        for<'t> [&'t T; 3]: Reconstruct<V>,
+        for<'u> [&'u U; 3]: Reconstruct<W>,
+        V: Sized,
+        W: Sized,
 {
     fn reconstruct(&self) -> (V, W) {
         (
@@ -138,8 +138,8 @@ impl<T, U, V, W> Reconstruct<(V, W)> for [(T, U); 3]
 }
 
 impl<I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
-    where
-            for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
+where
+        for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.each_ref().reconstruct()
@@ -147,8 +147,8 @@ impl<I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
 }
 
 impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
-    where
-            for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+where
+        for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.map(Deref::deref).reconstruct()
@@ -156,8 +156,8 @@ impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
 }
 
 impl<I, T> Reconstruct<BitDecomposed<T>> for [BitDecomposed<I>; 3]
-    where
-            for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+where
+        for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> BitDecomposed<T> {
         self.each_ref().reconstruct()
@@ -165,8 +165,8 @@ impl<I, T> Reconstruct<BitDecomposed<T>> for [BitDecomposed<I>; 3]
 }
 
 impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
-    where
-            for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+where
+        for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> BitDecomposed<T> {
         BitDecomposed::new(self.map(Deref::deref).reconstruct())
@@ -174,8 +174,8 @@ impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
 }
 
 impl<I, T> Reconstruct<Vec<T>> for [&[I]; 3]
-    where
-            for<'i> [&'i I; 3]: Reconstruct<T>,
+where
+        for<'i> [&'i I; 3]: Reconstruct<T>,
 {
     fn reconstruct(&self) -> Vec<T> {
         assert_eq!(self[0].len(), self[1].len());
@@ -187,8 +187,8 @@ impl<I, T> Reconstruct<Vec<T>> for [&[I]; 3]
 }
 
 impl<T, const N: usize> Reconstruct<[T; N]> for [[Replicated<T>; N]; 3]
-    where
-        T: SharedValue,
+where
+    T: SharedValue,
 {
     fn reconstruct(&self) -> [T; N] {
         zip(zip(&self[0], &self[1]), &self[2])
@@ -208,9 +208,9 @@ pub trait ValidateMalicious<F: ExtendableField> {
 }
 
 impl<F, T> ValidateMalicious<F> for [T; 3]
-    where
-        F: ExtendableField,
-        T: Borrow<MaliciousReplicated<F>>,
+where
+    F: ExtendableField,
+    T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F::ExtendedField) {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
@@ -253,10 +253,10 @@ impl<F: ExtendableField> ValidateMalicious<F> for [BitDecomposed<MaliciousReplic
 }
 
 impl<F: ExtendableField> ValidateMalicious<F>
-for [(
-    MaliciousReplicated<F>,
-    BitDecomposed<MaliciousReplicated<F>>,
-); 3]
+    for [(
+        MaliciousReplicated<F>,
+        BitDecomposed<MaliciousReplicated<F>>,
+    ); 3]
 {
     fn validate(&self, r: F::ExtendedField) {
         let [t0, t1, t2] = self;

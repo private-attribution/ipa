@@ -65,13 +65,13 @@ impl InputsRequiredFromPrevRow {
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<FV, B>,
     ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-        where
-            Boolean: FieldSimd<B>,
-            Replicated<Boolean, B>:
+    where
+        Boolean: FieldSimd<B>,
+        Replicated<Boolean, B>:
             BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-            FV: SharedValue,
-            BitDecomposed<Replicated<Boolean, B>>:
-                for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
+        FV: SharedValue,
+        BitDecomposed<Replicated<Boolean, B>>:
+            for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -89,7 +89,7 @@ impl InputsRequiredFromPrevRow {
                 record_id,
             ),
         )
-            .await?;
+        .await?;
 
         let (updated_is_saturated, capped_label) = try_join(
             or(
@@ -104,7 +104,7 @@ impl InputsRequiredFromPrevRow {
                 record_id,
             ),
         )
-            .await?;
+        .await?;
 
         let condition = Replicated::new_arr(
             <Boolean as Vectorizable<B>>::Array::expand(&capped_label.left()),
@@ -120,7 +120,7 @@ impl InputsRequiredFromPrevRow {
             &bit_decomposed_output,
             repeat_n(&condition, FV::BITS.try_into().unwrap()),
         )
-            .await;
+        .await;
 
         self.ever_encountered_a_trigger_event = ever_encountered_a_trigger_event;
         self.is_saturated = updated_is_saturated;
@@ -130,8 +130,8 @@ impl InputsRequiredFromPrevRow {
 }
 
 fn set_up_contexts<C>(root_ctx: &C, users_having_n_records: &[usize]) -> Vec<C>
-    where
-        C: Context,
+where
+    C: Context,
 {
     let mut context_per_row_depth = Vec::with_capacity(users_having_n_records.len());
     for (row_number, num_users_having_that_row_number) in users_having_n_records.iter().enumerate()
@@ -156,9 +156,9 @@ fn chunk_rows_by_user<FV, IS, const B: usize>(
     input_stream: IS,
     first_row: PrfShardedIpaInputRow<FV, B>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV, B>>>
-    where
-        FV: SharedValue,
-        IS: Stream<Item = PrfShardedIpaInputRow<FV, B>> + Unpin,
+where
+    FV: SharedValue,
+    IS: Stream<Item = PrfShardedIpaInputRow<FV, B>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
         let (mut s, last_row) = state?;
@@ -215,16 +215,16 @@ pub async fn compute_feature_label_dot_product<'ctx, TV, HV, const B: usize>(
     input_rows: Vec<PrfShardedIpaInputRow<TV, B>>,
     users_having_n_records: &[usize],
 ) -> Result<[Replicated<HV>; B], Error>
-    where
-        Boolean: FieldSimd<B>,
-        Replicated<Boolean, B>:
+where
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-        TV: SharedValue,
-        HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        BitDecomposed<Replicated<Boolean, B>>:
-            for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
-        Vec<Replicated<HV>>:
-            for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    TV: SharedValue,
+    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     // Get the validator and context to use for Boolean multiplication operations
     let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
@@ -280,13 +280,13 @@ async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV, B>>,
 ) -> Result<Option<BitDecomposed<Replicated<Boolean, B>>>, Error>
-    where
-        Boolean: FieldSimd<B>,
-        Replicated<Boolean, B>:
+where
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-        FV: SharedValue,
-        BitDecomposed<Replicated<Boolean, B>>:
-            for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
+    FV: SharedValue,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -321,8 +321,8 @@ async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
 fn initialize_new_device_attribution_variables<FV, const B: usize>(
     input_row: &PrfShardedIpaInputRow<FV, B>,
 ) -> InputsRequiredFromPrevRow
-    where
-        FV: SharedValue,
+where
+    FV: SharedValue,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_trigger_event: input_row.is_trigger_bit.clone(),
@@ -378,9 +378,9 @@ pub mod tests {
     }
 
     impl<FV, const B: usize> IntoShares<PrfShardedIpaInputRow<FV, B>>
-    for PreShardedAndSortedOPRFTestInput<FV, B>
-        where
-            FV: SharedValue + IntoShares<Replicated<FV>>,
+        for PreShardedAndSortedOPRFTestInput<FV, B>
+    where
+        FV: SharedValue + IntoShares<Replicated<FV>>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV, B>; 3] {
             let PreShardedAndSortedOPRFTestInput {
