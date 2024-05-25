@@ -81,7 +81,7 @@ mod test {
         let world = TestWorld::default();
         type OutputValue = BA32;
         const NUM_BREAKDOWNS: u32 = 32;
-        let num_bernoulli: u32 = 1000;
+        let num_bernoulli: u32 = 100;
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -96,11 +96,9 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm : [Vec<OutputValue>; 3] = result;
-        let result_reconstructed  = result.reconstruct();
-        // let result_reconstructed  = result.reconstruct_arr();
-        // let result_nonvectorized = Vec::transposed_from(result_reconstructed);
-        // println!("result  {:?}", result_reconstructed);
+        let result_type_confirm : [Vec<Replicated<OutputValue>>; 3] = result;
+        let result_reconstructed  = result_type_confirm.reconstruct();
+        println!("result  {:?}", result_reconstructed);
     }
 
 
