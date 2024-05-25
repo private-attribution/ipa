@@ -38,6 +38,7 @@ where
     // and num_bernoulli is the number of Bernoulli samples to sum to get a sample from a Binomial
     // distribution with the desired epsilon, delta
     assert_eq!(num_histogram_bins, B as u32);
+    // add assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
     let bits = 1;
     let mut vector_input_to_agg: Vec<_> = vec![];
     for i in 0..num_bernoulli {
@@ -64,6 +65,7 @@ mod test {
         test_fixture::{ReconstructArr, Runner, TestWorld},
     };
     use crate::ff::boolean_array::{BA16, BA32};
+    use crate::ff::U128Conversions;
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::secret_sharing::{StdArray, TransposeFrom};
     use crate::test_fixture::Reconstruct;
@@ -79,9 +81,9 @@ mod test {
     #[tokio::test]
     pub async fn test_gen_binomial_noise() {
         let world = TestWorld::default();
-        type OutputValue = BA32;
-        const NUM_BREAKDOWNS: u32 = 32;
-        let num_bernoulli: u32 = 100;
+        type OutputValue = BA16;
+        const NUM_BREAKDOWNS: u32 = 16;
+        let num_bernoulli: u32 = 200000;
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -96,9 +98,12 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm : [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed  = result_type_confirm.reconstruct();
-        println!("result  {:?}", result_reconstructed);
+        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
+        let result_reconstructed: Vec<OutputValue>  = result_type_confirm.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed.iter().map(|&v| u32::try_from(v.as_u128()).unwrap()).collect::<Vec<_>>();
+        // println!("result  {:?}", result_reconstructed);
+        println!("result as u32  {:?}", result_u32);
+
     }
 
 
