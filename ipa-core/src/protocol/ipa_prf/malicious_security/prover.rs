@@ -161,16 +161,30 @@ where
 mod test {
     use std::iter::zip;
 
-    use generic_array::{sequence::GenericSequence, GenericArray};
+    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
     use typenum::{U3, U4, U7};
 
     use super::ProofGenerator;
     use crate::{
-        ff::{Fp31, U128Conversions},
+        ff::{Fp31, PrimeField, U128Conversions},
         protocol::ipa_prf::malicious_security::lagrange::{
             CanonicalLagrangeDenominator, LagrangeTable,
         },
     };
+
+    fn zip_chunks<F: PrimeField, U: ArrayLength>(
+        a: &[u128],
+        b: &[u128],
+    ) -> Vec<(GenericArray<F, U>, GenericArray<F, U>)> {
+        zip(a.chunks(U::USIZE), b.chunks(U::USIZE))
+            .map(|(u_chunk, v_chunk)| {
+                (
+                    GenericArray::generate(|i| F::try_from(u_chunk[i]).unwrap()),
+                    GenericArray::generate(|i| F::try_from(v_chunk[i]).unwrap()),
+                )
+            })
+            .collect::<Vec<_>>()
+    }
 
     #[test]
     fn sample_proof() {
@@ -200,22 +214,8 @@ mod test {
         let lagrange_table = LagrangeTable::<Fp31, U4, U3>::from(denominator);
 
         // uv values in input format (iterator of tuples of GenericArrays of length 4)
-        let uv_1 = zip(U_1.chunks(4), V_1.chunks(4))
-            .map(|(u_chunk, v_chunk)| {
-                (
-                    GenericArray::generate(|i| Fp31::try_from(u_chunk[i]).unwrap()),
-                    GenericArray::generate(|i| Fp31::try_from(v_chunk[i]).unwrap()),
-                )
-            })
-            .collect::<Vec<_>>();
-        let uv_2 = zip(U_2.chunks(4), V_2.chunks(4))
-            .map(|(u_chunk, v_chunk)| {
-                (
-                    GenericArray::generate(|i| Fp31::try_from(u_chunk[i]).unwrap()),
-                    GenericArray::generate(|i| Fp31::try_from(v_chunk[i]).unwrap()),
-                )
-            })
-            .collect::<Vec<_>>();
+        let uv_1 = zip_chunks(&U_1, &V_1);
+        let uv_2 = zip_chunks(&U_2, &V_2);
         let uv_3 = {
             let u_chunk = [P_RANDOM_WEIGHT, U_3[0], U_3[1], U_3[2]];
             let v_chunk = [Q_RANDOM_WEIGHT, V_3[0], V_3[1], V_3[2]];
