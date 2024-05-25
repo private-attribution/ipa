@@ -3,8 +3,6 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(all(feature = "in-memory-infra", feature = "web-app"))]
-use axum::RequestExt;
 use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
 
@@ -16,8 +14,9 @@ impl WrappedBoxBodyStream {
     /// Wrap an axum body stream, returning an instance of `crate::helpers::BodyStream`.
     #[cfg(all(feature = "in-memory-infra", feature = "web-app"))]
     #[must_use]
-    pub fn new(inner: axum::extract::BodyStream) -> Self {
-        Self(Box::pin(super::WrappedAxumBodyStream::new_internal(inner)))
+    pub fn new(bytes: bytes::Bytes) -> Self {
+        let stream = futures::stream::once(futures::future::ready(Ok(bytes)));
+        Self::from_bytes_stream(stream)
     }
 
     pub fn from_infallible<S: Stream<Item = Box<[u8]>> + Send + 'static>(input: S) -> Self {
@@ -54,14 +53,19 @@ impl<Buf: Into<bytes::Bytes>> From<Buf> for WrappedBoxBodyStream {
 
 #[cfg(all(feature = "in-memory-infra", feature = "web-app"))]
 #[async_trait::async_trait]
-impl<
-        S: Send + Sync,
-        B: hyper::body::HttpBody<Data = bytes::Bytes, Error = hyper::Error> + Send + 'static,
-    > axum::extract::FromRequest<S, B> for WrappedBoxBodyStream
+impl<S> axum::extract::FromRequest<S> for WrappedBoxBodyStream
+where
+    S: Send + Sync,
 {
-    type Rejection = <axum::extract::BodyStream as axum::extract::FromRequest<S, B>>::Rejection;
+    type Rejection = crate::net::Error;
 
-    async fn from_request(req: hyper::Request<B>, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(Self::new(req.extract().await?))
+    async fn from_request(
+        req: axum::extract::Request,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Bytes::from_request(req, _state)
+            .await
+            .map(Self::new)
+            .map_err(crate::net::Error::InvalidBytesBody)
     }
 }

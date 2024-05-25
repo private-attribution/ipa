@@ -11,6 +11,7 @@ use std::{
 use ::tokio::{
     fs,
     io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
 };
 use axum::{
     response::{IntoResponse, Response},
@@ -19,16 +20,16 @@ use axum::{
 };
 use axum_server::{
     accept::Accept,
-    service::{MakeServiceRef, SendService},
+    service::SendService,
     tls_rustls::{RustlsAcceptor, RustlsConfig},
-    Handle, HttpConfig, Server,
+    Handle, Server,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::{
     future::{ready, BoxFuture, Either, Ready},
     Future, FutureExt,
 };
-use hyper::{header::HeaderName, server::conn::AddrStream, Request};
+use hyper::{body::Incoming, header::HeaderName, Request};
 use metrics::increment_counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use rustls_pki_types::CertificateDer;
@@ -96,10 +97,9 @@ impl MpcHelperServer {
     }
 
     #[cfg(all(test, unit_test))]
-    async fn handle_req(&self, req: hyper::Request<hyper::Body>) -> axum::response::Response {
-        let mut router = self.router();
-        let router = tower::ServiceExt::ready(&mut router).await.unwrap();
-        hyper::service::Service::call(router, req).await.unwrap()
+    async fn handle_req(&self, req: hyper::Request<axum::body::Body>) -> axum::response::Response {
+        use tower::ServiceExt;
+        self.router().oneshot(req).await.unwrap()
     }
 
     /// Starts the MPC helper service.
@@ -130,8 +130,8 @@ impl MpcHelperServer {
 
         let svc = self.router().layer(
             TraceLayer::new_for_http()
-                .make_span_with(move |_request: &hyper::Request<hyper::Body>| tracing.make_span())
-                .on_request(|request: &hyper::Request<hyper::Body>, _: &Span| {
+                .make_span_with(move |_request: &hyper::Request<_>| tracing.make_span())
+                .on_request(|request: &hyper::Request<_>, _: &Span| {
                     increment_counter!(RequestProtocolVersion::from(request.version()));
                     increment_counter!(REQUESTS_RECEIVED);
                 }),
@@ -143,14 +143,20 @@ impl MpcHelperServer {
                 let svc = svc
                     .layer(layer_fn(SetClientIdentityFromHeader::new))
                     .into_make_service();
-                spawn_server(axum_server::from_tcp(listener), handle.clone(), svc).await
+                spawn_server(
+                    axum_server::from_tcp(listener),
+                    handle.clone(),
+                    svc,
+                    &self.config,
+                )
+                .await
             }
             (true, None) => {
                 let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
                 let svc = svc
                     .layer(layer_fn(SetClientIdentityFromHeader::new))
                     .into_make_service();
-                spawn_server(axum_server::bind(addr), handle.clone(), svc).await
+                spawn_server(axum_server::bind(addr), handle.clone(), svc, &self.config).await
             }
             (false, Some(listener)) => {
                 let rustls_config = rustls_config(&self.config, &self.network_config)
@@ -162,6 +168,7 @@ impl MpcHelperServer {
                     }),
                     handle.clone(),
                     svc.into_make_service(),
+                    &self.config,
                 )
                 .await
             }
@@ -176,6 +183,7 @@ impl MpcHelperServer {
                     }),
                     handle.clone(),
                     svc.into_make_service(),
+                    &self.config,
                 )
                 .await
             }
@@ -206,32 +214,28 @@ impl MpcHelperServer {
     }
 }
 
+/// Spawns a new server with the given configuration.
+/// This function glues Tower, Axum, Hyper and Axum-Server together, hence the trait bounds.
 #[allow(clippy::unused_async)]
 async fn spawn_server<A>(
-    server: Server<A>,
+    mut server: Server<A>,
     handle: Handle,
     svc: IntoMakeService<Router>,
+    config: &ServerConfig,
 ) -> JoinHandle<()>
 where
-    A: Accept<
-            AddrStream,
-            <IntoMakeService<Router> as MakeServiceRef<
-                AddrStream,
-                hyper::Request<hyper::Body>,
-            >>::Service,
-        > + Clone
-        + Send
-        + Sync
-        + 'static,
+    A: Accept<TcpStream, Router> + Clone + Send + Sync + 'static,
     A::Stream: AsyncRead + AsyncWrite + Unpin + Send,
-    A::Service: SendService<Request<hyper::Body>> + Send,
+    A::Service: SendService<Request<Incoming>> + Send + Service<Request<Incoming>>,
     A::Future: Send,
 {
+    let mcs = config.max_concurrent_stream;
     tokio::spawn({
         async move {
+            // Configuration
+            server.http_builder().http2().max_concurrent_streams(mcs);
+            // Start serving
             server
-                // TODO: configuration
-                .http_config(HttpConfig::default())
                 .handle(handle)
                 .serve(svc)
                 .await
@@ -475,8 +479,14 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
 mod e2e_tests {
     use std::collections::HashMap;
 
-    use hyper::{client::HttpConnector, http::uri, StatusCode, Version};
+    use bytes::Buf;
+    use http_body_util::BodyExt;
+    use hyper::{http::uri, StatusCode, Version};
     use hyper_rustls::HttpsConnector;
+    use hyper_util::{
+        client::legacy::{connect::HttpConnector, Client},
+        rt::{TokioExecutor, TokioTimer},
+    };
     use metrics_util::debugging::Snapshotter;
     use rustls::{
         client::danger::{ServerCertVerified, ServerCertVerifier},
@@ -504,7 +514,7 @@ mod e2e_tests {
         expected: &http_serde::echo::Request,
         scheme: uri::Scheme,
         authority: String,
-    ) -> hyper::Request<hyper::Body> {
+    ) -> hyper::Request<axum::body::Body> {
         expected
             .clone()
             .try_into_http_request(scheme, uri::Authority::try_from(authority).unwrap())
@@ -517,16 +527,18 @@ mod e2e_tests {
         let TestServer { addr, .. } = TestServer::builder().disable_https().build().await;
 
         // client
-        let client = hyper::Client::new();
+        let client = Client::builder(TokioExecutor::new())
+            .pool_timer(TokioTimer::new())
+            .build_http();
 
         // request
         let expected = expected_req(addr.to_string());
 
         let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
-        let resp = client.request(req).await.unwrap();
+        let mut resp = client.request(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let resp_body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        let resp_body: http_serde::echo::Request = serde_json::from_slice(&resp_body).unwrap();
+        let body = resp.body_mut().collect().await.unwrap().aggregate();
+        let resp_body: http_serde::echo::Request = serde_json::from_reader(body.reader()).unwrap();
         assert_eq!(expected, resp_body);
     }
 
@@ -590,15 +602,17 @@ mod e2e_tests {
         http.enforce_http(false);
 
         let https = HttpsConnector::<HttpConnector>::from((http, Arc::new(config)));
-        let client = hyper::Client::builder().build(https);
+        let client = Client::builder(TokioExecutor::new())
+            .pool_timer(TokioTimer::new())
+            .build(https);
 
         // request
         let expected = expected_req(authority.clone());
         let req = http_req(&expected, uri::Scheme::HTTPS, authority);
         let resp = client.request(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let resp_body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        let resp_body: http_serde::echo::Request = serde_json::from_slice(&resp_body).unwrap();
+        let body = resp.into_body().collect().await.unwrap().aggregate();
+        let resp_body: http_serde::echo::Request = serde_json::from_reader(body.reader()).unwrap();
         assert_eq!(expected, resp_body);
     }
 
@@ -619,7 +633,9 @@ mod e2e_tests {
             .await;
 
         // client
-        let client = hyper::Client::new();
+        let client = Client::builder(TokioExecutor::new())
+            .pool_timer(TokioTimer::new())
+            .build_http();
 
         // request
         let expected = expected_req(addr.to_string());
@@ -655,13 +671,18 @@ mod e2e_tests {
         let expected = expected_req(addr.to_string());
 
         // make HTTP/1.1 request
-        let client = hyper::Client::new();
+        let client = Client::builder(TokioExecutor::new())
+            .pool_timer(TokioTimer::new())
+            .build_http();
         let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
         let response = client.request(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         // make HTTP/2 request
-        let client = hyper::Client::builder().http2_only(true).build_http();
+        let client = Client::builder(TokioExecutor::new())
+            .pool_timer(TokioTimer::new())
+            .http2_only(true)
+            .build_http();
         let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
         let response = client.request(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -697,7 +718,10 @@ mod e2e_tests {
 
         let expected = expected_req(addr.to_string());
         let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
-        let response = client.request(req).await.unwrap();
+
+        let f = client.request(req);
+
+        let response = f.await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_eq!(

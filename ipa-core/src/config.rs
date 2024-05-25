@@ -8,7 +8,8 @@ use std::{
     time::Duration,
 };
 
-use hyper::{client::Builder, http::uri::Scheme, Uri};
+use hyper::{http::uri::Scheme, Uri};
+use hyper_util::client::legacy::Builder;
 use rustls_pemfile::Item;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -275,6 +276,10 @@ pub struct ServerConfig {
 
     /// Configuration needed for encrypting and decrypting match keys
     pub hpke_config: Option<HpkeServerConfig>,
+
+    // Sets the SETTINGS_MAX_CONCURRENT_STREAMS option for HTTP2 connections.
+    // [`hyper_util::server::conn::auto::Http2Builder::max_concurrent_streams`]
+    pub max_concurrent_stream: Option<u32>,
 }
 
 pub trait HyperClientConfigurator {

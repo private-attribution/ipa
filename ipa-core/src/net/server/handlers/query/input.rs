@@ -2,21 +2,16 @@ use axum::{extract::Path, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::QueryInput, routing::RouteId, Transport},
+    helpers::{query::QueryInput, routing::RouteId, BodyStream, Transport},
     net::{http_serde, Error, HttpTransport},
     protocol::QueryId,
     sync::Arc,
 };
 
-#[cfg(feature = "real-world-infra")]
-type WrappedBodyStream = crate::helpers::WrappedAxumBodyStream;
-#[cfg(feature = "in-memory-infra")]
-type WrappedBodyStream = crate::helpers::WrappedBoxBodyStream;
-
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
     Path(query_id): Path<QueryId>,
-    input_stream: WrappedBodyStream,
+    input_stream: BodyStream,
 ) -> Result<(), Error> {
     let query_input = QueryInput {
         query_id,
@@ -42,8 +37,11 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use axum::http::uri::{Authority, Scheme};
-    use hyper::{Body, StatusCode};
+    use axum::{
+        body::Body,
+        http::uri::{Authority, Scheme},
+    };
+    use hyper::StatusCode;
     use tokio::runtime::Handle;
 
     use crate::{
@@ -99,7 +97,7 @@ mod tests {
                 val.query_id
             );
             hyper::Request::post(uri)
-                .body(hyper::Body::from(val.input_stream))
+                .body(Body::from(val.input_stream))
                 .unwrap()
         }
     }
