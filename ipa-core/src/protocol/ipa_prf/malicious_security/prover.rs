@@ -216,14 +216,10 @@ mod test {
         // uv values in input format (iterator of tuples of GenericArrays of length 4)
         let uv_1 = zip_chunks(&U_1, &V_1);
         let uv_2 = zip_chunks(&U_2, &V_2);
-        let uv_3 = {
-            let u_chunk = [P_RANDOM_WEIGHT, U_3[0], U_3[1], U_3[2]];
-            let v_chunk = [Q_RANDOM_WEIGHT, V_3[0], V_3[1], V_3[2]];
-            vec![(
-                GenericArray::generate(|i| Fp31::try_from(u_chunk[i]).unwrap()),
-                GenericArray::generate(|i| Fp31::try_from(v_chunk[i]).unwrap()),
-            )]
-        };
+        let uv_3 = zip_chunks(
+            &[P_RANDOM_WEIGHT, U_3[0], U_3[1], U_3[2]],
+            &[Q_RANDOM_WEIGHT, V_3[0], V_3[1], V_3[2]],
+        );
 
         // first iteration
         let proof_1 = ProofGenerator::<Fp31, U4>::compute_proof(uv_1.iter(), &lagrange_table);
