@@ -38,7 +38,9 @@ where
     // and num_bernoulli is the number of Bernoulli samples to sum to get a sample from a Binomial
     // distribution with the desired epsilon, delta
     assert_eq!(num_histogram_bins, B as u32);
-    // add assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
+    // To ensure that the output value has enough bits to hold the sum without saturating (which would be insecure noise),
+    // add an assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
+    assert!(num_bernoulli.ilog2() < OV::BITS);
     let bits = 1;
     let mut vector_input_to_agg: Vec<_> = vec![];
     for i in 0..num_bernoulli {
@@ -108,7 +110,6 @@ mod test {
             assert!(result_u32[i] as f64 > mean - 5.0 * standard_deviation && (result_u32[i] as f64) < mean + 5.0 * standard_deviation);
         }
         println!("result as u32  {:?}", result_u32);
-
     }
 
 
