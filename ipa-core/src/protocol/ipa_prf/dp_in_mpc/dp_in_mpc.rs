@@ -83,7 +83,7 @@ mod test {
         let world = TestWorld::default();
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 16;
-        let num_bernoulli: u32 = 200000;
+        let num_bernoulli: u32 = 2000;
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -101,7 +101,12 @@ mod test {
         let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
         let result_reconstructed: Vec<OutputValue>  = result_type_confirm.reconstruct();
         let result_u32: Vec<u32> = result_reconstructed.iter().map(|&v| u32::try_from(v.as_u128()).unwrap()).collect::<Vec<_>>();
-        // println!("result  {:?}", result_reconstructed);
+        let mean : f64 = num_bernoulli as f64 * 0.5; // n * p
+        let standard_deviation : f64 = (num_bernoulli as f64 * 0.5 * 0.5 ).sqrt(); //  sqrt(n * (p) * (1-p))
+        assert_eq!(NUM_BREAKDOWNS as usize,result_u32.len());
+        for i in 0..result_u32.len(){
+            assert!(result_u32[i] as f64 > mean - 5.0 * standard_deviation && (result_u32[i] as f64) < mean + 5.0 * standard_deviation);
+        }
         println!("result as u32  {:?}", result_u32);
 
     }
