@@ -107,8 +107,6 @@ mod test {
     use crate::ff::{Fp31, PrimeField, U128Conversions};
 
     fn make_chunks<F: PrimeField, const N: usize>(a: &[u128]) -> Vec<[F; N]>
-    where
-        F: PrimeField,
     {
         a.chunks(N)
             .map(|chunk| <[u128; N]>::try_from(chunk).unwrap().map(F::truncate_from))

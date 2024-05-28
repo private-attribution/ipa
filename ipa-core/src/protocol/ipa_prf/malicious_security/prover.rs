@@ -23,8 +23,8 @@ where
 {
     let mut proof = [F::ZERO; P];
     for uv_polynomial in uv_iterator {
-        for i in 0..λ {
-            proof[i] += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
+        for (i,proof_part) in proof.iter_mut().enumerate() {
+            *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
         }
         let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
         let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
@@ -96,15 +96,15 @@ impl TestProofGenerator {
     }
 
     pub fn gen_challenge_and_recurse<J, B>(
-        proof_left: &[Fp31; 7],
-        proof_right: &[Fp31; 7],
+        proof_left: [Fp31; 7],
+        proof_right: [Fp31; 7],
         uv_iterator: J,
     ) -> Vec<([Fp31; 4], [Fp31; 4])>
     where
         J: Iterator<Item = B>,
         B: Borrow<([Fp31; 4], [Fp31; 4])>,
     {
-        gen_challenge_and_recurse_generic::<Fp31, J, B, 4, 7>(proof_left, proof_right, uv_iterator)
+        gen_challenge_and_recurse_generic::<Fp31, J, B, 4, 7>(&proof_left, &proof_right, uv_iterator)
     }
 }
 
@@ -215,8 +215,8 @@ mod test {
 
         // fiat-shamir
         let uv_2 = TestProofGenerator::gen_challenge_and_recurse(
-            &proof_left_1,
-            &proof_right_1,
+            proof_left_1,
+            proof_right_1,
             uv_1.iter(),
         );
         assert_eq!(uv_2, zip_chunks(&U_2, &V_2));
@@ -239,8 +239,8 @@ mod test {
 
         // fiat-shamir
         let uv_3 = TestProofGenerator::gen_challenge_and_recurse(
-            &proof_left_2,
-            &proof_right_2,
+            proof_left_2,
+            proof_right_2,
             uv_2.iter(),
         );
         assert_eq!(uv_3, zip_chunks(&U_3[..], &V_3[..]));
