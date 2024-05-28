@@ -7,7 +7,7 @@ use crate::{
     },
 };
 
-#[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
 pub struct ProofVerifier<F: PrimeField, const λ: usize> {
     u_or_v: Vec<[F; λ]>,
     out_share: F,
@@ -17,7 +17,7 @@ pub struct ProofVerifier<F: PrimeField, const λ: usize> {
 /// Distributed Zero Knowledge Proofs algorithm drawn from
 /// `https://eprint.iacr.org/2023/909.pdf`
 ///
-#[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
 impl<F, const λ: usize> ProofVerifier<F, λ>
 where
     F: PrimeField,
@@ -106,22 +106,13 @@ mod test {
     use super::ProofVerifier;
     use crate::ff::{Fp31, PrimeField, U128Conversions};
 
-    fn make_chunks<F: PrimeField, const N: usize>(a: &[u128]) -> Vec<[F; N]> {
-        a.chunks(N)
-            .map(|chunk| u128_array_to_field_array(chunk.try_into().unwrap()))
-            .collect::<Vec<_>>()
-    }
-
-    fn u128_array_to_field_array<F, const N: usize>(input: [u128; N]) -> [F; N]
+    fn make_chunks<F: PrimeField, const N: usize>(a: &[u128]) -> Vec<[F; N]>
     where
         F: PrimeField,
     {
-        input
-            .iter()
-            .map(|&x| F::truncate_from(x))
-            .collect::<Vec<F>>()
-            .try_into()
-            .unwrap()
+        a.chunks(N)
+            .map(|chunk| <[u128;N]>::try_from(chunk).unwrap().map(F::truncate_from))
+            .collect::<Vec<_>>()
     }
 
     #[test]
@@ -156,7 +147,7 @@ mod test {
         let u_1 = make_chunks(&U_1);
 
         // first iteration
-        let zkp_1 = u128_array_to_field_array(ZKP_1);
+        let zkp_1 = ZKP_1.map(Fp31::truncate_from);
 
         let (b_share_1, pv_2) = ProofVerifier::<_, 4>::verify_proof(
             u_1.iter(),
@@ -169,7 +160,7 @@ mod test {
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
-        let zkp_2 = u128_array_to_field_array(ZKP_2);
+        let zkp_2 = ZKP_2.map(Fp31::truncate_from);
 
         let (b_share_2, pv_3) = ProofVerifier::<_, 4>::verify_proof(
             pv_2.u_or_v.iter(),
@@ -188,7 +179,7 @@ mod test {
         assert_eq!(pv_3_u2.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
-        let zkp_3 = u128_array_to_field_array(ZKP_3);
+        let zkp_3 = ZKP_3.map(Fp31::truncate_from);
 
         let (p_final, out_share) = pv_3_u2.verify_final_proof::<5, 3>(
             &zkp_3,
@@ -232,7 +223,7 @@ mod test {
         let v_1 = make_chunks(&V_1);
 
         // first iteration
-        let zkp_1 = u128_array_to_field_array(ZKP_1);
+        let zkp_1 = ZKP_1.map(Fp31::truncate_from);
 
         let (b_share_1, pv_2) = ProofVerifier::<_, 4>::verify_proof(
             v_1.iter(),
@@ -245,7 +236,7 @@ mod test {
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
-        let zkp_2 = u128_array_to_field_array(ZKP_2);
+        let zkp_2 = ZKP_2.map(Fp31::truncate_from);
 
         let (b_share_2, pv_3) = ProofVerifier::<_, 4>::verify_proof(
             pv_2.u_or_v.iter(),
@@ -264,7 +255,7 @@ mod test {
         assert_eq!(pv_3.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
-        let zkp_3 = u128_array_to_field_array(ZKP_3);
+        let zkp_3 = ZKP_3.map(Fp31::truncate_from);
 
         let (q_final, out_share) = pv_3_u2.verify_final_proof::<5, 3>(
             &zkp_3,

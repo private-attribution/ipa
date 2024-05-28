@@ -11,7 +11,7 @@ use crate::{
 ///
 /// Distributed Zero Knowledge Proofs algorithm drawn from
 /// `https://eprint.iacr.org/2023/909.pdf`
-#[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
 fn compute_proof_generic<F, J, B, const λ: usize, const P: usize, const M: usize>(
     uv_iterator: J,
     lagrange_table: &LagrangeTable<F, λ, M>,
@@ -36,7 +36,7 @@ where
     proof
 }
 
-#[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
 fn gen_challenge_and_recurse_generic<F, J, B, const λ: usize, const P: usize>(
     proof_left: &[F; P],
     proof_right: &[F; P],
@@ -206,7 +206,7 @@ mod test {
 
         // ZKP is secret-shared into two pieces
         // proof_left comes from PRSS
-        let proof_left_1: [Fp31; 7] = PROOF_LEFT_1.map(|x| Fp31::truncate_from(x));
+        let proof_left_1: [Fp31; 7] = PROOF_LEFT_1.map(Fp31::truncate_from);
         let proof_right_1: [Fp31; 7] = zip(proof_1, proof_left_1)
             .map(|(x, y)| x - y)
             .collect::<Vec<_>>()
@@ -230,7 +230,7 @@ mod test {
 
         // ZKP is secret-shared into two pieces
         // proof_left comes from PRSS
-        let proof_left_2: [Fp31; 7] = PROOF_LEFT_2.map(|x| Fp31::truncate_from(x));
+        let proof_left_2: [Fp31; 7] = PROOF_LEFT_2.map(Fp31::truncate_from);
         let proof_right_2 = zip(proof_2, proof_left_2)
             .map(|(x, y)| x - y)
             .collect::<Vec<_>>()
