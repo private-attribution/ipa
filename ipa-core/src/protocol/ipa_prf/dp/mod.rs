@@ -26,11 +26,11 @@ pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
     num_bernoulli: u32,
     num_histogram_bins: u32,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-    where
-        Boolean: Vectorizable<B> + FieldSimd<B>,
-        BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
-        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-        Replicated<Boolean, B>:
+where
+    Boolean: Vectorizable<B> + FieldSimd<B>,
+    BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
+    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
     // Step 1:  Generate Bernoulli's with PRSS
@@ -61,24 +61,13 @@ pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA8},
+        ff::{boolean::Boolean, boolean_array::BA16, U128Conversions},
         protocol::ipa_prf::dp::gen_binomial_noise,
-        secret_sharing::BitDecomposed,
-        test_fixture::{ReconstructArr, Runner, TestWorld},
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+        },
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use crate::ff::boolean_array::{BA16, BA32};
-    use crate::ff::U128Conversions;
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-    use crate::secret_sharing::{StdArray, TransposeFrom};
-    use crate::test_fixture::Reconstruct;
-
-    fn input_row<const B: usize>(bit_width: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
-        let values = <&[u32; B]>::try_from(values).unwrap();
-
-        BitDecomposed::decompose(bit_width, |i| {
-            values.map(|v| Boolean::from((v >> i) & 1 == 1))
-        })
-    }
 
     #[tokio::test]
     pub async fn test_16_breakdowns() {
@@ -94,20 +83,26 @@ mod test {
                         num_bernoulli,
                         NUM_BREAKDOWNS,
                     )
-                        .await
-                        .unwrap()
+                    .await
+                    .unwrap(),
                 )
             })
             .await
             .map(Result::unwrap);
         let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue>  = result_type_confirm.reconstruct();
-        let result_u32: Vec<u32> = result_reconstructed.iter().map(|&v| u32::try_from(v.as_u128()).unwrap()).collect::<Vec<_>>();
-        let mean : f64 = num_bernoulli as f64 * 0.5; // n * p
-        let standard_deviation : f64 = (num_bernoulli as f64 * 0.5 * 0.5 ).sqrt(); //  sqrt(n * (p) * (1-p))
-        assert_eq!(NUM_BREAKDOWNS as usize,result_u32.len());
-        for i in 0..result_u32.len(){
-            assert!(result_u32[i] as f64 > mean - 5.0 * standard_deviation && (result_u32[i] as f64) < mean + 5.0 * standard_deviation);
+        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed
+            .iter()
+            .map(|&v| u32::try_from(v.as_u128()).unwrap())
+            .collect::<Vec<_>>();
+        let mean: f64 = num_bernoulli as f64 * 0.5; // n * p
+        let standard_deviation: f64 = (num_bernoulli as f64 * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+        assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
+        for i in 0..result_u32.len() {
+            assert!(
+                result_u32[i] as f64 > mean - 5.0 * standard_deviation
+                    && (result_u32[i] as f64) < mean + 5.0 * standard_deviation
+            );
         }
         println!("result as u32  {:?}", result_u32);
     }
@@ -126,20 +121,26 @@ mod test {
                         num_bernoulli,
                         NUM_BREAKDOWNS,
                     )
-                        .await
-                        .unwrap()
+                    .await
+                    .unwrap(),
                 )
             })
             .await
             .map(Result::unwrap);
         let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue>  = result_type_confirm.reconstruct();
-        let result_u32: Vec<u32> = result_reconstructed.iter().map(|&v| u32::try_from(v.as_u128()).unwrap()).collect::<Vec<_>>();
-        let mean : f64 = num_bernoulli as f64 * 0.5; // n * p
-        let standard_deviation : f64 = (num_bernoulli as f64 * 0.5 * 0.5 ).sqrt(); //  sqrt(n * (p) * (1-p))
-        assert_eq!(NUM_BREAKDOWNS as usize,result_u32.len());
-        for i in 0..result_u32.len(){
-            assert!(result_u32[i] as f64 > mean - 5.0 * standard_deviation && (result_u32[i] as f64) < mean + 5.0 * standard_deviation);
+        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed
+            .iter()
+            .map(|&v| u32::try_from(v.as_u128()).unwrap())
+            .collect::<Vec<_>>();
+        let mean: f64 = num_bernoulli as f64 * 0.5; // n * p
+        let standard_deviation: f64 = (num_bernoulli as f64 * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+        assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
+        for i in 0..result_u32.len() {
+            assert!(
+                result_u32[i] as f64 > mean - 5.0 * standard_deviation
+                    && (result_u32[i] as f64) < mean + 5.0 * standard_deviation
+            );
         }
         println!("result as u32  {:?}", result_u32);
     }
@@ -158,25 +159,27 @@ mod test {
                         num_bernoulli,
                         NUM_BREAKDOWNS,
                     )
-                        .await
-                        .unwrap()
+                    .await
+                    .unwrap(),
                 )
             })
             .await
             .map(Result::unwrap);
         let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue>  = result_type_confirm.reconstruct();
-        let result_u32: Vec<u32> = result_reconstructed.iter().map(|&v| u32::try_from(v.as_u128()).unwrap()).collect::<Vec<_>>();
-        let mean : f64 = num_bernoulli as f64 * 0.5; // n * p
-        let standard_deviation : f64 = (num_bernoulli as f64 * 0.5 * 0.5 ).sqrt(); //  sqrt(n * (p) * (1-p))
-        assert_eq!(NUM_BREAKDOWNS as usize,result_u32.len());
-        for i in 0..result_u32.len(){
-            assert!(result_u32[i] as f64 > mean - 5.0 * standard_deviation && (result_u32[i] as f64) < mean + 5.0 * standard_deviation);
+        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed
+            .iter()
+            .map(|&v| u32::try_from(v.as_u128()).unwrap())
+            .collect::<Vec<_>>();
+        let mean: f64 = num_bernoulli as f64 * 0.5; // n * p
+        let standard_deviation: f64 = (num_bernoulli as f64 * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+        assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
+        for i in 0..result_u32.len() {
+            assert!(
+                result_u32[i] as f64 > mean - 5.0 * standard_deviation
+                    && (result_u32[i] as f64) < mean + 5.0 * standard_deviation
+            );
         }
         println!("result as u32  {:?}", result_u32);
     }
-
-
-
-
 }
