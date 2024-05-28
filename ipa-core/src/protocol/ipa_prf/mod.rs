@@ -42,7 +42,7 @@ pub(crate) mod aggregation;
 pub mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
-pub mod dp_in_mpc;
+pub mod dp;
 
 
 #[cfg(all(test, unit_test))]

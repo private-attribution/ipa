@@ -26,11 +26,11 @@ pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
     num_bernoulli: u32,
     num_histogram_bins: u32,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-where
-    Boolean: Vectorizable<B> + FieldSimd<B>,
-    BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<Boolean, B>:
+    where
+        Boolean: Vectorizable<B> + FieldSimd<B>,
+        BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
+        OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
     // Step 1:  Generate Bernoulli's with PRSS
@@ -62,7 +62,7 @@ where
 mod test {
     use crate::{
         ff::{boolean::Boolean, boolean_array::BA8},
-        protocol::ipa_prf::dp_in_mpc::dp_in_mpc::gen_binomial_noise,
+        protocol::ipa_prf::dp::gen_binomial_noise,
         secret_sharing::BitDecomposed,
         test_fixture::{ReconstructArr, Runner, TestWorld},
     };
@@ -94,8 +94,8 @@ mod test {
                         num_bernoulli,
                         NUM_BREAKDOWNS,
                     )
-                    .await
-                    .unwrap()
+                        .await
+                        .unwrap()
                 )
             })
             .await
