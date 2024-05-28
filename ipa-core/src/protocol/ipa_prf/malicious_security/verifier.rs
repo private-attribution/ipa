@@ -106,8 +106,7 @@ mod test {
     use super::ProofVerifier;
     use crate::ff::{Fp31, PrimeField, U128Conversions};
 
-    fn make_chunks<F: PrimeField, const N: usize>(a: &[u128]) -> Vec<[F; N]>
-    {
+    fn make_chunks<F: PrimeField, const N: usize>(a: &[u128]) -> Vec<[F; N]> {
         a.chunks(N)
             .map(|chunk| <[u128; N]>::try_from(chunk).unwrap().map(F::truncate_from))
             .collect::<Vec<_>>()
