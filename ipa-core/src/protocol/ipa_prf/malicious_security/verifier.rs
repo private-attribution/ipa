@@ -38,7 +38,7 @@ where
     }
 
     pub fn verify_proof<J, B>(
-        mut u_or_v_iterator: J,
+        u_or_v_iterator: J,
         out_share: F,
         zkp: &ZeroKnowledgeProof<F, TwoNMinusOne<λ>>,
         r: F,
@@ -63,18 +63,24 @@ where
         let lagrange_table_p_or_q_r = LagrangeTable::<F, λ, U1>::new(&denominator_p_or_q, &r);
 
         let mut new_u_or_v_vec = Vec::<GenericArray<F, λ>>::new();
-        // iter over chunks of size λ
-        // and interpolate at x coordinate r
-        while let Some(polynomial) = u_or_v_iterator.next() {
-            let mut new_u_or_v = GenericArray::<F, λ>::generate(|_| F::ZERO);
-            new_u_or_v[0] = lagrange_table_p_or_q_r.eval(polynomial.borrow())[0];
-            for i in 1..λ::USIZE {
-                if let Some(polynomial) = u_or_v_iterator.next() {
-                    new_u_or_v[i] = lagrange_table_p_or_q_r.eval(polynomial.borrow())[0];
-                }
+
+        // iter and interpolate at x coordinate r
+        let mut index = 0;
+        let mut new_u_or_v_chunk = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        for polynomial in u_or_v_iterator {
+            let value_at_r = lagrange_table_p_or_q_r.eval(polynomial.borrow())[0];
+            if index >= λ::USIZE {
+                new_u_or_v_vec.push(new_u_or_v_chunk);
+                new_u_or_v_chunk = GenericArray::<F, λ>::generate(|_| F::ZERO);
+                index = 0;
             }
-            new_u_or_v_vec.push(new_u_or_v);
+            new_u_or_v_chunk[index] = value_at_r;
+            index += 1;
         }
+        if index > 0 {
+            new_u_or_v_vec.push(new_u_or_v_chunk);
+        }
+
         (
             b_share,
             ProofVerifier {
