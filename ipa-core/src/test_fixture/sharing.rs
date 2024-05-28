@@ -124,10 +124,10 @@ where
 
 impl<T, U, V, W> Reconstruct<(V, W)> for [(T, U); 3]
 where
-        for<'t> [&'t T; 3]: Reconstruct<V>,
-        for<'u> [&'u U; 3]: Reconstruct<W>,
-        V: Sized,
-        W: Sized,
+    for<'t> [&'t T; 3]: Reconstruct<V>,
+    for<'u> [&'u U; 3]: Reconstruct<W>,
+    V: Sized,
+    W: Sized,
 {
     fn reconstruct(&self) -> (V, W) {
         (
@@ -139,7 +139,7 @@ where
 
 impl<I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
 where
-        for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
+    for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.each_ref().reconstruct()
@@ -147,8 +147,8 @@ where
 }
 
 impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
-    where
-            for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+where
+        for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.map(Deref::deref).reconstruct()
@@ -157,7 +157,7 @@ impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
 
 impl<I, T> Reconstruct<BitDecomposed<T>> for [BitDecomposed<I>; 3]
 where
-        for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> BitDecomposed<T> {
         self.each_ref().reconstruct()
@@ -166,7 +166,7 @@ where
 
 impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
 where
-        for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> BitDecomposed<T> {
         BitDecomposed::new(self.map(Deref::deref).reconstruct())
@@ -175,7 +175,7 @@ where
 
 impl<I, T> Reconstruct<Vec<T>> for [&[I]; 3]
 where
-        for<'i> [&'i I; 3]: Reconstruct<T>,
+    for<'i> [&'i I; 3]: Reconstruct<T>,
 {
     fn reconstruct(&self) -> Vec<T> {
         assert_eq!(self[0].len(), self[1].len());
