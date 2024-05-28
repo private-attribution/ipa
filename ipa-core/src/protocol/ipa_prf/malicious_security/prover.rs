@@ -1,7 +1,5 @@
 use std::{borrow::Borrow, iter::zip};
 
-use typenum::U4;
-
 use crate::{
     ff::{Fp31, Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
@@ -10,17 +8,10 @@ use crate::{
     },
 };
 
-// #[allow(non_camel_case_types)]
-// #[derive(Debug)]
-// pub struct ProofGenerator<F: PrimeField, const λ: usize, const PROOF_SIZE: usize, const NUM_INTERPOLATED_POINTS: usize>
-// {
-//     uv: Vec<([F; λ], [F; λ])>,
-// }
-
 ///
 /// Distributed Zero Knowledge Proofs algorithm drawn from
 /// `https://eprint.iacr.org/2023/909.pdf`
-///
+#[allow(non_camel_case_types)]
 fn compute_proof_generic<F, J, B, const λ: usize, const P: usize, const M: usize>(
     uv_iterator: J,
     lagrange_table: &LagrangeTable<F, λ, M>,
@@ -45,6 +36,7 @@ where
     proof
 }
 
+#[allow(non_camel_case_types)]
 fn gen_challenge_and_recurse_generic<F, J, B, const λ: usize, const P: usize>(
     proof_left: &[F; P],
     proof_right: &[F; P],
@@ -116,8 +108,10 @@ impl TestProofGenerator {
     }
 }
 
+#[allow(dead_code)]
 pub struct LegitProofGenerator {}
 
+#[allow(dead_code)]
 impl LegitProofGenerator {
     pub fn compute_proof<J, B>(
         uv_iterator: J,

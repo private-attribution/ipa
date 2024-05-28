@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, fmt::Debug};
 
-use typenum::{Unsigned, U1};
+use typenum::Unsigned;
 
 use crate::ff::{Field, PrimeField, Serializable};
 
@@ -25,7 +25,7 @@ where
         // assertion that field is large enough
         // when it is large enough, `F::try_from().unwrap()` below does not panic
         assert!(
-            N.try_into().unwrap() < u128::from(F::PRIME),
+            u128::try_from(N).unwrap() < u128::try_from(F::PRIME).unwrap(),
             "Field size {} is not large enough to hold {} points",
             F::PRIME.into(),
             N
@@ -35,9 +35,9 @@ where
         assert!(<F as Serializable>::Size::USIZE * N < 2024);
 
         Self {
-            denominator: (0..N)
+            denominator: (0u128..N.try_into().unwrap())
                 .map(|i| {
-                    (0..N)
+                    (0u128..N.try_into().unwrap())
                         .filter(|&j| i != j)
                         .map(|j| F::try_from(i).unwrap() - F::try_from(j).unwrap())
                         .fold(F::ONE, |acc, a| acc * a)
@@ -78,7 +78,7 @@ where
         assert!(<F as Serializable>::Size::USIZE * N < 2024);
 
         let table = Self::compute_table_row(x_output, denominator);
-        LagrangeTable::<F, N, U1> { table: [table; 1] }
+        LagrangeTable::<F, N, 1> { table: [table; 1] }
     }
 }
 
@@ -106,7 +106,9 @@ where
                     .zip(y_coordinates)
                     .fold(F::ZERO, |acc, (&base, y)| acc + base * (*y.borrow()))
             })
-            .collect()
+            .collect::<Vec<F>>()
+            .try_into()
+            .unwrap()
     }
 
     /// helper function to compute a single row of `LagrangeTable`
@@ -118,15 +120,17 @@ where
         F: Field + TryFrom<u128>,
         <F as TryFrom<u128>>::Error: Debug,
     {
-        (0..N)
+        (0u128..N.try_into().unwrap())
             .map(|i| {
-                (0..N)
+                (0u128..N.try_into().unwrap())
                     .filter(|&j| j != i)
                     .fold(F::ONE, |acc, j| acc * (*x_output - F::try_from(j).unwrap()))
             })
             .zip(&denominator.denominator)
             .map(|(numerator, denominator)| *denominator * numerator)
-            .collect()
+            .collect::<Vec<F>>()
+            .try_into()
+            .unwrap()
     }
 }
 
@@ -139,7 +143,7 @@ where
         // assertion that field is large enough
         // when it is large enough, `F::try_from().unwrap()` below does not panic
         assert!(
-            (N + M).try_into().unwrap() < u128::from(F::PRIME),
+            u128::try_from(N + M).unwrap() < u128::try_from(F::PRIME).unwrap(),
             "Field size {} is not large enough to hold {} + {} points",
             F::PRIME.into(),
             N,
@@ -154,7 +158,9 @@ where
                 .map(|i| {
                     Self::compute_table_row(&F::try_from(i.try_into().unwrap()).unwrap(), &value)
                 })
-                .collect(),
+                .collect::<Vec<[F; N]>>()
+                .try_into()
+                .unwrap(),
         }
     }
 }
@@ -164,7 +170,6 @@ mod test {
     use std::{borrow::Borrow, fmt::Debug};
 
     use proptest::{prelude::*, proptest};
-    use typenum::{U1, U32, U7, U8};
 
     use crate::{
         ff::PrimeField,
@@ -186,8 +191,7 @@ mod test {
     {
         fn gen_y_values_of_canonical_points(self) -> [F; N] {
             // Sadly, we cannot just use the range (0..N::U128) because it does not implement ExactSizeIterator
-            let canonical_points =
-                (0..N::USIZE).map(|i| F::try_from(u128::try_from(i).unwrap()).unwrap());
+            let canonical_points = (0..N).map(|i| F::try_from(u128::try_from(i).unwrap()).unwrap());
             self.eval(canonical_points)
         }
 
@@ -212,7 +216,9 @@ mod test {
                         });
                     y
                 })
-                .collect()
+                .collect::<Vec<F>>()
+                .try_into()
+                .unwrap()
         }
     }
 
@@ -224,9 +230,9 @@ mod test {
             coefficients: input_points,
         };
         let output_expected = polynomial_monomial_form.eval(&[output_point]);
-        let denominator = CanonicalLagrangeDenominator::<TestField, U32>::new();
+        let denominator = CanonicalLagrangeDenominator::<TestField, 32>::new();
         // generate table using new
-        let lagrange_table = LagrangeTable::<TestField, U32, U1>::new(&denominator, &output_point);
+        let lagrange_table = LagrangeTable::<TestField, 32, 1>::new(&denominator, &output_point);
         let output =
             lagrange_table.eval(&polynomial_monomial_form.gen_y_values_of_canonical_points());
         assert_eq!(output, output_expected);
@@ -247,9 +253,9 @@ mod test {
         let x_coordinates_output =
             (0..7).map(|i| TestField::try_from(u128::try_from(i).unwrap() + 8).unwrap());
         let output_expected = polynomial_monomial_form.eval(x_coordinates_output);
-        let denominator = CanonicalLagrangeDenominator::<TestField, U8>::new();
+        let denominator = CanonicalLagrangeDenominator::<TestField, 8>::new();
         // generate table using from
-        let lagrange_table = LagrangeTable::<TestField, U8, U7>::from(denominator);
+        let lagrange_table = LagrangeTable::<TestField, 8, 7>::from(denominator);
         let output =
             lagrange_table.eval(&polynomial_monomial_form.gen_y_values_of_canonical_points());
         assert_eq!(output, output_expected);
