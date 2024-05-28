@@ -92,7 +92,10 @@ where
 pub struct TestProofGenerator {}
 
 impl TestProofGenerator {
-    pub fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<Fp31, 4, 3>) -> [Fp31; 7]
+    pub fn compute_proof<J, B>(
+        uv_iterator: J,
+        lagrange_table: &LagrangeTable<Fp31, 4, 3>,
+    ) -> [Fp31; 7]
     where
         J: Iterator<Item = B>,
         B: Borrow<([Fp31; 4], [Fp31; 4])>,
@@ -116,7 +119,10 @@ impl TestProofGenerator {
 pub struct LegitProofGenerator {}
 
 impl LegitProofGenerator {
-    pub fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<Fp61BitPrime, 32, 31>) -> [Fp61BitPrime; 63]
+    pub fn compute_proof<J, B>(
+        uv_iterator: J,
+        lagrange_table: &LagrangeTable<Fp61BitPrime, 32, 31>,
+    ) -> [Fp61BitPrime; 63]
     where
         J: Iterator<Item = B>,
         B: Borrow<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>,
@@ -133,7 +139,11 @@ impl LegitProofGenerator {
         J: Iterator<Item = B>,
         B: Borrow<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>,
     {
-        gen_challenge_and_recurse_generic::<Fp61BitPrime, J, B, 32, 63>(proof_left, proof_right, uv_iterator)
+        gen_challenge_and_recurse_generic::<Fp61BitPrime, J, B, 32, 63>(
+            proof_left,
+            proof_right,
+            uv_iterator,
+        )
     }
 }
 
@@ -143,9 +153,10 @@ mod test {
 
     use crate::{
         ff::{Fp31, PrimeField, U128Conversions},
-        protocol::ipa_prf::malicious_security::{lagrange::{
-            CanonicalLagrangeDenominator, LagrangeTable,
-        }, prover::TestProofGenerator},
+        protocol::ipa_prf::malicious_security::{
+            lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+            prover::TestProofGenerator,
+        },
     };
 
     fn zip_chunks<F: PrimeField, const U: usize>(a: &[u128], b: &[u128]) -> Vec<([F; U], [F; U])> {
@@ -246,8 +257,7 @@ mod test {
         );
 
         // final iteration
-        let proof_3 =
-            TestProofGenerator::compute_proof(masked_uv_3.iter(), &lagrange_table);
+        let proof_3 = TestProofGenerator::compute_proof(masked_uv_3.iter(), &lagrange_table);
         assert_eq!(
             proof_3.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_3,

@@ -44,7 +44,8 @@ where
                         .invert()
                 })
                 .collect::<Vec<_>>()
-                .try_into().unwrap(),
+                .try_into()
+                .unwrap(),
         }
     }
 }
