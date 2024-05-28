@@ -148,7 +148,7 @@ where
 
 impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
 where
-        for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.map(Deref::deref).reconstruct()
