@@ -141,7 +141,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         disable_https: args.disable_https,
         tls: server_tls,
         hpke_config: mk_encryption,
-        max_concurrent_stream: Some(1000),
+        max_concurrent_stream: Some(5000),
     };
 
     let scheme = if args.disable_https {
