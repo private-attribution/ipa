@@ -122,14 +122,20 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use generic_array::GenericArray;
+    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
     use typenum::{U2, U4, U5, U7};
 
     use super::ProofVerifier;
     use crate::{
-        ff::{Fp31, U128Conversions},
+        ff::{Fp31, PrimeField, U128Conversions},
         protocol::ipa_prf::malicious_security::prover::ZeroKnowledgeProof,
     };
+
+    fn make_chunks<F: PrimeField, U: ArrayLength>(a: &[u128]) -> Vec<GenericArray<F, U>> {
+        a.chunks(U::USIZE)
+            .map(|chunk| GenericArray::generate(|i| F::try_from(chunk[i]).unwrap()))
+            .collect::<Vec<_>>()
+    }
 
     #[test]
     fn sample_proof_u() {
@@ -159,16 +165,8 @@ mod test {
         const EXPECTED_P_FINAL: u128 = 30;
         const EXPECTED_G_R_FINAL: u128 = 0;
 
-        // convert to field
-        let vec_u_1 = U_1
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-
         // uv values in input format
-        let u_1 = (0usize..8)
-            .map(|i| *GenericArray::<Fp31, U4>::from_slice(&vec_u_1[4 * i..4 * i + 4]))
-            .collect::<Vec<_>>();
+        let u_1 = make_chunks(&U_1);
 
         // first iteration
         let zkp_1 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
@@ -180,14 +178,7 @@ mod test {
             Fp31::try_from(R_1).unwrap(),
         );
         assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
-        assert_eq!(
-            pv_2.u_or_v
-                .iter()
-                .flat_map(|array| array.iter())
-                .map(Fp31::as_u128)
-                .collect::<Vec<_>>(),
-            U_2,
-        );
+        assert_eq!(pv_2.u_or_v, make_chunks(&U_2));
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
@@ -206,15 +197,7 @@ mod test {
         let pv_3_u2 = ProofVerifier::<Fp31, U2>::new(vec![u_or_v; 1], pv_3.out_share);
 
         assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
-        assert_eq!(
-            pv_3_u2
-                .u_or_v
-                .iter()
-                .flat_map(|array| array.iter())
-                .map(Fp31::as_u128)
-                .collect::<Vec<_>>(),
-            U_3,
-        );
+        assert_eq!(pv_3_u2.u_or_v, make_chunks(&U_3));
         assert_eq!(pv_3_u2.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
@@ -258,16 +241,9 @@ mod test {
         const EXPECTED_Q_FINAL: u128 = 12;
         const EXPECTED_G_R_FINAL: u128 = 19;
 
-        // convert to field
-        let vec_v_1 = V_1
-            .into_iter()
-            .map(|x| Fp31::try_from(x).unwrap())
-            .collect::<Vec<_>>();
-
         // uv values in input format
-        let v_1 = (0usize..8)
-            .map(|i| *GenericArray::<Fp31, U4>::from_slice(&vec_v_1[4 * i..4 * i + 4]))
-            .collect::<Vec<_>>();
+        let v_1 = make_chunks(&V_1);
+
         // first iteration
         let zkp_1 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
 
@@ -278,14 +254,7 @@ mod test {
             Fp31::try_from(R_1).unwrap(),
         );
         assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
-        assert_eq!(
-            pv_2.u_or_v
-                .iter()
-                .flat_map(|array| array.iter())
-                .map(Fp31::as_u128)
-                .collect::<Vec<_>>(),
-            V_2,
-        );
+        assert_eq!(pv_2.u_or_v, make_chunks(&V_2));
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
@@ -304,15 +273,7 @@ mod test {
         let pv_3_u2 = ProofVerifier::<Fp31, U2>::new(vec![u_or_v; 1], pv_3.out_share);
 
         assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
-        assert_eq!(
-            pv_3_u2
-                .u_or_v
-                .iter()
-                .flat_map(|array| array.iter())
-                .map(Fp31::as_u128)
-                .collect::<Vec<_>>(),
-            V_3,
-        );
+        assert_eq!(pv_3_u2.u_or_v, make_chunks(&V_3));
         assert_eq!(pv_3.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
