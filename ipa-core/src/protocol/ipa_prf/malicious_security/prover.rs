@@ -23,7 +23,7 @@ where
 {
     let mut proof = [F::ZERO; P];
     for uv_polynomial in uv_iterator {
-        for (i, proof_part) in proof.iter_mut().enumerate() {
+        for (i, proof_part) in proof.iter_mut().enumerate().take(λ) {
             *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
         }
         let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
