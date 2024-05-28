@@ -111,7 +111,7 @@ mod test {
         F: PrimeField,
     {
         a.chunks(N)
-            .map(|chunk| <[u128;N]>::try_from(chunk).unwrap().map(F::truncate_from))
+            .map(|chunk| <[u128; N]>::try_from(chunk).unwrap().map(F::truncate_from))
             .collect::<Vec<_>>()
     }
 
