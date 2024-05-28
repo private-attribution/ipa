@@ -231,7 +231,7 @@ where
         async move {
             server
                 // TODO: configuration
-                .http_config(HttpConfig::default())
+                .http_config(HttpConfig::default().http2_initial_connection_window_size(Some(i32::MAX as u32)).build())
                 .handle(handle)
                 .serve(svc)
                 .await

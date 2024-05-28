@@ -417,6 +417,7 @@ impl HyperClientConfigurator for Http2Configurator {
         client_builder
             .http2_only(true)
             .http2_keep_alive_interval(self.ping_interval)
+            .http2_initial_connection_window_size(Some(i32::MAX as u32))
     }
 }
 
