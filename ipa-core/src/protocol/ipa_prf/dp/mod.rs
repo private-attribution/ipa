@@ -2,7 +2,6 @@
 
 use futures_util::{stream, StreamExt};
 
-// use ipa_macros::Step;
 use crate::ff::{CustomArray, U128Conversions};
 use crate::{
     error::Error,
@@ -24,7 +23,6 @@ use crate::{
 pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     num_bernoulli: u32,
-    num_histogram_bins: u32,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     Boolean: Vectorizable<B> + FieldSimd<B>,
@@ -37,10 +35,9 @@ where
     // sample a stream of `total_bits = num_bernoulli * B` bit from PRSS where B is number of histogram bins
     // and num_bernoulli is the number of Bernoulli samples to sum to get a sample from a Binomial
     // distribution with the desired epsilon, delta
-    assert_eq!(num_histogram_bins, B as u32);
     // To ensure that the output value has enough bits to hold the sum without saturating (which would be insecure noise),
     // add an assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
-    assert!(num_bernoulli.ilog2() < OV::BITS);
+    assert!(num_bernoulli.ilog2() < OV::BITS, "not enough bits in output size for noise gen sum");
     let bits = 1;
     let mut vector_input_to_agg: Vec<_> = vec![];
     for i in 0..num_bernoulli {
@@ -61,27 +58,26 @@ where
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA16, U128Conversions},
+        ff::{boolean_array::BA16, U128Conversions},
         protocol::ipa_prf::dp::gen_binomial_noise,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+            replicated::semi_honest::AdditiveShare as Replicated, TransposeFrom,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     #[tokio::test]
     pub async fn test_16_breakdowns() {
-        let world = TestWorld::default();
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 16;
         let num_bernoulli: u32 = 2000;
+        let world = TestWorld::default();
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         num_bernoulli,
-                        NUM_BREAKDOWNS,
                     )
                     .await
                     .unwrap(),
@@ -119,7 +115,6 @@ mod test {
                     &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         num_bernoulli,
-                        NUM_BREAKDOWNS,
                     )
                     .await
                     .unwrap(),
@@ -150,14 +145,13 @@ mod test {
         let world = TestWorld::default();
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 256;
-        let num_bernoulli: u32 = 10000;
+        let num_bernoulli: u32 = 1000;
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
-                        num_bernoulli,
-                        NUM_BREAKDOWNS,
+                        num_bernoulli, 
                     )
                     .await
                     .unwrap(),
