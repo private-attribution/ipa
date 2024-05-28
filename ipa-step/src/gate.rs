@@ -7,7 +7,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse2, parse_str, Ident, Path};
 
-use crate::{name::GateName, CompactGateIndex, CompactStep};
+use crate::{hash::HashingSteps, name::GateName, CompactGateIndex, CompactStep};
 
 fn crate_path(p: &str) -> String {
     let Some((_, p)) = p.split_once("::") else {
@@ -54,50 +54,58 @@ pub fn build<S: CompactStep>() {
     };
     let name_maker = GateName::new(name);
     let gate_name = name_maker.name();
-
     let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join(name_maker.filename());
     println!("writing Gate implementation {gate_name} (for {step_name}) to {out:?}");
+    let gate_impl = compact_gate_impl::<S>(&gate_name);
+
+    write(out, prettyplease::unparse(&parse2(gate_impl).unwrap())).unwrap();
+}
+
+fn compact_gate_impl<S: CompactStep>(gate_name: &str) -> TokenStream {
+    let ident: Ident = parse_str(gate_name).unwrap();
 
     let mut step_narrows = HashMap::new();
     step_narrows.insert(std::any::type_name::<S>(), vec![0]); // Add the first step.
-    let mut as_ref_arms = TokenStream::new();
-    let mut from_arms = TokenStream::new();
 
-    let ident: Ident = parse_str(&gate_name).unwrap();
+    let step_count = usize::try_from(S::STEP_COUNT).unwrap();
+    // this is an array of gate names indexed by the compact gate index.
+    let mut gate_names = Vec::with_capacity(step_count);
+    // builds a lookup table for steps to resolve them to the compact gate index.
+    let mut step_hasher = HashingSteps::new(&ident);
+
     for i in 1..=S::STEP_COUNT {
         let s = String::from("/") + &S::step_string(i - 1);
-        as_ref_arms.extend(quote! {
-            #i => #s,
-        });
-        from_arms.extend(quote! {
-            #s => Ok(#ident(#i)),
-        });
+        step_hasher.hash(&s, i);
+        gate_names.push(s);
+
         if let Some(t) = S::step_narrow_type(i - 1) {
             step_narrows.entry(t).or_insert_with(Vec::new).push(i);
         }
     }
 
     let from_panic = format!("unknown string for {gate_name}: \"{{s}}\"");
+    let gate_lookup_type = step_hasher.lookup_type();
     let mut syntax = quote! {
+
+        static STR_LOOKUP: [&str; #step_count] = [#(#gate_names),*];
+        static GATE_LOOKUP: #gate_lookup_type = #step_hasher
+
         impl ::std::convert::AsRef<str> for #ident {
-            #[allow(clippy::too_many_lines)]
             fn as_ref(&self) -> &str {
-                match self.0 {
+                match usize::try_from(self.0).unwrap() {
                     0 => "/",
-                    #as_ref_arms
-                    _ => unreachable!(),
+                    i => STR_LOOKUP[i - 1],
                 }
             }
         }
 
         impl ::std::str::FromStr for #ident {
             type Err = String;
-            #[allow(clippy::too_many_lines)]
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
-                    "/" => Ok(Self::default()),
-                    #from_arms
-                    _ => Err(format!(#from_panic)),
+                if s == "/" {
+                    Ok(Self::default())
+                } else {
+                    GATE_LOOKUP.find(s).map(#ident).ok_or_else(|| format!(#from_panic))
                 }
             }
         }
@@ -108,7 +116,40 @@ pub fn build<S: CompactStep>() {
             }
         }
     };
-    build_narrows(&ident, &gate_name, step_narrows, &mut syntax);
+    build_narrows(&ident, gate_name, step_narrows, &mut syntax);
 
-    write(out, prettyplease::unparse(&parse2(syntax).unwrap())).unwrap();
+    syntax
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{CompactGateIndex, CompactStep, Step};
+
+    struct HashCollision;
+
+    impl Step for HashCollision {}
+
+    impl AsRef<str> for HashCollision {
+        fn as_ref(&self) -> &str {
+            std::any::type_name::<Self>()
+        }
+    }
+
+    impl CompactStep for HashCollision {
+        const STEP_COUNT: CompactGateIndex = 2;
+
+        fn base_index(&self) -> CompactGateIndex {
+            0
+        }
+
+        fn step_string(_i: CompactGateIndex) -> String {
+            "same-step".to_string()
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Hash collision for /same-step")]
+    fn panics_on_hash_collision() {
+        super::compact_gate_impl::<HashCollision>("Gate");
+    }
 }
