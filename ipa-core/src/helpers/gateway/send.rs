@@ -1,5 +1,6 @@
 use std::{
     borrow::Borrow,
+    fmt::Debug,
     marker::PhantomData,
     num::NonZeroUsize,
     pin::Pin,
@@ -240,9 +241,10 @@ impl<I: TransportIdentity> GatewaySenders<I> {
     }
 }
 
-impl<I> Stream for GatewaySendStream<I> {
+impl<I: Debug> Stream for GatewaySendStream<I> {
     type Item = Vec<u8>;
 
+    #[tracing::instrument(level = "trace", name = "send_stream", skip_all, fields(to = ?self.inner.channel_id.peer, gate = ?self.inner.channel_id.gate))]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::get_mut(self).inner.ordering_tx.take_next(cx)
     }
