@@ -484,7 +484,10 @@ mod e2e_tests {
     use hyper::{http::uri, StatusCode, Version};
     use hyper_rustls::HttpsConnector;
     use hyper_util::{
-        client::legacy::{connect::HttpConnector, Client},
+        client::legacy::{
+            connect::{Connect, HttpConnector},
+            Client,
+        },
         rt::{TokioExecutor, TokioTimer},
     };
     use metrics_util::debugging::Snapshotter;
@@ -521,15 +524,25 @@ mod e2e_tests {
             .unwrap()
     }
 
+    fn create_client_with_connector<C>(connector: C) -> Client<C, axum::body::Body>
+    where
+        C: Connect + Clone,
+    {
+        Client::builder(TokioExecutor::new())
+            .pool_timer(TokioTimer::new())
+            .build(connector)
+    }
+
+    fn create_client() -> Client<HttpConnector, axum::body::Body> {
+        create_client_with_connector(HttpConnector::new())
+    }
+
     #[tokio::test]
     async fn can_do_http() {
         // server
         let TestServer { addr, .. } = TestServer::builder().disable_https().build().await;
 
-        // client
-        let client = Client::builder(TokioExecutor::new())
-            .pool_timer(TokioTimer::new())
-            .build_http();
+        let client = create_client();
 
         // request
         let expected = expected_req(addr.to_string());
@@ -602,9 +615,7 @@ mod e2e_tests {
         http.enforce_http(false);
 
         let https = HttpsConnector::<HttpConnector>::from((http, Arc::new(config)));
-        let client = Client::builder(TokioExecutor::new())
-            .pool_timer(TokioTimer::new())
-            .build(https);
+        let client = create_client_with_connector(https);
 
         // request
         let expected = expected_req(authority.clone());
@@ -632,10 +643,7 @@ mod e2e_tests {
             .build()
             .await;
 
-        // client
-        let client = Client::builder(TokioExecutor::new())
-            .pool_timer(TokioTimer::new())
-            .build_http();
+        let client = create_client();
 
         // request
         let expected = expected_req(addr.to_string());
@@ -718,10 +726,7 @@ mod e2e_tests {
 
         let expected = expected_req(addr.to_string());
         let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
-
-        let f = client.request(req);
-
-        let response = f.await.unwrap();
+        let response = client.request(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_eq!(

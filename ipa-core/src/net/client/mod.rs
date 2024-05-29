@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     future::Future,
-    io::{self, BufRead, Read},
+    io::{self, BufRead},
     pin::Pin,
     sync::Arc,
     task::{ready, Context, Poll},
@@ -11,7 +11,7 @@ use axum::{
     body::Body,
     http::uri::{self, Parts, Scheme},
 };
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
 use http_body_util::BodyExt;
 use hyper::{header::HeaderName, http::HeaderValue, Request, Response, StatusCode, Uri};
@@ -258,8 +258,9 @@ impl MpcHelperClient {
         conf: &C,
     ) -> Self {
         let mut builder = Client::builder(TokioExecutor::new());
-        builder.timer(TokioTimer::new()); // this timer is necessary for http2
-                                          //builder.pool_timer(TokioTimer::new());
+        // the following timer is necessary for http2, in particular for any timeouts
+        // and waits the clients will need to make
+        builder.timer(TokioTimer::new());
         let client = conf.configure(&mut builder).build(connector);
         let Parts {
             scheme: Some(scheme),
@@ -299,15 +300,12 @@ impl MpcHelperClient {
         }
     }
 
-    /// Reads the entire response from the server into a String
+    /// Reads the entire response from the server into Bytes
     ///
     /// # Errors
     /// If there was an error collecting the response stream.
-    async fn response_to_str(resp: ResponseFromEndpoint<'_>) -> Result<String, Error> {
-        let body = resp.into_body().collect().await?.aggregate();
-        let mut buf = String::new();
-        body.reader().read_to_string(&mut buf).unwrap();
-        Ok(buf)
+    async fn response_to_bytes(resp: ResponseFromEndpoint<'_>) -> Result<Bytes, Error> {
+        Ok(resp.into_body().collect().await?.to_bytes())
     }
 
     /// Responds with whatever input is passed to it
@@ -321,10 +319,10 @@ impl MpcHelperClient {
         let resp = self.request(req).await?;
         let status = resp.status();
         if status.is_success() {
-            let buf = Self::response_to_str(resp).await?;
+            let bytes = Self::response_to_bytes(resp).await?;
             let http_serde::echo::Request {
                 mut query_params, ..
-            } = serde_json::from_str(&buf)?;
+            } = serde_json::from_slice(&bytes)?;
             // It is potentially confusing to synthesize a 500 error here, but
             // it doesn't seem worth creating an error variant just for this.
             query_params.remove(FOO).ok_or(Error::FailedHttpRequest {
@@ -346,8 +344,9 @@ impl MpcHelperClient {
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            let buf = Self::response_to_str(resp).await?;
-            let http_serde::query::create::ResponseBody { query_id } = serde_json::from_str(&buf)?;
+            let bytes = Self::response_to_bytes(resp).await?;
+            let http_serde::query::create::ResponseBody { query_id } =
+                serde_json::from_slice(&bytes)?;
             Ok(query_id)
         } else {
             Err(Error::from_failed_resp(resp).await)
@@ -412,8 +411,9 @@ impl MpcHelperClient {
 
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            let buf = Self::response_to_str(resp).await?;
-            let http_serde::query::status::ResponseBody { status } = serde_json::from_str(&buf)?;
+            let bytes = Self::response_to_bytes(resp).await?;
+            let http_serde::query::status::ResponseBody { status } =
+                serde_json::from_slice(&bytes)?;
             Ok(status)
         } else {
             Err(Error::from_failed_resp(resp).await)
