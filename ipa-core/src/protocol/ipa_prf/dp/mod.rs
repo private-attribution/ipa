@@ -120,8 +120,8 @@ mod test {
                         ctx,
                         num_bernoulli,
                     )
-                        .await
-                        .unwrap(),
+                    .await
+                    .unwrap(),
                 )
             })
             .await
@@ -157,8 +157,8 @@ mod test {
                         ctx,
                         num_bernoulli,
                     )
-                        .await
-                        .unwrap(),
+                    .await
+                    .unwrap(),
                 )
             })
             .await
@@ -180,6 +180,4 @@ mod test {
         }
         println!("result as u32 {result_u32:?}");
     }
-
-
 }
