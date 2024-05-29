@@ -18,6 +18,10 @@ use crate::{
     sharding::NotSharded,
 };
 
+/// # Panics
+/// Will panic if there are not enough bits in the outputs size for the noise gen sum. We can't have the noise sum saturate
+/// as that would be insecure noise.
+///
 #[cfg(test)]
 pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
