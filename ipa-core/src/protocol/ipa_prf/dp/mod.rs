@@ -1,6 +1,6 @@
 // DP in MPC
 
-mod step;
+pub mod step;
 
 use futures_util::{stream, StreamExt};
 
@@ -13,7 +13,7 @@ use crate::{
         ipa_prf::{
             aggregation::aggregate_values,
             boolean_ops::addition_sequential::integer_add,
-            dp::step::DPStep,//{ApplyNoise, NoiseGen},
+            dp::step::DPStep, //{ApplyNoise, NoiseGen},
         },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
@@ -68,13 +68,16 @@ where
     noise_vector
 }
 
-/// apply_dp_noise takes the noise distribution parameters (num_bernoulli and quantization_scale)
+/// `apply_dp_noise` takes the noise distribution parameters (`num_bernoulli` and in the future `quantization_scale`)
 /// and the vector of values to have noise added to.
-/// It calls gen_binomial_noise to create the noise in MPC and applies it
+/// It calls `gen_binomial_noise` to create the noise in MPC and applies it
+/// # Panics
+/// asserts that `num_histogram_bins` matches what we are using for vectorization, B.
+/// # Errors
+/// Result error case could come from transpose
 pub async fn apply_dp_noise<'ctx, const B: usize, OV>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
-    num_histogram_bins: u32,
     num_bernoulli: u32,
 ) -> Result<Vec<Replicated<OV>>, Error>
 where
@@ -86,19 +89,13 @@ where
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    assert_eq!(num_histogram_bins, B as u32);
-    // in the future there could be some calculation there to go from a passed in
-    // epsilon, delta to the num_bernoulli, but for now it is fixed.
-    // let num_bernoulli: u32 = 1000;
     let noise_gen_ctx = ctx.narrow(&DPStep::NoiseGen);
     let noise_vector = gen_binomial_noise::<B, OV>(noise_gen_ctx, num_bernoulli)
         .await
         .unwrap();
 
     // Step 4:  Add DP noise to output values
-    let apply_noise_ctx = ctx
-        .narrow(&DPStep::ApplyNoise)
-        .set_total_records(1);
+    let apply_noise_ctx = ctx.narrow(&DPStep::ApplyNoise).set_total_records(1);
     let (histogram_noised, _) = integer_add::<_, SixteenBitStep, B>(
         apply_noise_ctx,
         RecordId::FIRST,
@@ -137,7 +134,6 @@ mod test {
                 apply_dp_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
                     ctx,
                     input,
-                    NUM_BREAKDOWNS,
                     num_bernoulli,
                 )
                 .await
