@@ -1,19 +1,26 @@
 // DP in MPC
 
+mod step;
+
 use futures_util::{stream, StreamExt};
 
 use crate::{
-    error::Error,
+    error::{Error, LengthError},
     ff::{boolean::Boolean, CustomArray, U128Conversions},
     protocol::{
+        boolean::step::SixteenBitStep,
         context::{Context, UpgradedSemiHonestContext},
-        ipa_prf::aggregation::aggregate_values,
+        ipa_prf::{
+            aggregation::aggregate_values,
+            boolean_ops::addition_sequential::integer_add,
+            dp::step::DPStep,//{ApplyNoise, NoiseGen},
+        },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-        BitDecomposed, FieldSimd, SharedValue, Vectorizable,
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
     sharding::NotSharded,
 };
@@ -61,15 +68,109 @@ where
     noise_vector
 }
 
+/// apply_dp_noise takes the noise distribution parameters (num_bernoulli and quantization_scale)
+/// and the vector of values to have noise added to.
+/// It calls gen_binomial_noise to create the noise in MPC and applies it
+pub async fn apply_dp_noise<'ctx, const B: usize, OV>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+    histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
+    num_histogram_bins: u32,
+    num_bernoulli: u32,
+) -> Result<Vec<Replicated<OV>>, Error>
+where
+    Boolean: Vectorizable<B> + FieldSimd<B>,
+    BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
+    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    Vec<Replicated<OV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+{
+    assert_eq!(num_histogram_bins, B as u32);
+    // in the future there could be some calculation there to go from a passed in
+    // epsilon, delta to the num_bernoulli, but for now it is fixed.
+    // let num_bernoulli: u32 = 1000;
+    let noise_gen_ctx = ctx.narrow(&DPStep::NoiseGen);
+    let noise_vector = gen_binomial_noise::<B, OV>(noise_gen_ctx, num_bernoulli)
+        .await
+        .unwrap();
+
+    // Step 4:  Add DP noise to output values
+    let apply_noise_ctx = ctx
+        .narrow(&DPStep::ApplyNoise)
+        .set_total_records(1);
+    let (histogram_noised, _) = integer_add::<_, SixteenBitStep, B>(
+        apply_noise_ctx,
+        RecordId::FIRST,
+        &noise_vector,
+        &histogram_bin_values,
+    )
+    .await
+    .unwrap();
+
+    // Step 5 Transpose output representation
+    Ok(Vec::transposed_from(&histogram_noised)?)
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
-        ff::{boolean_array::BA16, U128Conversions},
-        protocol::ipa_prf::dp::gen_binomial_noise,
-        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, TransposeFrom},
+        ff::{boolean::Boolean, boolean_array::BA16, U128Conversions},
+        protocol::ipa_prf::dp::{apply_dp_noise, gen_binomial_noise},
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+        },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
+    // Tests for apply_dp_noise
+    #[tokio::test]
+    pub async fn test_apply_dp_noise() {
+        type OutputValue = BA16;
+        const NUM_BREAKDOWNS: u32 = 16;
+        let num_bernoulli: u32 = 1000;
+        let world = TestWorld::default();
+        let input_values = [10, 8, 6, 41, 0, 0, 0, 0, 10, 8, 6, 41, 0, 0, 0, 0];
+        let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> = input_row(16, &input_values);
+        let result = world
+            .upgraded_semi_honest(input, |ctx, input| async move {
+                apply_dp_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
+                    ctx,
+                    input,
+                    NUM_BREAKDOWNS,
+                    num_bernoulli,
+                )
+                .await
+                .unwrap()
+            })
+            .await;
+        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
+        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed
+            .iter()
+            .map(|&v| u32::try_from(v.as_u128()).unwrap())
+            .collect::<Vec<_>>();
+        let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
+        let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+        assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
+        for i in 0..result_u32.len() {
+            assert!(
+                f64::from(result_u32[i]) - f64::from(input_values[i])
+                    > mean - 5.0 * standard_deviation
+                    && f64::from(result_u32[i]) - f64::from(input_values[i])
+                        < mean + 5.0 * standard_deviation
+            );
+        }
+    }
+
+    fn input_row<const B: usize>(bit_width: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
+        let values = <&[u32; B]>::try_from(values).unwrap();
+        BitDecomposed::decompose(bit_width, |i| {
+            values.map(|v| Boolean::from((v >> i) & 1 == 1))
+        })
+    }
+
+    // Tests for gen_bernoulli_noise
     #[tokio::test]
     pub async fn test_16_breakdowns() {
         type OutputValue = BA16;
