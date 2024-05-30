@@ -58,7 +58,12 @@ pub trait DZKPBaseField: PrimeField {
 impl FromIterator<Fp61BitPrime> for [Fp61BitPrime; B] {
     fn from_iter<T: IntoIterator<Item = Fp61BitPrime>>(iter: T) -> Self {
         let mut out = [Fp61BitPrime::ZERO; B];
-        for (i, elem) in iter.into_iter().take(B).enumerate() {
+        for (i, elem) in iter.into_iter().enumerate() {
+            assert!(
+                i < B,
+                "Too many elements to collect into array of length {:?}",
+                B
+            );
             out[i] = elem;
         }
         out
