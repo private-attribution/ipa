@@ -244,10 +244,14 @@ mod test {
     use std::iter::zip;
 
     use crate::{
-        ff::{Fp31, PrimeField, U128Conversions},
+        ff::{Fp31, Fp61BitPrime, PrimeField, U128Conversions},
         protocol::ipa_prf::malicious_security::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-            prover::TestProofGenerator,
+            prover::{
+                LargeProofGenerator, SmallProofGenerator, TestProofGenerator,
+                LARGE_LAGRANGE_LENGTH, LARGE_PROOF_LENGTH, LARGE_RECURSION_FACTOR,
+                SMALL_LAGRANGE_LENGTH, SMALL_PROOF_LENGTH, SMALL_RECURSION_FACTOR,
+            },
         },
     };
 
@@ -348,5 +352,67 @@ mod test {
             proof_3.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_3,
         );
+    }
+
+    /// Simple test that ensures there is no panic when using the small parameter set.
+    /// It checks that the small parameter set is set up correctly.
+    #[test]
+    fn check_for_panic_small_set() {
+        const U: [u128; 64] = [
+            0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1, 15, 0, 0, 1, 15, 2, 30,
+            30, 16, 0, 0, 30, 16, 0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1,
+            15, 0, 0, 1, 15, 2, 30, 30, 16, 0, 0, 30, 16,
+        ];
+        const V: [u128; 64] = [
+            0, 0, 0, 30, 0, 0, 0, 1, 30, 30, 30, 30, 0, 0, 30, 30, 0, 30, 0, 30, 0, 0, 0, 1, 0, 0,
+            1, 1, 0, 0, 1, 1, 0, 0, 0, 30, 0, 0, 0, 1, 30, 30, 30, 30, 0, 0, 30, 30, 0, 30, 0, 30,
+            0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1,
+        ];
+
+        let uv_before = zip_chunks(&U, &V);
+
+        let denominator =
+            CanonicalLagrangeDenominator::<Fp61BitPrime, SMALL_RECURSION_FACTOR>::new();
+        let lagrange_table =
+            LagrangeTable::<Fp61BitPrime, SMALL_RECURSION_FACTOR, SMALL_LAGRANGE_LENGTH>::from(
+                denominator,
+            );
+
+        // compute proof
+        let proof = SmallProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+
+        assert_eq!(proof.len(), SMALL_PROOF_LENGTH);
+
+        let uv_after =
+            SmallProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+
+        assert_eq!(uv_before.len(), uv_after.len() * SMALL_RECURSION_FACTOR);
+    }
+
+    /// Simple test that ensures there is no panic when using the large parameter set.
+    /// It checks that the small parameter set is set up correctly.
+    #[test]
+    fn check_for_panic_large_set() {
+        const U: [u128; 1024] = [1u128; 1024];
+        const V: [u128; 1024] = [2u128; 1024];
+
+        let uv_before = zip_chunks(&U, &V);
+
+        let denominator =
+            CanonicalLagrangeDenominator::<Fp61BitPrime, LARGE_RECURSION_FACTOR>::new();
+        let lagrange_table =
+            LagrangeTable::<Fp61BitPrime, LARGE_RECURSION_FACTOR, LARGE_LAGRANGE_LENGTH>::from(
+                denominator,
+            );
+
+        // compute proof
+        let proof = LargeProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+
+        assert_eq!(proof.len(), LARGE_PROOF_LENGTH);
+
+        let uv_after =
+            LargeProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+
+        assert_eq!(uv_before.len(), uv_after.len() * LARGE_RECURSION_FACTOR);
     }
 }
