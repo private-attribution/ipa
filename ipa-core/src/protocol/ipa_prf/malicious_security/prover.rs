@@ -81,30 +81,43 @@ where
     output
 }
 
+const TEST_RECURSION_FACTOR: usize = 4;
+/// `LAGRANGE_LENGTH` is `RECURSION_FACTOR - 1`
+const TEST_LAGRANGE_LENGTH: usize = 3;
+/// `PROOF_LENGTH` is `2 * RECURSION_FACTOR - 1`
+const TEST_PROOF_LENGTH: usize = 7;
+
 pub struct TestProofGenerator {}
 
 impl TestProofGenerator {
     pub fn compute_proof<J, B>(
         uv_iterator: J,
-        lagrange_table: &LagrangeTable<Fp31, 4, 3>,
-    ) -> [Fp31; 7]
+        lagrange_table: &LagrangeTable<Fp31, TEST_RECURSION_FACTOR, TEST_LAGRANGE_LENGTH>,
+    ) -> [Fp31; TEST_PROOF_LENGTH]
     where
         J: Iterator<Item = B>,
-        B: Borrow<([Fp31; 4], [Fp31; 4])>,
+        B: Borrow<([Fp31; TEST_RECURSION_FACTOR], [Fp31; TEST_RECURSION_FACTOR])>,
     {
-        compute_proof_generic::<Fp31, J, B, 4, 7, 3>(uv_iterator, lagrange_table)
+        compute_proof_generic::<
+            Fp31,
+            J,
+            B,
+            TEST_RECURSION_FACTOR,
+            TEST_PROOF_LENGTH,
+            TEST_LAGRANGE_LENGTH,
+        >(uv_iterator, lagrange_table)
     }
 
     pub fn gen_challenge_and_recurse<J, B>(
-        proof_left: [Fp31; 7],
-        proof_right: [Fp31; 7],
+        proof_left: [Fp31; TEST_PROOF_LENGTH],
+        proof_right: [Fp31; TEST_PROOF_LENGTH],
         uv_iterator: J,
-    ) -> Vec<([Fp31; 4], [Fp31; 4])>
+    ) -> Vec<([Fp31; TEST_RECURSION_FACTOR], [Fp31; TEST_RECURSION_FACTOR])>
     where
         J: Iterator<Item = B>,
-        B: Borrow<([Fp31; 4], [Fp31; 4])>,
+        B: Borrow<([Fp31; TEST_RECURSION_FACTOR], [Fp31; TEST_RECURSION_FACTOR])>,
     {
-        gen_challenge_and_recurse_generic::<Fp31, J, B, 4, 7>(
+        gen_challenge_and_recurse_generic::<Fp31, J, B, TEST_RECURSION_FACTOR, TEST_PROOF_LENGTH>(
             &proof_left,
             &proof_right,
             uv_iterator,
@@ -112,36 +125,117 @@ impl TestProofGenerator {
     }
 }
 
-#[allow(dead_code)]
-pub struct LegitProofGenerator {}
+const SMALL_RECURSION_FACTOR: usize = 8;
+/// `LAGRANGE_LENGTH` is `RECURSION_FACTOR - 1`
+const SMALL_LAGRANGE_LENGTH: usize = 7;
+/// `PROOF_LENGTH` is `2 * RECURSION_FACTOR - 1`
+const SMALL_PROOF_LENGTH: usize = 15;
 
 #[allow(dead_code)]
-impl LegitProofGenerator {
+pub struct SmallProofGenerator {}
+
+#[allow(dead_code)]
+impl SmallProofGenerator {
     pub fn compute_proof<J, B>(
         uv_iterator: J,
-        lagrange_table: &LagrangeTable<Fp61BitPrime, 32, 31>,
-    ) -> [Fp61BitPrime; 63]
+        lagrange_table: &LagrangeTable<Fp61BitPrime, SMALL_RECURSION_FACTOR, SMALL_LAGRANGE_LENGTH>,
+    ) -> [Fp61BitPrime; SMALL_PROOF_LENGTH]
     where
         J: Iterator<Item = B>,
-        B: Borrow<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>,
+        B: Borrow<(
+            [Fp61BitPrime; SMALL_RECURSION_FACTOR],
+            [Fp61BitPrime; SMALL_RECURSION_FACTOR],
+        )>,
     {
-        compute_proof_generic::<Fp61BitPrime, J, B, 32, 63, 31>(uv_iterator, lagrange_table)
+        compute_proof_generic::<
+            Fp61BitPrime,
+            J,
+            B,
+            SMALL_RECURSION_FACTOR,
+            SMALL_PROOF_LENGTH,
+            SMALL_LAGRANGE_LENGTH,
+        >(uv_iterator, lagrange_table)
     }
 
     pub fn gen_challenge_and_recurse<J, B>(
-        proof_left: &[Fp61BitPrime; 63],
-        proof_right: &[Fp61BitPrime; 63],
+        proof_left: &[Fp61BitPrime; SMALL_PROOF_LENGTH],
+        proof_right: &[Fp61BitPrime; SMALL_PROOF_LENGTH],
         uv_iterator: J,
-    ) -> Vec<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>
+    ) -> Vec<(
+        [Fp61BitPrime; SMALL_RECURSION_FACTOR],
+        [Fp61BitPrime; SMALL_RECURSION_FACTOR],
+    )>
     where
         J: Iterator<Item = B>,
-        B: Borrow<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>,
+        B: Borrow<(
+            [Fp61BitPrime; SMALL_RECURSION_FACTOR],
+            [Fp61BitPrime; SMALL_RECURSION_FACTOR],
+        )>,
     {
-        gen_challenge_and_recurse_generic::<Fp61BitPrime, J, B, 32, 63>(
-            proof_left,
-            proof_right,
-            uv_iterator,
-        )
+        gen_challenge_and_recurse_generic::<
+            Fp61BitPrime,
+            J,
+            B,
+            SMALL_RECURSION_FACTOR,
+            SMALL_PROOF_LENGTH,
+        >(proof_left, proof_right, uv_iterator)
+    }
+}
+
+const LARGE_RECURSION_FACTOR: usize = 32;
+/// `LAGRANGE_LENGTH` is `RECURSION_FACTOR - 1`
+const LARGE_LAGRANGE_LENGTH: usize = 31;
+/// `PROOF_LENGTH` is `2 * RECURSION_FACTOR - 1`
+const LARGE_PROOF_LENGTH: usize = 63;
+
+#[allow(dead_code)]
+pub struct LargeProofGenerator {}
+
+#[allow(dead_code)]
+impl LargeProofGenerator {
+    pub fn compute_proof<J, B>(
+        uv_iterator: J,
+        lagrange_table: &LagrangeTable<Fp61BitPrime, LARGE_RECURSION_FACTOR, LARGE_LAGRANGE_LENGTH>,
+    ) -> [Fp61BitPrime; LARGE_PROOF_LENGTH]
+    where
+        J: Iterator<Item = B>,
+        B: Borrow<(
+            [Fp61BitPrime; LARGE_RECURSION_FACTOR],
+            [Fp61BitPrime; LARGE_RECURSION_FACTOR],
+        )>,
+    {
+        compute_proof_generic::<
+            Fp61BitPrime,
+            J,
+            B,
+            LARGE_RECURSION_FACTOR,
+            LARGE_PROOF_LENGTH,
+            LARGE_LAGRANGE_LENGTH,
+        >(uv_iterator, lagrange_table)
+    }
+
+    pub fn gen_challenge_and_recurse<J, B>(
+        proof_left: &[Fp61BitPrime; LARGE_PROOF_LENGTH],
+        proof_right: &[Fp61BitPrime; LARGE_PROOF_LENGTH],
+        uv_iterator: J,
+    ) -> Vec<(
+        [Fp61BitPrime; LARGE_RECURSION_FACTOR],
+        [Fp61BitPrime; LARGE_RECURSION_FACTOR],
+    )>
+    where
+        J: Iterator<Item = B>,
+        B: Borrow<(
+            [Fp61BitPrime; LARGE_RECURSION_FACTOR],
+            [Fp61BitPrime; LARGE_RECURSION_FACTOR],
+        )>,
+    {
+        gen_challenge_and_recurse_generic::<
+            Fp61BitPrime,
+            J,
+            B,
+            LARGE_RECURSION_FACTOR,
+            LARGE_PROOF_LENGTH,
+        >(proof_left, proof_right, uv_iterator)
     }
 }
 
