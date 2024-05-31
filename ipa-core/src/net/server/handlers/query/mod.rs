@@ -100,10 +100,9 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
 
 #[cfg(all(test, unit_test))]
 pub mod test_helpers {
-    use std::{any::Any, io::Read, sync::Arc};
+    use std::{any::Any, sync::Arc};
 
     use axum::body::Body;
-    use bytes::Buf;
     use http_body_util::BodyExt;
     use hyper::{http::request, StatusCode};
 
@@ -143,17 +142,15 @@ pub mod test_helpers {
     pub async fn assert_success_with(
         req: hyper::Request<Body>,
         handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
-    ) -> Vec<u8> {
+    ) -> bytes::Bytes {
         let test_server = TestServer::builder()
             .with_request_handler(handler)
             .build()
             .await;
         let resp = test_server.server.handle_req(req).await;
         let status = resp.status();
-        let buf = resp.into_body().collect().await.unwrap().aggregate();
         assert_eq!(StatusCode::OK, status);
-        let mut vec = Vec::new();
-        buf.reader().read_to_end(&mut vec).unwrap();
-        vec
+
+        resp.into_body().collect().await.unwrap().to_bytes()
     }
 }
