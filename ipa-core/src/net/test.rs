@@ -70,7 +70,6 @@ fn server_config_insecure_http(port: u16, matchkey_encryption: bool) -> ServerCo
         disable_https: true,
         tls: None,
         hpke_config: get_dummy_matchkey_encryption_info(matchkey_encryption),
-        max_concurrent_stream: None,
     }
 }
 
@@ -89,7 +88,6 @@ pub fn server_config_https(
             private_key: String::from_utf8(private_key.to_owned()).unwrap(),
         }),
         hpke_config: get_dummy_matchkey_encryption_info(matchkey_encryption),
-        max_concurrent_stream: None,
     }
 }
 

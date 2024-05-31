@@ -1,9 +1,5 @@
-use std::ops::{Add, Sub};
+use std::borrow::Borrow;
 
-use generic_array::ArrayLength;
-use typenum::{Sum, U1};
-
-use super::prover::{TwoNMinusOne, TwoNPlusOne, ZeroKnowledgeProof};
 use crate::{
     ff::PrimeField,
     protocol::ipa_prf::malicious_security::lagrange::{
@@ -11,8 +7,9 @@ use crate::{
     },
 };
 
-pub struct ProofVerifier<F: PrimeField> {
-    u_or_v: Vec<F>,
+#[allow(non_upper_case_globals)]
+pub struct ProofVerifier<F: PrimeField, const λ: usize> {
+    u_or_v: Vec<[F; λ]>,
     out_share: F,
 }
 
@@ -20,87 +17,85 @@ pub struct ProofVerifier<F: PrimeField> {
 /// Distributed Zero Knowledge Proofs algorithm drawn from
 /// `https://eprint.iacr.org/2023/909.pdf`
 ///
-#[allow(non_camel_case_types)]
-impl<F> ProofVerifier<F>
+#[allow(non_upper_case_globals)]
+impl<F, const λ: usize> ProofVerifier<F, λ>
 where
     F: PrimeField,
 {
-    pub fn new(u_or_v: Vec<F>, out_share: F) -> Self {
+    pub fn new(u_or_v: Vec<[F; λ]>, out_share: F) -> Self {
         Self { u_or_v, out_share }
     }
 
-    pub fn verify_proof<λ>(
-        &self,
-        zkp: &ZeroKnowledgeProof<F, TwoNMinusOne<λ>>,
+    pub fn verify_proof<J, B, const P: usize>(
+        u_or_v_iterator: J,
+        out_share: F,
+        zkp: &[F; P],
         r: F,
-    ) -> (F, ProofVerifier<F>)
+    ) -> (F, Self)
     where
-        λ: ArrayLength + Add + Sub<U1>,
-        <λ as Add>::Output: Sub<U1>,
-        <<λ as Add>::Output as Sub<U1>>::Output: ArrayLength,
-        <λ as Sub<U1>>::Output: ArrayLength,
+        J: Iterator<Item = B>,
+        B: Borrow<[F; λ]>,
     {
-        debug_assert_eq!(self.u_or_v.len() % λ::USIZE, 0); // We should pad with zeroes eventually
-
-        let s = self.u_or_v.len() / λ::USIZE;
-
-        assert!(
-            s > 1,
-            "When the output is this small, you should call `verify_final_proof`"
-        );
-
-        let denominator_g = CanonicalLagrangeDenominator::<F, TwoNMinusOne<λ>>::new();
-        let lagrange_table_g = LagrangeTable::<F, TwoNMinusOne<λ>, U1>::new(&denominator_g, &r);
-        let g_r_share = lagrange_table_g.eval(&zkp.g)[0];
-        let sum_share = (0..λ::USIZE).fold(F::ZERO, |acc, i| acc + zkp.g[i]);
+        let denominator_g = CanonicalLagrangeDenominator::<F, P>::new();
+        let lagrange_table_g = LagrangeTable::<F, P, 1>::new(&denominator_g, &r);
+        let g_r_share = lagrange_table_g.eval(zkp)[0];
+        let sum_share = (0..λ).fold(F::ZERO, |acc, i| acc + zkp[i]);
 
         // Reveal `b_share` to one another to reconstruct `b` and check if `b = 0`. If the check doesn't pass, abort.
-        let b_share = sum_share - self.out_share;
+        let b_share = sum_share - out_share;
 
         let denominator_p_or_q = CanonicalLagrangeDenominator::<F, λ>::new();
-        let lagrange_table_p_or_q_r = LagrangeTable::<F, λ, U1>::new(&denominator_p_or_q, &r);
-        let p_or_q_r = (0..s)
-            .map(|i| {
-                let start = i * λ::USIZE;
-                let end = start + λ::USIZE;
-                let p_or_q = &self.u_or_v[start..end];
-                lagrange_table_p_or_q_r.eval(p_or_q)[0]
-            })
-            .collect();
+        let lagrange_table_p_or_q_r = LagrangeTable::<F, λ, 1>::new(&denominator_p_or_q, &r);
+
+        let mut new_u_or_v_vec = Vec::<[F; λ]>::new();
+
+        // iter and interpolate at x coordinate r
+        let mut index = 0;
+        let mut new_u_or_v_chunk = [F::ZERO; λ];
+        for polynomial in u_or_v_iterator {
+            let value_at_r = lagrange_table_p_or_q_r.eval(polynomial.borrow())[0];
+            if index >= λ {
+                new_u_or_v_vec.push(new_u_or_v_chunk);
+                new_u_or_v_chunk = [F::ZERO; λ];
+                index = 0;
+            }
+            new_u_or_v_chunk[index] = value_at_r;
+            index += 1;
+        }
+        if index > 0 {
+            new_u_or_v_vec.push(new_u_or_v_chunk);
+        }
+
         (
             b_share,
             ProofVerifier {
-                u_or_v: p_or_q_r,
+                u_or_v: new_u_or_v_vec,
                 out_share: g_r_share,
             },
         )
     }
 
-    pub fn verify_final_proof<λ>(
+    /// const L needs to be λ+1
+    /// this function is going to be deprecated
+    pub fn verify_final_proof<const P: usize, const L: usize>(
         &self,
-        zkp: &ZeroKnowledgeProof<F, TwoNPlusOne<λ>>,
+        zkp: &[F; P],
         r: F,
         p_or_q_0: F,
-    ) -> (F, F)
-    where
-        λ: ArrayLength + Add + Add<U1>,
-        <λ as Add>::Output: Add<U1>,
-        <<λ as Add>::Output as Add<U1>>::Output: ArrayLength,
-        <λ as Add<U1>>::Output: ArrayLength,
-    {
-        assert_eq!(self.u_or_v.len(), λ::USIZE); // We should pad with zeroes eventually
+    ) -> (F, F) {
+        assert_eq!(self.u_or_v.len(), 1usize);
 
         // We need a table of size `λ + 1` since we add a random point at x=0
-        let denominator = CanonicalLagrangeDenominator::<F, Sum<λ, U1>>::new();
-        let lagrange_table = LagrangeTable::<F, Sum<λ, U1>, U1>::new(&denominator, &r);
+        let denominator = CanonicalLagrangeDenominator::<F, L>::new();
+        let lagrange_table = LagrangeTable::<F, L, 1>::new(&denominator, &r);
 
         let mut p_or_q = vec![p_or_q_0];
-        p_or_q.extend_from_slice(&self.u_or_v);
+        p_or_q.extend_from_slice(self.u_or_v[0].as_slice());
         let p_or_q_extrapolated = lagrange_table.eval(&p_or_q)[0];
 
-        let denominator_g = CanonicalLagrangeDenominator::<F, TwoNPlusOne<λ>>::new();
-        let lagrange_table_g = LagrangeTable::<F, TwoNPlusOne<λ>, U1>::new(&denominator_g, &r);
-        let out_share = lagrange_table_g.eval(&zkp.g)[0];
+        let denominator_g = CanonicalLagrangeDenominator::<F, P>::new();
+        let lagrange_table_g = LagrangeTable::<F, P, 1>::new(&denominator_g, &r);
+        let out_share = lagrange_table_g.eval(zkp)[0];
 
         (p_or_q_extrapolated, out_share)
     }
@@ -108,13 +103,14 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use typenum::{U2, U4, U5, U7};
-
     use super::ProofVerifier;
-    use crate::{
-        ff::{Fp31, U128Conversions},
-        protocol::ipa_prf::malicious_security::prover::ZeroKnowledgeProof,
-    };
+    use crate::ff::{Fp31, PrimeField, U128Conversions};
+
+    fn make_chunks<F: PrimeField, const N: usize>(a: &[u128]) -> Vec<[F; N]> {
+        a.chunks(N)
+            .map(|chunk| <[u128; N]>::try_from(chunk).unwrap().map(F::truncate_from))
+            .collect::<Vec<_>>()
+    }
 
     #[test]
     fn sample_proof_u() {
@@ -144,39 +140,45 @@ mod test {
         const EXPECTED_P_FINAL: u128 = 30;
         const EXPECTED_G_R_FINAL: u128 = 0;
 
-        let pv_1: ProofVerifier<Fp31> = ProofVerifier::new(
-            U_1.into_iter()
-                .map(|x| Fp31::try_from(x).unwrap())
-                .collect(),
-            Fp31::try_from(OUT_1).unwrap(),
-        );
+        // uv values in input format
+        let u_1 = make_chunks(&U_1);
 
         // first iteration
-        let zkp_1 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_1 = ZKP_1.map(Fp31::truncate_from);
 
-        let (b_share_1, pv_2) = pv_1.verify_proof::<U4>(&zkp_1, Fp31::try_from(R_1).unwrap());
-        assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
-        assert_eq!(
-            pv_2.u_or_v.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
-            U_2,
+        let (b_share_1, pv_2) = ProofVerifier::<_, 4>::verify_proof(
+            u_1.iter(),
+            Fp31::try_from(OUT_1).unwrap(),
+            &zkp_1,
+            Fp31::try_from(R_1).unwrap(),
         );
+        assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
+        assert_eq!(pv_2.u_or_v, make_chunks::<Fp31, 4>(&U_2));
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
-        let zkp_2 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_2.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_2 = ZKP_2.map(Fp31::truncate_from);
 
-        let (b_share_2, pv_3) = pv_2.verify_proof::<U4>(&zkp_2, Fp31::try_from(R_2).unwrap());
-        assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
-        assert_eq!(
-            pv_3.u_or_v.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
-            U_3,
+        let (b_share_2, pv_3) = ProofVerifier::<_, 4>::verify_proof(
+            pv_2.u_or_v.iter(),
+            pv_2.out_share,
+            &zkp_2,
+            Fp31::try_from(R_2).unwrap(),
         );
-        assert_eq!(pv_3.out_share.as_u128(), EXPECTED_G_R_2);
+
+        // final proof trim pv_3 from U4 to U2
+        let u_or_v = [pv_3.u_or_v[0][0], pv_3.u_or_v[0][1]];
+        // convert to ProofVerifier<_,U2>
+        let pv_3_u2 = ProofVerifier::<Fp31, 2>::new(vec![u_or_v; 1], pv_3.out_share);
+
+        assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
+        assert_eq!(pv_3_u2.u_or_v, make_chunks::<Fp31, 2>(&U_3));
+        assert_eq!(pv_3_u2.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
-        let zkp_3 = ZeroKnowledgeProof::<Fp31, U5>::new(ZKP_3.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_3 = ZKP_3.map(Fp31::truncate_from);
 
-        let (p_final, out_share) = pv_3.verify_final_proof::<U2>(
+        let (p_final, out_share) = pv_3_u2.verify_final_proof::<5, 3>(
             &zkp_3,
             Fp31::try_from(R_3).unwrap(),
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
@@ -214,39 +216,45 @@ mod test {
         const EXPECTED_Q_FINAL: u128 = 12;
         const EXPECTED_G_R_FINAL: u128 = 19;
 
-        let pv_1: ProofVerifier<Fp31> = ProofVerifier::new(
-            V_1.into_iter()
-                .map(|x| Fp31::try_from(x).unwrap())
-                .collect(),
-            Fp31::try_from(OUT_1).unwrap(),
-        );
+        // uv values in input format
+        let v_1 = make_chunks(&V_1);
 
         // first iteration
-        let zkp_1 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_1.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_1 = ZKP_1.map(Fp31::truncate_from);
 
-        let (b_share_1, pv_2) = pv_1.verify_proof::<U4>(&zkp_1, Fp31::try_from(R_1).unwrap());
-        assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
-        assert_eq!(
-            pv_2.u_or_v.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
-            V_2,
+        let (b_share_1, pv_2) = ProofVerifier::<_, 4>::verify_proof(
+            v_1.iter(),
+            Fp31::try_from(OUT_1).unwrap(),
+            &zkp_1,
+            Fp31::try_from(R_1).unwrap(),
         );
+        assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
+        assert_eq!(pv_2.u_or_v, make_chunks::<Fp31, 4>(&V_2));
         assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
 
         // second iteration
-        let zkp_2 = ZeroKnowledgeProof::<Fp31, U7>::new(ZKP_2.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_2 = ZKP_2.map(Fp31::truncate_from);
 
-        let (b_share_2, pv_3) = pv_2.verify_proof::<U4>(&zkp_2, Fp31::try_from(R_2).unwrap());
-        assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
-        assert_eq!(
-            pv_3.u_or_v.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
-            V_3,
+        let (b_share_2, pv_3) = ProofVerifier::<_, 4>::verify_proof(
+            pv_2.u_or_v.iter(),
+            pv_2.out_share,
+            &zkp_2,
+            Fp31::try_from(R_2).unwrap(),
         );
+
+        // final proof trim pv_3 from U4 to U2
+        let u_or_v = [pv_3.u_or_v[0][0], pv_3.u_or_v[0][1]];
+        // convert to ProofVerifier<_,U2>
+        let pv_3_u2 = ProofVerifier::<Fp31, 2>::new(vec![u_or_v; 1], pv_3.out_share);
+
+        assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
+        assert_eq!(pv_3_u2.u_or_v, make_chunks::<Fp31, 2>(&V_3));
         assert_eq!(pv_3.out_share.as_u128(), EXPECTED_G_R_2);
 
         // final iteration
-        let zkp_3 = ZeroKnowledgeProof::<Fp31, U5>::new(ZKP_3.map(|x| Fp31::try_from(x).unwrap()));
+        let zkp_3 = ZKP_3.map(Fp31::truncate_from);
 
-        let (q_final, out_share) = pv_3.verify_final_proof::<U2>(
+        let (q_final, out_share) = pv_3_u2.verify_final_proof::<5, 3>(
             &zkp_3,
             Fp31::try_from(R_3).unwrap(),
             Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),

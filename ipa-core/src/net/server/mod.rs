@@ -1,3 +1,4 @@
+mod config;
 mod handlers;
 
 use std::{
@@ -44,7 +45,10 @@ use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    net::{parse_certificate_and_private_key_bytes, Error, HttpTransport, CRYPTO_PROVIDER},
+    net::{
+        parse_certificate_and_private_key_bytes, server::config::HttpServerConfig, Error,
+        HttpTransport, CRYPTO_PROVIDER,
+    },
     sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -143,20 +147,14 @@ impl MpcHelperServer {
                 let svc = svc
                     .layer(layer_fn(SetClientIdentityFromHeader::new))
                     .into_make_service();
-                spawn_server(
-                    axum_server::from_tcp(listener),
-                    handle.clone(),
-                    svc,
-                    &self.config,
-                )
-                .await
+                spawn_server(axum_server::from_tcp(listener), handle.clone(), svc).await
             }
             (true, None) => {
                 let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
                 let svc = svc
                     .layer(layer_fn(SetClientIdentityFromHeader::new))
                     .into_make_service();
-                spawn_server(axum_server::bind(addr), handle.clone(), svc, &self.config).await
+                spawn_server(axum_server::bind(addr), handle.clone(), svc).await
             }
             (false, Some(listener)) => {
                 let rustls_config = rustls_config(&self.config, &self.network_config)
@@ -168,7 +166,6 @@ impl MpcHelperServer {
                     }),
                     handle.clone(),
                     svc.into_make_service(),
-                    &self.config,
                 )
                 .await
             }
@@ -183,7 +180,6 @@ impl MpcHelperServer {
                     }),
                     handle.clone(),
                     svc.into_make_service(),
-                    &self.config,
                 )
                 .await
             }
@@ -221,7 +217,6 @@ async fn spawn_server<A>(
     mut server: Server<A>,
     handle: Handle,
     svc: IntoMakeService<Router>,
-    config: &ServerConfig,
 ) -> JoinHandle<()>
 where
     A: Accept<TcpStream, Router> + Clone + Send + Sync + 'static,
@@ -229,11 +224,10 @@ where
     A::Service: SendService<Request<Incoming>> + Send + Service<Request<Incoming>>,
     A::Future: Send,
 {
-    let mcs = config.max_concurrent_stream;
     tokio::spawn({
         async move {
-            // Configuration
-            server.http_builder().http2().max_concurrent_streams(mcs);
+            // Apply configuration
+            HttpServerConfig::apply(&mut server.http_builder().http2());
             // Start serving
             server
                 .handle(handle)

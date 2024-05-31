@@ -12,6 +12,7 @@ use crate::{
 };
 
 #[allow(clippy::unused_async)] // axum doesn't like synchronous handler
+#[tracing::instrument(level = "trace", "step", skip_all, fields(from = ?**from, gate = ?gate))]
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
     from: Extension<ClientIdentity>,

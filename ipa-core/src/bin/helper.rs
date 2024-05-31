@@ -141,8 +141,6 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         disable_https: args.disable_https,
         tls: server_tls,
         hpke_config: mk_encryption,
-        max_concurrent_stream: Some(5000), // This number is correlated to the
-                                           // maximum number of stepts that can be executed in parallel.
     };
 
     let scheme = if args.disable_https {

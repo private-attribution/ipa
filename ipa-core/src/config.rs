@@ -276,10 +276,6 @@ pub struct ServerConfig {
 
     /// Configuration needed for encrypting and decrypting match keys
     pub hpke_config: Option<HpkeServerConfig>,
-
-    // Sets the SETTINGS_MAX_CONCURRENT_STREAMS option for HTTP2 connections.
-    // [`hyper_util::server::conn::auto::Http2Builder::max_concurrent_streams`]
-    pub max_concurrent_stream: Option<u32>,
 }
 
 pub trait HyperClientConfigurator {
