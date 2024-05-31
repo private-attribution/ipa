@@ -1,3 +1,4 @@
+mod config;
 mod handlers;
 
 use std::{
@@ -21,7 +22,7 @@ use axum_server::{
     accept::Accept,
     service::{MakeServiceRef, SendService},
     tls_rustls::{RustlsAcceptor, RustlsConfig},
-    Handle, HttpConfig, Server,
+    Handle, Server,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::{
@@ -43,7 +44,10 @@ use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    net::{parse_certificate_and_private_key_bytes, Error, HttpTransport, CRYPTO_PROVIDER},
+    net::{
+        parse_certificate_and_private_key_bytes, server::config::HttpServerConfig, Error,
+        HttpTransport, CRYPTO_PROVIDER,
+    },
     sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -230,8 +234,7 @@ where
     tokio::spawn({
         async move {
             server
-                // TODO: configuration
-                .http_config(HttpConfig::default())
+                .http_config(HttpServerConfig::default().into())
                 .handle(handle)
                 .serve(svc)
                 .await
