@@ -128,7 +128,8 @@ mod test {
         let num_bernoulli: u32 = 1000;
         let world = TestWorld::default();
         let input_values = [10, 8, 6, 41, 0, 0, 0, 0, 10, 8, 6, 41, 0, 0, 0, 0];
-        let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> = input_row(16, &input_values);
+        let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> =
+            vectorize_input(16, &input_values);
         let result = world
             .upgraded_semi_honest(input, |ctx, input| async move {
                 apply_dp_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
@@ -155,11 +156,16 @@ mod test {
                     > mean - 5.0 * standard_deviation
                     && f64::from(result_u32[i]) - f64::from(input_values[i])
                         < mean + 5.0 * standard_deviation
+                , "test failed because noised result is more than 5 standard deviations of the noise distribution \
+                from the original input values. This will fail with a small chance of failure"
             );
         }
     }
 
-    fn input_row<const B: usize>(bit_width: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
+    fn vectorize_input<const B: usize>(
+        bit_width: usize,
+        values: &[u32],
+    ) -> BitDecomposed<[Boolean; B]> {
         let values = <&[u32; B]>::try_from(values).unwrap();
         BitDecomposed::decompose(bit_width, |i| {
             values.map(|v| Boolean::from((v >> i) & 1 == 1))
