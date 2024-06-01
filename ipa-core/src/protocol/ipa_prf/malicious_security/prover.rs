@@ -1,4 +1,6 @@
-use std::{borrow::Borrow, iter::zip};
+#![allow(non_upper_case_globals)]
+
+use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 
 use crate::{
     ff::{Fp31, Fp61BitPrime, PrimeField},
@@ -8,140 +10,87 @@ use crate::{
     },
 };
 
-///
-/// Distributed Zero Knowledge Proofs algorithm drawn from
-/// `https://eprint.iacr.org/2023/909.pdf`
-#[allow(non_upper_case_globals)]
-fn compute_proof_generic<F, J, B, const λ: usize, const P: usize, const M: usize>(
-    uv_iterator: J,
-    lagrange_table: &LagrangeTable<F, λ, M>,
-) -> [F; P]
-where
-    F: PrimeField,
-    J: Iterator<Item = B>,
-    B: Borrow<([F; λ], [F; λ])>,
-{
-    let mut proof = [F::ZERO; P];
-    for uv_polynomial in uv_iterator {
-        for (i, proof_part) in proof.iter_mut().enumerate().take(λ) {
-            *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
-        }
-        let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
-        let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
-
-        for (i, (x, y)) in zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate() {
-            proof[λ + i] += x * y;
-        }
-    }
-    proof
+pub struct ProofGenerator<F: PrimeField, const λ: usize, const P: usize, const M: usize> {
+    phantom_data: PhantomData<F>,
 }
 
-#[allow(non_upper_case_globals)]
-fn gen_challenge_and_recurse_generic<F, J, B, const λ: usize, const P: usize>(
-    proof_left: &[F; P],
-    proof_right: &[F; P],
-    uv_iterator: J,
-) -> Vec<([F; λ], [F; λ])>
-where
-    F: PrimeField,
-    J: Iterator<Item = B>,
-    B: Borrow<([F; λ], [F; λ])>,
-{
-    let r: F = hash_to_field(
-        &compute_hash(proof_left),
-        &compute_hash(proof_right),
-        λ.try_into().unwrap(),
-    );
-    let mut output = Vec::<([F; λ], [F; λ])>::new();
-    let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
-    let lagrange_table_r = LagrangeTable::<F, λ, 1>::new(&denominator, &r);
+pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
+pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
+pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
-    // iter and interpolate at x coordinate r
-    let mut index = 0;
-    let mut new_u_chunk = [F::ZERO; λ];
-    let mut new_v_chunk = [F::ZERO; λ];
-    for polynomial in uv_iterator {
-        let (u_chunk, v_chunk) = polynomial.borrow();
-        let u = lagrange_table_r.eval(u_chunk)[0];
-        let v = lagrange_table_r.eval(v_chunk)[0];
-        if index >= λ {
+impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenerator<F, λ, P, M> {
+    // define constants such that they can be used externally
+    // when using the pub types defined above
+    const RECURSION_FACTOR: usize = λ;
+    const PROOF_LENGTH: usize = P;
+    const LAGRANGE_LENGTH: usize = M;
+
+    ///
+    /// Distributed Zero Knowledge Proofs algorithm drawn from
+    /// `https://eprint.iacr.org/2023/909.pdf`
+    fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, λ, M>) -> [F; P]
+    where
+        J: Iterator<Item = B>,
+        B: Borrow<([F; λ], [F; λ])>,
+    {
+        let mut proof = [F::ZERO; P];
+        for uv_polynomial in uv_iterator {
+            for (i, proof_part) in proof.iter_mut().enumerate().take(λ) {
+                *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
+            }
+            let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
+            let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
+
+            for (i, (x, y)) in
+                zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
+            {
+                proof[λ + i] += x * y;
+            }
+        }
+        proof
+    }
+
+    fn gen_challenge_and_recurse<J, B>(
+        proof_left: &[F; P],
+        proof_right: &[F; P],
+        uv_iterator: J,
+    ) -> Vec<([F; λ], [F; λ])>
+    where
+        J: Iterator<Item = B>,
+        B: Borrow<([F; λ], [F; λ])>,
+    {
+        let r: F = hash_to_field(
+            &compute_hash(proof_left),
+            &compute_hash(proof_right),
+            λ.try_into().unwrap(),
+        );
+        let mut output = Vec::<([F; λ], [F; λ])>::new();
+        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
+        let lagrange_table_r = LagrangeTable::<F, λ, 1>::new(&denominator, &r);
+
+        // iter and interpolate at x coordinate r
+        let mut index = 0;
+        let mut new_u_chunk = [F::ZERO; λ];
+        let mut new_v_chunk = [F::ZERO; λ];
+        for polynomial in uv_iterator {
+            let (u_chunk, v_chunk) = polynomial.borrow();
+            let u = lagrange_table_r.eval(u_chunk)[0];
+            let v = lagrange_table_r.eval(v_chunk)[0];
+            if index >= λ {
+                output.push((new_u_chunk, new_v_chunk));
+                new_u_chunk = [F::ZERO; λ];
+                new_v_chunk = [F::ZERO; λ];
+                index = 0;
+            }
+            new_u_chunk[index] = u;
+            new_v_chunk[index] = v;
+            index += 1;
+        }
+        if index != 0 {
             output.push((new_u_chunk, new_v_chunk));
-            new_u_chunk = [F::ZERO; λ];
-            new_v_chunk = [F::ZERO; λ];
-            index = 0;
         }
-        new_u_chunk[index] = u;
-        new_v_chunk[index] = v;
-        index += 1;
-    }
-    if index != 0 {
-        output.push((new_u_chunk, new_v_chunk));
-    }
 
-    output
-}
-
-pub struct TestProofGenerator {}
-
-impl TestProofGenerator {
-    pub fn compute_proof<J, B>(
-        uv_iterator: J,
-        lagrange_table: &LagrangeTable<Fp31, 4, 3>,
-    ) -> [Fp31; 7]
-    where
-        J: Iterator<Item = B>,
-        B: Borrow<([Fp31; 4], [Fp31; 4])>,
-    {
-        compute_proof_generic::<Fp31, J, B, 4, 7, 3>(uv_iterator, lagrange_table)
-    }
-
-    pub fn gen_challenge_and_recurse<J, B>(
-        proof_left: [Fp31; 7],
-        proof_right: [Fp31; 7],
-        uv_iterator: J,
-    ) -> Vec<([Fp31; 4], [Fp31; 4])>
-    where
-        J: Iterator<Item = B>,
-        B: Borrow<([Fp31; 4], [Fp31; 4])>,
-    {
-        gen_challenge_and_recurse_generic::<Fp31, J, B, 4, 7>(
-            &proof_left,
-            &proof_right,
-            uv_iterator,
-        )
-    }
-}
-
-#[allow(dead_code)]
-pub struct LegitProofGenerator {}
-
-#[allow(dead_code)]
-impl LegitProofGenerator {
-    pub fn compute_proof<J, B>(
-        uv_iterator: J,
-        lagrange_table: &LagrangeTable<Fp61BitPrime, 32, 31>,
-    ) -> [Fp61BitPrime; 63]
-    where
-        J: Iterator<Item = B>,
-        B: Borrow<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>,
-    {
-        compute_proof_generic::<Fp61BitPrime, J, B, 32, 63, 31>(uv_iterator, lagrange_table)
-    }
-
-    pub fn gen_challenge_and_recurse<J, B>(
-        proof_left: &[Fp61BitPrime; 63],
-        proof_right: &[Fp61BitPrime; 63],
-        uv_iterator: J,
-    ) -> Vec<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>
-    where
-        J: Iterator<Item = B>,
-        B: Borrow<([Fp61BitPrime; 32], [Fp61BitPrime; 32])>,
-    {
-        gen_challenge_and_recurse_generic::<Fp61BitPrime, J, B, 32, 63>(
-            proof_left,
-            proof_right,
-            uv_iterator,
-        )
+        output
     }
 }
 
@@ -150,10 +99,10 @@ mod test {
     use std::iter::zip;
 
     use crate::{
-        ff::{Fp31, PrimeField, U128Conversions},
+        ff::{Fp31, Fp61BitPrime, PrimeField, U128Conversions},
         protocol::ipa_prf::malicious_security::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-            prover::TestProofGenerator,
+            prover::{LargeProofGenerator, SmallProofGenerator, TestProofGenerator},
         },
     };
 
@@ -218,8 +167,11 @@ mod test {
             .unwrap();
 
         // fiat-shamir
-        let uv_2 =
-            TestProofGenerator::gen_challenge_and_recurse(proof_left_1, proof_right_1, uv_1.iter());
+        let uv_2 = TestProofGenerator::gen_challenge_and_recurse(
+            &proof_left_1,
+            &proof_right_1,
+            uv_1.iter(),
+        );
         assert_eq!(uv_2, zip_chunks(&U_2, &V_2));
 
         // next iteration
@@ -239,8 +191,11 @@ mod test {
             .unwrap();
 
         // fiat-shamir
-        let uv_3 =
-            TestProofGenerator::gen_challenge_and_recurse(proof_left_2, proof_right_2, uv_2.iter());
+        let uv_3 = TestProofGenerator::gen_challenge_and_recurse(
+            &proof_left_2,
+            &proof_right_2,
+            uv_2.iter(),
+        );
         assert_eq!(uv_3, zip_chunks(&U_3[..], &V_3[..]));
 
         let masked_uv_3 = zip_chunks(
@@ -253,6 +208,80 @@ mod test {
         assert_eq!(
             proof_3.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_3,
+        );
+    }
+
+    /// Simple test that ensures there is no panic when using the small parameter set.
+    /// It checks that the small parameter set is set up correctly.
+    #[test]
+    fn check_for_panic_small_set() {
+        const U: [u128; 64] = [
+            0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1, 15, 0, 0, 1, 15, 2, 30,
+            30, 16, 0, 0, 30, 16, 0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1,
+            15, 0, 0, 1, 15, 2, 30, 30, 16, 0, 0, 30, 16,
+        ];
+        const V: [u128; 64] = [
+            0, 0, 0, 30, 0, 0, 0, 1, 30, 30, 30, 30, 0, 0, 30, 30, 0, 30, 0, 30, 0, 0, 0, 1, 0, 0,
+            1, 1, 0, 0, 1, 1, 0, 0, 0, 30, 0, 0, 0, 1, 30, 30, 30, 30, 0, 0, 30, 30, 0, 30, 0, 30,
+            0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1,
+        ];
+
+        let uv_before = zip_chunks(&U, &V);
+
+        let denominator = CanonicalLagrangeDenominator::<
+            Fp61BitPrime,
+            { SmallProofGenerator::RECURSION_FACTOR },
+        >::new();
+        let lagrange_table = LagrangeTable::<
+            Fp61BitPrime,
+            { SmallProofGenerator::RECURSION_FACTOR },
+            { SmallProofGenerator::LAGRANGE_LENGTH },
+        >::from(denominator);
+
+        // compute proof
+        let proof = SmallProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+
+        assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
+
+        let uv_after =
+            SmallProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+
+        assert_eq!(
+            uv_before.len(),
+            uv_after.len() * SmallProofGenerator::RECURSION_FACTOR
+        );
+    }
+
+    /// Simple test that ensures there is no panic when using the large parameter set.
+    /// It checks that the small parameter set is set up correctly.
+    #[test]
+    fn check_for_panic_large_set() {
+        const U: [u128; 1024] = [1u128; 1024];
+        const V: [u128; 1024] = [2u128; 1024];
+
+        let uv_before = zip_chunks(&U, &V);
+
+        let denominator = CanonicalLagrangeDenominator::<
+            Fp61BitPrime,
+            { LargeProofGenerator::RECURSION_FACTOR },
+        >::new();
+        let lagrange_table = LagrangeTable::<
+            Fp61BitPrime,
+            { LargeProofGenerator::RECURSION_FACTOR },
+            { LargeProofGenerator::LAGRANGE_LENGTH },
+        >::from(denominator);
+
+        // compute proof
+        let proof = LargeProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+
+        assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
+
+        let uv_after =
+            LargeProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+
+        assert_eq!(
+            uv_before.len(),
+            uv_after.len() * LargeProofGenerator::RECURSION_FACTOR
         );
     }
 }
