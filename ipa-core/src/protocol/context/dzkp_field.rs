@@ -61,8 +61,7 @@ impl FromIterator<Fp61BitPrime> for [Fp61BitPrime; B] {
         for (i, elem) in iter.into_iter().enumerate() {
             assert!(
                 i < B,
-                "Too many elements to collect into array of length {:?}",
-                B
+                "Too many elements to collect into array of length {B}",
             );
             out[i] = elem;
         }
