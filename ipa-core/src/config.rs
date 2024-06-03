@@ -8,7 +8,8 @@ use std::{
     time::Duration,
 };
 
-use hyper::{client::Builder, http::uri::Scheme, Uri};
+use hyper::{http::uri::Scheme, Uri};
+use hyper_util::client::legacy::Builder;
 use rustls_pemfile::Item;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::{Deserialize, Deserializer, Serialize};

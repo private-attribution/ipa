@@ -37,9 +37,10 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::num::NonZeroU32;
 
+    use axum::body::Body;
     use hyper::{
         http::uri::{Authority, Scheme},
-        Body, StatusCode,
+        StatusCode,
     };
 
     use crate::{
@@ -133,9 +134,7 @@ mod tests {
                 f = val.field_type,
                 qt = val.query_type_params
             );
-            hyper::Request::post(uri)
-                .body(hyper::Body::empty())
-                .unwrap()
+            hyper::Request::post(uri).body(Body::empty()).unwrap()
         }
     }
 

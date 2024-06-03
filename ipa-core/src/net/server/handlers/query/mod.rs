@@ -102,6 +102,8 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
 pub mod test_helpers {
     use std::{any::Any, sync::Arc};
 
+    use axum::body::Body;
+    use http_body_util::BodyExt;
     use hyper::{http::request, StatusCode};
 
     use crate::{
@@ -111,11 +113,16 @@ pub mod test_helpers {
 
     /// Helper trait for optionally adding an extension to a request.
     pub trait MaybeExtensionExt {
-        fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self;
+        fn maybe_extension<T>(self, extension: Option<T>) -> Self
+        where
+            T: Any + Send + Sync + Clone + 'static;
     }
 
     impl MaybeExtensionExt for request::Builder {
-        fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self {
+        fn maybe_extension<T>(self, extension: Option<T>) -> Self
+        where
+            T: Any + Send + Sync + Clone + 'static,
+        {
             if let Some(extension) = extension {
                 self.extension(extension)
             } else {
@@ -126,24 +133,24 @@ pub mod test_helpers {
 
     // Intended to be used for a request that will fail Starts a [`TestServer`] and gets response
     // from the server, and compare its [`StatusCode`] with what is expected.
-    pub async fn assert_fails_with(req: hyper::Request<hyper::Body>, expected_status: StatusCode) {
+    pub async fn assert_fails_with(req: hyper::Request<Body>, expected_status: StatusCode) {
         let test_server = TestServer::builder().build().await;
         let resp = test_server.server.handle_req(req).await;
         assert_eq!(resp.status(), expected_status);
     }
 
     pub async fn assert_success_with(
-        req: hyper::Request<hyper::Body>,
+        req: hyper::Request<Body>,
         handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
-    ) -> Vec<u8> {
+    ) -> bytes::Bytes {
         let test_server = TestServer::builder()
             .with_request_handler(handler)
             .build()
             .await;
         let resp = test_server.server.handle_req(req).await;
         let status = resp.status();
-        let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
         assert_eq!(StatusCode::OK, status);
-        body_bytes.to_vec()
+
+        resp.into_body().collect().await.unwrap().to_bytes()
     }
 }

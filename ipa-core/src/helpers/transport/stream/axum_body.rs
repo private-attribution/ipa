@@ -3,50 +3,36 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(feature = "real-world-infra")]
-use axum::RequestExt;
-use axum::{
-    extract::{BodyStream, FromRequest},
-    http::Request,
-};
-use futures::{Stream, TryStreamExt};
-use hyper::Body;
+use axum::body::{Body, BodyDataStream};
+use bytes::Bytes;
+use futures::{Stream, StreamExt};
 use pin_project::pin_project;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::error::BoxError;
-
-type AxumInner = futures::stream::MapErr<BodyStream, fn(axum::Error) -> crate::error::BoxError>;
 
 /// This struct is a simple wrapper so that both in-memory-infra and real-world-infra have a
 /// unified interface for streams consumed by transport layer.
 #[pin_project]
-pub struct WrappedAxumBodyStream(#[pin] AxumInner);
+pub struct WrappedAxumBodyStream(#[pin] BodyDataStream);
 
 impl WrappedAxumBodyStream {
-    /// Wrap an axum body stream, returning an instance of `crate::helpers::BodyStream`.
-    ///
-    /// In the real-world-infra configuration, that is the same as a `WrappedAxumBodyStream`.
-    #[cfg(feature = "real-world-infra")]
-    #[must_use]
-    pub fn new(inner: BodyStream) -> Self {
-        Self::new_internal(inner)
-    }
-
-    pub(super) fn new_internal(inner: BodyStream) -> Self {
-        Self(inner.map_err(axum::Error::into_inner as fn(axum::Error) -> BoxError))
+    pub(super) fn new(b: Body) -> Self {
+        Self(b.into_data_stream())
     }
 
     #[must_use]
     pub fn empty() -> Self {
-        Self::from_body(Body::empty())
+        Self::new(Body::empty())
     }
 }
 
 impl Stream for WrappedAxumBodyStream {
-    type Item = <AxumInner as Stream>::Item;
+    type Item = Result<Bytes, BoxError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().0.poll_next(cx)
+        let mut inner = self.project().0;
+        inner.poll_next_unpin(cx).map_err(BoxError::from)
     }
 }
 
@@ -54,39 +40,29 @@ impl Stream for WrappedAxumBodyStream {
 #[cfg(any(test, feature = "test-fixture"))]
 impl<Buf: Into<bytes::Bytes>> From<Buf> for WrappedAxumBodyStream {
     fn from(buf: Buf) -> Self {
-        Self::from_body(buf.into())
+        Self::new(Body::from(buf.into()))
     }
 }
 
 impl WrappedAxumBodyStream {
-    /// # Panics
-    /// If something goes wrong in axum or hyper constructing the request body stream,
-    /// which probably can't happen here.
-    pub fn from_body<T: Into<Body>>(body: T) -> Self {
-        // The `FromRequest` trait defines `from_request` as async, but the implementation for
-        // `BodyStream` never blocks, and it's not clear why it would need to, so it seems safe to
-        // resolve the future with `now_or_never`.
-        Self::new_internal(
-            futures::FutureExt::now_or_never(BodyStream::from_request(
-                Request::builder().body(body.into()).unwrap(),
-                &(),
-            ))
-            .unwrap()
-            .unwrap(),
-        )
+    #[must_use]
+    pub fn from_receiver_stream(receiver: Box<ReceiverStream<Result<Bytes, BoxError>>>) -> Self {
+        Self::new(Body::from_stream(receiver))
     }
 }
 
 #[cfg(feature = "real-world-infra")]
 #[async_trait::async_trait]
-impl<
-        S: Send + Sync,
-        B: hyper::body::HttpBody<Data = bytes::Bytes, Error = hyper::Error> + Send + 'static,
-    > FromRequest<S, B> for WrappedAxumBodyStream
+impl<S> axum::extract::FromRequest<S> for WrappedAxumBodyStream
+where
+    S: Send + Sync,
 {
-    type Rejection = <BodyStream as FromRequest<S, B>>::Rejection;
+    type Rejection = crate::net::Error;
 
-    async fn from_request(req: hyper::Request<B>, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(Self::new_internal(req.extract::<BodyStream, _>().await?))
+    async fn from_request(
+        req: axum::extract::Request,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(Self::new(req.into_body()))
     }
 }

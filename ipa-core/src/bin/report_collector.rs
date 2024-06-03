@@ -228,7 +228,10 @@ async fn ipa(
         field_type: FieldType::Fp32BitPrime,
         query_type,
     };
-    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
+    let query_id = helper_clients[0]
+        .create_query(query_config)
+        .await
+        .expect("Unable to create query!");
 
     let expected = {
         let mut r = ipa_in_the_clear(

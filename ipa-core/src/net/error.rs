@@ -19,6 +19,8 @@ pub enum Error {
     WrongBodyLen { body_len: u32, element_size: usize },
     #[error(transparent)]
     InvalidJsonBody(#[from] axum::extract::rejection::JsonRejection),
+    #[error(transparent)]
+    InvalidBytesBody(#[from] axum::extract::rejection::BytesRejection),
     #[error("bad path: {0}")]
     BadPathString(#[source] BoxError),
     #[error(transparent)]
@@ -32,7 +34,7 @@ pub enum Error {
     #[error(transparent)]
     AxumPassthrough(#[from] axum::Error),
     #[error("parse error: {0}")]
-    SerdePassthrough(#[from] serde_json::Error),
+    JsonParsing(#[from] serde_json::Error),
     #[error(transparent)]
     InvalidUri(#[from] hyper::http::uri::InvalidUri),
     // `FailedHttpRequest` and `Application` are for the same errors, with slightly different
@@ -53,7 +55,7 @@ pub enum Error {
     ConnectError {
         dest: String,
         #[source]
-        inner: hyper::Error,
+        inner: hyper_util::client::legacy::Error,
     },
     #[error("{error}")]
     Application { code: StatusCode, error: BoxError },
@@ -75,7 +77,7 @@ impl Error {
         let status = resp.status();
         assert!(status.is_client_error() || status.is_server_error()); // must be failure
         let (endpoint, body) = resp.into_parts();
-        hyper::body::to_bytes(body)
+        axum::body::to_bytes(body, 36_000_000) // Roughly 36mb
             .await
             .map_or_else(Into::into, |reason_bytes| Error::FailedHttpRequest {
                 dest: endpoint.to_string(),
@@ -137,11 +139,12 @@ impl IntoResponse for Error {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
 
-            Self::SerdePassthrough(_)
+            Self::JsonParsing(_)
             | Self::InvalidHeader(_)
             | Self::WrongBodyLen { .. }
             | Self::AxumPassthrough(_)
             | Self::InvalidJsonBody(_)
+            | Self::InvalidBytesBody(_)
             | Self::QueryIdNotFound(_)
             | Self::ConnectError { .. } => StatusCode::BAD_REQUEST,
 
@@ -153,7 +156,6 @@ impl IntoResponse for Error {
 
             Self::Application { code, .. } => code,
         };
-
         (status_code, self.to_string()).into_response()
     }
 }
