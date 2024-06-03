@@ -22,6 +22,7 @@ track_steps!(
             shuffle::step,
             aggregation::step,
             step,
+            dp::step,
         },
         step,
     },
