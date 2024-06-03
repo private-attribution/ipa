@@ -2,6 +2,8 @@
 
 pub mod step;
 
+use std::f64;
+
 use futures_util::{stream, StreamExt};
 
 use crate::{
@@ -24,7 +26,6 @@ use crate::{
     },
     sharding::NotSharded,
 };
-
 /// # Panics
 /// Will panic if there are not enough bits in the outputs size for the noise gen sum. We can't have the noise sum saturate
 /// as that would be insecure noise.
@@ -109,16 +110,209 @@ where
     Ok(Vec::transposed_from(&histogram_noised)?)
 }
 
+// implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559
+// which lets us determine the minimum necessary num_bernoulli for a given epsilon, delta
+// and other parameters
+// translation of notation from the paper to Rust variable names:
+//     p = success_prob
+//     s = quantization_scale
+//     Delta_1 = ell_1_sensitivity
+//     Delta_2 = ell_2_sensitivity
+//     Delta_infty = ell_infty_sensitivity
+//     N = num_bernoulli
+//     d = dimensions
+/// equation (17)
+fn b_p(success_prob: f64) -> f64 {
+    (2.0 / 3.0) * (success_prob.powi(2) + (1.0 - success_prob).powi(2)) + 1.0 - 2.0 * success_prob
+}
+/// equation (12)
+fn c_p(success_prob: f64) -> f64 {
+    2.0_f64.sqrt()
+        * 3.0
+        * (success_prob.powi(3)
+            + (1.0 - success_prob).powi(3)
+            + 2.0 * success_prob.powi(2)
+            + 2.0 * (1.0 - success_prob).powi(2))
+}
+
+/// equation (16)
+fn d_p(success_prob: f64) -> f64 {
+    (4.0 / 3.0) * (success_prob.powi(2) + (1.0 - success_prob).powi(2))
+}
+
+/// equation (7)
+#[allow(clippy::too_many_arguments)]
+fn epsilon(
+    num_bernoulli: u32,
+    success_prob: f64,
+    delta: f64,
+    quantization_scale: f64,
+    dimensions: f64,
+    ell_1_sensitivity: f64,
+    ell_2_sensitivity: f64,
+    ell_infty_sensitivity: f64,
+) -> f64 {
+    let num_bernoulli_f64 = f64::from(num_bernoulli);
+    let first_term_num = ell_2_sensitivity * 2.0_f64.sqrt() * (2.0 * (1.25 / delta).ln());
+    let first_term_den =
+        quantization_scale * num_bernoulli_f64 * success_prob * (1.0 - success_prob);
+    let second_term_num =
+        ell_2_sensitivity * c_p(success_prob) * 2.0_f64.sqrt() * (10.0 / delta).ln()
+            + ell_1_sensitivity * b_p(success_prob);
+    let second_term_den = quantization_scale
+        * num_bernoulli_f64
+        * success_prob
+        * (1.0 - success_prob)
+        * (1.0 - delta / 10.0);
+    let third_term_num = (2.0 / 3.0) * ell_infty_sensitivity * (1.25 / delta).ln()
+        + ell_infty_sensitivity
+            * d_p(success_prob)
+            * (20.0 * dimensions / delta).ln()
+            * (10.0 / delta).ln();
+    let third_term_den =
+        quantization_scale * num_bernoulli_f64 * success_prob * (1.0 - success_prob);
+    first_term_num / first_term_den
+        + second_term_num / second_term_den
+        + third_term_num / third_term_den
+}
+
+/// constraint from delta in Thm 1
+fn check_max(
+    num_bernoulli: u32,
+    success_prob: f64,
+    dimensions: f64,
+    quantization_scale: f64,
+    delta: f64,
+    ell_infty_sensitivity: f64,
+) -> bool {
+    let lhs = f64::from(num_bernoulli) * success_prob * (1.0 - success_prob);
+    let rhs = (23.0 * (10.0 * dimensions / delta).ln())
+        .max(2.0 * ell_infty_sensitivity / quantization_scale);
+    lhs >= rhs
+}
+
+/// error of mechanism in Thm 1
+fn error(num_bernoulli: u32, success_prob: f64, dimensions: f64, quantization_scale: f64) -> f64 {
+    dimensions
+        * quantization_scale.powi(2)
+        * f64::from(num_bernoulli)
+        * success_prob
+        * (1.0 - success_prob)
+}
+
+/// for fixed p (and other params), find smallest `num_bernoulli` such that `epsilon < desired_epsilon`
+#[allow(clippy::too_many_arguments)]
+fn find_smallest_num_bernoulli(
+    desired_epsilon: f64,
+    success_prob: f64,
+    delta: f64,
+    dimensions: f64,
+    quantization_scale: f64,
+    ell_1_sensitivity: f64,
+    ell_2_sensitivity: f64,
+    ell_infty_sensitivity: f64,
+) -> u32 {
+    for num_bernoulli in 1..10_000_000 {
+        if check_max(
+            num_bernoulli,
+            success_prob,
+            dimensions,
+            quantization_scale,
+            delta,
+            ell_infty_sensitivity,
+        ) && desired_epsilon
+            >= epsilon(
+                num_bernoulli,
+                success_prob,
+                delta,
+                quantization_scale,
+                dimensions,
+                ell_1_sensitivity,
+                ell_2_sensitivity,
+                ell_infty_sensitivity,
+            )
+        {
+            return num_bernoulli;
+        }
+    }
+    println!("smallest num_bernoulli not found");
+    0
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
         ff::{boolean::Boolean, boolean_array::BA16, U128Conversions},
-        protocol::ipa_prf::dp::{apply_dp_noise, gen_binomial_noise},
+        protocol::ipa_prf::dp::{
+            apply_dp_noise, check_max, epsilon, error, find_smallest_num_bernoulli,
+            gen_binomial_noise,
+        },
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+
+    #[test]
+    fn test_epsilon_simple_aggregation_case() {
+        let delta = 1e-6;
+        let dimensions = 1.0;
+        let quantization_scale = 1.0;
+        let success_prob = 0.5;
+        let ell_1_sensitivity = 1.0;
+        let ell_2_sensitivity = 1.0;
+        let ell_infty_sensitivity = 1.0;
+        let num_bernoulli = 2000;
+        assert!(check_max(
+            num_bernoulli,
+            success_prob,
+            dimensions,
+            quantization_scale,
+            delta,
+            ell_infty_sensitivity
+        ));
+        let eps = epsilon(
+            num_bernoulli,
+            success_prob,
+            delta,
+            quantization_scale,
+            dimensions,
+            ell_1_sensitivity,
+            ell_2_sensitivity,
+            ell_infty_sensitivity,
+        );
+        assert!(eps > 0.6375 && eps < 0.6376);
+    }
+
+    #[test]
+    fn test_num_bernoulli_simple_aggregation_case() {
+        let success_prob = 0.5;
+        let desired_epsilon = 1.0;
+        let delta = 1e-6;
+        let dimensions = 1.0;
+        let quantization_scale = 1.0;
+        let ell_1_sensitivity = 1.0;
+        let ell_2_sensitivity = 1.0;
+        let ell_infty_sensitivity = 1.0;
+        let smallest_num_bernoulli = find_smallest_num_bernoulli(
+            desired_epsilon,
+            success_prob,
+            delta,
+            dimensions,
+            quantization_scale,
+            ell_1_sensitivity,
+            ell_2_sensitivity,
+            ell_infty_sensitivity,
+        );
+        let err = error(
+            smallest_num_bernoulli,
+            success_prob,
+            dimensions,
+            quantization_scale,
+        );
+        assert_eq!(smallest_num_bernoulli, 1483_u32);
+        assert!(err <= 370.75 && err > 370.7);
+    }
 
     // Tests for apply_dp_noise
     #[tokio::test]
