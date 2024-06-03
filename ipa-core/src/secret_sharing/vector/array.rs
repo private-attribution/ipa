@@ -6,7 +6,7 @@ use std::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{U128, U16, U256, U32, U64};
+use typenum::{U16, U256, U32, U64};
 
 use crate::{
     const_assert_eq,
@@ -329,10 +329,10 @@ macro_rules! impl_from_random {
 
 const_assert_eq!(
     PRF_CHUNK,
-    64,
+    16,
     "Appropriate FromRandom implementation required"
 );
-impl_from_random!(Fp25519, 64, U128, 2);
+impl_from_random!(Fp25519, 16, U32, 2);
 
 impl_from_random!(Fp32BitPrime, 32, U32, 1);
 

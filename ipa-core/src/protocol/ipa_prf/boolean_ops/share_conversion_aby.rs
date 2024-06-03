@@ -1,4 +1,4 @@
-use std::{convert::Infallible, ops::Neg};
+use std::{convert::Infallible, iter::zip, ops::Neg};
 
 use crate::{
     error::{Error, UnwrapInfallible},
@@ -86,31 +86,40 @@ use crate::{
 /// However, these terms are only non-zero when all `rs_{k}` terms are non-zero
 /// this happens with probability `1/(2^(256-m))` which is negligible for a sufficiently small `m`
 ///
+/// `NC` is the share conversion vectorization dimension, and `NP` is the PRF vectorization
+/// dimension. Most of this routine works at `NC`. The final packing in `output_shares` converts to
+/// a vector of (NC / NP) shares, each with dimension `NP`.
+///
 /// # Errors
 /// Propagates Errors from Integer Subtraction and Partial Reveal
 /// # Panics
 /// If values processed by this function is smaller than 256 bits.
-pub async fn convert_to_fp25519<C, const N: usize>(
+pub async fn convert_to_fp25519<C, const NC: usize, const NP: usize>(
     ctx: C,
     record_id: RecordId,
-    x: BitDecomposed<AdditiveShare<Boolean, N>>,
-) -> Result<AdditiveShare<Fp25519, N>, Error>
+    x: BitDecomposed<AdditiveShare<Boolean, NC>>,
+) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
 where
     C: Context,
-    Fp25519: Vectorizable<N>,
-    Boolean: FieldSimd<N>,
-    BitDecomposed<AdditiveShare<Boolean, N>>: FromPrss<usize>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
-    Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, N>>>,
+    Fp25519: Vectorizable<NP>,
+    Boolean: FieldSimd<NC>,
+    BitDecomposed<AdditiveShare<Boolean, NC>>: FromPrss<usize>,
+    AdditiveShare<Boolean, NC>: BooleanProtocols<C, NC>,
+    Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, NC>>>,
     Vec<BA256>:
-        for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<N>>::Array; 256], Error = Infallible>,
+        for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<NC>>::Array; 256], Error = Infallible>,
 {
     // `BITS` is the number of bits in the memory representation of Fp25519 field elements. It does
     // not vary with vectorization. Where the type `BA256` appears literally in the source of this
     // function, it is referring to this constant. (It is also possible for `BA256` to be used to
     // hold width-256 vectorizations, but when it serves that purpose, it does not appear literally
-    // in the source of this function -- it is behind the N parameter.)
+    // in the source of this function -- it is behind the NC parameter.)
     const BITS: usize = 256;
+
+    assert!(
+        NC % NP == 0,
+        "conversion chunk should be a multiple of PRF chunk"
+    );
 
     // Ensure that the probability of leaking information is less than 1/(2^128).
     debug_assert!(x.iter().count() < (BITS - 128));
@@ -118,12 +127,12 @@ where
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
     // the two highest bits are set to 0 to allow carries for two additions
     let (sh_r, sh_s) =
-        gen_sh_r_and_sh_s::<_, BITS, N>(&ctx.narrow(&Step::GenerateSecretSharing), record_id);
+        gen_sh_r_and_sh_s::<_, BITS, NC>(&ctx.narrow(&Step::GenerateSecretSharing), record_id);
 
     // addition r+s might cause carry,
     // this is no problem since we have set bit 254 of sh_r and sh_s to 0
     let sh_rs = {
-        let (mut rs_with_higherorderbits, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, N>(
+        let (mut rs_with_higherorderbits, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
             ctx.narrow(&Step::IntegerAddBetweenMasks),
             record_id,
             &sh_r,
@@ -133,7 +142,7 @@ where
 
         // PRSS/Multiply masks added random highest order bit,
         // remove them to not cause overflow in second addition (which is mod 256):
-        rs_with_higherorderbits.set(BITS - 1, &AdditiveShare::<Boolean, N>::ZERO);
+        rs_with_higherorderbits.set(BITS - 1, &AdditiveShare::<Boolean, NC>::ZERO);
 
         // return rs
         rs_with_higherorderbits
@@ -141,7 +150,7 @@ where
 
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
-    let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, N>(
+    let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
         ctx.narrow(&Step::IntegerAddMaskToX),
         record_id,
         &sh_rs,
@@ -150,7 +159,7 @@ where
     .await?;
 
     // this leaks information, but with negligible probability
-    let mut y = (ctx.role() != Role::H3).then(|| Vec::with_capacity(N));
+    let mut y = (ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
     for i in 0..BITS {
         let y_bit = partial_reveal(
             ctx.narrow(&Step::RevealY(i)),
@@ -177,28 +186,7 @@ where
         .ok()
         .expect("sh_s was constructed with the correct number of bits");
 
-    match ctx.role() {
-        Role::H1 => Ok(AdditiveShare::<Fp25519, N>::new_arr(
-            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
-                Fp25519::from(sh_s.get(i).unwrap().left()).neg()
-            }),
-            y.unwrap().into_iter().map(Fp25519::from).collect(),
-        )),
-        Role::H2 => Ok(AdditiveShare::<Fp25519, N>::new_arr(
-            y.unwrap().into_iter().map(Fp25519::from).collect(),
-            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
-                Fp25519::from(sh_r.get(i).unwrap().right()).neg()
-            }),
-        )),
-        Role::H3 => Ok(AdditiveShare::<Fp25519, N>::new_arr(
-            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
-                Fp25519::from(sh_r.get(i).unwrap().left()).neg()
-            }),
-            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
-                Fp25519::from(sh_s.get(i).unwrap().right()).neg()
-            }),
-        )),
-    }
+    output_shares::<_, NC, NP>(&ctx, &sh_r, &sh_s, y)
 }
 
 /// Generates `sh_r` and `sh_s` from PRSS randomness (`r`).
@@ -266,6 +254,73 @@ where
         }
     }
     (sh_r, sh_s)
+}
+
+/// Select output share values from `sh_r`, `sh_s`, and `y`, depending on which helper we are.
+///
+/// Because the PRF vectorization dimension (NP) may be smaller than the share conversion
+/// vectorization dimension (NC), this routine also re-chunks the outputs into (NC / NP) chunks of
+/// NP records.
+fn output_shares<C, const NC: usize, const NP: usize>(
+    ctx: &C,
+    sh_r: &[AdditiveShare<BA256>],
+    sh_s: &[AdditiveShare<BA256>],
+    y: Option<Vec<BA256>>,
+) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
+where
+    C: Context,
+    Fp25519: Vectorizable<NP>,
+{
+    let (left, right): (Vec<Vec<Fp25519>>, Vec<Vec<Fp25519>>) = match ctx.role() {
+        Role::H1 => sh_s
+            .chunks(NP)
+            .zip(y.expect("y was revealed to H1").chunks(NP))
+            .map(|(sh_s, y)| {
+                (
+                    sh_s.iter()
+                        .map(|sh_s| Fp25519::from(sh_s.left()).neg())
+                        .collect(),
+                    y.iter().map(|&y| Fp25519::from(y)).collect(),
+                )
+            })
+            .unzip(),
+        Role::H2 => y
+            .expect("y was revealed to H1")
+            .chunks(NP)
+            .zip(sh_r.chunks(NP))
+            .map(|(y, sh_r)| {
+                (
+                    y.iter().map(|&y| Fp25519::from(y)).collect(),
+                    sh_r.iter()
+                        .map(|sh_r| Fp25519::from(sh_r.right()).neg())
+                        .collect(),
+                )
+            })
+            .unzip(),
+        Role::H3 => sh_r
+            .chunks(NP)
+            .zip(sh_s.chunks(NP))
+            .map(|(sh_r, sh_s)| {
+                (
+                    sh_r.iter()
+                        .map(|sh_r| Fp25519::from(sh_r.left()).neg())
+                        .collect(),
+                    sh_s.iter()
+                        .map(|sh_s| Fp25519::from(sh_s.right()).neg())
+                        .collect(),
+                )
+            })
+            .unzip(),
+    };
+
+    let mut results = Vec::with_capacity(NC / NP);
+    for (left, right) in zip(left, right) {
+        results.push(AdditiveShare::<Fp25519, NP>::new_arr(
+            <Fp25519 as Vectorizable<NP>>::Array::try_from(left)?,
+            <Fp25519 as Vectorizable<NP>>::Array::try_from(right)?,
+        ));
+    }
+    Ok(results)
 }
 
 /// inserts smaller array in the larger array starting from location offset
@@ -337,30 +392,19 @@ mod tests {
     use super::*;
     use crate::{
         ff::{boolean_array::BA64, Serializable},
-        helpers::stream::{process_slice_by_chunks, TryFlattenItersExt},
-        protocol::context::SemiHonestContext,
+        helpers::stream::process_slice_by_chunks,
+        protocol::ipa_prf::{CONV_CHUNK, PRF_CHUNK},
         rand::thread_rng,
         seq_join::{seq_join, SeqJoin},
         test_executor::run,
         test_fixture::{ReconstructArr, Runner, TestWorld},
     };
 
-    fn test_semi_honest_convert_into_fp25519<const COUNT: usize, const CHUNK: usize>()
-    where
-        Fp25519: Vectorizable<CHUNK>,
-        Boolean: FieldSimd<CHUNK>,
-        AdditiveShare<Boolean, CHUNK>: for<'a> BooleanProtocols<SemiHonestContext<'a>, CHUNK>,
-        BitDecomposed<AdditiveShare<Boolean, CHUNK>>: for<'a> TransposeFrom<&'a [AdditiveShare<BA64>; CHUNK], Error = Infallible>
-            + FromPrss<usize>,
-        Vec<AdditiveShare<BA256>>:
-            for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, CHUNK>>>,
-        Vec<BA256>: for<'a> TransposeFrom<
-            &'a [<Boolean as Vectorizable<CHUNK>>::Array; 256],
-            Error = Infallible,
-        >,
-        [AdditiveShare<Fp25519, CHUNK>; 3]: ReconstructArr<<Fp25519 as Vectorizable<CHUNK>>::Array>,
-    {
+    #[test]
+    fn test_semi_honest_convert_into_fp25519() {
         run(|| async move {
+            const COUNT: usize = CONV_CHUNK + 1;
+
             let world = TestWorld::default();
 
             let mut rng = thread_rng();
@@ -380,44 +424,34 @@ mod tests {
 
             let [res0, res1, res2] = world
                 .semi_honest(records.into_iter(), |ctx, records| async move {
-                    #[cfg(not(debug_assertions))]
-                    let begin = std::time::Instant::now();
-                    let res: Result<Vec<AdditiveShare<Fp25519>>, Error> = seq_join(
+                    seq_join(
                         ctx.active_work(),
                         process_slice_by_chunks(
                             &records,
                             |idx, chunk| {
                                 let ctx = ctx.clone();
-                                async move {
-                                    let mut match_keys = BitDecomposed::new(iter::empty());
-                                    match_keys.transpose_from(&chunk).unwrap_infallible();
-                                    convert_to_fp25519::<_, CHUNK>(
-                                        ctx.set_total_records((COUNT + CHUNK - 1) / CHUNK),
-                                        RecordId::from(idx),
-                                        match_keys,
-                                    )
-                                    .await
-                                    .map(|shares| {
-                                        shares
-                                            .into_unpacking_iter()
-                                            .collect::<Vec<_>>()
-                                            .try_into()
-                                            .unwrap()
-                                    })
-                                }
+                                let mut match_keys = BitDecomposed::new(iter::empty());
+                                match_keys.transpose_from(&*chunk).unwrap_infallible();
+                                convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(
+                                    ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK),
+                                    RecordId::from(idx),
+                                    match_keys,
+                                )
                             },
                             || AdditiveShare::<BA64>::ZERO,
                         ),
                     )
-                    .try_flatten_iters()
-                    .try_collect()
-                    .await;
-                    #[cfg(not(debug_assertions))]
-                    tracing::info!("Execution time: {:?}", begin.elapsed());
-                    res
+                    .try_collect::<Vec<_>>()
+                    .await
                 })
                 .await
-                .map(Result::unwrap);
+                .map(|res| {
+                    res.unwrap()
+                        .into_iter()
+                        .flat_map(|chunk| chunk.unpack::<PRF_CHUNK>().into_iter())
+                        .flat_map(|chunk| chunk.map(AdditiveShare::into_unpacking_iter))
+                        .collect::<Vec<_>>()
+                });
             let mut result = Vec::with_capacity(COUNT);
             for line in res0.into_iter().zip(res1).zip(res2) {
                 let ((s0, s1), s2) = line;
@@ -425,15 +459,6 @@ mod tests {
             }
             assert_eq!(result, expected);
         });
-    }
-
-    // The third generic parameter in these calls is the number of conversions. It is set to give
-    // reasonable runtime for debug builds. These can also be used for benchmarking, in which case
-    // a size of 4096 is reasonable.
-
-    #[test]
-    fn semi_honest_convert_into_fp25519_vec64() {
-        test_semi_honest_convert_into_fp25519::<65, 64>();
     }
 
     #[test]

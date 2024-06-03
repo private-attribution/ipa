@@ -90,25 +90,28 @@ impl<C: Context> BooleanProtocols<C, PRF_CHUNK> for AdditiveShare<Boolean, PRF_C
 {
 }
 
-// Used by semi_honest_compare_gt_vec test.
 impl<C: Context> BooleanProtocols<C, AGG_CHUNK> for AdditiveShare<Boolean, AGG_CHUNK> where
     AdditiveShare<Boolean, AGG_CHUNK>: SecureMul<C>
 {
 }
 
+// Used by semi_honest_compare_gt_vec test.
 const_assert_eq!(
     AGG_CHUNK,
     256,
     "Implementation for N = 256 required for semi_honest_compare_gt_vec test"
 );
 
-// Implementations for 2^|bk|
+// Implementations for num_breakdowns (2^|bk|)
+// These are used for aggregate_values and dp noise gen.
+const_assert_eq!(
+    PRF_CHUNK,
+    16,
+    "Implementation for N = 16 required for num_breakdowns"
+);
+
 impl<C: Context> BooleanProtocols<C, 32> for AdditiveShare<Boolean, 32> where
     AdditiveShare<Boolean, 32>: SecureMul<C>
-{
-}
-impl<C: Context> BooleanProtocols<C, 16> for AdditiveShare<Boolean, 16> where
-    AdditiveShare<Boolean, 16>: SecureMul<C>
 {
 }
 
