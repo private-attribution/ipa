@@ -221,7 +221,7 @@ impl Gateway {
 
 impl Default for GatewayConfig {
     fn default() -> Self {
-        Self::new(32)
+        Self::new(1024)
     }
 }
 

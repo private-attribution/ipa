@@ -247,7 +247,9 @@ where
                     return Poll::Pending;
                 }
                 Poll::Ready(Some(b)) => {
-                    if let Some(m) = self.spare.extend(b.as_ref()) {
+                    let b = b.as_ref();
+                    tracing::trace!(len = b.len(), "next chunk");
+                    if let Some(m) = self.spare.extend(b) {
                         self.wake_next();
                         return Poll::Ready(
                             m.map_err(|e| DeserializeError::new::<M>(self.next, e).into()),

@@ -154,7 +154,7 @@ impl<S: SharedValue> BitDecomposed<S> {
 
 impl<A, const N: usize> FromPrss<usize> for BitDecomposed<AdditiveShare<Boolean, N>>
 where
-    A: SharedValue + FromRandom,
+    A: FromRandom,
     Boolean: Vectorizable<N, Array = A>,
 {
     fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(

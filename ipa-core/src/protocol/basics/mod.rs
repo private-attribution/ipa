@@ -107,6 +107,10 @@ impl<C: Context> BooleanProtocols<C, 32> for AdditiveShare<Boolean, 32> where
     AdditiveShare<Boolean, 32>: SecureMul<C>
 {
 }
+impl<C: Context> BooleanProtocols<C, 16> for AdditiveShare<Boolean, 16> where
+    AdditiveShare<Boolean, 16>: SecureMul<C>
+{
+}
 
 const_assert_eq!(
     AGG_CHUNK,

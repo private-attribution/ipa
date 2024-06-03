@@ -25,6 +25,13 @@ pub use transport::{HttpShardTransport, HttpTransport};
 pub const APPLICATION_JSON: &str = "application/json";
 pub const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
 
+/// This has the same meaning as const defined in h2 crate, but we don't import it directly.
+/// According to the [`spec`] it cannot exceed 2^31 - 1.
+///
+/// Setting up initial window size to this value effectively turns off the flow control mechanism.
+/// [`spec`]: <https://datatracker.ietf.org/doc/html/rfc9113#name-the-flow-control-window>
+pub(crate) const MAX_HTTP2_WINDOW_SIZE: u32 = (1 << 31) - 1;
+
 /// Provides access to IPAs Crypto Provider (AWS Libcrypto).
 static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
     Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
