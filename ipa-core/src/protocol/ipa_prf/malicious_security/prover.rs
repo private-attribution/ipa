@@ -324,11 +324,11 @@ mod test {
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
 
-        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, _, 4>(
-            &proof,
-            &proof,
-            uv_before.iter(),
-        );
+        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<
+            _,
+            _,
+            { SmallProofGenerator::RECURSION_FACTOR },
+        >(&proof, &proof, uv_before.iter());
 
         assert_eq!(
             uv_before.len(),
@@ -360,11 +360,11 @@ mod test {
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
 
-        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, _, 4>(
-            &proof,
-            &proof,
-            uv_before.iter(),
-        );
+        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<
+            _,
+            _,
+            { LargeProofGenerator::RECURSION_FACTOR },
+        >(&proof, &proof, uv_before.iter());
 
         assert_eq!(
             uv_before.len(),
