@@ -204,10 +204,16 @@ fn find_smallest_num_bernoulli(
     ell_2_sensitivity: f64,
     ell_infty_sensitivity: f64,
 ) -> u32 {
-    let mut smallest_num_bernoulli = 0;
-    for num_bernoulli in 1..10_000_000 {
+    let mut index = 0; // candidate to be smallest `num_beroulli`
+    let mut lower: u32 = 1;
+    let mut higher: u32 = 10_000_000;
+    // binary search to find smallest `num_beroulli`. Binary search
+    // like the improved version of template #2 found in this article
+    // https://medium.com/@berkkantkoc/a-handy-binary-search-template-that-will-save-you-6b36b7b06b8b
+    while lower <= higher {
+        let mid: u32 = (higher - lower) / 2 + lower;
         if delta_constraint(
-            num_bernoulli,
+            mid,
             success_prob,
             dimensions,
             quantization_scale,
@@ -215,7 +221,7 @@ fn find_smallest_num_bernoulli(
             ell_infty_sensitivity,
         ) && desired_epsilon
             >= epsilon_constraint(
-                num_bernoulli,
+                mid,
                 success_prob,
                 delta,
                 quantization_scale,
@@ -225,15 +231,14 @@ fn find_smallest_num_bernoulli(
                 ell_infty_sensitivity,
             )
         {
-            smallest_num_bernoulli = num_bernoulli;
-            break;
+            index = mid;
+            higher = mid - 1;
+        } else {
+            lower = mid + 1;
         }
     }
-    assert!(
-        smallest_num_bernoulli > 0,
-        "smallest num_bernoulli not found"
-    );
-    smallest_num_bernoulli
+    assert!(index > 0, "smallest num_bernoulli not found");
+    index
 }
 #[cfg(all(test, unit_test))]
 mod test {
@@ -280,7 +285,8 @@ mod test {
     }
     #[test]
     fn test_num_bernoulli_simple_aggregation_case() {
-        let success_prob = 0.5;
+        // test with success_prob = 1/2
+        let mut success_prob = 0.5;
         let desired_epsilon = 1.0;
         let delta = 1e-6;
         let dimensions = 1.0;
@@ -288,7 +294,7 @@ mod test {
         let ell_1_sensitivity = 1.0;
         let ell_2_sensitivity = 1.0;
         let ell_infty_sensitivity = 1.0;
-        let smallest_num_bernoulli = find_smallest_num_bernoulli(
+        let mut smallest_num_bernoulli = find_smallest_num_bernoulli(
             desired_epsilon,
             success_prob,
             delta,
@@ -306,6 +312,34 @@ mod test {
         );
         assert_eq!(smallest_num_bernoulli, 1483_u32);
         assert!(err <= 370.75 && err > 370.7);
+
+        // test with success_prob = 1/4
+        success_prob = 0.25;
+        smallest_num_bernoulli = find_smallest_num_bernoulli(
+            desired_epsilon,
+            success_prob,
+            delta,
+            dimensions,
+            quantization_scale,
+            ell_1_sensitivity,
+            ell_2_sensitivity,
+            ell_infty_sensitivity,
+        );
+        assert_eq!(smallest_num_bernoulli, 1978_u32);
+
+        // test with success_prob = 3/4
+        success_prob = 0.75;
+        smallest_num_bernoulli = find_smallest_num_bernoulli(
+            desired_epsilon,
+            success_prob,
+            delta,
+            dimensions,
+            quantization_scale,
+            ell_1_sensitivity,
+            ell_2_sensitivity,
+            ell_infty_sensitivity,
+        );
+        assert_eq!(smallest_num_bernoulli, 1978_u32);
     }
     // Tests for apply_dp_noise
     #[tokio::test]
