@@ -204,6 +204,7 @@ fn find_smallest_num_bernoulli(
     ell_2_sensitivity: f64,
     ell_infty_sensitivity: f64,
 ) -> u32 {
+    let mut smallest_num_bernoulli = 0;
     for num_bernoulli in 1..10_000_000 {
         if delta_constraint(
             num_bernoulli,
@@ -224,11 +225,15 @@ fn find_smallest_num_bernoulli(
                 ell_infty_sensitivity,
             )
         {
-            return num_bernoulli;
+            smallest_num_bernoulli = num_bernoulli;
+            break;
         }
     }
-    println!("smallest num_bernoulli not found");
-    0
+    assert!(
+        smallest_num_bernoulli > 0,
+        "smallest num_bernoulli not found"
+    );
+    smallest_num_bernoulli
 }
 #[cfg(all(test, unit_test))]
 mod test {
