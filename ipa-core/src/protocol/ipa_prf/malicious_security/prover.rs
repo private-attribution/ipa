@@ -21,12 +21,14 @@ pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
 pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
 pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
+pub type UVValues<F, const N: usize> = Vec<([F; N], [F; N])>;
+
 impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenerator<F, λ, P, M> {
     // define constants such that they can be used externally
     // when using the pub types defined above
-    const RECURSION_FACTOR: usize = λ;
-    const PROOF_LENGTH: usize = P;
-    const LAGRANGE_LENGTH: usize = M;
+    pub const RECURSION_FACTOR: usize = λ;
+    pub const PROOF_LENGTH: usize = P;
+    pub const LAGRANGE_LENGTH: usize = M;
 
     ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
@@ -53,11 +55,11 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
         proof
     }
 
-    fn gen_challenge_and_recurse<J, B>(
+    fn gen_challenge_and_recurse<J, B, const N: usize>(
         proof_left: &[F; P],
         proof_right: &[F; P],
         uv_iterator: J,
-    ) -> Vec<([F; λ], [F; λ])>
+    ) -> Vec<([F; N], [F; N])>
     where
         J: Iterator<Item = B>,
         B: Borrow<([F; λ], [F; λ])>,
@@ -67,22 +69,22 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
             &compute_hash(proof_right),
             λ.try_into().unwrap(),
         );
-        let mut output = Vec::<([F; λ], [F; λ])>::new();
+        let mut output = Vec::<([F; N], [F; N])>::new();
         let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
         let lagrange_table_r = LagrangeTable::<F, λ, 1>::new(&denominator, &r);
 
         // iter and interpolate at x coordinate r
         let mut index = 0;
-        let mut new_u_chunk = [F::ZERO; λ];
-        let mut new_v_chunk = [F::ZERO; λ];
+        let mut new_u_chunk = [F::ZERO; N];
+        let mut new_v_chunk = [F::ZERO; N];
         for polynomial in uv_iterator {
             let (u_chunk, v_chunk) = polynomial.borrow();
             let u = lagrange_table_r.eval(u_chunk)[0];
             let v = lagrange_table_r.eval(v_chunk)[0];
-            if index >= λ {
+            if index >= N {
                 output.push((new_u_chunk, new_v_chunk));
-                new_u_chunk = [F::ZERO; λ];
-                new_v_chunk = [F::ZERO; λ];
+                new_u_chunk = [F::ZERO; N];
+                new_v_chunk = [F::ZERO; N];
                 index = 0;
             }
             new_u_chunk[index] = u;
@@ -119,6 +121,48 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
             proof_other_share[i] = proof[i] - proof_prss_share[i];
         }
         proof_other_share
+    }
+
+    /// This function is a helper function that computes the next proof
+    /// from an iterator over uv values
+    /// It also computes the next uv values
+    ///
+    /// It output `(uv values, proof_from_left, prover_left_proof)`
+    /// where
+    /// uv values has type `Vec<([F; N],[F; N])>`,
+    /// component from left has type `Vec<[F; P]>`,
+    /// prover left component has type `Vec<[F; P]>`,
+    ///
+    /// Setting `N != λ` allows to switch the recursion factor from `λ` to `N`
+    pub fn compute_next_proof<C, J, B, const N: usize>(
+        ctx: &C,
+        record_counter: &mut RecordId,
+        lagrange_table: &LagrangeTable<F, λ, M>,
+        uv: J,
+    ) -> (UVValues<F, N>, [F; P], [F; P])
+    where
+        C: Context,
+        J: Iterator<Item = B> + Clone,
+        B: Borrow<([F; λ], [F; λ])>,
+    {
+        // generate next proof
+        // from iterator
+        let my_proof = Self::compute_proof(uv.clone(), lagrange_table);
+
+        // generate proof shares from prss
+        let (share_of_proof_from_prover_left, my_proof_right_share) =
+            Self::gen_proof_shares_from_prss(ctx, record_counter);
+
+        // generate prover left proof
+        let my_proof_left_share = Self::gen_other_proof_share(my_proof, my_proof_right_share);
+
+        // compute next uv values
+        // from iterator
+        let uv_values =
+            Self::gen_challenge_and_recurse::<_, _, N>(&my_proof_left_share, &my_proof_right_share, uv);
+
+        //output uv values, prover left component and component from left
+        (uv_values, share_of_proof_from_prover_left, my_proof_left_share)
     }
 }
 
@@ -228,7 +272,7 @@ mod test {
             .unwrap();
 
         // fiat-shamir
-        let uv_3 = TestProofGenerator::gen_challenge_and_recurse(
+        let uv_3 = TestProofGenerator::gen_challenge_and_recurse::<_, _, 4>(
             &proof_left_2,
             &proof_right_2,
             uv_2.iter(),
@@ -280,8 +324,11 @@ mod test {
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
 
-        let uv_after =
-            SmallProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<
+            _,
+            _,
+            { SmallProofGenerator::RECURSION_FACTOR },
+        >(&proof, &proof, uv_before.iter());
 
         assert_eq!(
             uv_before.len(),
@@ -313,8 +360,11 @@ mod test {
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
 
-        let uv_after =
-            LargeProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<
+            _,
+            _,
+            { LargeProofGenerator::RECURSION_FACTOR },
+        >(&proof, &proof, uv_before.iter());
 
         assert_eq!(
             uv_before.len(),

@@ -724,7 +724,7 @@ mod tests {
 
         let original_inputs = (0..count)
             .map(|_| rng.gen::<Fp61BitPrime>())
-            .collect::<Vec<_>>();
+            .collect::<Vec<Fp61BitPrime>>();
 
         let shared_inputs: Vec<[Replicated<Fp61BitPrime>; 3]> = original_inputs
             .iter()
