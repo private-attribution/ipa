@@ -21,6 +21,8 @@ pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
 pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
 pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
+pub type UVValues<F, const N: usize> = Vec<([F; N], [F; N])>;
+
 impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenerator<F, λ, P, M> {
     // define constants such that they can be used externally
     // when using the pub types defined above
@@ -125,7 +127,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     /// from an iterator over uv values
     /// It also computes the next uv values
     ///
-    /// It output (uv values, proof_from_left, prover_left_proof)
+    /// It output `(uv values, proof_from_left, prover_left_proof)`
     /// where
     /// uv values has type `Vec<([F; N],[F; N])>`,
     /// component from left has type `Vec<[F; P]>`,
@@ -137,7 +139,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
         record_counter: &mut RecordId,
         lagrange_table: &LagrangeTable<F, λ, M>,
         uv: J,
-    ) -> (Vec<([F; N], [F; N])>, [F; P], [F; P])
+    ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
         J: Iterator<Item = B> + Clone,

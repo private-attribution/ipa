@@ -11,7 +11,7 @@ use crate::{
         },
         ipa_prf::malicious_security::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-            prover::{LargeProofGenerator, SmallProofGenerator},
+            prover::{LargeProofGenerator, SmallProofGenerator, UVValues},
         },
         prss::SharedRandomness,
         RecordId,
@@ -59,7 +59,7 @@ impl BatchToVerify {
         let length = prover_left_proof.len();
         let send = prover_left_proof.send_to_left(&ctx);
         let receive = ProofBatch::receive_from_right(&ctx, length);
-        let (_, proof_from_right) = try_join(send, receive).await.unwrap();
+        let ((), proof_from_right) = try_join(send, receive).await.unwrap();
 
         // output
         BatchToVerify {
@@ -228,7 +228,6 @@ impl ProofBatch {
         // RECURSION_FACTOR many points
         // since they are arrays of fixed length, i.e. RECURSION_FACTOR,
         // (which are filled with `F::ZERO` when there are not enough elements).
-        assert!(SmallProofGenerator::RECURSION_FACTOR > 1usize);
         let r_times_r_minus_one =
             SmallProofGenerator::RECURSION_FACTOR * (SmallProofGenerator::RECURSION_FACTOR - 1);
         uv_values = loop {
@@ -285,10 +284,7 @@ impl ProofBatch {
 
         // generate last proof
         let (_, proof_from_left, prover_left_proof): (
-            Vec<(
-                [Fp61BitPrime; SmallProofGenerator::RECURSION_FACTOR],
-                [Fp61BitPrime; SmallProofGenerator::RECURSION_FACTOR],
-            )>,
+            UVValues<Fp61BitPrime, { SmallProofGenerator::RECURSION_FACTOR }>,
             [Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH],
             [Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH],
         ) = SmallProofGenerator::compute_next_proof(
@@ -324,7 +320,7 @@ impl ProofBatch {
     /// into an iterator over arrays of size `LargeProofGenerator::RECURSION_FACTOR`.
     ///
     /// ## Panic
-    /// Panics when unwrap panics, i.e. try_from fails to convert a slice to an array.
+    /// Panics when `unwrap` panics, i.e. `try_from` fails to convert a slice to an array.
     fn polynomials_from_blocks<I>(
         blocks: I,
     ) -> impl Iterator<
