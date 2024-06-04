@@ -228,19 +228,18 @@ impl ProofBatch {
         // RECURSION_FACTOR many points
         // since they are arrays of fixed length, i.e. RECURSION_FACTOR,
         // (which are filled with `F::ZERO` when there are not enough elements).
-        let r_times_r_minus_one =
-            SmallProofGenerator::RECURSION_FACTOR * (SmallProofGenerator::RECURSION_FACTOR - 1);
+        let r_minus_one = SmallProofGenerator::RECURSION_FACTOR - 1;
         uv_values = loop {
-            let stop = uv_values.len() < r_times_r_minus_one;
+            let stop = uv_values.len() <= r_minus_one;
 
             // generate next proof
             let (uv_values_new, proof_from_left, prover_left_proof) =
-                SmallProofGenerator::compute_next_proof(
-                    ctx,
-                    &mut record_counter,
-                    &lagrange_table,
-                    uv_values.iter(),
-                );
+                SmallProofGenerator::compute_next_proof::<
+                    _,
+                    _,
+                    _,
+                    { SmallProofGenerator::RECURSION_FACTOR },
+                >(ctx, &mut record_counter, &lagrange_table, uv_values.iter());
             // collect proof
             proofs_from_left.push(proof_from_left);
             prover_left_proofs.push(prover_left_proof);
