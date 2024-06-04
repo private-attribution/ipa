@@ -30,7 +30,6 @@ use crate::{
             Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
         ipa_prf::{
-            aggregation::aggregate_contributions,
             boolean_ops::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
@@ -55,6 +54,8 @@ use crate::{
     seq_join::seq_join,
     sharding::NotSharded,
 };
+
+use super::aggregation::breakdown_reveal::breakdown_reveal_aggregation;
 
 pub mod feature_label_dot_product;
 pub(crate) mod step;
@@ -455,7 +456,7 @@ where
 
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
-    aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
+    breakdown_reveal_aggregation::<_, _, _, HV, B>(
         ctx,
         stream::iter(flattened_user_results),
         num_outputs,
