@@ -8,7 +8,7 @@ use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
-    ff::{boolean::Boolean, CustomArray, Expand, Field, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::BooleanArray, Expand, Field, U128Conversions},
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
@@ -220,7 +220,7 @@ where
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     TV: SharedValue,
-    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    HV: BooleanArray + U128Conversions,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     Vec<Replicated<HV>>:

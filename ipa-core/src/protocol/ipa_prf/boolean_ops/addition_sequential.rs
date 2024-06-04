@@ -4,7 +4,7 @@ use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, ArrayAccessRef},
+    ff::boolean::Boolean,
     helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},

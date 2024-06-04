@@ -11,7 +11,6 @@ mod galois_field;
 mod prime_field;
 
 use std::{
-    borrow::Borrow,
     convert::Infallible,
     ops::{Add, AddAssign, Sub, SubAssign},
 };
@@ -110,43 +109,8 @@ pub trait ArrayAccess {
     }
 }
 
-pub trait ArrayAccessRef {
-    type Element;
-    type Ref<'a>: Borrow<Self::Element> + Clone
-    where
-        Self: 'a;
-    type Iter<'a>: Iterator<Item = Self::Ref<'a>> + ExactSizeIterator + Send
-    where
-        Self: 'a;
-
-    fn get(&self, index: usize) -> Option<Self::Ref<'_>>;
-
-    fn set(&mut self, index: usize, e: Self::Ref<'_>);
-
-    fn iter(&self) -> Self::Iter<'_>;
-}
-
 pub trait Expand {
     type Input;
 
     fn expand(v: &Self::Input) -> Self;
-}
-
-/// Custom Array trait
-/// supports access to elements via `ArrayAccess` and functions `get(Index: usize)` and `set(Index: usize, v: Element)`
-/// supports `Expand` for `Element`, converts Element into array, all array elements will be set to the value of `Element`
-/// supports `FromIterator` to collect an iterator of elements back into the original type
-pub trait CustomArray
-where
-    Self: ArrayAccess<Output = Self::Element> + Expand<Input = Self::Element>,
-{
-    type Element;
-}
-
-/// impl Custom Array for all compatible structs
-impl<S> CustomArray for S
-where
-    S: ArrayAccess + Expand<Input = <S as ArrayAccess>::Output>,
-{
-    type Element = <S as ArrayAccess>::Output;
 }
