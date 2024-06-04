@@ -223,8 +223,8 @@ impl ProofBatch {
         // Therefore at least the last field element is a `F:ZERO` filler that can be replaced
         // Therefore we have space to include the masks during the final proof
         //
-        // we remark that uv_store.len() will always be at least 1
-        // further, polynomial uv_store.uv[0].0 and .1 will always have
+        // we remark that uv_value.len() will always be at least 1
+        // further, polynomial uv_values.uv[0].0 and .1 will always have
         // RECURSION_FACTOR many points
         // since they are arrays of fixed length, i.e. RECURSION_FACTOR,
         // (which are filled with `F::ZERO` when there are not enough elements).
@@ -234,12 +234,12 @@ impl ProofBatch {
 
             // generate next proof
             let (uv_values_new, proof_from_left, prover_left_proof) =
-                SmallProofGenerator::compute_next_proof::<
-                    _,
-                    _,
-                    _,
-                    { SmallProofGenerator::RECURSION_FACTOR },
-                >(ctx, &mut record_counter, &lagrange_table, uv_values.iter());
+                SmallProofGenerator::compute_next_proof(
+                    ctx,
+                    &mut record_counter,
+                    &lagrange_table,
+                    uv_values.iter(),
+                );
             // collect proof
             proofs_from_left.push(proof_from_left);
             prover_left_proofs.push(prover_left_proof);

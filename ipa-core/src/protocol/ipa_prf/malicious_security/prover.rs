@@ -158,11 +158,11 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
 
         // compute next uv values
         // from iterator
-        let uv_store =
+        let uv_values =
             Self::gen_challenge_and_recurse::<_, _, N>(&prover_left_proof, &prover_right_proof, uv);
 
         //output uv values, prover left component and component from left
-        (uv_store, proof_from_left, prover_left_proof)
+        (uv_values, proof_from_left, prover_left_proof)
     }
 }
 
