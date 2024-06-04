@@ -73,12 +73,17 @@ impl<const P: usize> FromIterator<Fp61BitPrime> for Vec<[Fp61BitPrime; P]> {
     fn from_iter<T: IntoIterator<Item = Fp61BitPrime>>(iter: T) -> Self {
         let mut out = Vec::<[Fp61BitPrime; P]>::new();
         let mut array = [Fp61BitPrime::ZERO; P];
-        for (i, elem) in iter.into_iter().enumerate() {
+        let mut i = 0usize;
+        for elem in iter {
             array[i % P] = elem;
-            if i % P == P - 1 {
+            if (i + 1) % P == 0 {
                 out.push(array);
                 array = [Fp61BitPrime::ZERO; P];
             }
+            i += 1;
+        }
+        if i % P != 0 {
+            out.push(array);
         }
         out
     }
