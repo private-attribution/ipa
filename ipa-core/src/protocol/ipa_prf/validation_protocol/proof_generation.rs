@@ -137,11 +137,11 @@ impl ProofBatch {
         C: Context,
     {
         // set up context
-        let ctx_left = ctx.set_total_records(length);
+        let communication_ctx = ctx.set_total_records(length);
 
         // set up channel
         let receive_channel_right =
-            &ctx_left.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
+            &communication_ctx.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
 
         // receive from the right
         Ok(ctx
