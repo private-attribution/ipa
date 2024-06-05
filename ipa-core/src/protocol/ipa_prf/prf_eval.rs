@@ -10,9 +10,7 @@ use crate::{
         prss::{FromPrss, SharedRandomness},
         RecordId,
     },
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare, FieldSimd, Sendable, StdArray, Vectorizable,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare, Sendable, StdArray, Vectorizable},
 };
 
 /// generates match key pseudonyms from match keys (in Fp25519 format) and PRF key
@@ -82,8 +80,6 @@ where
     C: Context,
     Fp25519: Vectorizable<N>,
     RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
-    Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: SecureMul<C>,
     AdditiveShare<Fp25519, N>: SecureMul<C> + FromPrss,
     StdArray<RP25519, N>: Sendable,
 {

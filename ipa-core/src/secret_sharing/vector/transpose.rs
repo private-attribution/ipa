@@ -46,10 +46,10 @@ use crate::{
         boolean_array::{BA16, BA256, BA3, BA32, BA5, BA64, BA8},
         ec_prime_field::Fp25519,
     },
-    protocol::ipa_prf::{MK_BITS, PRF_CHUNK},
+    protocol::ipa_prf::{CONV_CHUNK, MK_BITS},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        BitDecomposed, SharedValue, StdArray, Vectorizable,
+        BitDecomposed, SharedValue, Vectorizable,
     },
 };
 
@@ -68,11 +68,10 @@ const_assert_eq!(
     "Appropriate transpose implementations required"
 );
 const_assert_eq!(
-    PRF_CHUNK,
-    64,
+    CONV_CHUNK,
+    256,
     "Appropriate transpose implementations required"
 );
-
 /// Trait for overwriting a value with the transpose of a source value.
 pub trait TransposeFrom<T> {
     type Error;
@@ -170,38 +169,6 @@ pub fn transpose_16x16(src: &[u8; 32]) -> [u8; 32] {
             y3[i].to_le_bytes();
     }
     dst
-}
-
-// Degenerate transposes
-//
-// These can be particularly confusing, because an Mx1 matrix may be stored as a `BA{M}` rather
-// than a `[Boolean; M]`.
-
-// Usage: Share conversion input (convert_to_fp25519 test). M = PRF_CHUNK, N = MK_BITS.
-impl<'a> TransposeFrom<&'a [AdditiveShare<BA64>; 1]> for AdditiveShare<BA64, 1> {
-    type Error = Infallible;
-    fn transpose_from(&mut self, src: &'a [AdditiveShare<BA64>; 1]) -> Result<(), Infallible> {
-        *self = src[0].clone();
-        Ok(())
-    }
-}
-
-// Usage: Share conversion output (r/s). M = Fp25519::BITS, N = PRF_CHUNK.
-impl<'a> TransposeFrom<&'a AdditiveShare<BA256, 1>> for Vec<AdditiveShare<BA256>> {
-    type Error = Infallible;
-    fn transpose_from(&mut self, src: &'a AdditiveShare<BA256, 1>) -> Result<(), Infallible> {
-        *self = vec![src.clone()];
-        Ok(())
-    }
-}
-
-// Usage: Share conversion output (y). M = Fp25519::BITS, N = PRF_CHUNK.
-impl<'a> TransposeFrom<&'a [StdArray<Boolean, 1>; 256]> for Vec<BA256> {
-    type Error = Infallible;
-    fn transpose_from(&mut self, src: &'a [StdArray<Boolean, 1>; 256]) -> Result<(), Infallible> {
-        *self = vec![src.iter().map(Boolean::from_array).collect::<BA256>()];
-        Ok(())
-    }
 }
 
 // Matrix transpose helpers
@@ -547,16 +514,23 @@ macro_rules! impl_transpose_ba_to_ba {
     };
 }
 
+// Input: MxN as `[BA{N}; {M}]` or similar
+// Output: NxM as `[BA{M}; {N}]` or similar
+// Arguments: BA{M}, BA{N}, M, N
+// Dimensions: Multiples of 16.
+
 // Usage: Transpose benchmark.
 impl_transpose_ba_to_ba!(BA64, BA64, 64, 64, test_transpose_ba_64x64);
 
-// Usage: Share conversion output (y). M = Fp25519::BITS, N = PRF_CHUNK.
-impl_transpose_ba_to_ba!(BA256, BA64, 256, 64, test_transpose_ba_256x64);
+// Usage: Share conversion output (y). M = Fp25519::BITS, N = CONV_CHUNK.
+impl_transpose_ba_to_ba!(BA256, BA256, 256, 256, test_transpose_ba_256x256);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<Boolean, N>; <M>]` into a NxM bit matrix represented as `[AdditiveShare<BA<M>>; N]`.
 ///
 /// For MxN = 256x64, the invocation looks like `impl_transpose_shares_bool_to_ba!(BA256, 256, 64)`.
+///
+/// The dimensions must be multiples of 16.
 macro_rules! impl_transpose_shares_bool_to_ba {
     ($dst_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident) => {
         impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>; $src_rows]>
@@ -589,9 +563,7 @@ macro_rules! impl_transpose_shares_bool_to_ba {
     };
 }
 
-// Usage: Share conversion output (r/s). M = Fp25519::BITS, N = PRF_CHUNK.
-impl_transpose_shares_bool_to_ba!(BA256, 256, 64, test_transpose_shares_bool_to_ba_256x64);
-
+/// Variant of `impl_transpose_shares_bool_to_ba` supporting dimensions that are multiples of 8.
 macro_rules! impl_transpose_shares_bool_to_ba_small {
     ($dst_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident) => {
         impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>; $src_rows]>
@@ -623,6 +595,14 @@ macro_rules! impl_transpose_shares_bool_to_ba_small {
         );
     };
 }
+
+// Input: MxN as `[AdditiveShare<Boolean, N>; {M}]` or similar
+// Output: NxM as `[AdditiveShare<BA{M}>; N]` or similar
+// Arguments: BA{M}, M, N
+// Dimensions: Multiples of 16, or 8 for small variant.
+
+// Usage: Share conversion output (r/s). M = Fp25519::BITS, N = CONV_CHUNK.
+impl_transpose_shares_bool_to_ba!(BA256, 256, 256, test_transpose_shares_bool_to_ba_256x256);
 
 // Usage: Aggregation output. M = HV bits, N = number of breakdowns.
 // (for feature_label_dot_product, N = number of features)
@@ -673,9 +653,14 @@ macro_rules! impl_transpose_shares_ba_to_bool {
     };
 }
 
-// Usage: Share conversion input (convert_to_fp25519 test). M = PRF_CHUNK, N = MK_BITS.
-// Note first macro argument is `BA{N}`, not `BA{M}`.
-impl_transpose_shares_ba_to_bool!(BA64, 64, 64, test_transpose_shares_ba_to_bool_64x64);
+// Input: MxN as `[AdditiveShare<BA{N}>; M]` or similar
+// Output: NxM as `[AdditiveShare<Boolean, M>; N]` or similar
+// Arguments: BA{N}, M, N
+//  --> Note: first macro argument is `BA{N}`, not `BA{M}`.
+// Dimensions: Multiples of 16.
+
+// Usage: Share conversion input (convert_to_fp25519 test). M = CONV_CHUNK, N = MK_BITS.
+impl_transpose_shares_ba_to_bool!(BA64, 256, 64, test_transpose_shares_ba_to_bool_256x64);
 
 // Usage: Quicksort. M = SORT_CHUNK, N = sort key bits.
 impl_transpose_shares_ba_to_bool!(BA32, 256, 32, test_transpose_shares_ba_to_bool_256x32);
@@ -719,9 +704,14 @@ macro_rules! impl_transpose_shares_ba_fn_to_bool {
     };
 }
 
-// Usage: Share conversion input (compute_prf_for_inputs). M = PRF_CHUNK, N = MK_BITS.
-// Note first macro argument is `BA{N}`, not `BA{M}`.
-impl_transpose_shares_ba_fn_to_bool!(BA64, 64, 64, test_transpose_shares_ba_fn_to_bool_64x64);
+// Input: MxN as `&dyn Fn(usize) -> AdditiveShare<BA{N}>`
+// Output: NxM as `[AdditiveShare<Boolean, M>; N]` or similar
+// Arguments: BA{N}, M, N
+//  --> Note: first macro argument is `BA{N}`, not `BA{M}`.
+// Dimensions: Multiples of 16.
+
+// Usage: Share conversion input (compute_prf_for_inputs). M = CONV_CHUNK, N = MK_BITS.
+impl_transpose_shares_ba_fn_to_bool!(BA64, 256, 64, test_transpose_shares_ba_fn_to_bool_256x64);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<BA<N>>; M]` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
@@ -776,6 +766,12 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
         );
     };
 }
+
+// Input: MxN as `[AdditiveShare<BA{N}>; M]` or similar
+// Output: NxM as `[AdditiveShare<Boolean, M>; N]` or similar
+// Arguments: BA{N}, M, N
+//  --> Note: first macro argument is `BA{N}`, not `BA{M}`.
+// Dimensions: Arbitrary (rows are padded to whole bytes).
 
 // Usage: Aggregation input. M = AGG_CHUNK, N = BK or TV bits.
 impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to_bool_256x8);
@@ -877,6 +873,7 @@ macro_rules! impl_aggregation_transpose {
 }
 
 // Usage: aggregation intermediate. M = number of breakdowns (2^|bk|), N = AGG_CHUNK
+// Arguments: BA{M}, BA{N}, M, N
 impl_aggregation_transpose!(BA256, BA256, 256, 256, test_aggregation_transpose_256x256);
 impl_aggregation_transpose!(BA32, BA256, 32, 256, test_aggregation_transpose_32x256);
 
@@ -895,7 +892,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::{ff::ArrayAccess, secret_sharing::Vectorizable};
+    use crate::{
+        ff::ArrayAccess,
+        secret_sharing::{StdArray, Vectorizable},
+    };
 
     fn random_array<T, const N: usize>() -> [T; N]
     where

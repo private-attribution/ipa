@@ -34,8 +34,9 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::task::Poll;
 
+    use axum::body::Body;
     use futures::{stream::poll_immediate, StreamExt};
-    use hyper::{Body, StatusCode};
+    use hyper::StatusCode;
     use ipa_step::StepNarrow;
 
     use super::*;
@@ -91,7 +92,7 @@ mod tests {
             );
             hyper::Request::post(uri)
                 .maybe_extension(val.client_id)
-                .body(hyper::Body::from(val.payload))
+                .body(Body::from(val.payload))
                 .unwrap()
         }
     }

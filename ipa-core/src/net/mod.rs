@@ -32,6 +32,8 @@ pub const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
 /// [`spec`]: <https://datatracker.ietf.org/doc/html/rfc9113#name-the-flow-control-window>
 pub(crate) const MAX_HTTP2_WINDOW_SIZE: u32 = (1 << 31) - 1;
 
+pub(crate) const MAX_HTTP2_CONCURRENT_STREAMS: u32 = 5000;
+
 /// Provides access to IPAs Crypto Provider (AWS Libcrypto).
 static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
     Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));

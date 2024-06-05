@@ -53,7 +53,8 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use hyper::{header::CONTENT_TYPE, Body, StatusCode};
+    use axum::body::Body;
+    use hyper::{header::CONTENT_TYPE, StatusCode};
     use serde::Serialize;
 
     use crate::{
@@ -145,7 +146,7 @@ mod tests {
             hyper::Request::post(uri)
                 .header(CONTENT_TYPE, APPLICATION_JSON)
                 .maybe_extension(val.client_id)
-                .body(hyper::Body::from(body))
+                .body(Body::from(body))
                 .unwrap()
         }
     }

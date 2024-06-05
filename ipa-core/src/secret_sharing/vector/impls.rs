@@ -158,6 +158,9 @@ macro_rules! boolean_vector {
     };
 }
 
+// These macro invocations define the supported vectorization dimensions for `Boolean`.
+// The associated BA type must be defined in `ff::boolean_array`.
+
 boolean_vector!(bav_3, 3, BA3);
 boolean_vector!(bav_5, 5, BA5);
 boolean_vector!(bav_8, 8, BA8);

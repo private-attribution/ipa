@@ -40,13 +40,17 @@
 //!
 //! ## Adding a new supported vectorization
 //!
-//! To add a new supported vectorization:
+//! To add a new supported `Boolean` vectorization:
 //!
-//!  1. Add `FromRandom` impl (in `array.rs` or `boolean_array.rs`)
-//!  2. Add `Serializable` impl (in `array.rs` or `boolean_array.rs`)
-//!  3. Add `FieldSimd` impl (in `secret_sharing/vector/impls.rs`)
-//!  4. Add `Vectorizable` and `FieldVectorizable` impls (either with the primitive type def in
-//!     e.g. `galois_field.rs`, or in `vector/impls.rs`)
+//!  1. Add Boolean array impl of relevant size in `boolean_array.rs`.
+//!  2. Add `boolean_vector!` invocation in `secret_sharing/vector/impls.rs`.
+//!  3. Add `BooleanProtocols` impls in `protocol/basics/mod.rs`.
+//!
+//! To add a new supported vectorization of a type other than `Boolean`:
+//!
+//!  1. Add `FromRandom` and `Serializable` impls in `array.rs`.
+//!  2. Add `Vectorizable` and `FieldVectorizable` impls for the subject type.
+//!  3. Add `FieldSimd` impl in `secret_sharing/vector/impls.rs`.
 
 mod array;
 mod impls;

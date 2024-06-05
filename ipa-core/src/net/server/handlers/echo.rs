@@ -34,7 +34,10 @@ pub fn router() -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use hyper::{Body, Request, StatusCode};
+    use axum::body::Body;
+    use bytes::Buf;
+    use http_body_util::BodyExt;
+    use hyper::{Request, StatusCode};
     use serde_json::{json, Value};
     use tower::ServiceExt;
 
@@ -55,8 +58,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-        let body: Value = serde_json::from_slice(&body).unwrap();
+        let body = response.into_body().collect().await.unwrap().aggregate();
+        let body: Value = serde_json::from_reader(body.reader()).unwrap();
         assert_eq!(
             body,
             json!({"query_params": {"echo": "v"}, "headers": {"foo": "bar"}})

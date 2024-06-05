@@ -7,13 +7,19 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-use axum::http::uri::{self, Parts, Scheme};
-use futures::{Stream, StreamExt};
-use hyper::{
-    body, client::HttpConnector, header::HeaderName, http::HeaderValue, Body, Client, Request,
-    Response, StatusCode, Uri,
+use axum::{
+    body::Body,
+    http::uri::{self, Parts, Scheme},
 };
+use bytes::Bytes;
+use futures::{stream::StreamExt, Stream};
+use http_body_util::BodyExt;
+use hyper::{header::HeaderName, http::HeaderValue, Request, Response, StatusCode, Uri};
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
+use hyper_util::{
+    client::legacy::{connect::HttpConnector, Client},
+    rt::{TokioExecutor, TokioTimer},
+};
 use pin_project::pin_project;
 use rustls::RootCertStore;
 use tracing::error;
@@ -88,7 +94,7 @@ impl ClientIdentity {
 pub struct ResponseFuture<'a> {
     authority: &'a uri::Authority,
     #[pin]
-    inner: hyper::client::ResponseFuture,
+    inner: hyper_util::client::legacy::ResponseFuture,
 }
 
 /// Similar to [fut](ResponseFuture), wraps the response and keeps the URI authority for better
@@ -122,10 +128,14 @@ impl<'a> Future for ResponseFuture<'a> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         match ready!(this.inner.poll(cx)) {
-            Ok(resp) => Poll::Ready(Ok(ResponseFromEndpoint {
-                authority: this.authority,
-                inner: resp,
-            })),
+            Ok(resp) => {
+                let (http_parts, http_body) = resp.into_parts();
+                let axum_resp = Response::from_parts(http_parts, Body::new(http_body));
+                Poll::Ready(Ok(ResponseFromEndpoint {
+                    authority: this.authority,
+                    inner: axum_resp,
+                }))
+            }
             Err(e) => Poll::Ready(Err(Error::ConnectError {
                 dest: this.authority.to_string(),
                 inner: e,
@@ -247,7 +257,11 @@ impl MpcHelperClient {
         auth_header: Option<(HeaderName, HeaderValue)>,
         conf: &C,
     ) -> Self {
-        let client = conf.configure(&mut Client::builder()).build(connector);
+        let mut builder = Client::builder(TokioExecutor::new());
+        // the following timer is necessary for http2, in particular for any timeouts
+        // and waits the clients will need to make
+        builder.timer(TokioTimer::new());
+        let client = conf.configure(&mut builder).build(connector);
         let Parts {
             scheme: Some(scheme),
             authority: Some(authority),
@@ -274,34 +288,6 @@ impl MpcHelperClient {
         }
     }
 
-    /// Responds with whatever input is passed to it
-    /// # Errors
-    /// If the request has illegal arguments, or fails to deliver to helper
-    pub async fn echo(&self, s: &str) -> Result<String, Error> {
-        const FOO: &str = "foo";
-
-        let req =
-            http_serde::echo::Request::new(HashMap::from([(FOO.into(), s.into())]), HashMap::new());
-        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.request(req).await?;
-        let status = resp.status();
-        if status.is_success() {
-            let result = hyper::body::to_bytes(resp.into_body()).await?;
-            let http_serde::echo::Request {
-                mut query_params, ..
-            } = serde_json::from_slice(&result)?;
-            // It is potentially confusing to synthesize a 500 error here, but
-            // it doesn't seem worth creating an error variant just for this.
-            query_params.remove(FOO).ok_or(Error::FailedHttpRequest {
-                dest: self.authority.to_string(),
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                reason: "did not receive mirrored echo response".into(),
-            })
-        } else {
-            Err(Error::from_failed_resp(resp).await)
-        }
-    }
-
     /// Helper to read a possible error response to a request that returns nothing on success
     ///
     /// # Errors
@@ -309,6 +295,41 @@ impl MpcHelperClient {
     pub async fn resp_ok(resp: ResponseFromEndpoint<'_>) -> Result<(), Error> {
         if resp.status().is_success() {
             Ok(())
+        } else {
+            Err(Error::from_failed_resp(resp).await)
+        }
+    }
+
+    /// Reads the entire response from the server into Bytes
+    ///
+    /// # Errors
+    /// If there was an error collecting the response stream.
+    async fn response_to_bytes(resp: ResponseFromEndpoint<'_>) -> Result<Bytes, Error> {
+        Ok(resp.into_body().collect().await?.to_bytes())
+    }
+
+    /// Responds with whatever input is passed to it
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    pub async fn echo(&self, s: &str) -> Result<String, Error> {
+        const FOO: &str = "foo";
+        let req =
+            http_serde::echo::Request::new(HashMap::from([(FOO.into(), s.into())]), HashMap::new());
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
+        let resp = self.request(req).await?;
+        let status = resp.status();
+        if status.is_success() {
+            let bytes = Self::response_to_bytes(resp).await?;
+            let http_serde::echo::Request {
+                mut query_params, ..
+            } = serde_json::from_slice(&bytes)?;
+            // It is potentially confusing to synthesize a 500 error here, but
+            // it doesn't seem worth creating an error variant just for this.
+            query_params.remove(FOO).ok_or(Error::FailedHttpRequest {
+                dest: self.authority.to_string(),
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                reason: "did not receive mirrored echo response".into(),
+            })
         } else {
             Err(Error::from_failed_resp(resp).await)
         }
@@ -323,9 +344,9 @@ impl MpcHelperClient {
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            let body_bytes = body::to_bytes(resp.into_body()).await?;
+            let bytes = Self::response_to_bytes(resp).await?;
             let http_serde::query::create::ResponseBody { query_id } =
-                serde_json::from_slice(&body_bytes)?;
+                serde_json::from_slice(&bytes)?;
             Ok(query_id)
         } else {
             Err(Error::from_failed_resp(resp).await)
@@ -369,7 +390,8 @@ impl MpcHelperClient {
         gate: &Gate,
         data: S,
     ) -> Result<ResponseFuture, Error> {
-        let body = hyper::Body::wrap_stream::<_, _, Error>(data.map(Ok));
+        let data = data.map(|v| Ok::<bytes::Bytes, Error>(Bytes::from(v)));
+        let body = axum::body::Body::from_stream(data);
         let req = http_serde::query::step::Request::new(query_id, gate.clone(), body);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         Ok(self.request(req))
@@ -389,9 +411,9 @@ impl MpcHelperClient {
 
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            let body_bytes = body::to_bytes(resp.into_body()).await?;
+            let bytes = Self::response_to_bytes(resp).await?;
             let http_serde::query::status::ResponseBody { status } =
-                serde_json::from_slice(&body_bytes)?;
+                serde_json::from_slice(&bytes)?;
             Ok(status)
         } else {
             Err(Error::from_failed_resp(resp).await)
@@ -404,13 +426,13 @@ impl MpcHelperClient {
     /// ## Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))]
-    pub async fn query_results(&self, query_id: QueryId) -> Result<body::Bytes, Error> {
+    pub async fn query_results(&self, query_id: QueryId) -> Result<bytes::Bytes, Error> {
         let req = http_serde::query::results::Request::new(query_id);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            Ok(body::to_bytes(resp.into_body()).await?)
+            let body = resp.into_body().collect().await?.to_bytes();
+            Ok(body)
         } else {
             Err(Error::from_failed_resp(resp).await)
         }

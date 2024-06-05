@@ -5,6 +5,7 @@ use std::{
 };
 
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
+use tracing::Instrument;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
@@ -20,7 +21,7 @@ use crate::{
         ipa_prf::{
             aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
-            prf_sharding::AttributionOutputs,
+            prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
             BreakdownKey,
         },
         RecordId,
@@ -122,13 +123,14 @@ where
 //
 // The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
 // contribution rows, bits of trigger value, and buckets.
+#[tracing::instrument(name = "aggregate", skip_all, fields(streams = contributions_stream_len))]
 pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const N: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
+    St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
     BK: BreakdownKey<B>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -170,6 +172,7 @@ where
                     B,
                     false,
                 )
+                .instrument(tracing::debug_span!("move_to_bucket", chunk = idx))
                 .await
             }
         },
@@ -285,7 +288,7 @@ where
                                 } else {
                                     assert!(
                                         OV::BITS <= SixteenBitStep::BITS,
-                                        "SixteenBitStep not large enough to accomodate this sum"
+                                        "SixteenBitStep not large enough to accommodate this sum"
                                     );
                                     integer_sat_add::<_, SixteenBitStep, B>(
                                         ctx.narrow(&AggregateValuesStep::SaturatingAdd),
@@ -298,6 +301,12 @@ where
                             }
                         }
                     }
+                    .instrument(tracing::trace_span!(
+                        "reduce",
+                        depth = depth,
+                        rows = num_rows,
+                        record = i
+                    ))
                 }),
         );
         num_rows = next_num_rows;
