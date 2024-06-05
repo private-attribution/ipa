@@ -7,11 +7,11 @@ use crate::{
 };
 
 // BlockSize is fixed to 32
-pub const B: usize = 32;
+pub const BLOCK_SIZE: usize = 32;
 // UVTupleBlock is a block of interleaved U and V values
-pub type UVTupleBlock<F> = ([F; B], [F; B]);
+pub type UVTupleBlock<F> = ([F; BLOCK_SIZE], [F; BLOCK_SIZE]);
 // UVSingleBlock is either a block of U or a block of V values
-pub type UVSingleBlock<F> = [F; B];
+pub type UVSingleBlock<F> = [F; BLOCK_SIZE];
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
@@ -55,15 +55,35 @@ pub trait DZKPBaseField: PrimeField {
     ) -> Vec<UVSingleBlock<Self>>;
 }
 
-impl FromIterator<Fp61BitPrime> for [Fp61BitPrime; B] {
+impl<const P: usize> FromIterator<Fp61BitPrime> for [Fp61BitPrime; P] {
     fn from_iter<T: IntoIterator<Item = Fp61BitPrime>>(iter: T) -> Self {
-        let mut out = [Fp61BitPrime::ZERO; B];
+        let mut out = [Fp61BitPrime::ZERO; P];
         for (i, elem) in iter.into_iter().enumerate() {
             assert!(
-                i < B,
-                "Too many elements to collect into array of length {B}",
+                i < P,
+                "Too many elements to collect into array of length {P}",
             );
             out[i] = elem;
+        }
+        out
+    }
+}
+
+impl<const P: usize> FromIterator<Fp61BitPrime> for Vec<[Fp61BitPrime; P]> {
+    fn from_iter<T: IntoIterator<Item = Fp61BitPrime>>(iter: T) -> Self {
+        let mut out = Vec::<[Fp61BitPrime; P]>::new();
+        let mut array = [Fp61BitPrime::ZERO; P];
+        let mut i = 0usize;
+        for elem in iter {
+            array[i % P] = elem;
+            if (i + 1) % P == 0 {
+                out.push(array);
+                array = [Fp61BitPrime::ZERO; P];
+            }
+            i += 1;
+        }
+        if i % P != 0 {
+            out.push(array);
         }
         out
     }
@@ -148,7 +168,7 @@ impl DZKPBaseField for Fp61BitPrime {
                                 Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e,
                             ]
                         })
-                        .collect::<[Fp61BitPrime; B]>(),
+                        .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
                     // h polynomial
                     b.view_bits::<Lsb0>()
                         .iter()
@@ -169,7 +189,7 @@ impl DZKPBaseField for Fp61BitPrime {
                                 one_minus_two_f,
                             ]
                         })
-                        .collect::<[Fp61BitPrime; B]>(),
+                        .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
                 )
             })
             .collect::<Vec<_>>()
@@ -229,7 +249,7 @@ impl DZKPBaseField for Fp61BitPrime {
                             Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e,
                         ]
                     })
-                    .collect::<[Fp61BitPrime; B]>()
+                    .collect::<[Fp61BitPrime; BLOCK_SIZE]>()
             })
             .collect::<Vec<_>>()
     }
@@ -282,7 +302,7 @@ impl DZKPBaseField for Fp61BitPrime {
                             one_minus_two_f,
                         ]
                     })
-                    .collect::<[Fp61BitPrime; B]>()
+                    .collect::<[Fp61BitPrime; BLOCK_SIZE]>()
             })
             .collect::<Vec<_>>()
     }

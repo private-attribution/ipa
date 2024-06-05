@@ -120,15 +120,18 @@ mod test {
 
             let r = (0..len)
                 .map(|_| rng.gen::<Fp61BitPrime>())
-                .collect::<Vec<_>>();
+                .collect::<Vec<Fp61BitPrime>>();
 
             let _ = world
                 .semi_honest(r.into_iter(), |ctx, input| async move {
-                    let r_right = input.iter().map(|x| x.right().neg()).collect::<Vec<_>>();
+                    let r_right = input
+                        .iter()
+                        .map(|x| x.right().neg())
+                        .collect::<Vec<Fp61BitPrime>>();
                     let mut r_left = input
                         .iter()
                         .map(ReplicatedSecretSharing::left)
-                        .collect::<Vec<_>>();
+                        .collect::<Vec<Fp61BitPrime>>();
 
                     validate_three_two_way_sharing_of_zero(
                         ctx.narrow("correctness"),
