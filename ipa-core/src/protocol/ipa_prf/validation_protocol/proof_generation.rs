@@ -11,9 +11,8 @@ use crate::{
         },
         ipa_prf::malicious_security::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-            prover::{LargeProofGenerator, SmallProofGenerator, UVValues},
+            prover::{LargeProofGenerator, SmallProofGenerator},
         },
-        prss::SharedRandomness,
         RecordId,
     },
     secret_sharing::SharedValue,
@@ -53,7 +52,7 @@ impl BatchToVerify {
     {
         // generate Proof
         let (prover_left_proof, proof_from_left, (p, q)) =
-            ProofBatch::compute_proof(&ctx, uv_tuple_block);
+            ProofBatch::generate_batch_parts(&ctx, uv_tuple_block);
 
         // send prover_left_proof and receive proof_from_right
         let length = prover_left_proof.len();
@@ -113,16 +112,16 @@ impl ProofBatch {
     where
         C: Context,
     {
-        // set up context
-        let ctx_left = ctx.set_total_records(self.len());
+        // set up context for the communication over the network
+        let communication_ctx = ctx.set_total_records(self.len());
 
         // set up channel
         let send_channel_left =
-            &ctx_left.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
+            &communication_ctx.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
 
         // send to left
         // we send the proof batch via sending the individual field elements
-        ctx_left
+        communication_ctx
             .parallel_join(
                 self.iter().enumerate().map(|(i, x)| async move {
                     send_channel_left.send(RecordId::from(i), x).await
@@ -155,18 +154,17 @@ impl ProofBatch {
             .collect())
     }
 
-    /// This function generates a batch of quadratic proofs
+    /// This function generates batch parts of quadratic proofs
     /// it iteratively generates proofs and collects them in a batch
     ///
-    /// It generates `batch_from_left` as its left output
-    /// and `prover_left_batch` as its right output.
-    /// Further, it outputs the generated masks needed for the verification of proof from the left and right.
-    ///
-    /// Outputs `(batch_from_left, prover_left_batch, (p_mask, q_mask))`
+    /// Outputs `(my_batch_left_shares, shares_of_batch_from_prover_left, (p_mask_from_left_prover, q_mask_from_right_prover))`
     ///
     /// ## Panics
-    /// Panics when the recursion factor is smaller than 2 or masks cannot be set safely (implementation issue).
-    fn compute_proof<C, I>(ctx: &C, uv_tuple_block: I) -> (Self, Self, (Fp61BitPrime, Fp61BitPrime))
+    /// Panics when masks cannot be set safely (implementation issue).
+    fn generate_batch_parts<C, I>(
+        ctx: &C,
+        uv_tuple_block: I,
+    ) -> (Self, Self, (Fp61BitPrime, Fp61BitPrime))
     where
         C: Context,
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
@@ -189,7 +187,7 @@ impl ProofBatch {
                 { LargeProofGenerator::LAGRANGE_LENGTH },
             >::from(first_denominator);
 
-            LargeProofGenerator::compute_next_proof(
+            LargeProofGenerator::gen_artefacts_from_recursive_step(
                 ctx,
                 &mut record_counter,
                 &first_lagrange_table,
@@ -198,9 +196,13 @@ impl ProofBatch {
         };
 
         // storage for other proofs
-        let mut prover_left_proofs =
+        let mut my_proofs_left_shares =
             Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::new();
-        let mut proofs_from_left = Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::new();
+        let mut shares_of_proofs_from_prover_left =
+            Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::new();
+        // and masks
+        let mut p_mask_from_left_prover = Fp61BitPrime::ZERO;
+        let mut q_mask_from_right_prover = Fp61BitPrime::ZERO;
 
         // precomputation for other proofs
         // denominator
@@ -216,101 +218,43 @@ impl ProofBatch {
         >::from(denominator);
 
         // recursively generate proofs
-        // until there are less than `RECURSION_FACTOR * (RECURSION_FACTOR-1)` many (u,v) field elements
-        // and then do one more iteration
-        // This ensures that after the last iteration,
-        // there are at most RECURSION_FACTOR-1 many real (u,v) field elements
-        // Therefore at least the last field element is a `F:ZERO` filler that can be replaced
-        // Therefore we have space to include the masks during the final proof
-        //
-        // we remark that uv_value.len() will always be at least 1
-        // further, polynomial uv_values.uv[0].0 and .1 will always have
-        // RECURSION_FACTOR many points
-        // since they are arrays of fixed length, i.e. RECURSION_FACTOR,
-        // (which are filled with `F::ZERO` when there are not enough elements).
-        let r_minus_one = SmallProofGenerator::RECURSION_FACTOR - 1;
-        uv_values = loop {
-            let stop = uv_values.len() <= r_minus_one;
+        // via SmallProofGenerator
+        while uv_values.len() > 1 {
+            if uv_values.len() < SmallProofGenerator::RECURSION_FACTOR {
+                // generate masks
+                // verifier on the right has p,
+                // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
+                (p_mask_from_left_prover, q_mask_from_right_prover) =
+                    uv_values.set_masks(ctx, &mut record_counter).unwrap();
+            }
 
             // generate next proof
-            let (uv_values_new, proof_from_left, prover_left_proof) =
-                SmallProofGenerator::compute_next_proof(
+            let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =
+                SmallProofGenerator::gen_artefacts_from_recursive_step(
                     ctx,
                     &mut record_counter,
                     &lagrange_table,
                     uv_values.iter(),
                 );
             // collect proof
-            proofs_from_left.push(proof_from_left);
-            prover_left_proofs.push(prover_left_proof);
+            shares_of_proofs_from_prover_left.push(share_of_proof_from_prover_left);
+            my_proofs_left_shares.push(my_proof_left_share);
 
             uv_values = uv_values_new;
-
-            if stop {
-                break uv_values;
-            }
-        };
-
-        // generate masks
-        // verifier on the right has p,
-        // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
-        let (p_mask_from_left, p_mask_prover): (Fp61BitPrime, Fp61BitPrime) =
-            ctx.prss().generate_fields(record_counter);
-        record_counter += 1;
-        // and verifier on the left has q
-        // therefore the left share is "implicitly sent" to the left (communication via PRSS)
-        let (q_mask_prover, q_mask_from_right): (Fp61BitPrime, Fp61BitPrime) =
-            ctx.prss().generate_fields(record_counter);
-        record_counter += 1;
-
-        // compute final uv values
-        let (u_values, v_values) = &mut uv_values[0];
-        // check that last elements are really Zero
-        debug_assert_eq!(
-            u_values[SmallProofGenerator::RECURSION_FACTOR - 1],
-            Fp61BitPrime::ZERO
-        );
-        debug_assert_eq!(
-            v_values[SmallProofGenerator::RECURSION_FACTOR - 1],
-            Fp61BitPrime::ZERO
-        );
-        // shift first element to last position
-        u_values[SmallProofGenerator::RECURSION_FACTOR - 1] = u_values[0];
-        v_values[SmallProofGenerator::RECURSION_FACTOR - 1] = v_values[0];
-        // set masks in first position
-        u_values[0] = p_mask_prover;
-        v_values[0] = q_mask_prover;
-
-        // generate last proof
-        let (_, proof_from_left, prover_left_proof): (
-            UVValues<Fp61BitPrime, { SmallProofGenerator::RECURSION_FACTOR }>,
-            [Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH],
-            [Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH],
-        ) = SmallProofGenerator::compute_next_proof(
-            ctx,
-            &mut record_counter,
-            &lagrange_table,
-            uv_values.iter(),
-        );
-
-        // collect proof
-        proofs_from_left.push(proof_from_left);
-        prover_left_proofs.push(prover_left_proof);
+        }
 
         // output proofs
-        // as well as the "received" masks
-        // (which are "communicated" via PRSS)
-        // these are later required by the verification
+        // and masks
         (
             ProofBatch {
                 first_proof: prover_left_first_proof,
-                proofs: prover_left_proofs,
+                proofs: my_proofs_left_shares,
             },
             ProofBatch {
                 first_proof: first_proof_from_left,
-                proofs: proofs_from_left,
+                proofs: shares_of_proofs_from_prover_left,
             },
-            (p_mask_from_left, q_mask_from_right),
+            (p_mask_from_left_prover, q_mask_from_right_prover),
         )
     }
 

@@ -3,6 +3,7 @@
 use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 
 use crate::{
+    error::{Error, Error::DZKPMasks},
     ff::{Fp31, Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
@@ -72,6 +73,44 @@ where
     /// which consists of an array of `u` values and an array of `v` values.
     pub fn iter(&self) -> impl Iterator<Item = &([F; λ], [F; λ])> + Clone {
         self.uv_chunks.iter()
+    }
+
+    /// This function allows to generate and set masks
+    ///
+    /// It outputs `(p_mask_from_left_prover,q_mask_from_right_prover)`.
+    ///
+    /// ## Errors
+    /// Errors when the length is too long such that masks cannot be set safely.
+    pub fn set_masks<C: Context>(
+        &mut self,
+        ctx: &C,
+        record_counter: &mut RecordId,
+    ) -> Result<(F, F), Error> {
+        if self.len() >= λ {
+            return Err(DZKPMasks);
+        }
+        // generate masks
+        // verifier on the right has p,
+        // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
+        let (p_mask_from_left_prover, my_p_mask): (F, F) =
+            ctx.prss().generate_fields(*record_counter);
+        *record_counter += 1;
+        // and verifier on the left has q
+        // therefore the left share is "implicitly sent" to the left (communication via PRSS)
+        let (my_q_mask, q_mask_from_right_prover): (F, F) =
+            ctx.prss().generate_fields(*record_counter);
+        *record_counter += 1;
+
+        // compute final uv values
+        let (u_values, v_values) = &mut self.uv_chunks[0];
+        // shift first element to last position
+        u_values[SmallProofGenerator::RECURSION_FACTOR - 1] = u_values[0];
+        v_values[SmallProofGenerator::RECURSION_FACTOR - 1] = v_values[0];
+        // set masks in first position
+        u_values[0] = my_p_mask;
+        v_values[0] = my_q_mask;
+
+        Ok((p_mask_from_left_prover, q_mask_from_right_prover))
     }
 }
 
