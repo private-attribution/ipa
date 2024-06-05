@@ -8,7 +8,7 @@ use rand::{
     Rng,
 };
 
-use crate::protocol::dp::insecure::Error;
+use crate::protocol::ipa_prf::oprf_padding::insecure::Error;
 
 /// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
 /// |a-b| < 10^(-precision).

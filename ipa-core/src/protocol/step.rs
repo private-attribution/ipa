@@ -44,8 +44,8 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]
     ZeroKnowledgeProofValidate,
-    #[step(child = crate::protocol::ipa_prf::dp::step::DPStep)]
+    #[step(child = crate::protocol::dp::step::DPStep)]
     NoiseGen,
-    #[step(child = crate::protocol::ipa_prf::dp::step::DPStep)]
+    #[step(child = crate::protocol::dp::step::DPStep)]
     ApplyNoise,
 }
