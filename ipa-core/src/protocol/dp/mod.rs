@@ -10,11 +10,8 @@ use crate::{
     protocol::{
         boolean::step::SixteenBitStep,
         context::{Context, UpgradedSemiHonestContext},
-        ipa_prf::{
-            aggregation::aggregate_values,
-            boolean_ops::addition_sequential::integer_add,
-        },
         dp::step::DPStep,
+        ipa_prf::{aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add},
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
     },
@@ -244,7 +241,7 @@ fn find_smallest_num_bernoulli(
 mod test {
     use crate::{
         ff::{boolean::Boolean, boolean_array::BA16, U128Conversions},
-        protocol::ipa_prf::dp::{
+        protocol::dp::{
             apply_dp_noise, delta_constraint, epsilon_constraint, error,
             find_smallest_num_bernoulli, gen_binomial_noise,
         },

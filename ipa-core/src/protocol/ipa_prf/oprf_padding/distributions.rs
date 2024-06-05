@@ -180,7 +180,7 @@ mod tests {
     use rand::{distributions::Distribution, thread_rng, Rng};
     use rand_core::RngCore;
 
-    use crate::protocol::dp::{
+    use crate::protocol::ipa_prf::oprf_padding::{
         distributions::{
             is_close, BoxMuller, DoubleGeometric, Geometric, TruncatedDoubleGeometric,
         },
