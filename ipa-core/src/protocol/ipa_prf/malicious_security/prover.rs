@@ -16,6 +16,7 @@ use crate::{
 /// This struct stores intermediate `uv` values.
 /// The storage format is compatible with further processing
 /// via a `ProofGenerator` with parameters `λ` and `F`.
+#[derive(PartialEq, Debug)]
 pub struct UVValues<F, const λ: usize>
 where
     F: PrimeField,
@@ -70,7 +71,7 @@ where
 
     /// This function returns a tuple
     /// which consists of an array of `u` values and an array of `v` values.
-    pub fn iter(&self) -> impl Iterator<Item = &([F; λ], [F; λ])> {
+    pub fn iter(&self) -> impl Iterator<Item = &([F; λ], [F; λ])> + Clone {
         self.uv_chunks.iter()
     }
 }
@@ -82,24 +83,15 @@ where
 /// `λ`: Recursion factor of the proof.
 /// `P`: Length of the proof, i.e. `2*λ-1`.
 /// `M`: Dimension of the Lagrange table, i.e. `λ`.
-/// `N`: Chunk size of the storage container of the `uv` values created during a recursion.
-pub struct ProofGenerator<
-    F: PrimeField,
-    const λ: usize,
-    const P: usize,
-    const M: usize,
-    const N: usize,
-> {
+pub struct ProofGenerator<F: PrimeField, const λ: usize, const P: usize, const M: usize> {
     phantom_data: PhantomData<F>,
 }
 
-pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3, 4>;
-pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7, 8>;
-pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31, 8>;
+pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
+pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
+pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
-impl<F: PrimeField, const λ: usize, const P: usize, const M: usize, const N: usize>
-    ProofGenerator<F, λ, P, M, N>
-{
+impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenerator<F, λ, P, M> {
     // define constants such that they can be used externally
     // when using the pub types defined above
     pub const RECURSION_FACTOR: usize = λ;
@@ -131,7 +123,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize, const N: us
         proof
     }
 
-    fn gen_challenge_and_recurse<J, B>(
+    fn gen_challenge_and_recurse<J, B, const N: usize>(
         proof_left: &[F; P],
         proof_right: &[F; P],
         uv_iterator: J,
@@ -196,7 +188,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize, const N: us
     /// where
     /// `share_of_proof_from_prover_left` from left has type `Vec<[F; P]>`,
     /// `my_proof_left_share` has type `Vec<[F; P]>`,
-    pub fn gen_artefacts_from_recursive_step<C, J, B>(
+    pub fn gen_artefacts_from_recursive_step<C, J, B, const N: usize>(
         ctx: &C,
         record_counter: &mut RecordId,
         lagrange_table: &LagrangeTable<F, λ, M>,
@@ -254,18 +246,15 @@ mod test {
         test_fixture::{Runner, TestWorld},
     };
 
-    fn zip_chunks<F: PrimeField, const U: usize>(a: &[u128], b: &[u128]) -> Vec<([F; U], [F; U])> {
-        zip(a.chunks(U), b.chunks(U))
-            .map(|(u_chunk, v_chunk)| {
-                let mut u_out = [F::ZERO; U];
-                let mut v_out = [F::ZERO; U];
-                for i in 0..U {
-                    u_out[i] = F::truncate_from(u_chunk[i]);
-                    v_out[i] = F::truncate_from(v_chunk[i]);
-                }
-                (u_out, v_out)
-            })
-            .collect::<Vec<_>>()
+    fn zip_chunks<F: PrimeField, const U: usize, I, J>(a: I, b: J) -> UVValues<F, U>
+    where
+        I: IntoIterator<Item = u128>,
+        J: IntoIterator<Item = u128>,
+    {
+        a.into_iter()
+            .zip(b)
+            .map(|(u, v)| (F::truncate_from(u), F::truncate_from(v)))
+            .collect::<UVValues<F, U>>()
     }
 
     #[test]
@@ -285,8 +274,8 @@ mod test {
 
         const PROOF_2: [u128; 7] = [12, 6, 15, 8, 29, 30, 6];
         const PROOF_LEFT_2: [u128; 7] = [5, 26, 14, 9, 0, 25, 2];
-        const U_3: [u128; 4] = [3, 3, 0, 0]; // padded with zeroes
-        const V_3: [u128; 4] = [5, 24, 0, 0]; // padded with zeroes
+        const U_3: [u128; 2] = [3, 3]; // will later be padded with zeroes
+        const V_3: [u128; 2] = [5, 24]; // will later be padded with zeroes
 
         const PROOF_3: [u128; 7] = [12, 15, 10, 0, 18, 6, 5];
         const P_RANDOM_WEIGHT: u128 = 12;
@@ -296,7 +285,7 @@ mod test {
         let lagrange_table = LagrangeTable::<Fp31, 4, 3>::from(denominator);
 
         // uv values in input format (iterator of tuples of arrays of length 4)
-        let uv_1 = zip_chunks(&U_1, &V_1);
+        let uv_1 = zip_chunks(U_1, V_1);
 
         // first iteration
         let proof_1 = TestProofGenerator::compute_proof(uv_1.iter(), &lagrange_table);
@@ -320,7 +309,7 @@ mod test {
             &proof_right_1,
             uv_1.iter(),
         );
-        assert_eq!(uv_2.uv_chunks, zip_chunks(&U_2, &V_2));
+        assert_eq!(uv_2, zip_chunks(U_2, V_2));
 
         // next iteration
         let proof_2 = TestProofGenerator::compute_proof(uv_2.iter(), &lagrange_table);
@@ -339,16 +328,16 @@ mod test {
             .unwrap();
 
         // fiat-shamir
-        let uv_3 = TestProofGenerator::gen_challenge_and_recurse(
+        let uv_3 = TestProofGenerator::gen_challenge_and_recurse::<_, _, 4>(
             &proof_left_2,
             &proof_right_2,
             uv_2.iter(),
         );
-        assert_eq!(uv_3.uv_chunks, zip_chunks(&U_3[..], &V_3[..]));
+        assert_eq!(uv_3, zip_chunks(U_3, V_3));
 
         let masked_uv_3 = zip_chunks(
-            &[P_RANDOM_WEIGHT, U_3[0], U_3[1], U_3[2]],
-            &[Q_RANDOM_WEIGHT, V_3[0], V_3[1], V_3[2]],
+            [P_RANDOM_WEIGHT, U_3[0], U_3[1]],
+            [Q_RANDOM_WEIGHT, V_3[0], V_3[1]],
         );
 
         // final iteration
@@ -375,17 +364,18 @@ mod test {
             let lagrange_table = LagrangeTable::<Fp31, 4, 3>::from(denominator);
 
             // uv values in input format (iterator of tuples of arrays of length 4)
-            let uv_1 = zip_chunks(&U_1, &V_1);
+            let uv_1 = zip_chunks(U_1, V_1);
 
             // first iteration
             let world = TestWorld::default();
             let mut record_counter = RecordId::from(0);
-            let (uv_values, _, _) = TestProofGenerator::gen_artefacts_from_recursive_step(
-                &world.contexts()[0],
-                &mut record_counter,
-                &lagrange_table,
-                uv_1.iter(),
-            );
+            let (uv_values, _, _) =
+                TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, _, 4>(
+                    &world.contexts()[0],
+                    &mut record_counter,
+                    &lagrange_table,
+                    uv_1.iter(),
+                );
 
             assert!(!uv_values.is_empty());
 
@@ -408,16 +398,7 @@ mod test {
             0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1,
         ];
 
-        let uv_before = U
-            .iter()
-            .zip(V.iter())
-            .map(|(u, v)| {
-                (
-                    Fp61BitPrime::truncate_from(*u),
-                    Fp61BitPrime::truncate_from(*v),
-                )
-            })
-            .collect::<UVValues<Fp61BitPrime, 8>>();
+        let uv_before = zip_chunks(U, V);
 
         let denominator = CanonicalLagrangeDenominator::<
             Fp61BitPrime,
@@ -434,8 +415,11 @@ mod test {
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
 
-        let uv_after =
-            SmallProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
+            &proof,
+            &proof,
+            uv_before.iter(),
+        );
 
         assert_eq!(
             uv_before.len(),
@@ -450,16 +434,7 @@ mod test {
         const U: [u128; 1024] = [1u128; 1024];
         const V: [u128; 1024] = [2u128; 1024];
 
-        let uv_before = U
-            .iter()
-            .zip(V.iter())
-            .map(|(u, v)| {
-                (
-                    Fp61BitPrime::truncate_from(*u),
-                    Fp61BitPrime::truncate_from(*v),
-                )
-            })
-            .collect::<UVValues<Fp61BitPrime, 32>>();
+        let uv_before = zip_chunks(U, V);
 
         let denominator = CanonicalLagrangeDenominator::<
             Fp61BitPrime,
@@ -476,8 +451,11 @@ mod test {
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
 
-        let uv_after =
-            LargeProofGenerator::gen_challenge_and_recurse(&proof, &proof, uv_before.iter());
+        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
+            &proof,
+            &proof,
+            uv_before.iter(),
+        );
 
         assert_eq!(
             uv_before.len(),
