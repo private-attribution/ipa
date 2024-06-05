@@ -32,7 +32,6 @@ where
     fn from_iter<T: IntoIterator<Item = (F, F)>>(iter: T) -> Self {
         let mut uv_chunks = Vec::<([F; λ], [F; λ])>::new();
 
-        // iter and interpolate at x coordinate r
         let mut length = 0;
         let mut new_u_chunk = [F::ZERO; λ];
         let mut new_v_chunk = [F::ZERO; λ];
@@ -351,13 +350,13 @@ mod test {
     #[test]
     fn check_uv_length_and_is_empty() {
         run(|| async move {
-            const U_1: [u128; 32] = [
+            const U_1: [u128; 27] = [
                 0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1, 15, 0, 0, 1, 15, 2,
-                30, 30, 16, 0, 0, 30, 16,
+                30, 30,
             ];
-            const V_1: [u128; 32] = [
+            const V_1: [u128; 27] = [
                 0, 0, 0, 30, 0, 0, 0, 1, 30, 30, 30, 30, 0, 0, 30, 30, 0, 30, 0, 30, 0, 0, 0, 1, 0,
-                0, 1, 1, 0, 0, 1, 1,
+                0, 1,
             ];
 
             let denominator = CanonicalLagrangeDenominator::<Fp31, 4>::new();
@@ -379,7 +378,7 @@ mod test {
 
             assert!(!uv_values.is_empty());
 
-            assert_eq!(8, uv_values.len());
+            assert_eq!(7, uv_values.len());
         });
     }
 
