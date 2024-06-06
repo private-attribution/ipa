@@ -11,9 +11,9 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{
-        basics::Reveal,
+        basics::{semi_honest_check_zero, semi_honest_reveal},
         context::{
-            step::{MaliciousProtocolStep as Step, ValidateStep},
+            step::{MaliciousProtocolStep, ValidateStep},
             Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext,
         },
@@ -219,7 +219,9 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
         let r = <F as ExtendableField>::ExtendedField::from_array(
-            &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
+            &semi_honest_reveal(&self.r_share, narrow_ctx, RecordId::FIRST, None)
+                .await?
+                .expect("non-partial reveal should always return a value"),
         );
         let t = u_share - &(w_share * r);
 
@@ -227,8 +229,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
             .set_total_records(1);
-        let is_valid =
-            crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
+        let is_valid = semi_honest_check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
@@ -255,8 +256,12 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
         let accumulator = MaliciousAccumulator::<F> {
             inner: Arc::downgrade(&u_and_w),
         };
-        let validate_ctx = ctx.narrow(&Step::Validate).base_context();
-        let protocol_ctx = ctx.upgrade(&Step::MaliciousProtocol, accumulator, r_share.clone());
+        let validate_ctx = ctx.narrow(&MaliciousProtocolStep::Validate).base_context();
+        let protocol_ctx = ctx.upgrade(
+            &MaliciousProtocolStep::MaliciousProtocol,
+            accumulator,
+            r_share.clone(),
+        );
         Self {
             r_share,
             u_and_w,

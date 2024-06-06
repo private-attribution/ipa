@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{mul::semi_honest_multiply, reveal::Reveal, step::CheckZeroStep as Step},
+        basics::{mul::semi_honest_multiply, semi_honest_reveal, step::CheckZeroStep as Step},
         context::Context,
         prss::{FromRandom, SharedRandomness},
         RecordId,
@@ -31,7 +31,7 @@ use crate::{
 /// 2.) If the randomly chosen value `r` is any other value in the field aside from zero, then the revealed value will NOT be zero.
 ///
 /// Clearly, the accuracy of this protocol is highly dependent on the field that is used.
-/// In a large field, like the integers modulo 2^31 - 1, the odds of `check_zero` returning "true"
+/// In a large field, like the integers modulo 2^31 - 1, the odds of `semi_honest_check_zero` returning "true"
 /// when `v` is NOT actually a sharing of zero is extrmely small; it is less than one two billion odds.
 /// In a silly field, like our test field of the integers modulo 31, the odds are very good. It'll incorrectly return "true"
 /// about 3.2% of the time.
@@ -39,19 +39,24 @@ use crate::{
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn check_zero<C, F>(ctx: C, record_id: RecordId, v: &Replicated<F>) -> Result<bool, Error>
-where
-    C: Context,
-    F: Field + FromRandom,
-{
+///
+/// ## Panics
+/// Panics if `semi_honest_reveal` reveal returns `None`, which should not happen, because we are
+/// not doing a partial reveal.
+pub async fn semi_honest_check_zero<C: Context, F: Field + FromRandom>(
+    ctx: C,
+    record_id: RecordId,
+    v: &Replicated<F>,
+) -> Result<bool, Error> {
     let r_sharing: Replicated<F> = ctx.prss().generate(record_id);
 
     let rv_share =
         semi_honest_multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
+    // TODO: is it really okay to be doing a semi-honest reveal here?
     let rv = F::from_array(
-        &rv_share
-            .reveal(ctx.narrow(&Step::RevealR), record_id)
-            .await?,
+        &semi_honest_reveal(&rv_share, ctx.narrow(&Step::RevealR), record_id, None)
+            .await?
+            .expect("non-partial reveal should always return a value"),
     );
 
     Ok(rv == F::ZERO)
@@ -59,57 +64,48 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use futures_util::future::try_join3;
-
+    use super::semi_honest_check_zero;
     use crate::{
         error::Error,
         ff::{Fp31, PrimeField, U128Conversions},
-        protocol::{basics::check_zero, context::Context, RecordId},
-        rand::thread_rng,
-        secret_sharing::{IntoShares, SharedValue},
-        test_fixture::TestWorld,
+        protocol::{context::Context, RecordId},
+        secret_sharing::SharedValue,
+        test_fixture::{Runner, TestWorld},
     };
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
         let world = TestWorld::default();
-        let context = world.contexts().map(|ctx| ctx.set_total_records(1));
-        let mut rng = thread_rng();
-        let mut counter = 0_u32;
 
         for v in 0..u32::from(Fp31::PRIME) {
             let v = Fp31::truncate_from(v);
             let mut num_false_positives = 0;
             for _ in 0..10 {
-                let v_shares = v.share_with(&mut rng);
-                let record_id = RecordId::from(0_u32);
-                let iteration = format!("{counter}");
-                counter += 1;
-
-                let protocol_output = try_join3(
-                    check_zero(context[0].narrow(&iteration), record_id, &v_shares[0]),
-                    check_zero(context[1].narrow(&iteration), record_id, &v_shares[1]),
-                    check_zero(context[2].narrow(&iteration), record_id, &v_shares[2]),
-                )
-                .await?;
+                let results = world
+                    .semi_honest(v, |ctx, v_share| async move {
+                        semi_honest_check_zero(ctx.set_total_records(1), RecordId::FIRST, &v_share)
+                            .await
+                    })
+                    .await
+                    .map(Result::unwrap);
 
                 // All three helpers should always get the same result
-                assert_eq!(protocol_output.0, protocol_output.1);
-                assert_eq!(protocol_output.1, protocol_output.2);
+                assert_eq!(results[0], results[1]);
+                assert_eq!(results[1], results[2]);
 
                 if v == Fp31::ZERO {
                     // When it actually is a secret sharing of zero
                     // the helpers should definitely all receive "true"
-                    assert!(protocol_output.0);
-                    assert!(protocol_output.1);
-                    assert!(protocol_output.2);
-                } else if protocol_output.0 {
+                    assert!(results[0]);
+                    assert!(results[1]);
+                    assert!(results[2]);
+                } else if results[0] {
                     // Unfortunately, there is a small chance of an incorrect
                     // "true", even in when the secret shared value is NOT zero.
                     // Since we will test out 10 different random secret sharings
                     // let's count how many false positives we get. Odds are there
                     // will be 0, 1, or maybe 2 out of 10
-                    if protocol_output.0 {
+                    if results[0] {
                         num_false_positives += 1;
                     }
                 }

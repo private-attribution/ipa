@@ -8,21 +8,21 @@ use crate::{
     ff::{boolean::Boolean, CustomArray, Expand},
     helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
-        basics::Reveal,
+        basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::{Context, SemiHonestContext},
+        context::{Context, UpgradableContext, Validator},
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
             step::{QuicksortPassStep, QuicksortStep as Step},
             SORT_CHUNK,
         },
-        RecordId,
+        BooleanProtocols, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, SharedValue, TransposeFrom,
         Vectorizable,
     },
-    seq_join::{seq_join, SeqJoin},
+    seq_join::seq_join,
 };
 
 impl<K> ChunkBuffer<SORT_CHUNK> for (Vec<AdditiveShare<K>>, Vec<AdditiveShare<K>>)
@@ -115,18 +115,20 @@ where
 ///
 /// # Panics
 /// If you provide any invalid ranges, such as 0..0
-pub async fn quicksort_ranges_by_key_insecure<K, F, S>(
-    ctx: SemiHonestContext<'_>,
+pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
+    ctx: C,
     list: &mut [S],
     desc: bool,
     get_key: F,
     mut ranges_to_sort: Vec<Range<usize>>,
 ) -> Result<(), Error>
 where
+    C: UpgradableContext,
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: SharedValue + CustomArray<Element = Boolean>,
     <Boolean as Vectorizable<SORT_CHUNK>>::Array: Expand<Input = Boolean>,
+    AdditiveShare<Boolean, SORT_CHUNK>: BooleanProtocols<C::UpgradedContext<Boolean>, SORT_CHUNK>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
@@ -150,9 +152,13 @@ where
             .sum::<usize>()
             - ranges_to_sort.len();
 
-        let c = ctx
+        let v = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
+            .validator::<Boolean>();
+        let c = v
+            .context()
             .set_total_records((num_comparisons_needed + SORT_CHUNK - 1) / SORT_CHUNK);
+
         let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
         let rvl_ctx = c.narrow(&QuicksortPassStep::Reveal);
 
@@ -171,7 +177,7 @@ where
             K::BITS <= ThirtyTwoBitStep::BITS,
             "ThirtyTwoBitStep is not large enough to accommodate this sort"
         );
-        let comp: BitVec<usize, Lsb0> = seq_join(
+        let comp = seq_join(
             ctx.active_work(),
             process_stream_by_chunks::<_, _, _, _, _, _, _, SORT_CHUNK>(
                 compare_index_pairs,
@@ -181,25 +187,34 @@ where
                     let rvl_ctx = rvl_ctx.clone();
                     let record_id = RecordId::from(idx);
                     async move {
-                        // Compare the current element against pivot and reveal the result.
-                        let comparison = compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
+                        // Compare elements against pivot
+                        let comp = compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
                             cmp_ctx, record_id, &k, &pivot,
                         )
-                        .await?
-                        .reveal(rvl_ctx, record_id) // reveal outcome of comparison
                         .await?;
-
-                        // desc = true will flip the order of the sort
-                        Ok::<_, Error>(comparison + !desc)
+                        // Reveal the comparison result
+                        reveal(rvl_ctx, record_id, &comp).await
                     }
                 },
                 || (AdditiveShare::<K>::ZERO, AdditiveShare::<K>::ZERO),
             ),
-        )
-        .try_flatten_iters()
-        .map_ok(bool::from)
-        .try_collect()
-        .await?;
+        );
+
+        let unwrapped_compare_results = {
+            // TODO: this should be replaced with a malicious verify.
+            use crate::protocol::basics::ThisCodeIsAuthorizedToObserveRevealedValues;
+            comp.map_ok(|chunk| {
+                chunk.map(ThisCodeIsAuthorizedToObserveRevealedValues::access_without_verification)
+            })
+        };
+
+        let comp: BitVec<usize, Lsb0> = unwrapped_compare_results
+            // desc = true will flip the order of the sort
+            .map_ok(|chunk| chunk.map(|data| data + !desc))
+            .try_flatten_iters()
+            .map_ok(bool::from)
+            .try_collect()
+            .await?;
 
         let mut comp_it = comp.into_iter();
         for mut range in ranges_to_sort.into_iter().filter(|r| r.len() >= 2) {
