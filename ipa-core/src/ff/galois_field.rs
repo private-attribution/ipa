@@ -10,7 +10,6 @@ use bitvec::{
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
-use super::ArrayAccess;
 use crate::{
     ff::{boolean_array::NonZeroPadding, Field, Serializable, U128Conversions},
     impl_serializable_trait, impl_shared_value_common,
@@ -200,29 +199,6 @@ macro_rules! bit_array_impl {
                     const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
                     let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
-                }
-            }
-
-
-            impl ArrayAccess for $name {
-                type Output = bool;
-                type Iter<'a> = BoolIterator<'a>;
-
-                fn get(&self, index: usize) -> Option<Self::Output> {
-                    if index < usize::try_from(<$name>::BITS).unwrap() {
-                        Some(self.0[index].into())
-                    } else {
-                        None
-                    }
-                }
-
-                fn set(&mut self, index: usize, e: Self::Output) {
-                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
-                    self.0.set(index, bool::from(e));
-                }
-
-                fn iter(&self) -> Self::Iter<'_> {
-                    BoolIterator(self.0.iter().take(<$name>::BITS as usize))
                 }
             }
 
@@ -493,21 +469,9 @@ macro_rules! bit_array_impl {
             mod tests {
                 use super::*;
                 use crate::{ff::GaloisField, secret_sharing::SharedValue};
-                use proptest::proptest;
-                use proptest::prelude::{prop, Strategy, Arbitrary};
                 use rand::{thread_rng, Rng};
-                use std::ops::RangeInclusive;
 
                 const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
-
-                impl Arbitrary for $name {
-                    type Parameters = ();
-                    type Strategy = prop::strategy::Map<RangeInclusive<u128>, fn(u128) -> Self>;
-
-                    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-                        (0..=MASK).prop_map(<$name as U128Conversions>::truncate_from as _)
-                    }
-                }
 
                 #[test]
                 pub fn basic() {
@@ -620,28 +584,6 @@ macro_rules! bit_array_impl {
                     println!("b: {b}");
 
                     assert_eq!(a < b, $name::truncate_from(a) < $name::truncate_from(b));
-                }
-
-                proptest! {
-                    #[test]
-                    fn arrayaccess_get_set(mut a: $name, b: bool, c: bool) {
-                        assert_eq!(a.get(0), Some(a.0[0]));
-                        a.set(0, b);
-                        assert_eq!(a.get(0), Some(b));
-                        a.set($bits - 1, c);
-                        assert_eq!(a.get($bits - 1), Some(c));
-                        assert_eq!(a.get($bits), None);
-                    }
-
-                    #[test]
-                    fn arrayaccess_iter(a: $name) {
-                        let mut iter = a.iter().enumerate();
-                        assert_eq!(iter.len(), $bits);
-                        while let Some((i, b)) = iter.next() {
-                            assert_eq!(u128::from(b), (a.as_u128() >> i) & 1);
-                            assert_eq!(iter.len(), $bits - 1 - i);
-                        }
-                    }
                 }
 
                 #[test]

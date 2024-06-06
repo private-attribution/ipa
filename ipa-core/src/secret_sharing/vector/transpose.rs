@@ -893,8 +893,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::ArrayAccess,
-        secret_sharing::{StdArray, Vectorizable},
+        ff::{boolean_array::BooleanArray, ArrayAccess},
+        secret_sharing::Vectorizable,
     };
 
     fn random_array<T, const N: usize>() -> [T; N]
@@ -1022,12 +1022,9 @@ mod tests {
         test_transpose_array::<u16, 16, 32>(super::transpose_16x16);
     }
 
-    fn ba_shares_test_matrix<BA, const M: usize, const N: usize>(
+    fn ba_shares_test_matrix<BA: BooleanArray, const M: usize, const N: usize>(
         step: usize,
-    ) -> [AdditiveShare<BA>; M]
-    where
-        BA: SharedValue + FromIterator<Boolean> + Vectorizable<1, Array = StdArray<BA, 1>>,
-    {
+    ) -> [AdditiveShare<BA>; M] {
         array::from_fn(|i| {
             let mut left = vec![Boolean::FALSE; N];
             let mut right = vec![Boolean::FALSE; N];
@@ -1072,8 +1069,8 @@ mod tests {
         const DM: usize, // Destination rows (== source cols)
     >()
     where
-        SR: PartialEq<SR> + SharedValue + ArrayAccess<Output = Boolean>,
-        DR: PartialEq<DR> + SharedValue + ArrayAccess<Output = Boolean>,
+        SR: PartialEq<SR> + BooleanArray,
+        DR: PartialEq<DR> + BooleanArray,
         [DR; DM]: for<'a> TransposeFrom<&'a [SR; SM], Error = Infallible>,
         Standard: Distribution<SR>,
     {
@@ -1118,11 +1115,8 @@ mod tests {
     >()
     where
         Boolean: Vectorizable<SM>,
-        <Boolean as Vectorizable<SM>>::Array: ArrayAccess<Output = Boolean>,
-        SR: SharedValue
-            + ArrayAccess<Output = Boolean>
-            + FromIterator<Boolean>
-            + Vectorizable<1, Array = StdArray<SR, 1>>,
+        <Boolean as Vectorizable<SM>>::Array: BooleanArray,
+        SR: BooleanArray,
         [AdditiveShare<Boolean, SM>; DM]:
             for<'a> TransposeFrom<&'a [AdditiveShare<SR>; SM], Error = Infallible>,
         Standard: Distribution<SR>,
@@ -1160,11 +1154,8 @@ mod tests {
     >()
     where
         Boolean: Vectorizable<SM>,
-        <Boolean as Vectorizable<SM>>::Array: ArrayAccess<Output = Boolean>,
-        SR: SharedValue
-            + ArrayAccess<Output = Boolean>
-            + FromIterator<Boolean>
-            + Vectorizable<1, Array = StdArray<SR, 1>>,
+        <Boolean as Vectorizable<SM>>::Array: BooleanArray,
+        SR: BooleanArray,
         BitDecomposed<AdditiveShare<Boolean, SM>>:
             for<'a> TransposeFrom<&'a Vec<AdditiveShare<SR>>, Error = LengthError>,
         Standard: Distribution<SR>,
@@ -1203,11 +1194,8 @@ mod tests {
     >()
     where
         Boolean: Vectorizable<SM>,
-        <Boolean as Vectorizable<SM>>::Array: ArrayAccess<Output = Boolean>,
-        SR: SharedValue
-            + ArrayAccess<Output = Boolean>
-            + FromIterator<Boolean>
-            + Vectorizable<1, Array = StdArray<SR, 1>>,
+        <Boolean as Vectorizable<SM>>::Array: BooleanArray,
+        SR: BooleanArray,
         [AdditiveShare<Boolean, SM>; DM]:
             for<'a> TransposeFrom<&'a dyn Fn(usize) -> AdditiveShare<SR>, Error = Infallible>,
         Standard: Distribution<SR>,
@@ -1247,11 +1235,8 @@ mod tests {
     >()
     where
         Boolean: Vectorizable<DM>,
-        <Boolean as Vectorizable<DM>>::Array: ArrayAccess<Output = Boolean>,
-        DR: SharedValue
-            + ArrayAccess<Output = Boolean>
-            + FromIterator<Boolean>
-            + Vectorizable<1, Array = StdArray<DR, 1>>,
+        <Boolean as Vectorizable<DM>>::Array: BooleanArray,
+        DR: BooleanArray,
         [AdditiveShare<DR>; DM]:
             for<'a> TransposeFrom<&'a [AdditiveShare<Boolean, DM>; SM], Error = Infallible>,
     {
@@ -1286,8 +1271,8 @@ mod tests {
     >()
     where
         Boolean: Vectorizable<SM> + Vectorizable<DM>,
-        <Boolean as Vectorizable<SM>>::Array: ArrayAccess<Output = Boolean>,
-        <Boolean as Vectorizable<DM>>::Array: ArrayAccess<Output = Boolean>,
+        <Boolean as Vectorizable<SM>>::Array: BooleanArray,
+        <Boolean as Vectorizable<DM>>::Array: BooleanArray,
         Vec<BitDecomposed<AdditiveShare<Boolean, SM>>>: for<'a> TransposeFrom<
             &'a [BitDecomposed<AdditiveShare<Boolean, DM>>],
             Error = Infallible,

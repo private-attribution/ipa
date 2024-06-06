@@ -1,13 +1,17 @@
 use std::iter::{repeat, zip};
 
 use crate::{
-    ff::{boolean::Boolean, boolean_array::BA64, U128Conversions},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BooleanArray, BA64},
+        U128Conversions,
+    },
     protocol::ipa_prf::OPRFIPAInputRow,
     rand::Rng,
     report::{EventType, OprfReport},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        IntoShares, SharedValue,
+        IntoShares,
     },
     test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
@@ -22,9 +26,9 @@ const DOMAINS: &[&str] = &[
 // TODO: this mostly duplicates the impl for GenericReportTestInput, can we avoid that?
 impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
 where
-    BK: SharedValue + U128Conversions + IntoShares<Replicated<BK>>,
-    TV: SharedValue + U128Conversions + IntoShares<Replicated<TV>>,
-    TS: SharedValue + U128Conversions + IntoShares<Replicated<TS>>,
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    TV: BooleanArray + U128Conversions + IntoShares<Replicated<TV>>,
+    TS: BooleanArray + U128Conversions + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
         let match_key = BA64::try_from(u128::from(self.user_id))
@@ -67,9 +71,9 @@ where
 
 impl<BK, TV, TS> IntoShares<OPRFIPAInputRow<BK, TV, TS>> for TestRawDataRecord
 where
-    BK: SharedValue + U128Conversions + IntoShares<Replicated<BK>>,
-    TV: SharedValue + U128Conversions + IntoShares<Replicated<TV>>,
-    TS: SharedValue + U128Conversions + IntoShares<Replicated<TS>>,
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    TV: BooleanArray + U128Conversions + IntoShares<Replicated<TV>>,
+    TS: BooleanArray + U128Conversions + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OPRFIPAInputRow<BK, TV, TS>; 3] {
         let is_trigger = Replicated::new(
@@ -112,9 +116,9 @@ where
 
 impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [&OPRFIPAInputRow<BK, TV, TS>; 3]
 where
-    BK: SharedValue + U128Conversions,
-    TV: SharedValue + U128Conversions,
-    TS: SharedValue + U128Conversions,
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    TV: BooleanArray + U128Conversions + IntoShares<Replicated<TV>>,
+    TS: BooleanArray + U128Conversions + IntoShares<Replicated<TS>>,
 {
     fn reconstruct(&self) -> TestRawDataRecord {
         let [s0, s1, s2] = self;

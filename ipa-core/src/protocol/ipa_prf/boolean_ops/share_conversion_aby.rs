@@ -3,8 +3,10 @@ use std::{convert::Infallible, iter::zip, ops::Neg};
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess,
-        ArrayAccessRef, CustomArray, Expand,
+        boolean::Boolean,
+        boolean_array::{BooleanArray, BA256},
+        ec_prime_field::Fp25519,
+        ArrayAccess,
     },
     helpers::Role,
     protocol::{
@@ -19,7 +21,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
+        BitDecomposed, FieldSimd, SharedValueArray, TransposeFrom, Vectorizable,
     },
 };
 
@@ -142,7 +144,7 @@ where
 
         // PRSS/Multiply masks added random highest order bit,
         // remove them to not cause overflow in second addition (which is mod 256):
-        rs_with_higherorderbits.set(BITS - 1, &AdditiveShare::<Boolean, NC>::ZERO);
+        rs_with_higherorderbits[BITS - 1] = AdditiveShare::<Boolean, NC>::ZERO;
 
         // return rs
         rs_with_higherorderbits
@@ -207,8 +209,8 @@ where
     let mut r: BitDecomposed<AdditiveShare<Boolean, N>> = ctx.prss().generate_with(record_id, BITS);
 
     // set 2 highest order bits of r1, r2, r3 to 0
-    r.set(BITS - 1, &AdditiveShare::<Boolean, N>::ZERO);
-    r.set(BITS - 2, &AdditiveShare::<Boolean, N>::ZERO);
+    r[BITS - 1] = AdditiveShare::<Boolean, N>::ZERO;
+    r[BITS - 2] = AdditiveShare::<Boolean, N>::ZERO;
 
     let mut sh_r = BitDecomposed::<AdditiveShare<Boolean, N>>::with_capacity(BITS);
     let mut sh_s = BitDecomposed::<AdditiveShare<Boolean, N>>::with_capacity(BITS);
@@ -324,14 +326,11 @@ where
 }
 
 /// inserts smaller array in the larger array starting from location offset
-pub fn expand_shared_array_in_place<YS, XS>(
+pub fn expand_shared_array_in_place<YS: BooleanArray, XS: BooleanArray>(
     y: &mut AdditiveShare<YS>,
     x: &AdditiveShare<XS>,
     offset: usize,
-) where
-    YS: CustomArray<Element = Boolean> + SharedValue,
-    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
-{
+) {
     for i in 0..XS::BITS as usize {
         ArrayAccess::set(
             y,
@@ -342,11 +341,10 @@ pub fn expand_shared_array_in_place<YS, XS>(
 }
 
 // This function extracts shares of a small array from the larger array
-pub fn extract_from_shared_array<YS, XS>(y: &AdditiveShare<YS>, offset: usize) -> AdditiveShare<XS>
-where
-    YS: CustomArray<Element = Boolean> + SharedValue,
-    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
-{
+pub fn extract_from_shared_array<YS: BooleanArray, XS: BooleanArray>(
+    y: &AdditiveShare<YS>,
+    offset: usize,
+) -> AdditiveShare<XS> {
     let mut x = AdditiveShare::<XS>::ZERO;
     for i in 0..XS::BITS as usize {
         ArrayAccess::set(
@@ -364,16 +362,15 @@ where
 #[cfg(all(test, unit_test))]
 pub fn expand_array<XS, YS>(x: &XS, offset: Option<usize>) -> YS
 where
-    XS: CustomArray,
-    YS: CustomArray<Element = XS::Element> + SharedValue,
-    XS::Element: SharedValue,
+    XS: BooleanArray,
+    YS: BooleanArray,
 {
     let mut y = YS::ZERO;
     for i in 0..<YS>::BITS as usize {
         y.set(
             i,
             x.get(i - (offset.unwrap_or(0usize)))
-                .unwrap_or(XS::Element::ZERO),
+                .unwrap_or(Boolean::FALSE),
         );
     }
     y
@@ -395,6 +392,7 @@ mod tests {
         helpers::stream::process_slice_by_chunks,
         protocol::ipa_prf::{CONV_CHUNK, PRF_CHUNK},
         rand::thread_rng,
+        secret_sharing::SharedValue,
         seq_join::{seq_join, SeqJoin},
         test_executor::run,
         test_fixture::{ReconstructArr, Runner, TestWorld},

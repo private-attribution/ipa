@@ -9,7 +9,7 @@ use tracing::Instrument;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
-    ff::{boolean::Boolean, CustomArray, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{
         stream::{process_stream_by_chunks, ChunkBuffer, FixedLength, TryFlattenItersExt},
         TotalRecords,
@@ -132,8 +132,8 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
 where
     St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
     BK: BreakdownKey<B>,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: BooleanArray + U128Conversions,
+    HV: BooleanArray + U128Conversions,
     Boolean: FieldSimd<N> + FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
@@ -235,7 +235,7 @@ pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     'ctx: 'fut,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    OV: BooleanArray + U128Conversions,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,

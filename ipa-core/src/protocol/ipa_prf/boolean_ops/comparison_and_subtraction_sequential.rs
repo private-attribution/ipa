@@ -10,16 +10,14 @@ use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, ArrayAccessRef, CustomArray, Field},
+    ff::{boolean::Boolean, boolean_array::BooleanArray, Field},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::NBitStep,
         context::{Context, SemiHonestContext},
         Gate, RecordId,
     },
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd, SharedValue,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
 /// Comparison operation
@@ -107,7 +105,7 @@ pub async fn integer_sat_sub<S, St>(
     y: &AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
-    S: SharedValue + CustomArray<Element = Boolean>,
+    S: BooleanArray,
     St: NBitStep,
     for<'a> AdditiveShare<S>: BooleanArrayMul<SemiHonestContext<'a>>,
     Gate: StepNarrow<St>,

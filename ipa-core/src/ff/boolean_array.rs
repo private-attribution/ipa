@@ -9,7 +9,7 @@ use typenum::{U14, U2, U32, U8};
 
 use crate::{
     error::LengthError,
-    ff::{boolean::Boolean, ArrayAccess, Field, Serializable, U128Conversions},
+    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
@@ -29,6 +29,19 @@ macro_rules! store_impl {
             type Size = $arraylength;
         }
     };
+}
+
+pub trait BooleanArray:
+    SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean> + FromIterator<Boolean>
+{
+}
+
+impl<A> BooleanArray for A where
+    A: SharedValue
+        + ArrayAccess<Output = Boolean>
+        + Expand<Input = Boolean>
+        + FromIterator<Boolean>
+{
 }
 
 /// Iterator returned by `.iter()` on Boolean arrays
@@ -256,7 +269,7 @@ macro_rules! boolean_array_impl {
                 ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
                 impl_shared_value_common,
                 secret_sharing::{
-                    replicated::semi_honest::{ASIterator, AdditiveShare},
+                    replicated::semi_honest::{BAASIterator, AdditiveShare},
                     FieldArray, SharedValue, SharedValueArray,
                 },
             };
@@ -532,7 +545,7 @@ macro_rules! boolean_array_impl {
             #[allow(clippy::into_iter_without_iter)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
-                type IntoIter = ASIterator<'a, $name, Boolean>;
+                type IntoIter = BAASIterator<'a, $name>;
 
                 fn into_iter(self) -> Self::IntoIter {
                     self.iter()
