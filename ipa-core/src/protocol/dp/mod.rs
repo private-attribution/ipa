@@ -6,7 +6,7 @@ use futures_util::{stream, StreamExt};
 
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, CustomArray, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     protocol::{
         boolean::step::SixteenBitStep,
         context::{Context, UpgradedSemiHonestContext},
@@ -17,7 +17,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
+        BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
     sharding::NotSharded,
 };
@@ -33,7 +33,7 @@ pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
 where
     Boolean: Vectorizable<B> + FieldSimd<B>,
     BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    OV: BooleanArray + U128Conversions,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
 {
@@ -76,7 +76,7 @@ pub async fn apply_dp_noise<'ctx, const B: usize, OV>(
 where
     Boolean: Vectorizable<B> + FieldSimd<B>,
     BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    OV: BooleanArray + U128Conversions,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Vec<Replicated<OV>>:
