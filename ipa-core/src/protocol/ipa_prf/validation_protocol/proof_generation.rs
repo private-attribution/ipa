@@ -13,9 +13,9 @@ use crate::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
             prover::{LargeProofGenerator, SmallProofGenerator},
         },
+        prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::SharedValue,
 };
 
 /// This is a tuple of `ZeroKnowledgeProofs` owned by a verifier.
@@ -29,44 +29,50 @@ use crate::{
 /// These masks are used as additional `u,v` values for the final proof.
 /// These masks mask sensitive information when verifying the final proof.
 #[derive(Debug)]
+#[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
-    first_proof_from_left: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
-    first_proof_from_right: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
-    proofs_from_left: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
-    proofs_from_right: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
-    masks: (Fp61BitPrime, Fp61BitPrime),
+    first_proof_from_left_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
+    first_proof_from_right_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
+    proofs_from_left_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
+    proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
+    p_masks_from_left_prover: Fp61BitPrime,
+    q_mask_from_right_prover: Fp61BitPrime,
 }
 
 impl BatchToVerify {
     /// This function generates the `BatchToVerify`.
-    /// The helper party fist generates its own proof
+    /// The helper party generates its own proof
     /// together with the proof from the left, i.e. `proof_from_left` (via `PRSS`)
     /// It then distributes
     /// shares of the proof to the helper on the left
     /// and
     /// receives a proof from the right helper, i.e. `proof_from_right`.
-    pub async fn generate_batch_to_verify<C, I>(ctx: C, uv_tuple_block: I) -> Self
+    pub async fn generate_batch_to_verify<C, I>(ctx: C, uv_tuple_inputs: I) -> Self
     where
         C: Context,
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
     {
         // generate Proof
-        let (prover_left_proof, proof_from_left, (p, q)) =
-            ProofBatch::generate_batch_parts(&ctx, uv_tuple_block);
+        let (
+            my_batch_left_shares,
+            shares_of_batch_from_left_prover,
+            (p_masks_from_left_prover, q_mask_from_right_prover),
+        ) = ProofBatch::generate_batch_parts(&ctx, uv_tuple_inputs);
 
         // send prover_left_proof and receive proof_from_right
-        let length = prover_left_proof.len();
-        let send = prover_left_proof.send_to_left(&ctx);
+        let length = my_batch_left_shares.len();
+        let send = my_batch_left_shares.send_to_left(&ctx);
         let receive = ProofBatch::receive_from_right(&ctx, length);
-        let ((), proof_from_right) = try_join(send, receive).await.unwrap();
+        let ((), shares_of_batch_from_right_prover) = try_join(send, receive).await.unwrap();
 
         // output
         BatchToVerify {
-            first_proof_from_left: proof_from_left.first_proof,
-            first_proof_from_right: proof_from_right.first_proof,
-            proofs_from_left: proof_from_left.proofs,
-            proofs_from_right: proof_from_right.proofs,
-            masks: (p, q),
+            first_proof_from_left_prover: shares_of_batch_from_left_prover.first_proof,
+            first_proof_from_right_prover: shares_of_batch_from_right_prover.first_proof,
+            proofs_from_left_prover: shares_of_batch_from_left_prover.proofs,
+            proofs_from_right_prover: shares_of_batch_from_right_prover.proofs,
+            p_masks_from_left_prover,
+            q_mask_from_right_prover,
         }
     }
 }
@@ -163,7 +169,7 @@ impl ProofBatch {
     /// Panics when masks cannot be set safely (implementation issue).
     fn generate_batch_parts<C, I>(
         ctx: &C,
-        uv_tuple_block: I,
+        uv_tuple_inputs: I,
     ) -> (Self, Self, (Fp61BitPrime, Fp61BitPrime))
     where
         C: Context,
@@ -191,7 +197,7 @@ impl ProofBatch {
                 ctx,
                 &mut record_counter,
                 &first_lagrange_table,
-                Self::polynomials_from_blocks(uv_tuple_block),
+                Self::polynomials_from_inputs(uv_tuple_inputs),
             )
         };
 
@@ -200,9 +206,17 @@ impl ProofBatch {
             Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::new();
         let mut shares_of_proofs_from_prover_left =
             Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::new();
-        // and masks
-        let mut p_mask_from_left_prover = Fp61BitPrime::ZERO;
-        let mut q_mask_from_right_prover = Fp61BitPrime::ZERO;
+        // generate masks
+        // verifier on the right has p,
+        // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
+        let (p_mask_from_left_prover, my_p_mask): (Fp61BitPrime, Fp61BitPrime) =
+            ctx.prss().generate_fields(record_counter);
+        record_counter += 1;
+        // and verifier on the left has q
+        // therefore the left share is "implicitly sent" to the left (communication via PRSS)
+        let (my_q_mask, q_mask_from_right_prover): (Fp61BitPrime, Fp61BitPrime) =
+            ctx.prss().generate_fields(record_counter);
+        record_counter += 1;
 
         // precomputation for other proofs
         // denominator
@@ -221,11 +235,8 @@ impl ProofBatch {
         // via SmallProofGenerator
         while uv_values.len() > 1 {
             if uv_values.len() < SmallProofGenerator::RECURSION_FACTOR {
-                // generate masks
-                // verifier on the right has p,
-                // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
-                (p_mask_from_left_prover, q_mask_from_right_prover) =
-                    uv_values.set_masks(ctx, &mut record_counter).unwrap();
+                // set masks
+                uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
             }
 
             // generate next proof
@@ -258,14 +269,14 @@ impl ProofBatch {
         )
     }
 
-    /// This is a helper function that allows to split a `UVTupleBlock`
+    /// This is a helper function that allows to split a `UVTupleInputs`
     /// which consists of arrays of size `BLOCK_SIZE`
     /// into an iterator over arrays of size `LargeProofGenerator::RECURSION_FACTOR`.
     ///
     /// ## Panic
     /// Panics when `unwrap` panics, i.e. `try_from` fails to convert a slice to an array.
-    fn polynomials_from_blocks<I>(
-        blocks: I,
+    fn polynomials_from_inputs<I>(
+        inputs: I,
     ) -> impl Iterator<
         Item = (
             [Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR],
@@ -276,7 +287,7 @@ impl ProofBatch {
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
     {
         assert_eq!(BLOCK_SIZE % LargeProofGenerator::RECURSION_FACTOR, 0);
-        blocks.flat_map(|(u_block, v_block)| {
+        inputs.flat_map(|(u_block, v_block)| {
             (0usize..(BLOCK_SIZE / LargeProofGenerator::RECURSION_FACTOR)).map(move |i| {
                 (
                     <[Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR]>::try_from(
@@ -382,27 +393,30 @@ mod test {
         // check lengths:
         // first proof has correct length
         assert_eq!(
-            left_verifier.first_proof_from_left.len(),
+            left_verifier.first_proof_from_left_prover.len(),
             LargeProofGenerator::PROOF_LENGTH
         );
         assert_eq!(
-            left_verifier.first_proof_from_left.len(),
-            left_verifier.first_proof_from_right.len()
+            left_verifier.first_proof_from_left_prover.len(),
+            left_verifier.first_proof_from_right_prover.len()
         );
         // other proofs has correct length
-        for i in 0..left_verifier.proofs_from_left.len() {
+        for i in 0..left_verifier.proofs_from_left_prover.len() {
             assert_eq!(
-                (i, left_verifier.proofs_from_left[i].len()),
+                (i, left_verifier.proofs_from_left_prover[i].len()),
                 (i, SmallProofGenerator::PROOF_LENGTH)
             );
             assert_eq!(
-                (i, left_verifier.proofs_from_left[i].len()),
-                (i, left_verifier.proofs_from_right[i].len())
+                (i, left_verifier.proofs_from_left_prover[i].len()),
+                (i, left_verifier.proofs_from_right_prover[i].len())
             );
         }
         // check that masks are not 0
         assert_ne!(
-            (left_verifier.masks.0, right_verifier.masks.1),
+            (
+                left_verifier.q_mask_from_right_prover,
+                right_verifier.p_masks_from_left_prover
+            ),
             (Fp61BitPrime::ZERO, Fp61BitPrime::ZERO)
         );
 
@@ -442,9 +456,9 @@ mod test {
         // reconstruct computed proof
         // by adding shares left and right
         let proof_computed = left_verifier
-            .first_proof_from_right
+            .first_proof_from_right_prover
             .iter()
-            .zip(right_verifier.first_proof_from_left.iter())
+            .zip(right_verifier.first_proof_from_left_prover.iter())
             .map(|(&left, &right)| left + right)
             .collect::<Vec<Fp61BitPrime>>();
 

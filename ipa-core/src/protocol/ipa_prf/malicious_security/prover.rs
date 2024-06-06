@@ -81,26 +81,10 @@ where
     ///
     /// ## Errors
     /// Errors when the length is too long such that masks cannot be set safely.
-    pub fn set_masks<C: Context>(
-        &mut self,
-        ctx: &C,
-        record_counter: &mut RecordId,
-    ) -> Result<(F, F), Error> {
+    pub fn set_masks(&mut self, my_p_mask: F, my_q_mask: F) -> Result<(), Error> {
         if self.len() >= λ {
             return Err(DZKPMasks);
         }
-        // generate masks
-        // verifier on the right has p,
-        // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
-        let (p_mask_from_left_prover, my_p_mask): (F, F) =
-            ctx.prss().generate_fields(*record_counter);
-        *record_counter += 1;
-        // and verifier on the left has q
-        // therefore the left share is "implicitly sent" to the left (communication via PRSS)
-        let (my_q_mask, q_mask_from_right_prover): (F, F) =
-            ctx.prss().generate_fields(*record_counter);
-        *record_counter += 1;
-
         // compute final uv values
         let (u_values, v_values) = &mut self.uv_chunks[0];
         // shift first element to last position
@@ -110,7 +94,7 @@ where
         u_values[0] = my_p_mask;
         v_values[0] = my_q_mask;
 
-        Ok((p_mask_from_left_prover, q_mask_from_right_prover))
+        Ok(())
     }
 }
 
@@ -230,7 +214,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
         ctx: &C,
         record_counter: &mut RecordId,
         lagrange_table: &LagrangeTable<F, λ, M>,
-        uv: J,
+        uv_iterator: J,
     ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
@@ -239,7 +223,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     {
         // generate next proof
         // from iterator
-        let my_proof = Self::compute_proof(uv.clone(), lagrange_table);
+        let my_proof = Self::compute_proof(uv_iterator.clone(), lagrange_table);
 
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
@@ -250,8 +234,11 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
 
         // compute next uv values
         // from iterator
-        let uv_values =
-            Self::gen_challenge_and_recurse(&my_proof_left_share, &my_proof_right_share, uv);
+        let uv_values = Self::gen_challenge_and_recurse(
+            &my_proof_left_share,
+            &my_proof_right_share,
+            uv_iterator,
+        );
 
         //output uv values, prover left component and component from left
         (
