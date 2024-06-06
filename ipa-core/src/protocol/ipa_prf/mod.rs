@@ -93,6 +93,8 @@ pub const SORT_CHUNK: usize = 256;
 
 use step::IpaPrfStep as Step;
 
+use crate::protocol::{context::Validator, dp::dp_for_histogram};
+
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
@@ -207,7 +209,7 @@ where
 /// 7. Caps each user's total contribution to the final result
 /// 8. Aggregates the contributions of all users
 /// 9. Adds random noise to the total for each breakdown key (to provide a differential
-///    privacy guarantee) (TBD)
+///    privacy guarantee)
 /// # Errors
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
@@ -254,13 +256,19 @@ where
     )
     .await?;
 
-    attribute_cap_aggregate::<_, _, _, _, SS_BITS, B>(
+    let histogram = attribute_cap_aggregate::<_, _, _, _, SS_BITS, B>(
         ctx.narrow(&Step::Attribution),
         prfd_inputs,
         attribution_window_seconds,
         &histogram,
     )
-    .await
+    .await?;
+
+    let dp_validator = ctx.narrow(&Step::DP).validator::<Boolean>();
+    let dp_ctx: UpgradedSemiHonestContext<_, _> = dp_validator.context();
+
+    let noisy_histogram = dp_for_histogram::<B, HV>(dp_ctx, histogram).await?;
+    Ok(noisy_histogram)
 }
 
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
@@ -355,7 +363,7 @@ where
 pub mod tests {
     use crate::{
         ff::{
-            boolean_array::{BA20, BA3, BA5, BA8},
+            boolean_array::{BA16, BA20, BA3, BA5},
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
@@ -396,7 +404,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
+                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
@@ -422,7 +430,7 @@ pub mod tests {
     fn duplicate_timestamps() {
         use rand::{seq::SliceRandom, thread_rng};
 
-        use crate::ff::boolean_array::BA16;
+        use crate::ff::boolean_array::{BA16, BA8};
 
         const EXPECTED: &[u128] = &[0, 2, 10, 0, 0, 0, 0, 0];
 

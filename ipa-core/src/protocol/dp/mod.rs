@@ -45,7 +45,7 @@ where
     // add an assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
     assert!(
         num_bernoulli.ilog2() < OV::BITS,
-        "not enough bits in output size for noise gen sum"
+        "not enough bits in output size for noise gen sum, num_bernoulli = {num_bernoulli}"
     );
     let bits = 1;
     let mut vector_input_to_agg: Vec<_> = vec![];
@@ -65,7 +65,7 @@ where
 /// and the vector of values to have noise added to.
 /// It calls `gen_binomial_noise` to create the noise in MPC and applies it
 /// # Panics
-/// asserts that `num_histogram_bins` matches what we are using for vectorization, B.
+/// asserts in `gen_binomial_noise` may panic
 /// # Errors
 /// Result error case could come from transpose
 pub async fn apply_dp_noise<'ctx, const B: usize, OV>(
@@ -99,6 +99,52 @@ where
     // Step 5 Transpose output representation
     Ok(Vec::transposed_from(&histogram_noised)?)
 }
+
+// dp_for_aggregation is currently where the DP parameters epsilon, delta
+// are introduced and then from those the parameters of the noise distribution to generate are
+// calculated for use in aggregating histograms.  In the future these DP parameters will be
+// further inputs coming all the way from the client submitting the query.
+/// # Errors
+/// will propogate errors from `apply_dp_noise`
+/// # Panics
+/// may panic from asserts down in  `gen_binomial_noise`
+pub async fn dp_for_histogram<'ctx, const B: usize, OV>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+    histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
+) -> Result<Vec<Replicated<OV>>, Error>
+where
+    Boolean: Vectorizable<B> + FieldSimd<B>,
+    BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
+    OV: BooleanArray + U128Conversions,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    Vec<Replicated<OV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+{
+    let epsilon: f64 = 0.1;
+    let delta = 1e-6;
+    let success_prob = 0.5;
+    let dimensions = 1.0;
+    let quantization_scale = 1.0;
+    let ell_1_sensitivity = 1.0;
+    let ell_2_sensitivity = 1.0;
+    let ell_infty_sensitivity = 1.0;
+    let num_bernoulli = find_smallest_num_bernoulli(
+        epsilon,
+        success_prob,
+        delta,
+        dimensions,
+        quantization_scale,
+        ell_1_sensitivity,
+        ell_2_sensitivity,
+        ell_infty_sensitivity,
+    );
+    let noisy_histogram = apply_dp_noise::<B, OV>(ctx, histogram_bin_values, num_bernoulli)
+        .await
+        .unwrap();
+    Ok(noisy_histogram)
+}
+
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559
 // which lets us determine the minimum necessary num_bernoulli for a given epsilon, delta
 // and other parameters
@@ -395,7 +441,7 @@ mod test {
         const NUM_BREAKDOWNS: u32 = 16;
         let num_bernoulli: u32 = 10000;
         let world = TestWorld::default();
-        let result = world
+        let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
@@ -408,8 +454,7 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_reconstructed: Vec<OutputValue> = result.reconstruct();
         let result_u32: Vec<u32> = result_reconstructed
             .iter()
             .map(|&v| u32::try_from(v.as_u128()).unwrap())
@@ -431,7 +476,7 @@ mod test {
         const NUM_BREAKDOWNS: u32 = 32;
         let num_bernoulli: u32 = 2000;
         let world = TestWorld::default();
-        let result = world
+        let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
@@ -444,8 +489,7 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_reconstructed: Vec<OutputValue> = result.reconstruct();
         let result_u32: Vec<u32> = result_reconstructed
             .iter()
             .map(|&v| u32::try_from(v.as_u128()).unwrap())
@@ -467,7 +511,7 @@ mod test {
         const NUM_BREAKDOWNS: u32 = 256;
         let num_bernoulli: u32 = 1000;
         let world = TestWorld::default();
-        let result = world
+        let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
@@ -480,8 +524,7 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_reconstructed: Vec<OutputValue> = result.reconstruct();
         let result_u32: Vec<u32> = result_reconstructed
             .iter()
             .map(|&v| u32::try_from(v.as_u128()).unwrap())

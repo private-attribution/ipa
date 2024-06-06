@@ -128,7 +128,8 @@ pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     contributions_stream: St,
     contributions_stream_len: usize,
-) -> Result<Vec<Replicated<HV>>, Error>
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
+// -> Result<Vec<Replicated<HV>>, Error>
 where
     St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
     BK: BreakdownKey<B>,
@@ -203,7 +204,8 @@ where
     );
     let aggregated_result =
         aggregate_values::<HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
-    Ok(Vec::transposed_from(&aggregated_result)?)
+    Ok(aggregated_result)
+    // Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
 /// A vector of histogram contributions for each output bucket.

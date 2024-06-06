@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    iter,
     iter::zip,
     num::NonZeroU32,
     ops::{Not, Range},
@@ -403,7 +404,8 @@ pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, const SS_BITS: usize,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
-) -> Result<Vec<Replicated<HV>>, Error>
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
+// -> Result<Vec<Replicated<HV>>, Error>
 where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
@@ -437,7 +439,10 @@ where
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
     let Some(first_row) = input_stream.next().await else {
-        return Ok(vec![]);
+        // return Ok(vec![]);
+        return Ok(BitDecomposed::new(
+            iter::repeat(Replicated::<Boolean, B>::ZERO).take(B),
+        ));
     };
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
@@ -450,12 +455,13 @@ where
 
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
-    aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
+    let aggregated_contributions = aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
         ctx,
         stream::iter(flattened_user_results),
         num_outputs,
     )
-    .await
+    .await?;
+    Ok(aggregated_contributions)
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
@@ -797,6 +803,7 @@ pub mod tests {
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+            TransposeFrom,
         },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -970,18 +977,21 @@ pub mod tests {
 
             let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
 
-            let result: Vec<_> = world
+            let result: [Vec<Replicated<BA16>>; 3] = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
-                        ctx, input_rows, None, &histogram,
+                    Vec::transposed_from(
+                        &attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
+                            ctx, input_rows, None, &histogram,
+                        )
+                        .await
+                        .unwrap(),
                     )
-                    .await
-                    .unwrap()
                 })
                 .await
-                .reconstruct();
+                .map(Result::unwrap);
+            let result_reconstructed: Vec<BA16> = result.reconstruct();
             assert_eq!(
-                result
+                result_reconstructed
                     .iter()
                     .map(U128Conversions::as_u128)
                     .collect::<Vec<_>>(),
@@ -989,7 +999,7 @@ pub mod tests {
             );
         });
     }
-
+    // attribute_cap_aggregate<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
     #[test]
     fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;
@@ -1024,21 +1034,24 @@ pub mod tests {
 
             let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
 
-            let result: Vec<_> = world
+            let result: [Vec<Replicated<BA16>>; 3] = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
-                        ctx,
-                        input_rows,
-                        NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
-                        &histogram,
+                    Vec::transposed_from(
+                        &attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
+                            ctx,
+                            input_rows,
+                            NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
+                            &histogram,
+                        )
+                        .await
+                        .unwrap(),
                     )
-                    .await
-                    .unwrap()
                 })
                 .await
-                .reconstruct();
+                .map(Result::unwrap);
+            let result_reconstructed: Vec<BA16> = result.reconstruct();
             assert_eq!(
-                result
+                result_reconstructed
                     .iter()
                     .map(U128Conversions::as_u128)
                     .collect::<Vec<_>>(),
@@ -1115,23 +1128,26 @@ pub mod tests {
             expected[78] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
             expected[44] = 31; // The 5th user did not saturate
 
-            let result: Vec<_> = world
+            let result: [Vec<Replicated<BA8>>; 3] = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<
-                        BA8,
-                        BA3,
-                        BA8,
-                        BA20,
-                        { SaturatingSumType::BITS as usize },
-                        256,
-                    >(ctx, input_rows, None, &HISTOGRAM)
-                    .await
-                    .unwrap()
+                    Vec::transposed_from(
+                        &attribute_cap_aggregate::<
+                            BA8,
+                            BA3,
+                            BA8,
+                            BA20,
+                            { SaturatingSumType::BITS as usize },
+                            256,
+                        >(ctx, input_rows, None, &HISTOGRAM)
+                        .await
+                        .unwrap(),
+                    )
                 })
                 .await
-                .reconstruct();
+                .map(Result::unwrap);
+            let result_reconstructed: Vec<BA8> = result.reconstruct();
             assert_eq!(
-                result
+                result_reconstructed
                     .iter()
                     .map(U128Conversions::as_u128)
                     .collect::<Vec<_>>(),
