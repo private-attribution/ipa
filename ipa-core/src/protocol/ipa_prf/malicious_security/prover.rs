@@ -480,21 +480,26 @@ mod test {
             .await;
 
         for i in 0..NUM_PROOFS {
+            // Destructure
+            let (h1_proof_left, h1_proof_right) = helper_1_proofs[i];
+            let (h2_proof_left, h2_proof_right) = helper_2_proofs[i];
+            let (h3_proof_left, h3_proof_right) = helper_3_proofs[i];
+
             // Check share consistency
-            assert_eq!(helper_1_proofs[i].1, helper_2_proofs[i].0);
-            assert_eq!(helper_2_proofs[i].1, helper_3_proofs[i].0);
-            assert_eq!(helper_3_proofs[i].1, helper_1_proofs[i].0);
+            assert_eq!(h1_proof_right, h2_proof_left);
+            assert_eq!(h2_proof_right, h3_proof_left);
+            assert_eq!(h3_proof_right, h1_proof_left);
 
             // Since the shares are randomly distributed, there is an extremely low chance that they will be the same.
-            assert_ne!(helper_1_proofs[i].1, helper_2_proofs[i].1);
-            assert_ne!(helper_2_proofs[i].1, helper_3_proofs[i].1);
-            assert_ne!(helper_3_proofs[i].1, helper_1_proofs[i].1);
+            assert_ne!(h1_proof_right, h2_proof_right);
+            assert_ne!(h2_proof_right, h3_proof_right);
+            assert_ne!(h3_proof_right, h1_proof_right);
 
             if i > 0 {
                 // The record ID should be incremented, ensuring each proof is unique
-                assert_ne!(helper_1_proofs[i - 1].1, helper_1_proofs[i].1);
-                assert_ne!(helper_2_proofs[i - 1].1, helper_2_proofs[i].1);
-                assert_ne!(helper_3_proofs[i - 1].1, helper_3_proofs[i].1);
+                assert_ne!(helper_1_proofs[i - 1].1, h1_proof_right);
+                assert_ne!(helper_2_proofs[i - 1].1, h2_proof_right);
+                assert_ne!(helper_3_proofs[i - 1].1, h3_proof_right);
             }
         }
     }
@@ -515,49 +520,52 @@ mod test {
         const PROOF_2: [u128; 7] = [18, 13, 26, 29, 1, 0, 4];
         const PROOF_3: [u128; 7] = [19, 25, 20, 9, 2, 15, 5];
         let world = TestWorld::default();
-        let [helper_1_proof_shares, helper_2_proof_shares, helper_3_proof_shares] = world
-            .semi_honest((), |ctx, ()| async move {
-                let mut record_counter = RecordId::from(0);
-                let (proof_share_left, my_share_of_right) =
-                    TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_counter);
-                let proof_u128 = match ctx.role() {
-                    Role::H1 => PROOF_1,
-                    Role::H2 => PROOF_2,
-                    Role::H3 => PROOF_3,
-                };
-                let proof = proof_u128.map(Fp31::truncate_from);
-                let proof_share_right =
-                    TestProofGenerator::gen_other_proof_share(proof, proof_share_left);
+        let [(h1_proof_left, h1_proof_right), (h2_proof_left, h2_proof_right), (h3_proof_left, h3_proof_right)] =
+            world
+                .semi_honest((), |ctx, ()| async move {
+                    let mut record_counter = RecordId::from(0);
+                    let (proof_share_left, my_share_of_right) =
+                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_counter);
+                    let proof_u128 = match ctx.role() {
+                        Role::H1 => PROOF_1,
+                        Role::H2 => PROOF_2,
+                        Role::H3 => PROOF_3,
+                    };
+                    let proof = proof_u128.map(Fp31::truncate_from);
+                    let proof_share_right =
+                        TestProofGenerator::gen_other_proof_share(proof, proof_share_left);
 
-                // set up context
-                let c = ctx
-                    .narrow("send_proof_share")
-                    .set_total_records(proof_share_right.len());
+                    // set up context
+                    let c = ctx
+                        .narrow("send_proof_share")
+                        .set_total_records(proof_share_right.len());
 
-                // set up channels
-                let send_channel_right = &c.send_channel::<Fp31>(ctx.role().peer(Direction::Right));
-                let recv_channel_left = &c.recv_channel::<Fp31>(ctx.role().peer(Direction::Left));
+                    // set up channels
+                    let send_channel_right =
+                        &c.send_channel::<Fp31>(ctx.role().peer(Direction::Right));
+                    let recv_channel_left =
+                        &c.recv_channel::<Fp31>(ctx.role().peer(Direction::Left));
 
-                // send share
-                let (my_share_of_left_vec, _) = try_join(
-                    c.parallel_join((0..proof_share_right.len()).map(|i| async move {
-                        recv_channel_left.receive(RecordId::from(i)).await
-                    })),
-                    c.parallel_join(proof_share_right.iter().enumerate().map(
-                        |(i, elem)| async move {
-                            send_channel_right.send(RecordId::from(i), elem).await
-                        },
-                    )),
-                )
-                .await
-                .unwrap();
+                    // send share
+                    let (my_share_of_left_vec, _) = try_join(
+                        c.parallel_join((0..proof_share_right.len()).map(|i| async move {
+                            recv_channel_left.receive(RecordId::from(i)).await
+                        })),
+                        c.parallel_join(proof_share_right.iter().enumerate().map(
+                            |(i, elem)| async move {
+                                send_channel_right.send(RecordId::from(i), elem).await
+                            },
+                        )),
+                    )
+                    .await
+                    .unwrap();
 
-                (my_share_of_left_vec.try_into().unwrap(), my_share_of_right)
-            })
-            .await;
+                    (my_share_of_left_vec.try_into().unwrap(), my_share_of_right)
+                })
+                .await;
 
-        assert_two_part_secret_sharing(PROOF_1, helper_3_proof_shares.1, helper_2_proof_shares.0);
-        assert_two_part_secret_sharing(PROOF_2, helper_1_proof_shares.1, helper_3_proof_shares.0);
-        assert_two_part_secret_sharing(PROOF_3, helper_2_proof_shares.1, helper_1_proof_shares.0);
+        assert_two_part_secret_sharing(PROOF_1, h3_proof_right, h2_proof_left);
+        assert_two_part_secret_sharing(PROOF_2, h1_proof_right, h3_proof_left);
+        assert_two_part_secret_sharing(PROOF_3, h2_proof_right, h1_proof_left);
     }
 }
