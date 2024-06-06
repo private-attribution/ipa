@@ -5,7 +5,7 @@ use futures::stream::{self, repeat, StreamExt, TryStreamExt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
-    ff::{boolean::Boolean, CustomArray, Expand},
+    ff::{boolean::Boolean, boolean_array::BooleanArray, Expand},
     helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
         basics::Reveal,
@@ -125,7 +125,7 @@ pub async fn quicksort_ranges_by_key_insecure<K, F, S>(
 where
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
-    K: SharedValue + CustomArray<Element = Boolean>,
+    K: BooleanArray,
     <Boolean as Vectorizable<SORT_CHUNK>>::Array: Expand<Input = Boolean>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,

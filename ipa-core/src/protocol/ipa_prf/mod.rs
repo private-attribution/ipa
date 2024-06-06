@@ -14,9 +14,9 @@ use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{
         boolean::Boolean,
-        boolean_array::{BA5, BA64, BA8},
+        boolean_array::{BooleanArray, BA5, BA64, BA8},
         ec_prime_field::Fp25519,
-        CustomArray, Serializable, U128Conversions,
+        Serializable, U128Conversions,
     },
     helpers::stream::{process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
     protocol::{
@@ -73,10 +73,7 @@ pub const MK_BITS: usize = BA64::BITS as usize;
 // supplying an associated constant `<BK as BreakdownKey>::MAX_BREAKDOWNS` as the value of a const
 // parameter.) Structured the way we have it, it probably doesn't make sense to use the
 // `BreakdownKey` trait in places where the `B` const parameter is not already available.
-pub trait BreakdownKey<const MAX_BREAKDOWNS: usize>:
-    SharedValue + U128Conversions + CustomArray<Element = Boolean>
-{
-}
+pub trait BreakdownKey<const MAX_BREAKDOWNS: usize>: BooleanArray + U128Conversions {}
 impl BreakdownKey<32> for BA5 {}
 impl BreakdownKey<256> for BA8 {}
 
@@ -220,9 +217,9 @@ pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     BK: BreakdownKey<B>,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: BooleanArray + U128Conversions,
+    HV: BooleanArray + U128Conversions,
+    TS: BooleanArray + U128Conversions,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
@@ -272,9 +269,9 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
-    BK: SharedValue + CustomArray<Element = Boolean>,
-    TV: SharedValue + CustomArray<Element = Boolean>,
-    TS: SharedValue + CustomArray<Element = Boolean>,
+    BK: BooleanArray,
+    TV: BooleanArray,
+    TS: BooleanArray,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<C, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {

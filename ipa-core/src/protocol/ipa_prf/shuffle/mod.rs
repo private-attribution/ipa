@@ -4,8 +4,8 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BA112, BA64},
-        ArrayAccess, CustomArray, Expand,
+        boolean_array::{BooleanArray, BA112, BA64},
+        ArrayAccess,
     },
     protocol::{context::Context, ipa_prf::OPRFIPAInputRow},
     secret_sharing::{
@@ -26,9 +26,9 @@ pub async fn shuffle_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
 where
     C: Context,
-    BK: SharedValue + CustomArray<Element = Boolean>,
-    TV: SharedValue + CustomArray<Element = Boolean>,
-    TS: SharedValue + CustomArray<Element = Boolean>,
+    BK: BooleanArray,
+    TV: BooleanArray,
+    TS: BooleanArray,
 {
     let shuffle_input: Vec<AdditiveShare<BA112>> = input
         .into_iter()
@@ -48,10 +48,10 @@ pub fn oprfreport_to_shuffle_input<YS, BK, TV, TS>(
     input: &OPRFIPAInputRow<BK, TV, TS>,
 ) -> AdditiveShare<YS>
 where
-    YS: CustomArray<Element = <BA112 as CustomArray>::Element> + SharedValue,
-    BK: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
-    TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
-    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+    YS: BooleanArray,
+    BK: BooleanArray,
+    TV: BooleanArray,
+    TS: BooleanArray,
 {
     let mut y = AdditiveShare::new(YS::ZERO, YS::ZERO);
     expand_shared_array_in_place(&mut y, &input.match_key, 0);
@@ -78,10 +78,10 @@ pub fn shuffled_to_oprfreport<YS, BK, TV, TS>(
     input: &AdditiveShare<YS>,
 ) -> OPRFIPAInputRow<BK, TV, TS>
 where
-    YS: SharedValue + CustomArray<Element = Boolean>,
-    BK: SharedValue + CustomArray<Element = Boolean>,
-    TV: SharedValue + CustomArray<Element = Boolean>,
-    TS: SharedValue + CustomArray<Element = Boolean>,
+    YS: BooleanArray,
+    BK: BooleanArray,
+    TV: BooleanArray,
+    TS: BooleanArray,
 {
     let match_key = extract_from_shared_array::<YS, BA64>(input, 0);
 

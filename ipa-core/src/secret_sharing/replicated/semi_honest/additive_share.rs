@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Formatter},
-    marker::PhantomData,
     ops::{Add, AddAssign, Mul, Neg, Range, Sub, SubAssign},
 };
 
@@ -8,7 +7,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{ArrayAccess, ArrayAccessRef, Expand, Field, Serializable},
+    ff::{boolean::Boolean, boolean_array::BooleanArray, ArrayAccess, Expand, Field, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, FieldSimd, Linear as LinearSecretSharing,
         SecretSharing, SharedValue, SharedValueArray, Vectorizable,
@@ -25,17 +24,10 @@ pub struct AdditiveShare<V: SharedValue + Vectorizable<N>, const N: usize = 1>(
     <V as Vectorizable<N>>::Array,
 );
 
-// The `V` type parameter allows ASIterator to convert array elements to a new type before
-// returning. It is used for Galois fields, which use `bool` as the native array element type.
 #[derive(Clone, PartialEq, Eq)]
-pub struct ASIterator<'a, S, V = <S as ArrayAccess>::Output>
-where
-    S: SharedValue + ArrayAccess,
-    V: From<<S as ArrayAccess>::Output>,
-{
+pub struct BAASIterator<'a, S: BooleanArray> {
     range: Range<usize>,
     share: &'a AdditiveShare<S>,
-    phantom_data: PhantomData<V>,
 }
 
 impl<V: SharedValue + Vectorizable<N>, const N: usize> SecretSharing<V> for AdditiveShare<V, N> {
@@ -356,16 +348,9 @@ where
     }
 }
 
-/// Implement `ArrayAccess` for `AdditiveShare` over `SharedValue` that implements `ArrayAccess`
-// You can think of S as a Boolean array type and V as Boolean.
-impl<S, V, A> ArrayAccess for AdditiveShare<S>
-where
-    S: SharedValue + ArrayAccess<Output = V>,
-    V: SharedValue + Vectorizable<1, Array = A>,
-    A: SharedValueArray<V>,
-{
-    type Output = AdditiveShare<V>;
-    type Iter<'a> = ASIterator<'a, S>;
+impl<S: BooleanArray> ArrayAccess for AdditiveShare<S> {
+    type Output = AdditiveShare<Boolean>;
+    type Iter<'a> = BAASIterator<'a, S>;
 
     fn get(&self, index: usize) -> Option<Self::Output> {
         S::from_array(&self.0)
@@ -375,42 +360,18 @@ where
     }
 
     fn set(&mut self, index: usize, e: Self::Output) {
-        S::from_array_mut(&mut self.0).set(index, V::from_array(&e.0));
-        S::from_array_mut(&mut self.1).set(index, V::from_array(&e.1));
+        S::from_array_mut(&mut self.0).set(index, Boolean::from_array(&e.0));
+        S::from_array_mut(&mut self.1).set(index, Boolean::from_array(&e.1));
     }
 
     fn iter(&self) -> Self::Iter<'_> {
-        ASIterator {
+        BAASIterator {
             range: Range {
                 start: 0,
                 end: S::from_array(&self.0).iter().len(),
             },
             share: self,
-            phantom_data: PhantomData,
         }
-    }
-}
-
-impl<S, V, A> ArrayAccessRef for AdditiveShare<S>
-where
-    S: SharedValue + ArrayAccess<Output = V>,
-    V: SharedValue + Vectorizable<1, Array = A>,
-    A: SharedValueArray<V>,
-{
-    type Element = AdditiveShare<V>;
-    type Ref<'a> = AdditiveShare<V>;
-    type Iter<'a> = ASIterator<'a, S>;
-
-    fn get(&self, index: usize) -> Option<Self::Ref<'_>> {
-        ArrayAccess::get(self, index)
-    }
-
-    fn set(&mut self, index: usize, e: Self::Ref<'_>) {
-        ArrayAccess::set(self, index, e);
-    }
-
-    fn iter(&self) -> Self::Iter<'_> {
-        ArrayAccess::iter(self)
     }
 }
 
@@ -430,45 +391,32 @@ where
     }
 }
 
-impl<'a, S, V> Iterator for ASIterator<'a, S, V>
-where
-    S: SharedValue + ArrayAccess,
-    V: SharedValue + From<<S as ArrayAccess>::Output>,
-{
-    type Item = AdditiveShare<V>;
+impl<'a, S: BooleanArray> Iterator for BAASIterator<'a, S> {
+    type Item = AdditiveShare<Boolean>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.range.next().map(|i| {
             AdditiveShare(
-                V::from(S::from_array(&self.share.0).get(i).unwrap()).into_array(),
-                V::from(S::from_array(&self.share.1).get(i).unwrap()).into_array(),
+                S::from_array(&self.share.0).get(i).unwrap().into_array(),
+                S::from_array(&self.share.1).get(i).unwrap().into_array(),
             )
         })
     }
 }
 
-impl<'a, S, V> ExactSizeIterator for ASIterator<'a, S, V>
-where
-    S: SharedValue + ArrayAccess,
-    V: SharedValue + From<<S as ArrayAccess>::Output>,
-{
+impl<'a, S: BooleanArray> ExactSizeIterator for BAASIterator<'a, S> {
     fn len(&self) -> usize {
         self.range.len()
     }
 }
 
-impl<S> FromIterator<AdditiveShare<<S as ArrayAccess>::Output>> for AdditiveShare<S>
-where
-    S: SharedValue + ArrayAccess,
-    <S as ArrayAccess>::Output: SharedValue,
-{
+impl<S: BooleanArray> FromIterator<AdditiveShare<Boolean>> for AdditiveShare<S> {
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = AdditiveShare<<S as ArrayAccess>::Output>>,
+        I: IntoIterator<Item = AdditiveShare<Boolean>>,
     {
         let mut result = AdditiveShare::<S>::ZERO;
         for (i, v) in iter.into_iter().enumerate() {
-            // Disambiguate ArrayAccess vs. ArrayAccessRef
             ArrayAccess::set(&mut result, i, v);
         }
         result

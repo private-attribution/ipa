@@ -7,8 +7,8 @@ use crate::{
     error::{Error, LengthError},
     ff::{
         boolean::Boolean,
-        boolean_array::{BA20, BA3, BA8},
-        CustomArray, Field, Serializable, U128Conversions,
+        boolean_array::{BooleanArray, BA20, BA3, BA8},
+        Field, Serializable, U128Conversions,
     },
     helpers::{
         query::{IpaQueryConfig, QuerySize},
@@ -48,7 +48,7 @@ impl<'a, HV> OprfIpaQuery<'a, HV> {
 #[allow(clippy::too_many_lines)]
 impl<'ctx, HV> OprfIpaQuery<'ctx, HV>
 where
-    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    HV: BooleanArray + U128Conversions,
     Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'ctx>, Boolean>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
