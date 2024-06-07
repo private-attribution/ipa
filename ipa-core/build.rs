@@ -22,8 +22,8 @@ track_steps!(
             shuffle::step,
             aggregation::step,
             step,
-            dp::step,
         },
+        dp::step,
         step,
     },
     test_fixture::step

@@ -45,7 +45,7 @@ use crate::{
 
 pub(crate) mod aggregation;
 pub mod boolean_ops;
-pub mod dp;
+pub mod oprf_padding;
 pub mod prf_eval;
 pub mod prf_sharding;
 

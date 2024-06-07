@@ -8,7 +8,7 @@ use rand::{
     Rng,
 };
 
-use crate::protocol::dp::insecure::Error;
+use crate::protocol::ipa_prf::oprf_padding::insecure::Error;
 
 /// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
 /// |a-b| < 10^(-precision).
@@ -180,7 +180,7 @@ mod tests {
     use rand::{distributions::Distribution, thread_rng, Rng};
     use rand_core::RngCore;
 
-    use crate::protocol::dp::{
+    use crate::protocol::ipa_prf::oprf_padding::{
         distributions::{
             is_close, BoxMuller, DoubleGeometric, Geometric, TruncatedDoubleGeometric,
         },

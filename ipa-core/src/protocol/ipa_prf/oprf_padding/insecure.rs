@@ -5,7 +5,9 @@ use std::f64::consts::E;
 use rand::distributions::{BernoulliError, Distribution};
 use rand_core::{CryptoRng, RngCore};
 
-use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
+use crate::protocol::ipa_prf::oprf_padding::distributions::{
+    BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric,
+};
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
@@ -225,7 +227,7 @@ mod test {
     use rand_core::SeedableRng;
 
     use super::*;
-    use crate::protocol::dp::distributions::is_close;
+    use crate::protocol::ipa_prf::oprf_padding::distributions::is_close;
 
     #[test]
     fn dp_normal_distribution_generation_standard() {

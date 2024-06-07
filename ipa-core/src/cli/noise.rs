@@ -9,7 +9,7 @@ use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::protocol::dp::InsecureDiscreteDp;
+use crate::protocol::ipa_prf::oprf_padding::InsecureDiscreteDp;
 
 #[derive(Debug, Args)]
 #[clap(about = "Apply differential privacy noise to the given input")]
