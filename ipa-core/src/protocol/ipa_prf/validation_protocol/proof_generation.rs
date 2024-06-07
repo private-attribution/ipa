@@ -35,7 +35,7 @@ pub struct BatchToVerify {
     first_proof_from_right_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
     proofs_from_left_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
-    p_masks_from_left_prover: Fp61BitPrime,
+    p_mask_from_left_prover: Fp61BitPrime,
     q_mask_from_right_prover: Fp61BitPrime,
 }
 
@@ -52,18 +52,95 @@ impl BatchToVerify {
         C: Context,
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
     {
-        // generate Proof
-        let (
-            my_batch_left_shares,
-            shares_of_batch_from_left_prover,
-            (p_masks_from_left_prover, q_mask_from_right_prover),
-        ) = ProofBatch::generate_batch_parts(&ctx, uv_tuple_inputs);
+        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const LLL: usize = LargeProofGenerator::LAGRANGE_LENGTH;
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+        const SLL: usize = SmallProofGenerator::LAGRANGE_LENGTH;
+
+        // set up record counter
+        let mut record_counter = RecordId::from(0);
+
+        // precomputation for first proof
+        // first denominator
+        let first_denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, LRF>::new();
+        // first lagrange table
+        let first_lagrange_table = LagrangeTable::<Fp61BitPrime, LRF, LLL>::from(first_denominator);
+
+        // generate first proof from input iterator
+        let (mut uv_values, first_proof_from_left, my_first_proof_left_share) =
+            LargeProofGenerator::gen_artefacts_from_recursive_step(
+                &ctx,
+                &mut record_counter,
+                &first_lagrange_table,
+                ProofBatch::polynomials_from_inputs(uv_tuple_inputs),
+            );
+
+        // approximate length of proof vector (rounded up)
+        let uv_len_bits: u32 = usize::BITS - uv_values.len().leading_zeros();
+        let small_recursion_factor_bits: u32 = usize::BITS - SRF.leading_zeros();
+        let expected_len = 1 << (uv_len_bits - small_recursion_factor_bits);
+
+        // storage for other proofs
+        let mut my_proofs_left_shares =
+            Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::with_capacity(expected_len);
+        let mut shares_of_proofs_from_prover_left =
+            Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::with_capacity(expected_len);
+        // generate masks
+        // verifier on the right has p,
+        // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
+        let (p_mask_from_left_prover, my_p_mask) = ctx.prss().generate_fields(record_counter);
+        record_counter += 1;
+        // and verifier on the left has q
+        // therefore the left share is "implicitly sent" to the left (communication via PRSS)
+        let (my_q_mask, q_mask_from_right_prover) = ctx.prss().generate_fields(record_counter);
+        record_counter += 1;
+
+        // precomputation for other proofs
+        // denominator
+        let denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, SRF>::new();
+        // lagrange table
+        let lagrange_table = LagrangeTable::<Fp61BitPrime, SRF, SLL>::from(denominator);
+
+        // recursively generate proofs
+        // via SmallProofGenerator
+        while uv_values.len() > 1 {
+            if uv_values.len() < SRF {
+                // set masks
+                uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
+            }
+
+            // generate next proof
+            let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =
+                SmallProofGenerator::gen_artefacts_from_recursive_step(
+                    &ctx,
+                    &mut record_counter,
+                    &lagrange_table,
+                    uv_values.iter(),
+                );
+            // collect proof
+            shares_of_proofs_from_prover_left.push(share_of_proof_from_prover_left);
+            my_proofs_left_shares.push(my_proof_left_share);
+
+            uv_values = uv_values_new;
+        }
+
+        let my_batch_left_shares = ProofBatch {
+            first_proof: my_first_proof_left_share,
+            proofs: my_proofs_left_shares,
+        };
+        let shares_of_batch_from_left_prover = ProofBatch {
+            first_proof: first_proof_from_left,
+            proofs: shares_of_proofs_from_prover_left,
+        };
 
         // send prover_left_proof and receive proof_from_right
         let length = my_batch_left_shares.len();
-        let send = my_batch_left_shares.send_to_left(&ctx);
-        let receive = ProofBatch::receive_from_right(&ctx, length);
-        let ((), shares_of_batch_from_right_prover) = try_join(send, receive).await.unwrap();
+        let ((), shares_of_batch_from_right_prover) = try_join(
+            my_batch_left_shares.send_to_left(&ctx),
+            ProofBatch::receive_from_right(&ctx, length),
+        )
+        .await
+        .unwrap();
 
         // output
         BatchToVerify {
@@ -71,7 +148,7 @@ impl BatchToVerify {
             first_proof_from_right_prover: shares_of_batch_from_right_prover.first_proof,
             proofs_from_left_prover: shares_of_batch_from_left_prover.proofs,
             proofs_from_right_prover: shares_of_batch_from_right_prover.proofs,
-            p_masks_from_left_prover,
+            p_mask_from_left_prover,
             q_mask_from_right_prover,
         }
     }
@@ -158,115 +235,6 @@ impl ProofBatch {
             .await?
             .into_iter()
             .collect())
-    }
-
-    /// This function generates batch parts of quadratic proofs
-    /// it iteratively generates proofs and collects them in a batch
-    ///
-    /// Outputs `(my_batch_left_shares, shares_of_batch_from_prover_left, (p_mask_from_left_prover, q_mask_from_right_prover))`
-    ///
-    /// ## Panics
-    /// Panics when masks cannot be set safely (implementation issue).
-    fn generate_batch_parts<C, I>(
-        ctx: &C,
-        uv_tuple_inputs: I,
-    ) -> (Self, Self, (Fp61BitPrime, Fp61BitPrime))
-    where
-        C: Context,
-        I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
-    {
-        // set up record counter
-        let mut record_counter = RecordId::from(0);
-
-        // generate first proof from input iterator
-        let (mut uv_values, first_proof_from_left, prover_left_first_proof) = {
-            // precomputation for first proof
-            // first denominator
-            let first_denominator = CanonicalLagrangeDenominator::<
-                Fp61BitPrime,
-                { LargeProofGenerator::RECURSION_FACTOR },
-            >::new();
-            // first lagrange table
-            let first_lagrange_table = LagrangeTable::<
-                Fp61BitPrime,
-                { LargeProofGenerator::RECURSION_FACTOR },
-                { LargeProofGenerator::LAGRANGE_LENGTH },
-            >::from(first_denominator);
-
-            LargeProofGenerator::gen_artefacts_from_recursive_step(
-                ctx,
-                &mut record_counter,
-                &first_lagrange_table,
-                Self::polynomials_from_inputs(uv_tuple_inputs),
-            )
-        };
-
-        // storage for other proofs
-        let mut my_proofs_left_shares =
-            Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::new();
-        let mut shares_of_proofs_from_prover_left =
-            Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::new();
-        // generate masks
-        // verifier on the right has p,
-        // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
-        let (p_mask_from_left_prover, my_p_mask): (Fp61BitPrime, Fp61BitPrime) =
-            ctx.prss().generate_fields(record_counter);
-        record_counter += 1;
-        // and verifier on the left has q
-        // therefore the left share is "implicitly sent" to the left (communication via PRSS)
-        let (my_q_mask, q_mask_from_right_prover): (Fp61BitPrime, Fp61BitPrime) =
-            ctx.prss().generate_fields(record_counter);
-        record_counter += 1;
-
-        // precomputation for other proofs
-        // denominator
-        let denominator = CanonicalLagrangeDenominator::<
-            Fp61BitPrime,
-            { SmallProofGenerator::RECURSION_FACTOR },
-        >::new();
-        // lagrange table
-        let lagrange_table = LagrangeTable::<
-            Fp61BitPrime,
-            { SmallProofGenerator::RECURSION_FACTOR },
-            { SmallProofGenerator::LAGRANGE_LENGTH },
-        >::from(denominator);
-
-        // recursively generate proofs
-        // via SmallProofGenerator
-        while uv_values.len() > 1 {
-            if uv_values.len() < SmallProofGenerator::RECURSION_FACTOR {
-                // set masks
-                uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
-            }
-
-            // generate next proof
-            let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =
-                SmallProofGenerator::gen_artefacts_from_recursive_step(
-                    ctx,
-                    &mut record_counter,
-                    &lagrange_table,
-                    uv_values.iter(),
-                );
-            // collect proof
-            shares_of_proofs_from_prover_left.push(share_of_proof_from_prover_left);
-            my_proofs_left_shares.push(my_proof_left_share);
-
-            uv_values = uv_values_new;
-        }
-
-        // output proofs
-        // and masks
-        (
-            ProofBatch {
-                first_proof: prover_left_first_proof,
-                proofs: my_proofs_left_shares,
-            },
-            ProofBatch {
-                first_proof: first_proof_from_left,
-                proofs: shares_of_proofs_from_prover_left,
-            },
-            (p_mask_from_left_prover, q_mask_from_right_prover),
-        )
     }
 
     /// This is a helper function that allows to split a `UVTupleInputs`
@@ -415,7 +383,7 @@ mod test {
         assert_ne!(
             (
                 left_verifier.q_mask_from_right_prover,
-                right_verifier.p_masks_from_left_prover
+                right_verifier.p_mask_from_left_prover
             ),
             (Fp61BitPrime::ZERO, Fp61BitPrime::ZERO)
         );
