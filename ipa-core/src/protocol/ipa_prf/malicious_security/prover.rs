@@ -3,6 +3,7 @@
 use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 
 use crate::{
+    error::{Error, Error::DZKPMasks},
     ff::{Fp31, Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
@@ -72,6 +73,28 @@ where
     /// which consists of an array of `u` values and an array of `v` values.
     pub fn iter(&self) -> impl Iterator<Item = &([F; λ], [F; λ])> + Clone {
         self.uv_chunks.iter()
+    }
+
+    /// This function allows to generate and set masks
+    ///
+    /// It outputs `(p_mask_from_left_prover,q_mask_from_right_prover)`.
+    ///
+    /// ## Errors
+    /// Errors when the length is too long such that masks cannot be set safely.
+    pub fn set_masks(&mut self, my_p_mask: F, my_q_mask: F) -> Result<(), Error> {
+        if self.len() >= λ {
+            return Err(DZKPMasks);
+        }
+        // compute final uv values
+        let (u_values, v_values) = &mut self.uv_chunks[0];
+        // shift first element to last position
+        u_values[SmallProofGenerator::RECURSION_FACTOR - 1] = u_values[0];
+        v_values[SmallProofGenerator::RECURSION_FACTOR - 1] = v_values[0];
+        // set masks in first position
+        u_values[0] = my_p_mask;
+        v_values[0] = my_q_mask;
+
+        Ok(())
     }
 }
 
@@ -191,7 +214,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
         ctx: &C,
         record_counter: &mut RecordId,
         lagrange_table: &LagrangeTable<F, λ, M>,
-        uv: J,
+        uv_iterator: J,
     ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
@@ -200,7 +223,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     {
         // generate next proof
         // from iterator
-        let my_proof = Self::compute_proof(uv.clone(), lagrange_table);
+        let my_proof = Self::compute_proof(uv_iterator.clone(), lagrange_table);
 
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
@@ -211,8 +234,11 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
 
         // compute next uv values
         // from iterator
-        let uv_values =
-            Self::gen_challenge_and_recurse(&my_proof_left_share, &my_proof_right_share, uv);
+        let uv_values = Self::gen_challenge_and_recurse(
+            &my_proof_left_share,
+            &my_proof_right_share,
+            uv_iterator,
+        );
 
         //output uv values, prover left component and component from left
         (

@@ -73,6 +73,8 @@ pub enum Error {
     DZKPValidationFailed,
     #[error("Inconsistent shares")]
     InconsistentShares,
+    #[error("The Masks cannot be set safely, i.e. without deleting non-zero field elements")]
+    DZKPMasks,
 }
 
 impl Default for Error {
