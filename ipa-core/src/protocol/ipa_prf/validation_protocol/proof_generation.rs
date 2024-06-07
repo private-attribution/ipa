@@ -41,12 +41,13 @@ pub struct BatchToVerify {
 
 impl BatchToVerify {
     /// This function generates the `BatchToVerify`.
-    /// The helper party generates its own proof
-    /// together with the proof from the left, i.e. `proof_from_left` (via `PRSS`)
-    /// It then distributes
-    /// shares of the proof to the helper on the left
-    /// and
-    /// receives a proof from the right helper, i.e. `proof_from_right`.
+    /// Each helper party generates a set of proofs, which are secret-shared.
+    /// The "left" shares of these proofs are sent to the helper on the left.
+    /// The "right" shares of these proofs need not be transmitted over the wire, as they
+    /// are generated via `PRSS`, so the helper on the right can independently generate them.
+    /// Finally, each helper receives a batch of secret-shares from the helper to its right.
+    /// The final proof must be "masked" with random values drawn from PRSS.
+    /// These values will be needed at verification time.
     pub async fn generate_batch_to_verify<C, I>(ctx: C, uv_tuple_inputs: I) -> Self
     where
         C: Context,
@@ -56,14 +57,13 @@ impl BatchToVerify {
         const LLL: usize = LargeProofGenerator::LAGRANGE_LENGTH;
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
         const SLL: usize = SmallProofGenerator::LAGRANGE_LENGTH;
+        const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
 
         // set up record counter
         let mut record_counter = RecordId::from(0);
 
         // precomputation for first proof
-        // first denominator
         let first_denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, LRF>::new();
-        // first lagrange table
         let first_lagrange_table = LagrangeTable::<Fp61BitPrime, LRF, LLL>::from(first_denominator);
 
         // generate first proof from input iterator
@@ -81,10 +81,10 @@ impl BatchToVerify {
         let expected_len = 1 << (uv_len_bits - small_recursion_factor_bits);
 
         // storage for other proofs
-        let mut my_proofs_left_shares =
-            Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::with_capacity(expected_len);
+        let mut my_proofs_left_shares = Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
         let mut shares_of_proofs_from_prover_left =
-            Vec::<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>::with_capacity(expected_len);
+            Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
+
         // generate masks
         // verifier on the right has p,
         // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
@@ -95,21 +95,14 @@ impl BatchToVerify {
         let (my_q_mask, q_mask_from_right_prover) = ctx.prss().generate_fields(record_counter);
         record_counter += 1;
 
-        // precomputation for other proofs
-        // denominator
         let denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, SRF>::new();
-        // lagrange table
         let lagrange_table = LagrangeTable::<Fp61BitPrime, SRF, SLL>::from(denominator);
 
-        // recursively generate proofs
-        // via SmallProofGenerator
+        // recursively generate proofs via SmallProofGenerator
         while uv_values.len() > 1 {
             if uv_values.len() < SRF {
-                // set masks
                 uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
             }
-
-            // generate next proof
             let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =
                 SmallProofGenerator::gen_artefacts_from_recursive_step(
                     &ctx,
@@ -117,7 +110,6 @@ impl BatchToVerify {
                     &lagrange_table,
                     uv_values.iter(),
                 );
-            // collect proof
             shares_of_proofs_from_prover_left.push(share_of_proof_from_prover_left);
             my_proofs_left_shares.push(my_proof_left_share);
 
@@ -133,7 +125,7 @@ impl BatchToVerify {
             proofs: shares_of_proofs_from_prover_left,
         };
 
-        // send prover_left_proof and receive proof_from_right
+        // send one batch left and receive one batch from the right
         let length = my_batch_left_shares.len();
         let ((), shares_of_batch_from_right_prover) = try_join(
             my_batch_left_shares.send_to_left(&ctx),
@@ -142,7 +134,6 @@ impl BatchToVerify {
         .await
         .unwrap();
 
-        // output
         BatchToVerify {
             first_proof_from_left_prover: shares_of_batch_from_left_prover.first_proof,
             first_proof_from_right_prover: shares_of_batch_from_right_prover.first_proof,
