@@ -135,8 +135,42 @@ where
             .await
             .unwrap();
 
-        tx.send(query_impl(&prss, &gateway, &config, input_stream).await)
-            .unwrap();
+        // Tokio executor is a work-stealing scheduler that optimizes for low latency and
+        // resource utilization. It optimizes for low scheduling overhead and uses the same worker
+        // threads for polling tasks and to service IO and timer operations, if they are enabled.
+        // This leads to very low overhead, but also to an unfortunate possibility of tasks that are
+        // long-running to block the entire runtime, even if it is multithreaded.
+        // Here is an example in IPA code that led to this discovery:
+        // - IPA query kicks in and first step it performs a very large reallocation, keeping the
+        // task running for minutes before yielding.
+        // - At the time when query started, there was only one active thread in the runtime and
+        // it began polling this task
+        // - because other threads are parked, there is nothing that can indicate to the executor
+        // that there are more tasks that are ready. Tokio Runtime is not polling any task.
+        // - Client asks for IPA query status and times out, because IPA application is not
+        // responding.
+        //
+        // Ultimately tokio team decided that it is not a bug in the implementation and made it
+        // clear that application needs to take care of it. There are a few ways to deal with it,
+        // one of them is to signal the executor that this task is about to block the worker thread
+        // for long time, so it has a chance to move the IO driver and pending tasks to other
+        // threads. This is what this code does.
+        //
+        // The issue in tokio repo that describes this behavior
+        // https://github.com/tokio-rs/tokio/issues/4730
+        let v = if !cfg!(feature = "shuttle")
+            && ::tokio::runtime::Handle::current().runtime_flavor()
+                == ::tokio::runtime::RuntimeFlavor::MultiThread
+        {
+            ::tokio::task::block_in_place(|| {
+                ::tokio::runtime::Handle::current()
+                    .block_on(async { query_impl(&prss, &gateway, &config, input_stream).await })
+            })
+        } else {
+            query_impl(&prss, &gateway, &config, input_stream).await
+        };
+
+        tx.send(v).unwrap();
     });
 
     RunningQuery {
