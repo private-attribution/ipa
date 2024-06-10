@@ -139,6 +139,7 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
 /// is that this type is not `Send`.
 ///
 /// [`BitValIter`]: bitvec::slice::BitValIter
+#[allow(dead_code)]
 pub struct BoolIterator<'a>(std::iter::Take<Iter<'a, u8, Lsb0>>);
 impl<'a> Iterator for BoolIterator<'a> {
     type Item = bool;
