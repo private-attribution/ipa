@@ -66,9 +66,6 @@ where
 {
 }
 
-// TODO: remove this (protocols should use upgraded contexts)
-impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>> for AdditiveShare<Boolean> {}
-
 impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>>
     for AdditiveShare<Boolean>
 {

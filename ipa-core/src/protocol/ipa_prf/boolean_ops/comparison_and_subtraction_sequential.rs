@@ -14,7 +14,7 @@ use crate::{
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::NBitStep,
-        context::{Context, SemiHonestContext},
+        context::Context,
         Gate, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
@@ -98,16 +98,18 @@ where
 /// # Errors
 /// propagates errors from multiply
 #[allow(dead_code)]
-pub async fn integer_sat_sub<S, St>(
-    ctx: SemiHonestContext<'_>,
+pub async fn integer_sat_sub<C, S, St>(
+    ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<S>,
     y: &AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
+    C: Context,
     S: BooleanArray,
     St: NBitStep,
-    for<'a> AdditiveShare<S>: BooleanArrayMul<SemiHonestContext<'a>>,
+    AdditiveShare<S>: BooleanArrayMul<C>,
+    AdditiveShare<Boolean>: BooleanProtocols<C>,
     Gate: StepNarrow<St>,
 {
     use super::step::SaturatedSubtractionStep as Step;
@@ -291,7 +293,7 @@ mod test {
             let expected = x >= y;
 
             let result = world
-                .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
+                .upgraded_semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
                     compare_geq::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
@@ -307,7 +309,7 @@ mod test {
             assert_eq!(result, <Boolean>::from(expected));
 
             let result2 = world
-                .semi_honest(records.into_iter(), |ctx, x_y| async move {
+                .upgraded_semi_honest(records.into_iter(), |ctx, x_y| async move {
                     compare_geq::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
@@ -338,7 +340,7 @@ mod test {
             let expected = x > y;
 
             let result = world
-                .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
+                .upgraded_semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
                     compare_gt::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
@@ -355,7 +357,7 @@ mod test {
 
             // check that x is not greater than itself
             let result2 = world
-                .semi_honest(records.into_iter(), |ctx, x_y| async move {
+                .upgraded_semi_honest(records.into_iter(), |ctx, x_y| async move {
                     compare_gt::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
@@ -393,7 +395,7 @@ mod test {
             let expected = x_int.iter().map(|x| *x > y_int).collect::<Vec<_>>();
 
             let result = world
-                .semi_honest((x.clone().into_iter(), y), |ctx, (x, y)| async move {
+                .upgraded_semi_honest((x.clone().into_iter(), y), |ctx, (x, y)| async move {
                     #[cfg(not(debug_assertions))]
                     let begin = std::time::Instant::now();
                     let ctx = ctx.set_total_records(x.len());
@@ -476,7 +478,7 @@ mod test {
 
             let xa_iter = xa.clone().into_iter();
             let result = world
-                .semi_honest((xa_iter, ya.clone()), |ctx, (x, y)| async move {
+                .upgraded_semi_honest((xa_iter, ya.clone()), |ctx, (x, y)| async move {
                     #[cfg(not(debug_assertions))]
                     let begin = std::time::Instant::now();
                     let ctx = ctx.set_total_records(x.len());
@@ -527,7 +529,7 @@ mod test {
             let expected = ((x + z) - y) % z;
 
             let result = world
-                .semi_honest(records.into_iter(), |ctx, x_y| async move {
+                .upgraded_semi_honest(records.into_iter(), |ctx, x_y| async move {
                     integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
@@ -558,8 +560,8 @@ mod test {
             let expected = if y > x { 0u128 } else { x - y };
 
             let result = world
-                .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sat_sub::<_, DefaultBitStep>(
+                .upgraded_semi_honest(records.into_iter(), |ctx, x_y| async move {
+                    integer_sat_sub::<_, _, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0],
@@ -585,7 +587,7 @@ mod test {
             let expected = 4_u128;
 
             let result = world
-                .semi_honest((x, y), |ctx, x_y| async move {
+                .upgraded_semi_honest((x, y), |ctx, x_y| async move {
                     integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
@@ -617,7 +619,7 @@ mod test {
             let expected = ((x + z) - y) % z;
 
             let result = world
-                .semi_honest(records, |ctx, x_y| async move {
+                .upgraded_semi_honest(records, |ctx, x_y| async move {
                     integer_sub::<_, DefaultBitStep>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
