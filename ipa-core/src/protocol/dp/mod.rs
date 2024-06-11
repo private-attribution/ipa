@@ -9,7 +9,7 @@ use crate::{
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     protocol::{
         boolean::step::SixteenBitStep,
-        context::{Context, UpgradedSemiHonestContext},
+        context::Context,
         dp::step::DPStep,
         ipa_prf::{aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add},
         prss::{FromPrss, SharedRandomness},
@@ -19,23 +19,22 @@ use crate::{
         replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
-    sharding::NotSharded,
 };
 /// # Panics
 /// Will panic if there are not enough bits in the outputs size for the noise gen sum. We can't have the noise sum saturate
 /// as that would be insecure noise.
 /// # Errors
 /// may have errors generated in `aggregate_values` also some asserts here
-pub async fn gen_binomial_noise<'ctx, const B: usize, OV>(
-    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+pub async fn gen_binomial_noise<C, const B: usize, OV>(
+    ctx: C,
     num_bernoulli: u32,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
+    C: Context,
     Boolean: Vectorizable<B> + FieldSimd<B>,
     BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
     OV: BooleanArray + U128Conversions,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
 {
     // Step 1:  Generate Bernoulli's with PRSS
     // sample a stream of `total_bits = num_bernoulli * B` bit from PRSS where B is number of histogram bins
@@ -58,7 +57,7 @@ where
     let aggregation_input = Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
     let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> =
-        aggregate_values::<OV, B>(ctx, aggregation_input, num_bernoulli as usize).await;
+        aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli as usize).await;
     noise_vector
 }
 /// `apply_dp_noise` takes the noise distribution parameters (`num_bernoulli` and in the future `quantization_scale`)
@@ -68,22 +67,22 @@ where
 /// asserts that `num_histogram_bins` matches what we are using for vectorization, B.
 /// # Errors
 /// Result error case could come from transpose
-pub async fn apply_dp_noise<'ctx, const B: usize, OV>(
-    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+pub async fn apply_dp_noise<C, const B: usize, OV>(
+    ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
     num_bernoulli: u32,
 ) -> Result<Vec<Replicated<OV>>, Error>
 where
+    C: Context,
     Boolean: Vectorizable<B> + FieldSimd<B>,
     BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
     OV: BooleanArray + U128Conversions,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let noise_gen_ctx = ctx.narrow(&DPStep::NoiseGen);
-    let noise_vector = gen_binomial_noise::<B, OV>(noise_gen_ctx, num_bernoulli)
+    let noise_vector = gen_binomial_noise::<C, B, OV>(noise_gen_ctx, num_bernoulli)
         .await
         .unwrap();
     // Step 4:  Add DP noise to output values
@@ -350,7 +349,7 @@ mod test {
             vectorize_input(16, &input_values);
         let result = world
             .upgraded_semi_honest(input, |ctx, input| async move {
-                apply_dp_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
+                apply_dp_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                     ctx,
                     input,
                     num_bernoulli,
@@ -398,7 +397,7 @@ mod test {
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
-                    &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
+                    &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         num_bernoulli,
                     )
@@ -434,7 +433,7 @@ mod test {
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
-                    &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
+                    &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         num_bernoulli,
                     )
@@ -470,7 +469,7 @@ mod test {
         let result = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
-                    &gen_binomial_noise::<{ NUM_BREAKDOWNS as usize }, OutputValue>(
+                    &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
                         num_bernoulli,
                     )
