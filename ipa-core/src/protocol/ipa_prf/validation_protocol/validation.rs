@@ -1,3 +1,6 @@
+use std::iter::{once, repeat};
+
+use futures::future::try_join4;
 use futures_util::future::try_join;
 
 use crate::{
@@ -148,12 +151,12 @@ impl BatchToVerify {
     }
 
     /// This function computes a tuple of vector of challenges from a `BatchToVerify`
-    /// It outputs (`challenges_from_proof_of_left_prover`, `challenges_from_proof_of_right_prover`)
+    /// It outputs (`challenges_for_left_prover`, `challenges_for_right_prover`)
     ///
     /// ## Panics
     /// Panics when recursion factor constant cannot be converted to `u128`
     /// or when sending and receiving hashes over the network fails.
-    async fn generate_challenge<C: Context>(
+    async fn generate_challenges<C: Context>(
         &self,
         ctx: &C,
     ) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>) {
@@ -163,178 +166,129 @@ impl BatchToVerify {
         let exclude_small = u128::try_from(SmallProofGenerator::RECURSION_FACTOR).unwrap();
 
         // generate hashes
-        let hashes = ProofHash::generate_hash(self);
+        let my_hashes_prover_left = ProofHashes::generate_hashes(self, Side::Left);
+        let my_hashes_prover_right = ProofHashes::generate_hashes(self, Side::Right);
 
-        // send hashes
-        let send_future = hashes.send_hash(ctx);
-        let receive_future = ProofHash::receive_hash(ctx, hashes.len());
+        // receive hashes from the other verifier
+        let ((), (), other_hashes_prover_left, other_hashes_prover_right) = try_join4(
+            my_hashes_prover_left.send_hashes(ctx, Side::Left),
+            my_hashes_prover_right.send_hashes(ctx, Side::Right),
+            ProofHashes::receive_hashes(ctx, my_hashes_prover_left.hashes.len(), Side::Left),
+            ProofHashes::receive_hashes(ctx, my_hashes_prover_right.hashes.len(), Side::Right),
+        )
+        .await
+        .unwrap();
 
-        // receive other hashes
-        let ((), other_hashes) = try_join(send_future, receive_future).await.unwrap();
-
-        // compute challenges_from_proof_of_left_prover
-        // the prover computes hash_to_field(left,right)
-        // this is the right verifier of the party to the left,
-        // i.e. it has the right share, other is the left share
-        let mut challenges_from_proof_of_left_prover =
-            Vec::<Fp61BitPrime>::with_capacity(hashes.len());
-        challenges_from_proof_of_left_prover.push(hash_to_field(
-            &other_hashes.proof_from_prover_left_hash[0],
-            &hashes.proof_from_prover_left_hash[0],
-            exclude_large,
-        ));
-        for (left, right) in other_hashes
-            .proof_from_prover_left_hash
+        // From the perspective of the *prover_left*, _left_ is the other helper and _right_ is this verifier
+        let challenges_for_prover_left = other_hashes_prover_left
+            .hashes
             .iter()
-            .zip(hashes.proof_from_prover_left_hash.iter())
-        {
-            challenges_from_proof_of_left_prover.push(hash_to_field(left, right, exclude_small));
-        }
+            .zip(my_hashes_prover_left.hashes.iter())
+            .zip(once(exclude_large).chain(repeat(exclude_small)))
+            .map(|((hash_left, hash_right), exclude)| {
+                hash_to_field(hash_left, hash_right, exclude)
+            });
 
-        // compute challenges_from_proof_of_right_prover
-        // the prover computes hash_to_field(left,right)
-        // this is the left verifier of the party to the right,
-        // i.e. it has the left share, other is the right share
-        let mut challenges_from_proof_of_right_prover =
-            Vec::<Fp61BitPrime>::with_capacity(hashes.len());
-        challenges_from_proof_of_right_prover.push(hash_to_field(
-            &hashes.proof_from_prover_right_hash[0],
-            &other_hashes.proof_from_prover_right_hash[0],
-            exclude_large,
-        ));
-        for (left, right) in hashes
-            .proof_from_prover_right_hash
+        // From the perspective of the *prover_right*, _left_ is this helper and _right_ is the other verifier
+        let challenges_for_prover_right = my_hashes_prover_right
+            .hashes
             .iter()
-            .zip(other_hashes.proof_from_prover_right_hash.iter())
-        {
-            challenges_from_proof_of_right_prover.push(hash_to_field(left, right, exclude_small));
-        }
+            .zip(other_hashes_prover_right.hashes.iter())
+            .zip(once(exclude_large).chain(repeat(exclude_small)))
+            .map(|((hash_left, hash_right), exclude)| {
+                hash_to_field(hash_left, hash_right, exclude)
+            });
 
         (
-            challenges_from_proof_of_left_prover,
-            challenges_from_proof_of_right_prover,
+            challenges_for_prover_left.collect(),
+            challenges_for_prover_right.collect(),
         )
     }
 }
 
-struct ProofHash {
-    proof_from_prover_left_hash: Vec<Hash>,
-    proof_from_prover_right_hash: Vec<Hash>,
+struct ProofHashes {
+    hashes: Vec<Hash>,
 }
 
-impl ProofHash {
-    fn len(&self) -> usize {
-        assert_eq!(
-            self.proof_from_prover_left_hash.len(),
-            self.proof_from_prover_right_hash.len()
-        );
-        self.proof_from_prover_left_hash.len()
-    }
-    fn generate_hash(batch_to_verify: &BatchToVerify) -> Self {
-        let length = batch_to_verify.proofs_from_left_prover.len();
-        let mut proof_from_prover_left_hash = Vec::<Hash>::with_capacity(length);
-        let mut proof_from_prover_right_hash = Vec::<Hash>::with_capacity(length);
+#[derive(Clone, Copy, Debug)]
+enum Side {
+    Left,
+    Right,
+}
 
-        // compute first hash
-        proof_from_prover_left_hash.push(compute_hash(
-            batch_to_verify.first_proof_from_left_prover.iter(),
-        ));
-        proof_from_prover_right_hash.push(compute_hash(
-            batch_to_verify.first_proof_from_right_prover.iter(),
-        ));
+impl ProofHashes {
+    // Generates hashes for proofs received from prover indicated by `side`
+    fn generate_hashes(batch_to_verify: &BatchToVerify, side: Side) -> Self {
+        let (first_proof, other_proofs) = match side {
+            Side::Left => (
+                &batch_to_verify.first_proof_from_left_prover,
+                &batch_to_verify.proofs_from_left_prover,
+            ),
+            Side::Right => (
+                &batch_to_verify.first_proof_from_right_prover,
+                &batch_to_verify.proofs_from_right_prover,
+            ),
+        };
 
-        // compute other hashes
-        // we don't need to hash last proof
-        for i in 0..(length - 1) {
-            proof_from_prover_left_hash.push(compute_hash(
-                batch_to_verify.proofs_from_left_prover[i].iter(),
-            ));
-            proof_from_prover_right_hash.push(compute_hash(
-                batch_to_verify.proofs_from_right_prover[i].iter(),
-            ));
-        }
+        let length = other_proofs.len();
 
         Self {
-            proof_from_prover_left_hash,
-            proof_from_prover_right_hash,
+            hashes: once(compute_hash(first_proof))
+                .chain(
+                    other_proofs
+                        .iter()
+                        .take(length - 1) // we don't need to hash last proof
+                        .map(|proof| compute_hash(proof.iter())),
+                )
+                .collect::<Vec<_>>(),
         }
     }
 
-    /// This function sends the `ProofHash` over the network.
-    /// It sends `proof_from_prover_left_hash` to the other verifier which is on the right
-    /// (for the proof generated by the party on the left).
-    /// It sends `proof_from_prover_right_hash` to the other verifier which is on the left
-    /// (for the proof generated by the party on the right).
-    async fn send_hash<C: Context>(&self, ctx: &C) -> Result<(), Error> {
-        // set up context for the communication over the network
-        let communication_ctx = ctx.set_total_records(self.len());
+    /// Sends the one verifier's hashes to the other verifier
+    /// `side` indicates the direction of the prover.
+    async fn send_hashes<C: Context>(&self, ctx: &C, side: Side) -> Result<(), Error> {
+        let communication_ctx = ctx.set_total_records(self.hashes.len());
 
-        // set up channels
-        let send_channel_left =
-            &communication_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left));
-        let send_channel_right =
-            &communication_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Right));
+        let send_channel = match side {
+            // send left hashes to the right
+            Side::Left => communication_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Right)),
+            // send right hashes to the left
+            Side::Right => communication_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left)),
+        };
+        let send_channel_ref = &send_channel;
 
-        // send left hashes to the right
-        let send_to_right = communication_ctx.parallel_join(
-            self.proof_from_prover_left_hash
-                .iter()
-                .enumerate()
-                .map(|(i, hash)| async move {
-                    // send hash
-                    send_channel_right.send(RecordId::from(i), hash).await
-                }),
-        );
-        // send left hashes to the left
-        let send_to_left = communication_ctx.parallel_join(
-            self.proof_from_prover_right_hash
-                .iter()
-                .enumerate()
-                .map(|(i, hash)| async move {
-                    // send hash
-                    send_channel_left.send(RecordId::from(i), hash).await
-                }),
-        );
-
-        let _ = try_join(send_to_right, send_to_left).await?;
+        communication_ctx
+            .parallel_join(self.hashes.iter().enumerate().map(|(i, hash)| async move {
+                send_channel_ref.send(RecordId::from(i), hash).await
+            }))
+            .await?;
 
         Ok(())
     }
 
-    /// This function receives the hashes of the proof from the other verifier.
-    async fn receive_hash<C: Context>(ctx: &C, length: usize) -> Result<Self, Error> {
-        // set up context
+    /// This function receives hashes from the other verifier
+    /// `side` indicates the direction of the prover.
+    async fn receive_hashes<C: Context>(ctx: &C, length: usize, side: Side) -> Result<Self, Error> {
+        // set up context for the communication over the network
         let communication_ctx = ctx.set_total_records(length);
 
-        // set up channels
-        let receive_channel_left =
-            &communication_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Left));
-        let receive_channel_right =
-            &communication_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right));
+        let recv_channel = match side {
+            // receive left hashes from the right helper
+            Side::Left => communication_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right)),
+            // reeive right hashes from the left helper
+            Side::Right => communication_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Left)),
+        };
+        let recv_channel_ref = &recv_channel;
 
-        // receive hashes
-        // receive from the right helper
-        let future_right =
-            communication_ctx
-                .parallel_join((0..length).map(|i| async move {
-                    receive_channel_right.receive(RecordId::from(i)).await
-                }));
-        // receive from the left helper
-        let future_left = communication_ctx.parallel_join(
-            (0..length)
-                .map(|i| async move { receive_channel_left.receive(RecordId::from(i)).await }),
-        );
-
-        // we receive hash of proof from prover left from the right helper,
-        // i.e. the other verifier for that proof
-        // and hash of proof from prover right from the left helper,
-        // i.e. the other verifier for that proof
-        let (other_hash_of_proof_from_prover_left, other_hash_of_proof_from_prover_right) =
-            try_join(future_right, future_left).await?;
+        let hashes_received = communication_ctx
+            .parallel_join(
+                (0..length)
+                    .map(|i| async move { recv_channel_ref.receive(RecordId::from(i)).await }),
+            )
+            .await?;
 
         Ok(Self {
-            proof_from_prover_left_hash: other_hash_of_proof_from_prover_left,
-            proof_from_prover_right_hash: other_hash_of_proof_from_prover_right,
+            hashes: hashes_received,
         })
     }
 }
@@ -457,46 +411,45 @@ pub mod test {
             // which is later used to generate distinct values across helpers
             let h = Fp61BitPrime::truncate_from(rng.gen_range(0u128..100));
 
-            let result = world
-                .semi_honest(h, |ctx, h| async move {
-                    let h = Fp61BitPrime::truncate_from(h.left().as_u128() % 100);
-                    // generate blocks of UV values
-                    // generate u values as (1h,2h,3h,....,10h*BlockSize) split into Blocksize chunks
-                    // where BlockSize = 32
-                    // v values are identical to u
-                    let uv_tuple_vec = (0usize..100)
-                        .map(|i| {
-                            (
-                                (BLOCK_SIZE * i..BLOCK_SIZE * (i + 1))
-                                    .map(|j| {
-                                        Fp61BitPrime::truncate_from(u128::try_from(j).unwrap()) * h
-                                    })
-                                    .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
-                                (BLOCK_SIZE * i..BLOCK_SIZE * (i + 1))
-                                    .map(|j| {
-                                        Fp61BitPrime::truncate_from(u128::try_from(j).unwrap()) * h
-                                    })
-                                    .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
-                            )
-                        })
-                        .collect::<Vec<_>>();
+            let [(helper_1_left, helper_1_right), (helper_2_left, helper_2_right), (helper_3_left, helper_3_right)] =
+                world
+                    .semi_honest(h, |ctx, h| async move {
+                        let h = Fp61BitPrime::truncate_from(h.left().as_u128() % 100);
+                        // generate blocks of UV values
+                        // generate u values as (1h,2h,3h,....,10h*BlockSize) split into Blocksize chunks
+                        // where BlockSize = 32
+                        // v values are identical to u
+                        let uv_tuple_vec = (0usize..100)
+                            .map(|i| {
+                                (
+                                    (BLOCK_SIZE * i..BLOCK_SIZE * (i + 1))
+                                        .map(|j| {
+                                            Fp61BitPrime::truncate_from(u128::try_from(j).unwrap())
+                                                * h
+                                        })
+                                        .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
+                                    (BLOCK_SIZE * i..BLOCK_SIZE * (i + 1))
+                                        .map(|j| {
+                                            Fp61BitPrime::truncate_from(u128::try_from(j).unwrap())
+                                                * h
+                                        })
+                                        .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
+                                )
+                            })
+                            .collect::<Vec<_>>();
 
-                    // generate and output VerifierBatch together with h value
-                    let batch_to_verify = BatchToVerify::generate_batch_to_verify(
-                        ctx.narrow("generate_batch"),
-                        uv_tuple_vec.into_iter(),
-                    )
+                        // generate and output VerifierBatch together with h value
+                        let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                            ctx.narrow("generate_batch"),
+                            uv_tuple_vec.into_iter(),
+                        )
+                        .await;
+
+                        // generate and output challenges
+                        batch_to_verify.generate_challenges(&ctx).await
+                    })
                     .await;
 
-                    // generate and output challenges
-                    batch_to_verify.generate_challenge(&ctx).await
-                })
-                .await;
-
-            // check consistency of result
-            let (helper_1_left, helper_1_right) = result[0].clone();
-            let (helper_2_left, helper_2_right) = result[1].clone();
-            let (helper_3_left, helper_3_right) = result[2].clone();
             // verifier when H1 is prover
             assert_eq!(helper_2_left, helper_3_right);
             // verifier when H2 is prover
