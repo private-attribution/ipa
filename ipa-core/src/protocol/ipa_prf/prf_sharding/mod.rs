@@ -454,7 +454,7 @@ where
 
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
-    aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
+    aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
         ctx,
         stream::iter(flattened_user_results),
         num_outputs,

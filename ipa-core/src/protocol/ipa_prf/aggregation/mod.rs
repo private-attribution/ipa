@@ -15,9 +15,9 @@ use crate::{
         TotalRecords,
     },
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols},
+        basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
         boolean::{step::SixteenBitStep, NBitStep},
-        context::{Context, UpgradedSemiHonestContext},
+        context::Context,
         ipa_prf::{
             aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
@@ -30,7 +30,6 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
         SharedValue, TransposeFrom, Vectorizable,
     },
-    sharding::NotSharded,
 };
 
 mod bucket;
@@ -124,21 +123,22 @@ where
 // The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
 // contribution rows, bits of trigger value, and buckets.
 #[tracing::instrument(name = "aggregate", skip_all, fields(streams = contributions_stream_len))]
-pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const N: usize>(
-    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N: usize>(
+    ctx: C,
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
+    C: Context,
     St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
     Boolean: FieldSimd<N> + FieldSimd<B>,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
-    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
+    Replicated<Boolean, N>: SecureMul<C>,
+    Replicated<BK>: BooleanArrayMul<C>,
+    Replicated<TV>: BooleanArrayMul<C>,
     BitDecomposed<Replicated<Boolean, N>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, N>>:
