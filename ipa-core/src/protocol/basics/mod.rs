@@ -18,32 +18,44 @@ pub use share_known_value::ShareKnownValue;
 
 use crate::{
     const_assert_eq,
-    ff::{boolean::Boolean, PrimeField},
+    ff::{boolean::Boolean, ec_prime_field::Fp25519, PrimeField},
     protocol::{
-        context::{
-            Context, SemiHonestContext, UpgradedMaliciousContext, UpgradedSemiHonestContext,
-        },
+        context::{Context, SemiHonestContext, UpgradedSemiHonestContext},
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
+        prss::FromPrss,
     },
     secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare,
-        },
-        FieldSimd, SecretSharing, SharedValue, Vectorizable,
+        replicated::semi_honest::AdditiveShare, FieldSimd, SecretSharing, SharedValue, Vectorizable,
     },
     sharding::ShardBinding,
 };
 
+/// Basic suite of MPC protocols for vectorized data.
+///
+/// A previous version of `BasicProtocols` additionally required `Reshare` and `ShareKnownValue`,
+/// but those are omitted here because they are not vectorized. (`ShareKnownValue` has the
+/// difficulty of resolving `V` vs. `[V; 1]` issues for the known value type. `Reshare` hasn't been
+/// attempted.)
 pub trait BasicProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N: usize = 1>:
-    SecretSharing<V>
-    + Reshare<C>
-    + Reveal<C, N, Output = <V as Vectorizable<N>>::Array>
-    + SecureMul<C>
-    + ShareKnownValue<C, V>
+    SecretSharing<V> + Reveal<C, N, Output = <V as Vectorizable<N>>::Array> + SecureMul<C> + FromPrss
 {
 }
 
+// For PRF test
+impl<'a, B: ShardBinding> BasicProtocols<UpgradedSemiHonestContext<'a, B, Fp25519>, Fp25519>
+    for AdditiveShare<Fp25519>
+{
+}
+
+impl<'a, B: ShardBinding>
+    BasicProtocols<UpgradedSemiHonestContext<'a, B, Fp25519>, Fp25519, PRF_CHUNK>
+    for AdditiveShare<Fp25519, PRF_CHUNK>
+{
+}
+
+/// Basic suite of MPC protocols for (possibly vectorized) boolean shares.
+///
+/// Adds the requirement that the type implements `Not`.
 pub trait BooleanProtocols<C: Context, const N: usize = 1>:
     SecretSharing<Boolean>
     + Reveal<C, N, Output = <Boolean as Vectorizable<N>>::Array>
@@ -54,44 +66,33 @@ where
 {
 }
 
-// TODO: It might be better to remove this (protocols should use upgraded contexts)
-impl<'a, B: ShardBinding, F: PrimeField> BasicProtocols<SemiHonestContext<'a, B>, F>
-    for AdditiveShare<F>
-{
-}
+// TODO: remove this (protocols should use upgraded contexts)
+impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>> for AdditiveShare<Boolean> {}
 
-impl<'a, B: ShardBinding, F: PrimeField> BasicProtocols<UpgradedSemiHonestContext<'a, B, F>, F>
-    for AdditiveShare<F>
-{
-}
-
-// TODO: It might be better to remove this (protocols should use upgraded contexts)
-impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>, 1> for AdditiveShare<Boolean> {}
-
-impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 1>
+impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>>
     for AdditiveShare<Boolean>
 {
 }
 
 // Used for aggregation tests
-// TODO: It might be better to remove this (protocols should use upgraded contexts)
-impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>, 8>
-    for AdditiveShare<Boolean, 8>
-{
-}
-
 impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 8>
     for AdditiveShare<Boolean, 8>
 {
 }
 
-impl<C: Context> BooleanProtocols<C, PRF_CHUNK> for AdditiveShare<Boolean, PRF_CHUNK> where
-    AdditiveShare<Boolean, PRF_CHUNK>: SecureMul<C>
+impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, PRF_CHUNK>
+    for AdditiveShare<Boolean, PRF_CHUNK>
 {
 }
 
-impl<C: Context> BooleanProtocols<C, AGG_CHUNK> for AdditiveShare<Boolean, AGG_CHUNK> where
-    AdditiveShare<Boolean, AGG_CHUNK>: SecureMul<C>
+// TODO: remove this (protocols should use upgraded contexts)
+impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>, AGG_CHUNK>
+    for AdditiveShare<Boolean, AGG_CHUNK>
+{
+}
+
+impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, AGG_CHUNK>
+    for AdditiveShare<Boolean, AGG_CHUNK>
 {
 }
 
@@ -110,19 +111,14 @@ const_assert_eq!(
     "Implementation for N = 16 required for num_breakdowns"
 );
 
-impl<C: Context> BooleanProtocols<C, 32> for AdditiveShare<Boolean, 32> where
-    AdditiveShare<Boolean, 32>: SecureMul<C>
+impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 32>
+    for AdditiveShare<Boolean, 32>
 {
 }
 
 const_assert_eq!(
     AGG_CHUNK,
     256,
-    "Implementation for N = 256 required for breakdown keys"
+    "Implementation for N = 256 required for num_breakdowns"
 );
-// End implementations for 2^|bk|
-
-impl<'a, F: ExtendableField> BasicProtocols<UpgradedMaliciousContext<'a, F>, F>
-    for MaliciousReplicated<F>
-{
-}
+// End implementations for num_breakdowns
