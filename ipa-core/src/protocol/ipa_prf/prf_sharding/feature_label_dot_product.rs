@@ -13,7 +13,7 @@ use crate::{
     protocol::{
         basics::{SecureMul, ShareKnownValue},
         boolean::{and::bool_and_8_bit, or::or},
-        context::{Context, UpgradedSemiHonestContext},
+        context::Context,
         ipa_prf::{
             aggregation::aggregate_values,
             prf_sharding::step::{FeatureLabelDotProductStep as Step, UserNthRowStep},
@@ -27,8 +27,7 @@ use crate::{
         },
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
-    seq_join::{seq_join, SeqJoin},
-    sharding::NotSharded,
+    seq_join::seq_join,
 };
 
 pub struct PrfShardedIpaInputRow<FV: SharedValue, const B: usize> {
@@ -59,16 +58,17 @@ impl InputsRequiredFromPrevRow {
     /// - Outputs
     ///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
     ///     - Each output row is a vector, either the feature vector or zeroes.
-    pub async fn compute_row_with_previous<'ctx, FV, const B: usize>(
+    pub async fn compute_row_with_previous<'ctx, C, FV, const B: usize>(
         &mut self,
-        ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+        ctx: C,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<FV, B>,
     ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
     where
+        C: Context,
         Boolean: FieldSimd<B>,
-        Replicated<Boolean, B>:
-            BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+        Replicated<Boolean, B>: BooleanProtocols<C, B>,
+        Replicated<Boolean>: SecureMul<C>,
         FV: SharedValue,
         BitDecomposed<Replicated<Boolean, B>>:
             for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
@@ -210,15 +210,16 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn compute_feature_label_dot_product<'ctx, TV, HV, const B: usize>(
-    sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+pub async fn compute_feature_label_dot_product<'ctx, C, TV, HV, const B: usize>(
+    sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<TV, B>>,
     users_having_n_records: &[usize],
 ) -> Result<[Replicated<HV>; B], Error>
 where
+    C: Context,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    Replicated<Boolean>: SecureMul<C>,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
     TV: SharedValue,
     HV: BooleanArray + U128Conversions,
     BitDecomposed<Replicated<Boolean, B>>:
@@ -275,15 +276,16 @@ where
     Ok(transposed_aggregated_result.try_into().unwrap())
 }
 
-async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
-    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
+async fn evaluate_per_user_attribution_circuit<'ctx, C, FV, const B: usize>(
+    ctx_for_row_number: Vec<C>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV, B>>,
 ) -> Result<Option<BitDecomposed<Replicated<Boolean, B>>>, Error>
 where
+    C: Context,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    Replicated<Boolean>: SecureMul<C>,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
     FV: SharedValue,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
@@ -305,7 +307,7 @@ where
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
         let capped_attribution_outputs = prev_row_inputs
-            .compute_row_with_previous::<FV, B>(ctx, record_id, row)
+            .compute_row_with_previous::<_, FV, B>(ctx, record_id, row)
             .await?;
 
         zip(output.iter_mut(), capped_attribution_outputs).for_each(|(x, y)| *x += y);
@@ -461,7 +463,7 @@ pub mod tests {
                 .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = users_having_n_records.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<BA8, BA16, 32>(ctx, input_rows, h)
+                        compute_feature_label_dot_product::<_, BA8, BA16, 32>(ctx, input_rows, h)
                             .await
                             .unwrap()
                     }
