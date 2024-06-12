@@ -8,21 +8,21 @@ use crate::{
     ff::{boolean::Boolean, boolean_array::BooleanArray, Expand},
     helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
-        basics::Reveal,
+        basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::{Context, SemiHonestContext},
+        context::UpgradableContext,
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
             step::{QuicksortPassStep, QuicksortStep as Step},
             SORT_CHUNK,
         },
-        RecordId,
+        BooleanProtocols, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, SharedValue, TransposeFrom,
         Vectorizable,
     },
-    seq_join::{seq_join, SeqJoin},
+    seq_join::seq_join,
 };
 
 impl<K> ChunkBuffer<SORT_CHUNK> for (Vec<AdditiveShare<K>>, Vec<AdditiveShare<K>>)
@@ -115,18 +115,20 @@ where
 ///
 /// # Panics
 /// If you provide any invalid ranges, such as 0..0
-pub async fn quicksort_ranges_by_key_insecure<K, F, S>(
-    ctx: SemiHonestContext<'_>,
+pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
+    ctx: C,
     list: &mut [S],
     desc: bool,
     get_key: F,
     mut ranges_to_sort: Vec<Range<usize>>,
 ) -> Result<(), Error>
 where
+    C: UpgradableContext,
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: BooleanArray,
     <Boolean as Vectorizable<SORT_CHUNK>>::Array: Expand<Input = Boolean>,
+    AdditiveShare<Boolean, SORT_CHUNK>: BooleanProtocols<C, SORT_CHUNK>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
@@ -181,16 +183,16 @@ where
                     let rvl_ctx = rvl_ctx.clone();
                     let record_id = RecordId::from(idx);
                     async move {
-                        // Compare the current element against pivot and reveal the result.
-                        let comparison = compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
+                        // Compare elements against pivot
+                        let comp = compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
                             cmp_ctx, record_id, &k, &pivot,
                         )
-                        .await?
-                        .reveal(rvl_ctx, record_id) // reveal outcome of comparison
                         .await?;
+                        // Reveal the comparison result
+                        let revealed_comp = reveal(rvl_ctx, record_id, &comp).await?;
 
                         // desc = true will flip the order of the sort
-                        Ok::<_, Error>(comparison + !desc)
+                        Ok::<_, Error>(revealed_comp + !desc)
                     }
                 },
                 || (AdditiveShare::<K>::ZERO, AdditiveShare::<K>::ZERO),

@@ -421,7 +421,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             let [res0, res1, res2] = world
-                .semi_honest(records.into_iter(), |ctx, records| async move {
+                .upgraded_semi_honest(records.into_iter(), |ctx, records| async move {
                     seq_join(
                         ctx.active_work(),
                         process_slice_by_chunks(

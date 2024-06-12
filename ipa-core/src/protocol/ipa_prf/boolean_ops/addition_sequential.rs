@@ -193,7 +193,7 @@ mod test {
             let expected_carry = (x + y) >> 64 & 1;
 
             let (result, carry) = world
-                .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
+                .upgraded_semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
                     integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
@@ -270,7 +270,7 @@ mod test {
             let expected_carry = (x + y) >> 64 & 1;
 
             let (result, carry) = world
-                .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
+                .upgraded_semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
                     integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
@@ -291,7 +291,7 @@ mod test {
             let expected = (x + y) % (1 << 32);
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
-                .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
+                .upgraded_semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
                     integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
