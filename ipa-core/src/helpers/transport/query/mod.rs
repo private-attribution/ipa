@@ -233,6 +233,13 @@ pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
 
+    /// If true, IPA will not add any DP noise to the ouputs and
+    /// ignore whatever value is passed in for `query_epsilon`
+    #[cfg_attr(feature = "clap", arg(long, default_value = "false"))]
+    pub testing_with_no_dp: bool,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "1.0"))]
+    pub query_epsilon: f64,
+
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
     /// shares from input reports directly. Setting this to true also activates an alternate
     /// input report format in which all fields are secret-shared. This option is provided
@@ -249,6 +256,8 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
+            testing_with_no_dp: false,
+            query_epsilon: 1.0,
             plaintext_match_keys: false,
         }
     }
@@ -263,6 +272,8 @@ impl IpaQueryConfig {
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
         num_multi_bits: u32,
+        testing_with_no_dp: bool,
+        query_epsilon: f64,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -272,6 +283,8 @@ impl IpaQueryConfig {
                     .expect("attribution window must be a positive value > 0"),
             ),
             num_multi_bits,
+            testing_with_no_dp,
+            query_epsilon,
             plaintext_match_keys: false,
         }
     }
@@ -285,12 +298,16 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         num_multi_bits: u32,
+        testing_with_no_dp: bool,
+        query_epsilon: f64,
     ) -> Self {
         Self {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds: None,
             num_multi_bits,
+            testing_with_no_dp,
+            query_epsilon,
             plaintext_match_keys: false,
         }
     }
