@@ -29,7 +29,7 @@ use crate::ff::Serializable;
 /// the capacity limit, because it can be set large enough.
 ///
 /// This buffer can also be closed, using [`close`] method. After it is
-/// closed, it allows reads of any size, ubt it guarantees that all of them
+/// closed, it allows reads of any size, but it guarantees that all of them
 /// will be aligned with `write_size`.
 ///
 /// ## Implementation notes
@@ -55,7 +55,7 @@ use crate::ff::Serializable;
 /// have to if this implementation is made thread-safe. There exists a well-known
 /// lock-free FIFO implementation for a single producer, single consumer that uses
 /// atomics for read and write pointers. We can't make use of it as is because there
-/// are more than one writer. However, [`OrderingSender`] already knows now to allow
+/// are more than one writer. However, [`OrderingSender`] already knows how to allow
 /// only one write at a time, so it could be possible to make the entire
 /// implementation lock-free.
 ///
@@ -137,9 +137,9 @@ impl CircularBuf {
     pub fn next(&mut self) -> Next<'_> {
         debug_assert!(!self.closed, "Writing to a closed buffer");
         debug_assert!(self.can_write(),
-            "Not enough space for the next write: only {av} bytes available, but at least {req} is required",
-            av = self.free(),
-            req = self.write_size
+                      "Not enough space for the next write: only {av} bytes available, but at least {req} is required",
+                      av = self.remaining(),
+                      req = self.write_size
         );
 
         Next {
@@ -203,7 +203,7 @@ impl CircularBuf {
 
     /// Returns `true` if this buffer can be written into.
     pub fn can_write(&self) -> bool {
-        !self.closed && self.free() >= self.write_size
+        !self.closed && self.remaining() >= self.write_size
     }
 
     /// Indicates whether this buffer is closed for writes.
@@ -219,7 +219,7 @@ impl CircularBuf {
         self.read == self.write
     }
 
-    fn free(&self) -> usize {
+    fn remaining(&self) -> usize {
         self.capacity() - self.len()
     }
 
@@ -320,11 +320,11 @@ mod test {
     use crate::ff::Serializable;
 
     fn new_buf<B: BufSetup>() -> CircularBuf {
-        CircularBuf::new(
-            B::CAPACITY * B::UNIT_SIZE,
-            B::UNIT_SIZE,
-            B::READ_SIZE * B::UNIT_SIZE,
-        )
+        let capacity = B::CAPACITY * B::UNIT_SIZE;
+        let write_size = B::UNIT_SIZE;
+        let read_size = B::READ_SIZE * B::UNIT_SIZE;
+
+        CircularBuf::new(capacity, write_size, read_size)
     }
 
     fn unwind_panic_to_str<F: FnOnce() -> CircularBuf>(f: F) -> String {
@@ -545,6 +545,20 @@ mod test {
     }
 
     #[test]
+    fn write_more_than_twice_capacity() {
+        fn fill_take(buf: &mut CircularBuf) {
+            One::<TwoBytes>::fill(buf);
+            assert_eq!(2, buf.len());
+            let _ = buf.take();
+            assert_eq!(0, buf.len());
+        }
+
+        let mut buf = new_buf::<One<TwoBytes>>();
+        fill_take(&mut buf);
+        fill_take(&mut buf);
+    }
+
+    #[test]
     fn panic_on_zero() {
         fn check_panic(capacity: usize, write_size: usize, read_size: usize) {
             let err = format!("Capacity \"{capacity}\", write \"{write_size}\" and read size \"{read_size}\" must all be greater than zero");
@@ -620,6 +634,13 @@ mod test {
         let mut buf = new_buf::<FiveElements>();
         buf.close();
         buf.next().write(&TwoBytes::from(&0));
+    }
+
+    #[test]
+    #[should_panic(expected = "Expect to keep messages of size 2, got 1")]
+    fn bad_write() {
+        let mut buf = new_buf::<FiveElements<TwoBytes>>();
+        buf.next().write([0_u8].as_slice());
     }
 
     fn test_one<T: BufSetup>()
@@ -755,6 +776,7 @@ mod test {
         }
 
         fn read_write(setup: BufSetup, ops: u32, seed: u64) {
+            println!("{setup:?}, {ops}, {seed}");
             let mut buf = CircularBuf::from(setup);
             let mut cnt = Wrapping::<u8>::default();
             let mut written = Vec::new();
@@ -771,6 +793,7 @@ mod test {
                     read.extend(take_next(&mut buf, write_size));
                 }
             }
+            buf.close();
 
             while !buf.is_empty() {
                 read.extend(take_next(&mut buf, write_size));
@@ -780,6 +803,7 @@ mod test {
         }
 
         proptest! {
+            #[test]
             fn arb_read_write(setup in arb_buf(25, 99), ops in 1..1000u32, seed in any::<u64>()) {
                 read_write(setup, ops, seed);
             }
