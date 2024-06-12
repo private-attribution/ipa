@@ -8,9 +8,8 @@ use crate::{
 };
 
 #[allow(non_upper_case_globals)]
-pub struct ProofVerifier<F: PrimeField, const λ: usize> {
-    u_or_v: Vec<[F; λ]>,
-    out_share: F,
+pub struct ProofVerifier<F: PrimeField> {
+    zero_share: F,
 }
 
 ///
@@ -18,32 +17,33 @@ pub struct ProofVerifier<F: PrimeField, const λ: usize> {
 /// `https://eprint.iacr.org/2023/909.pdf`
 ///
 #[allow(non_upper_case_globals)]
-impl<F, const λ: usize> ProofVerifier<F, λ>
+impl<F> ProofVerifier<F>
 where
     F: PrimeField,
 {
-    pub fn new(u_or_v: Vec<[F; λ]>, out_share: F) -> Self {
-        Self { u_or_v, out_share }
-    }
-
-    pub fn verify_proof<J, B, const P: usize>(
-        u_or_v_iterator: J,
+    /// This function outputs an `out_share` and a `ProofVerifier` that consists of a `zero_share`.
+    pub fn verify_proof<const λ: usize, const P: usize>(
         out_share: F,
         zkp: &[F; P],
         r: F,
-    ) -> (F, Self)
-    where
-        J: Iterator<Item = B>,
-        B: Borrow<[F; λ]>,
-    {
+    ) -> (F, Self) {
         let denominator_g = CanonicalLagrangeDenominator::<F, P>::new();
         let lagrange_table_g = LagrangeTable::<F, P, 1>::new(&denominator_g, &r);
         let g_r_share = lagrange_table_g.eval(zkp)[0];
         let sum_share = (0..λ).fold(F::ZERO, |acc, i| acc + zkp[i]);
 
         // Reveal `b_share` to one another to reconstruct `b` and check if `b = 0`. If the check doesn't pass, abort.
-        let b_share = sum_share - out_share;
+        let zero_share = sum_share - out_share;
 
+        (g_r_share, Self { zero_share })
+    }
+
+    /// This function compresses the `u_or_v` values.
+    pub fn recurse_u_or_v<J, B, const λ: usize>(u_or_v_iterator: J, r: F) -> Vec<[F; λ]>
+    where
+        J: Iterator<Item = B>,
+        B: Borrow<[F; λ]>,
+    {
         let denominator_p_or_q = CanonicalLagrangeDenominator::<F, λ>::new();
         let lagrange_table_p_or_q_r = LagrangeTable::<F, λ, 1>::new(&denominator_p_or_q, &r);
 
@@ -66,43 +66,14 @@ where
             new_u_or_v_vec.push(new_u_or_v_chunk);
         }
 
-        (
-            b_share,
-            ProofVerifier {
-                u_or_v: new_u_or_v_vec,
-                out_share: g_r_share,
-            },
-        )
-    }
-
-    /// const L needs to be λ+1
-    /// this function is going to be deprecated
-    pub fn verify_final_proof<const P: usize, const L: usize>(
-        &self,
-        zkp: &[F; P],
-        r: F,
-        p_or_q_0: F,
-    ) -> (F, F) {
-        assert_eq!(self.u_or_v.len(), 1usize);
-
-        // We need a table of size `λ + 1` since we add a random point at x=0
-        let denominator = CanonicalLagrangeDenominator::<F, L>::new();
-        let lagrange_table = LagrangeTable::<F, L, 1>::new(&denominator, &r);
-
-        let mut p_or_q = vec![p_or_q_0];
-        p_or_q.extend_from_slice(self.u_or_v[0].as_slice());
-        let p_or_q_extrapolated = lagrange_table.eval(&p_or_q)[0];
-
-        let denominator_g = CanonicalLagrangeDenominator::<F, P>::new();
-        let lagrange_table_g = LagrangeTable::<F, P, 1>::new(&denominator_g, &r);
-        let out_share = lagrange_table_g.eval(zkp)[0];
-
-        (p_or_q_extrapolated, out_share)
+        new_u_or_v_vec
     }
 }
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::iter;
+
     use super::ProofVerifier;
     use crate::ff::{Fp31, PrimeField, U128Conversions};
 
@@ -141,51 +112,54 @@ mod test {
         const EXPECTED_G_R_FINAL: u128 = 0;
 
         // uv values in input format
-        let u_1 = make_chunks(&U_1);
+        let u_1 = make_chunks::<_, 4>(&U_1);
 
         // first iteration
         let zkp_1 = ZKP_1.map(Fp31::truncate_from);
 
-        let (b_share_1, pv_2) = ProofVerifier::<_, 4>::verify_proof(
-            u_1.iter(),
+        let (out_share_2, pv_1) = ProofVerifier::verify_proof::<4, 7>(
             Fp31::try_from(OUT_1).unwrap(),
             &zkp_1,
             Fp31::try_from(R_1).unwrap(),
         );
-        assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
-        assert_eq!(pv_2.u_or_v, make_chunks::<Fp31, 4>(&U_2));
-        assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
+        assert_eq!(out_share_2.as_u128(), EXPECTED_G_R_1);
+        assert_eq!(pv_1.zero_share.as_u128(), EXPECTED_B_1);
+
+        let u_or_v_2 = ProofVerifier::recurse_u_or_v(u_1.iter(), Fp31::try_from(R_1).unwrap());
+        assert_eq!(u_or_v_2, make_chunks::<Fp31, 4>(&U_2));
 
         // second iteration
         let zkp_2 = ZKP_2.map(Fp31::truncate_from);
 
-        let (b_share_2, pv_3) = ProofVerifier::<_, 4>::verify_proof(
-            pv_2.u_or_v.iter(),
-            pv_2.out_share,
-            &zkp_2,
-            Fp31::try_from(R_2).unwrap(),
-        );
+        let (out_share_3, pv_2) =
+            ProofVerifier::verify_proof::<4, 7>(out_share_2, &zkp_2, Fp31::try_from(R_2).unwrap());
 
-        // final proof trim pv_3 from U4 to U2
-        let u_or_v = [pv_3.u_or_v[0][0], pv_3.u_or_v[0][1]];
-        // convert to ProofVerifier<_,U2>
-        let pv_3_u2 = ProofVerifier::<Fp31, 2>::new(vec![u_or_v; 1], pv_3.out_share);
+        assert_eq!(out_share_3.as_u128(), EXPECTED_G_R_2);
+        assert_eq!(pv_2.zero_share.as_u128(), EXPECTED_B_2);
 
-        assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
-        assert_eq!(pv_3_u2.u_or_v, make_chunks::<Fp31, 2>(&U_3));
-        assert_eq!(pv_3_u2.out_share.as_u128(), EXPECTED_G_R_2);
+        let u_or_v_3_temp =
+            ProofVerifier::recurse_u_or_v(u_or_v_2.iter(), Fp31::try_from(R_2).unwrap());
+
+        // final proof trim from U4 to U2
+        let u_or_v_3 = [
+            Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
+            u_or_v_3_temp[0][0],
+            u_or_v_3_temp[0][1],
+        ];
+
+        assert_eq!([u_or_v_3[1], u_or_v_3[2]], make_chunks::<Fp31, 2>(&U_3)[0]);
 
         // final iteration
         let zkp_3 = ZKP_3.map(Fp31::truncate_from);
 
-        let (p_final, out_share) = pv_3_u2.verify_final_proof::<5, 3>(
-            &zkp_3,
-            Fp31::try_from(R_3).unwrap(),
-            Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
-        );
+        let (out_share_4, _) =
+            ProofVerifier::verify_proof::<3, 5>(out_share_3, &zkp_3, Fp31::try_from(R_3).unwrap());
+        assert_eq!(out_share_4.as_u128(), EXPECTED_G_R_FINAL);
 
-        assert_eq!(p_final.as_u128(), EXPECTED_P_FINAL);
-        assert_eq!(out_share.as_u128(), EXPECTED_G_R_FINAL);
+        let p_final =
+            ProofVerifier::recurse_u_or_v(iter::once(u_or_v_3), Fp31::try_from(R_3).unwrap());
+
+        assert_eq!(p_final[0][0].as_u128(), EXPECTED_P_FINAL);
     }
 
     #[test]
@@ -217,50 +191,53 @@ mod test {
         const EXPECTED_G_R_FINAL: u128 = 19;
 
         // uv values in input format
-        let v_1 = make_chunks(&V_1);
+        let v_1 = make_chunks::<_, 4>(&V_1);
 
         // first iteration
         let zkp_1 = ZKP_1.map(Fp31::truncate_from);
 
-        let (b_share_1, pv_2) = ProofVerifier::<_, 4>::verify_proof(
-            v_1.iter(),
+        let (out_share_2, pv_1) = ProofVerifier::verify_proof::<4, 7>(
             Fp31::try_from(OUT_1).unwrap(),
             &zkp_1,
             Fp31::try_from(R_1).unwrap(),
         );
-        assert_eq!(b_share_1.as_u128(), EXPECTED_B_1);
-        assert_eq!(pv_2.u_or_v, make_chunks::<Fp31, 4>(&V_2));
-        assert_eq!(pv_2.out_share.as_u128(), EXPECTED_G_R_1);
+        assert_eq!(out_share_2.as_u128(), EXPECTED_G_R_1);
+        assert_eq!(pv_1.zero_share.as_u128(), EXPECTED_B_1);
+
+        let u_or_v_2 = ProofVerifier::recurse_u_or_v(v_1.iter(), Fp31::try_from(R_1).unwrap());
+        assert_eq!(u_or_v_2, make_chunks::<Fp31, 4>(&V_2));
 
         // second iteration
         let zkp_2 = ZKP_2.map(Fp31::truncate_from);
 
-        let (b_share_2, pv_3) = ProofVerifier::<_, 4>::verify_proof(
-            pv_2.u_or_v.iter(),
-            pv_2.out_share,
-            &zkp_2,
-            Fp31::try_from(R_2).unwrap(),
-        );
+        let (out_share_3, pv_2) =
+            ProofVerifier::verify_proof::<4, 7>(out_share_2, &zkp_2, Fp31::try_from(R_2).unwrap());
 
-        // final proof trim pv_3 from U4 to U2
-        let u_or_v = [pv_3.u_or_v[0][0], pv_3.u_or_v[0][1]];
-        // convert to ProofVerifier<_,U2>
-        let pv_3_u2 = ProofVerifier::<Fp31, 2>::new(vec![u_or_v; 1], pv_3.out_share);
+        assert_eq!(out_share_3.as_u128(), EXPECTED_G_R_2);
+        assert_eq!(pv_2.zero_share.as_u128(), EXPECTED_B_2);
 
-        assert_eq!(b_share_2.as_u128(), EXPECTED_B_2);
-        assert_eq!(pv_3_u2.u_or_v, make_chunks::<Fp31, 2>(&V_3));
-        assert_eq!(pv_3.out_share.as_u128(), EXPECTED_G_R_2);
+        let u_or_v_3_temp =
+            ProofVerifier::recurse_u_or_v(u_or_v_2.iter(), Fp31::try_from(R_2).unwrap());
+
+        // final proof trim from U4 to U2
+        let u_or_v_3 = [
+            Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
+            u_or_v_3_temp[0][0],
+            u_or_v_3_temp[0][1],
+        ];
+
+        assert_eq!([u_or_v_3[1], u_or_v_3[2]], make_chunks::<Fp31, 2>(&V_3)[0]);
 
         // final iteration
         let zkp_3 = ZKP_3.map(Fp31::truncate_from);
 
-        let (q_final, out_share) = pv_3_u2.verify_final_proof::<5, 3>(
-            &zkp_3,
-            Fp31::try_from(R_3).unwrap(),
-            Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
-        );
+        let (out_share_4, _) =
+            ProofVerifier::verify_proof::<3, 5>(out_share_3, &zkp_3, Fp31::try_from(R_3).unwrap());
+        assert_eq!(out_share_4.as_u128(), EXPECTED_G_R_FINAL);
 
-        assert_eq!(q_final.as_u128(), EXPECTED_Q_FINAL);
-        assert_eq!(out_share.as_u128(), EXPECTED_G_R_FINAL);
+        let p_final =
+            ProofVerifier::recurse_u_or_v(iter::once(u_or_v_3), Fp31::try_from(R_3).unwrap());
+
+        assert_eq!(p_final[0][0].as_u128(), EXPECTED_Q_FINAL);
     }
 }
