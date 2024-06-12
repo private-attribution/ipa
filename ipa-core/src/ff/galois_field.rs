@@ -3,10 +3,7 @@ use std::{
     ops::Index,
 };
 
-use bitvec::{
-    prelude::{bitarr, BitArr, Lsb0},
-    slice::Iter,
-};
+use bitvec::prelude::{bitarr, BitArr, Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
@@ -133,24 +130,6 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
         product ^= bit * (a << i);
     }
     product
-}
-
-/// Iterates over bit arrays and yields `bool` values. The reason why we can't use [`BitValIter`] from the bitvec crate
-/// is that this type is not `Send`.
-///
-/// [`BitValIter`]: bitvec::slice::BitValIter
-pub struct BoolIterator<'a>(std::iter::Take<Iter<'a, u8, Lsb0>>);
-impl<'a> Iterator for BoolIterator<'a> {
-    type Item = bool;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|v| *v)
-    }
-}
-
-impl<'a> ExactSizeIterator for BoolIterator<'a> {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
 }
 
 macro_rules! bit_array_impl {

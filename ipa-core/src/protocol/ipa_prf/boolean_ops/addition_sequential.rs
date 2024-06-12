@@ -9,11 +9,10 @@ use crate::{
     protocol::{
         basics::{BooleanProtocols, SecureMul},
         boolean::{or::bool_or, NBitStep},
-        context::{Context, UpgradedSemiHonestContext},
+        context::Context,
         Gate, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
-    sharding::ShardBinding,
 };
 
 /// Non-saturated unsigned integer addition
@@ -53,17 +52,17 @@ where
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sat_add<'a, SH, S, const N: usize>(
-    ctx: UpgradedSemiHonestContext<'a, SH, Boolean>,
+pub async fn integer_sat_add<C, S, const N: usize>(
+    ctx: C,
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
     y: &BitDecomposed<AdditiveShare<Boolean, N>>,
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
-    SH: ShardBinding,
+    C: Context,
     S: NBitStep,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Gate: StepNarrow<S>,
 {
     use super::step::SaturatedAdditionStep as Step;
@@ -194,7 +193,7 @@ mod test {
             let expected_carry = (x + y) >> 64 & 1;
 
             let (result, carry) = world
-                .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
+                .upgraded_semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
                     integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
@@ -271,7 +270,7 @@ mod test {
             let expected_carry = (x + y) >> 64 & 1;
 
             let (result, carry) = world
-                .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
+                .upgraded_semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
                     integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
@@ -292,7 +291,7 @@ mod test {
             let expected = (x + y) % (1 << 32);
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
-                .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
+                .upgraded_semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
                     integer_add::<_, DefaultBitStep, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,

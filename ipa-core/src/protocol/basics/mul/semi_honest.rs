@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::Field,
     helpers::Direction,
     protocol::{
         context::{
@@ -14,7 +14,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, Vectorizable,
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        FieldSimd, Vectorizable,
     },
     sharding,
 };
@@ -123,7 +124,7 @@ impl<'a, B, F, const N: usize> super::SecureMul<UpgradedSemiHonestContext<'a, B,
     for Replicated<F, N>
 where
     B: sharding::ShardBinding,
-    F: PrimeField + FieldSimd<N>,
+    F: ExtendableField + FieldSimd<N>,
 {
     async fn multiply<'fut>(
         &self,

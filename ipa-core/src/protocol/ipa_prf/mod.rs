@@ -270,7 +270,7 @@ where
     let dp_ctx: UpgradedSemiHonestContext<_, _> = dp_validator.context();
 
     let noisy_histogram =
-        dp_for_histogram::<B, HV, SS_BITS>(dp_ctx, histogram, testing_with_no_dp, query_epsilon)
+        dp_for_histogram::<_, B, HV, SS_BITS>(dp_ctx, histogram, testing_with_no_dp, query_epsilon)
             .await?;
     Ok(noisy_histogram)
 }

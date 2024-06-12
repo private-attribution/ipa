@@ -12,7 +12,9 @@ use crate::{
         prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        replicated::{
+            malicious::ExtendableField, semi_honest::AdditiveShare, ReplicatedSecretSharing,
+        },
         Block, FieldVectorizable, SharedValue, StdArray, Vectorizable,
     },
 };
@@ -217,6 +219,14 @@ impl Field for Fp25519 {
     const NAME: &'static str = "Fp25519";
 
     const ONE: Fp25519 = Fp25519::ONE;
+}
+
+impl ExtendableField for Fp25519 {
+    type ExtendedField = Self;
+
+    fn to_extended(&self) -> Self::ExtendedField {
+        *self
+    }
 }
 
 impl FromRandom for Fp25519 {

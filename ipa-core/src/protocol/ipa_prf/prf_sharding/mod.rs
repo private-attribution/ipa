@@ -28,8 +28,7 @@ use crate::{
             NBitStep,
         },
         context::{
-            semi_honest::Upgraded, Context, SemiHonestContext, UpgradableContext,
-            UpgradedSemiHonestContext, Validator,
+            Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
         ipa_prf::{
             aggregation::aggregate_contributions,
@@ -54,7 +53,7 @@ use crate::{
         },
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
-    seq_join::{seq_join, SeqJoin},
+    seq_join::seq_join,
     sharding::NotSharded,
 };
 
@@ -146,17 +145,19 @@ where
     ///         - `did_trigger_get_attributed` - a secret-shared bit indicating if this row corresponds to a trigger event
     ///           which was attributed. Might be able to reveal this (after a shuffle and the addition of dummies) to minimize
     ///           the amount of processing work that must be done in the Aggregation stage.
-    pub async fn compute_row_with_previous<'a>(
+    pub async fn compute_row_with_previous<C>(
         &mut self,
-        ctx: UpgradedSemiHonestContext<'a, NotSharded, Boolean>,
+        ctx: C,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
         attribution_window_seconds: Option<NonZeroU32>,
     ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>
     where
-        Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-        Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-        Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+        C: Context,
+        Replicated<Boolean>: BooleanProtocols<C>,
+        Replicated<BK>: BooleanArrayMul<C>,
+        Replicated<TS>: BooleanArrayMul<C>,
+        Replicated<TV>: BooleanArrayMul<C>,
     {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
@@ -449,34 +450,38 @@ where
     let mut collected = rows_chunked_by_user.collect::<Vec<_>>().await;
     collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
-    let flattened_user_results =
-        attribute::<_, _, _, SS_BITS, B>(ctx_for_row_number, collected, attribution_window_seconds)
-            .await;
+    let flattened_user_results = attribute::<_, _, _, _, SS_BITS, B>(
+        ctx_for_row_number,
+        collected,
+        attribution_window_seconds,
+    )
+    .await;
 
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
-    let aggregated_contributions = aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
+    aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
         ctx,
         stream::iter(flattened_user_results),
         num_outputs,
     )
-    .await?;
-    Ok(aggregated_contributions)
+    .await
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
-async fn attribute<BK, TV, TS, const SS_BITS: usize, const B: usize>(
-    contexts: Vec<Upgraded<'_, NotSharded, Boolean>>,
+async fn attribute<C, BK, TV, TS, const SS_BITS: usize, const B: usize>(
+    contexts: Vec<C>,
     input: Vec<Vec<PrfShardedIpaInputRow<BK, TV, TS>>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Vec<Result<SecretSharedAttributionOutputs<BK, TV>, Error>>
 where
+    C: Context,
+    Replicated<Boolean>: BooleanProtocols<C>,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<BK>: BooleanArrayMul<C>,
+    for<'a> Replicated<TS>: BooleanArrayMul<C>,
+    for<'a> Replicated<TV>: BooleanArrayMul<C>,
 {
     let active_work = contexts
         .first()
@@ -489,7 +494,7 @@ where
             let num_user_rows = rows_for_user.len();
             let contexts = contexts[..num_user_rows - 1].to_owned();
 
-            evaluate_per_user_attribution_circuit::<BK, TV, TS, SS_BITS>(
+            evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS_BITS>(
                 contexts,
                 RecordId::from(record_id),
                 rows_for_user,
@@ -505,19 +510,21 @@ where
 }
 
 #[tracing::instrument(level = "debug", name = "per_user", skip_all, fields(rows = rows_for_user.len()))]
-async fn evaluate_per_user_attribution_circuit<BK, TV, TS, const SS_BITS: usize>(
-    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
+async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, const SS_BITS: usize>(
+    ctx_for_row_number: Vec<C>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
 where
+    C: Context,
+    Replicated<Boolean>: BooleanProtocols<C>,
     BK: BooleanArray + U128Conversions,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    for<'a> Replicated<BK>: BooleanArrayMul<C>,
+    for<'a> Replicated<TS>: BooleanArrayMul<C>,
+    for<'a> Replicated<TV>: BooleanArrayMul<C>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -631,8 +638,8 @@ where
 /// multiply it with the bits of the `trigger_value` in order to zero out contributions from unattributed trigger events.
 ///
 #[allow(clippy::too_many_arguments)]
-async fn zero_out_trigger_value_unless_attributed<'a, TV, TS>(
-    ctx: UpgradedSemiHonestContext<'a, NotSharded, Boolean>,
+async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
+    ctx: C,
     record_id: RecordId,
     is_trigger_bit: &Replicated<Boolean>,
     ever_encountered_a_source_event: &Replicated<Boolean>,
@@ -642,9 +649,11 @@ async fn zero_out_trigger_value_unless_attributed<'a, TV, TS>(
     source_event_timestamp: &Replicated<TS>,
 ) -> Result<Replicated<TV>, Error>
 where
+    C: Context,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    Replicated<Boolean>: BooleanProtocols<C>,
+    Replicated<TV>: BooleanArrayMul<C>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
