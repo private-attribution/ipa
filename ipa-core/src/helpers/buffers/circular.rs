@@ -100,10 +100,6 @@ impl CircularBuf {
             read_size % write_size == 0,
             "\"{write_size}\" write size must divide read_size \"{read_size}\""
         );
-        debug_assert!(
-            read_size <= capacity,
-            "read size \"{read_size}\" must be less than or equal to capacity \"{capacity}\""
-        );
         Self {
             write: 0,
             read: 0,
@@ -537,7 +533,9 @@ mod test {
         output.extend(Six::read_once(&mut buf).into_iter().map(usize::from));
         buf.next().write(&TwoBytes::from(&6));
         buf.next().write(&TwoBytes::from(&7));
+        assert!(!buf.is_closed());
         buf.close();
+        assert!(buf.is_closed());
 
         output.extend(Six::read_once(&mut buf).into_iter().map(usize::from));
 
@@ -776,7 +774,6 @@ mod test {
         }
 
         fn read_write(setup: BufSetup, ops: u32, seed: u64) {
-            println!("{setup:?}, {ops}, {seed}");
             let mut buf = CircularBuf::from(setup);
             let mut cnt = Wrapping::<u8>::default();
             let mut written = Vec::new();
