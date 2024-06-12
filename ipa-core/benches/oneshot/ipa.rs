@@ -61,6 +61,10 @@ struct Args {
     /// while doing modulus conversion and attribution
     #[arg(long, default_value = "3")]
     num_multi_bits: u32,
+    /// `testing_with_no_dp` needs to be true for DP not to be applied
+    testing_with_no_dp: bool,
+    /// query epsilon
+    query_epsilon: f64,
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,
@@ -92,6 +96,8 @@ impl Args {
             max_breakdown_key: self.breakdown_keys,
             attribution_window_seconds: self.attribution_window(),
             num_multi_bits: self.num_multi_bits,
+            testing_with_no_dp: self.testing_with_no_dp,
+            query_epsilon: self.query_epsilon,
             plaintext_match_keys: true,
         }
     }

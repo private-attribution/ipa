@@ -191,13 +191,15 @@ mod tests {
         max_breakdown_key: String,
         attribution_window_seconds: Option<String>,
         num_multi_bits: String,
+        testing_with_no_dp: String,
+        query_epsilon: String,
     }
 
     impl From<OverrideIPAReq> for hyper::Request<Body> {
         fn from(val: OverrideIPAReq) -> Self {
             let mut query = format!(
-                "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits
+                "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}&testing_with_no_dp={}&query_epsilon={}",
+                val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits, val.testing_with_no_dp, val.query_epsilon,
             );
             if let Some(window) = val.attribution_window_seconds {
                 query.push_str(&format!("&attribution_window_seconds={window}"));
@@ -219,6 +221,8 @@ mod tests {
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
+                testing_with_no_dp: "false".into(),
+                query_epsilon: "-1.0".into(),
             }
         }
     }

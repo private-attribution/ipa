@@ -269,7 +269,9 @@ where
     let dp_validator = ctx.narrow(&Step::DP).validator::<Boolean>();
     let dp_ctx: UpgradedSemiHonestContext<_, _> = dp_validator.context();
 
-    let noisy_histogram = dp_for_histogram::<B, HV,SS_BITS>(dp_ctx, histogram, testing_with_no_dp, query_epsilon).await?;
+    let noisy_histogram =
+        dp_for_histogram::<B, HV, SS_BITS>(dp_ctx, histogram, testing_with_no_dp, query_epsilon)
+            .await?;
     Ok(noisy_histogram)
 }
 
@@ -407,9 +409,15 @@ pub mod tests {
             let query_epsilon = -1.0;
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(ctx, input_rows, None,testing_with_do_dp,query_epsilon)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        testing_with_do_dp,
+                        query_epsilon,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -455,9 +463,15 @@ pub mod tests {
             let query_epsilon = -1.0;
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None,testing_with_do_dp,query_epsilon)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(
+                        ctx,
+                        input_rows,
+                        None,
+                        testing_with_do_dp,
+                        query_epsilon,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();

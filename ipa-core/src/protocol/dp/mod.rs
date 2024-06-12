@@ -127,33 +127,32 @@ where
 {
     // check if running without DP for testing
     if testing_with_no_dp {
-        return Ok(Vec::transposed_from(&histogram_bin_values)?)
-    } else {
-        assert!(query_epsilon > 0.0 && query_epsilon <= 10.0);
-        let epsilon = query_epsilon;
-        let delta = 1e-6;
-        let success_prob = 0.5;
-        let dimensions = 1.0;
-        let quantization_scale = 1.0;
-        let per_user_credit_cap = 2_f64.powi(SS_BITS as i32);
-        let ell_1_sensitivity = per_user_credit_cap;
-        let ell_2_sensitivity = per_user_credit_cap;
-        let ell_infty_sensitivity = per_user_credit_cap;
-        let num_bernoulli = find_smallest_num_bernoulli(
-            epsilon,
-            success_prob,
-            delta,
-            dimensions,
-            quantization_scale,
-            ell_1_sensitivity,
-            ell_2_sensitivity,
-            ell_infty_sensitivity,
-        );
-        let noisy_histogram = apply_dp_noise::<B, OV>(ctx, histogram_bin_values, num_bernoulli)
-            .await
-            .unwrap();
-       return Ok(noisy_histogram)
+        return Ok(Vec::transposed_from(&histogram_bin_values)?);
     }
+    assert!(query_epsilon > 0.0 && query_epsilon <= 10.0);
+    let epsilon = query_epsilon;
+    let delta = 1e-6;
+    let success_prob = 0.5;
+    let dimensions = 1.0;
+    let quantization_scale = 1.0;
+    let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
+    let ell_1_sensitivity = per_user_credit_cap;
+    let ell_2_sensitivity = per_user_credit_cap;
+    let ell_infty_sensitivity = per_user_credit_cap;
+    let num_bernoulli = find_smallest_num_bernoulli(
+        epsilon,
+        success_prob,
+        delta,
+        dimensions,
+        quantization_scale,
+        ell_1_sensitivity,
+        ell_2_sensitivity,
+        ell_infty_sensitivity,
+    );
+    let noisy_histogram = apply_dp_noise::<B, OV>(ctx, histogram_bin_values, num_bernoulli)
+        .await
+        .unwrap();
+    Ok(noisy_histogram)
 }
 
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559

@@ -223,7 +223,19 @@ impl AsRef<str> for QueryType {
 }
 #[cfg(test)]
 impl PartialEq for IpaQueryConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.per_user_credit_cap == other.per_user_credit_cap
+            && self.max_breakdown_key == other.max_breakdown_key
+            && self.attribution_window_seconds == other.attribution_window_seconds
+            && self.num_multi_bits == other.num_multi_bits
+            && self.testing_with_no_dp == other.testing_with_no_dp
+            && self.query_epsilon == other.query_epsilon
+            && self.plaintext_match_keys == other.plaintext_match_keys
+    }
 }
+#[cfg(test)]
+impl Eq for IpaQueryConfig {}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
