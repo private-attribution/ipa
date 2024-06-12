@@ -665,6 +665,8 @@ mod tests {
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
                             num_multi_bits: 3,
+                            testing_with_no_dp: true,
+                            query_epsilon: -1.0,
                             plaintext_match_keys: true,
                         }),
                     },

@@ -112,12 +112,14 @@ where
         };
 
         let aws = config.attribution_window_seconds;
+        let query_epsilon = config.query_epsilon;
+        let testing_with_no_dp = config.testing_with_no_dp;
         match config.per_user_credit_cap {
-            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws).await,
-            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws).await,
-            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws).await,
-            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws).await,
-            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws).await,
+            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, testing_with_no_dp, query_epsilon).await,
+            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, testing_with_no_dp, query_epsilon).await,
+            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws, testing_with_no_dp, query_epsilon).await,
+            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws, testing_with_no_dp, query_epsilon).await,
+            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws, testing_with_no_dp, query_epsilon).await,
             _ => panic!(
                 "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap
@@ -224,6 +226,8 @@ mod tests {
                 per_user_credit_cap: 8,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
+                testing_with_no_dp: true,
+                query_epsilon: -1.0,
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);

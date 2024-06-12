@@ -198,7 +198,8 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
@@ -220,8 +221,10 @@ impl AsRef<str> for QueryType {
         }
     }
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg(test)]
+impl PartialEq for IpaQueryConfig {
+}
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]
@@ -233,7 +236,7 @@ pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
 
-    /// If true, IPA will not add any DP noise to the ouputs and
+    /// If true, IPA will not add any DP noise to the outputs and
     /// ignore whatever value is passed in for `query_epsilon`
     #[cfg_attr(feature = "clap", arg(long, default_value = "false"))]
     pub testing_with_no_dp: bool,

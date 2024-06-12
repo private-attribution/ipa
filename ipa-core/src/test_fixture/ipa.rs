@@ -201,13 +201,15 @@ pub async fn test_oprf_ipa<F>(
     };
 
     let aws = config.attribution_window_seconds;
+    let testing_with_no_dp = config.testing_with_no_dp;
+    let query_epsilon = config.query_epsilon;
     let result: Vec<_> = if config.per_user_credit_cap == 256 {
         // Note that many parameters are different in this case, not just the credit cap.
         // This config is needed for collect_steps coverage.
         world.semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA8, BA20>>| async move {
-                oprf_ipa::<BA5, BA8, BA16, BA20, 8, 32>(ctx, input_rows, aws)
+                oprf_ipa::<BA5, BA8, BA16, BA20, 8, 32>(ctx, input_rows, aws, testing_with_no_dp, query_epsilon)
                     .await
                     .unwrap()
             },
@@ -219,19 +221,19 @@ pub async fn test_oprf_ipa<F>(
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
-                    8 => oprf_ipa::<BA8, BA3, BA16, BA20, 3, 256>(ctx, input_rows, aws)
+                    8 => oprf_ipa::<BA8, BA3, BA16, BA20, 3, 256>(ctx, input_rows, aws, testing_with_no_dp, query_epsilon)
                     .await
                     .unwrap(),
-                    16 => oprf_ipa::<BA8, BA3, BA16, BA20, 4, 256>(ctx, input_rows, aws)
+                    16 => oprf_ipa::<BA8, BA3, BA16, BA20, 4, 256>(ctx, input_rows, aws, testing_with_no_dp, query_epsilon)
                     .await
                     .unwrap(),
-                    32 => oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, aws)
+                    32 => oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, aws, testing_with_no_dp, query_epsilon)
                     .await
                     .unwrap(),
-                    64 => oprf_ipa::<BA8, BA3, BA16, BA20, 6, 256>(ctx, input_rows, aws)
+                    64 => oprf_ipa::<BA8, BA3, BA16, BA20, 6, 256>(ctx, input_rows, aws, testing_with_no_dp, query_epsilon)
                     .await
                     .unwrap(),
-                    128 => oprf_ipa::<BA8, BA3, BA16, BA20, 7, 256>(ctx, input_rows, aws)
+                    128 => oprf_ipa::<BA8, BA3, BA16, BA20, 7, 256>(ctx, input_rows, aws, testing_with_no_dp, query_epsilon)
                     .await
                     .unwrap(),
                     _ =>
