@@ -15,8 +15,8 @@ use typenum::Unsigned;
 
 use crate::{
     helpers::{
-        buffers::OrderingSender, routing::RouteId, ChannelId, Error, Message, TotalRecords,
-        Transport, TransportIdentity,
+        buffers::OrderingSender, routing::RouteId, ChannelId, Error, GatewayConfig, Message,
+        TotalRecords, Transport, TransportIdentity,
     },
     protocol::{QueryId, RecordId},
     sync::Arc,
@@ -47,6 +47,23 @@ pub(super) struct GatewaySender<I> {
 
 struct GatewaySendStream<I> {
     inner: Arc<GatewaySender<I>>,
+}
+
+/// Configuration for each [`GatewaySender`]. All values stored here
+/// are interpreted in bytes.
+#[derive(Debug, PartialEq, Eq)]
+struct SendChannelConfig {
+    /// The total capacity of send buffer.
+    total_capacity: NonZeroUsize,
+    /// The size of a single record written in [`OrderingSender`].
+    /// Must be the same for all records.
+    record_size: NonZeroUsize,
+    /// How many bytes are read from [`OrderingSender`] when it is
+    /// polled.
+    read_size: NonZeroUsize,
+    /// The maximum number of records that can be sent through this
+    /// channel
+    total_records: TotalRecords,
 }
 
 impl<I: TransportIdentity> Default for GatewaySenders<I> {
@@ -173,7 +190,7 @@ impl<I: TransportIdentity> GatewaySenders<I> {
         &self,
         channel_id: &ChannelId<I>,
         transport: &T,
-        capacity: NonZeroUsize,
+        config: GatewayConfig,
         query_id: QueryId,
         total_records: TotalRecords, // TODO track children for indeterminate senders
     ) -> Arc<GatewaySender<I>> {
@@ -186,7 +203,10 @@ impl<I: TransportIdentity> GatewaySenders<I> {
         match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => Arc::clone(entry.get()),
             Entry::Vacant(entry) => {
-                let sender = Self::new_sender::<M>(capacity, channel_id.clone(), total_records);
+                let sender = Self::new_sender(
+                    &SendChannelConfig::new::<M>(config, total_records),
+                    channel_id.clone(),
+                );
                 entry.insert(Arc::clone(&sender));
 
                 tokio::spawn({
@@ -209,34 +229,11 @@ impl<I: TransportIdentity> GatewaySenders<I> {
         }
     }
 
-    fn new_sender<M: Message>(
-        capacity: NonZeroUsize,
-        channel_id: ChannelId<I>,
-        total_records: TotalRecords,
-    ) -> Arc<GatewaySender<I>> {
-        // Spare buffer is not required when messages have uniform size and buffer is a
-        // multiple of that size.
-        const SPARE: usize = 0;
-        // a little trick - if number of records is indeterminate, set the capacity to one
-        // message.  Any send will wake the stream reader then, effectively disabling
-        // buffering.  This mode is clearly inefficient, so avoid using this mode.
-        let write_size = if total_records.is_indeterminate() {
-            NonZeroUsize::new(M::Size::USIZE).unwrap()
-        } else {
-            // capacity is defined in terms of number of elements, while sender wants bytes
-            // so perform the conversion here
-            capacity
-                .checked_mul(
-                    NonZeroUsize::new(M::Size::USIZE)
-                        .expect("Message size should be greater than 0"),
-                )
-                .expect("capacity should not overflow")
-        };
-
+    fn new_sender(config: &SendChannelConfig, channel_id: ChannelId<I>) -> Arc<GatewaySender<I>> {
         Arc::new(GatewaySender::new(
             channel_id,
-            OrderingSender::new(write_size, SPARE),
-            total_records,
+            OrderingSender::new(config.total_capacity, config.record_size, config.read_size),
+            config.total_records,
         ))
     }
 }
@@ -247,5 +244,151 @@ impl<I: Debug> Stream for GatewaySendStream<I> {
     #[tracing::instrument(level = "trace", name = "send_stream", skip_all, fields(to = ?self.inner.channel_id.peer, gate = ?self.inner.channel_id.gate))]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::get_mut(self).inner.ordering_tx.take_next(cx)
+    }
+}
+
+impl SendChannelConfig {
+    fn new<M: Message>(gateway_config: GatewayConfig, total_records: TotalRecords) -> Self {
+        debug_assert!(M::Size::USIZE > 0, "Message size cannot be 0");
+
+        let record_size = M::Size::USIZE;
+        let total_capacity = gateway_config.active.get() * record_size;
+        Self {
+            total_capacity: total_capacity.try_into().unwrap(),
+            record_size: record_size.try_into().unwrap(),
+            read_size: if total_records.is_indeterminate()
+                || gateway_config.read_size.get() <= record_size
+            {
+                record_size
+            } else {
+                std::cmp::min(
+                    total_capacity,
+                    // closest multiple of record_size to read_size
+                    gateway_config.read_size.get() / record_size * record_size,
+                )
+            }
+            .try_into()
+            .unwrap(),
+            total_records,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::num::NonZeroUsize;
+
+    use typenum::Unsigned;
+
+    use crate::{
+        ff::{
+            boolean_array::{BA16, BA20, BA256, BA3, BA7},
+            Serializable,
+        },
+        helpers::{gateway::send::SendChannelConfig, GatewayConfig, TotalRecords},
+        secret_sharing::SharedValue,
+    };
+
+    impl Default for SendChannelConfig {
+        fn default() -> Self {
+            Self {
+                total_capacity: NonZeroUsize::new(1).unwrap(),
+                record_size: NonZeroUsize::new(1).unwrap(),
+                read_size: NonZeroUsize::new(1).unwrap(),
+                total_records: TotalRecords::Unspecified,
+            }
+        }
+    }
+
+    #[allow(clippy::needless_update)] // to allow progress_check_interval to be conditionally compiled
+    fn send_config<V: SharedValue, const A: usize, const R: usize>(
+        total_records: TotalRecords,
+    ) -> SendChannelConfig {
+        let gateway_config = GatewayConfig {
+            active: A.try_into().unwrap(),
+            read_size: R.try_into().unwrap(),
+            ..Default::default()
+        };
+
+        SendChannelConfig::new::<V>(gateway_config, total_records)
+    }
+
+    #[test]
+    fn config_basic() {
+        const TOTAL_CAPACITY: usize = 2048;
+        const READ_SIZE: usize = 2048;
+        const RECORD_SIZE: usize = <BA3 as Serializable>::Size::USIZE;
+
+        let total_records = TotalRecords::Specified(2.try_into().unwrap());
+        let send_config = send_config::<BA3, TOTAL_CAPACITY, READ_SIZE>(total_records);
+
+        assert_eq!(
+            SendChannelConfig {
+                total_capacity: TOTAL_CAPACITY.try_into().unwrap(),
+                record_size: RECORD_SIZE.try_into().unwrap(),
+                read_size: READ_SIZE.try_into().unwrap(),
+                total_records,
+            },
+            send_config
+        );
+    }
+
+    /// This ensures the previous behavior of the sender is preserved for `TotalRecords::Indeterminate`
+    /// case - if it is set, then read size is always the size of one record
+    #[test]
+    fn config_indeterminate() {
+        const RECORD_SIZE: usize = <BA7 as Serializable>::Size::USIZE;
+
+        let send_config = send_config::<BA7, 2048, 2048>(TotalRecords::Indeterminate);
+
+        assert_eq!(RECORD_SIZE, send_config.read_size.get());
+    }
+
+    #[test]
+    fn config_capacity_scales() {
+        let send_config = send_config::<BA16, 2048, 2048>(TotalRecords::Unspecified);
+
+        assert_eq!(
+            2048 * <BA16 as Serializable>::Size::USIZE,
+            send_config.total_capacity.get()
+        );
+    }
+
+    #[test]
+    fn config_read_size_scales() {
+        let send_config =
+            send_config::<BA256, 2048, 16>(TotalRecords::Specified(2.try_into().unwrap()));
+
+        assert_eq!(
+            <BA256 as Serializable>::Size::USIZE,
+            send_config.read_size.get()
+        );
+    }
+
+    #[test]
+    fn config_read_size_cannot_exceed_capacity() {
+        let send_config =
+            send_config::<BA16, 2048, 24096>(TotalRecords::Specified(2.try_into().unwrap()));
+
+        assert_eq!(
+            2048 * <BA16 as Serializable>::Size::USIZE,
+            send_config.read_size.get()
+        );
+    }
+
+    #[test]
+    fn config_read_size_closest_multiple_to_record_size() {
+        assert_eq!(
+            6,
+            send_config::<BA20, 12, 7>(TotalRecords::Specified(2.try_into().unwrap()))
+                .read_size
+                .get()
+        );
+        assert_eq!(
+            6,
+            send_config::<BA20, 12, 8>(TotalRecords::Specified(2.try_into().unwrap()))
+                .read_size
+                .get()
+        );
     }
 }

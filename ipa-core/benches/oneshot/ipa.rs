@@ -102,7 +102,10 @@ async fn run(args: Args) -> Result<(), Error> {
 
     let _prep_time = Instant::now();
     let config = TestWorldConfig {
-        gateway_config: GatewayConfig::new(args.active()),
+        gateway_config: GatewayConfig {
+            active: args.active().try_into().unwrap(),
+            ..Default::default()
+        },
         initial_gate: Some(Gate::default().narrow(&IpaPrf)),
         ..TestWorldConfig::default()
     };

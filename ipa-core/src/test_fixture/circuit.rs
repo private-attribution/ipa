@@ -76,8 +76,12 @@ pub async fn arithmetic<F, const N: usize>(
     [F; N]: IntoShares<Replicated<F, N>>,
     Standard: Distribution<F>,
 {
+    let active = NonZeroUsize::new(active_work).unwrap();
     let config = TestWorldConfig {
-        gateway_config: GatewayConfig::new(active_work),
+        gateway_config: GatewayConfig {
+            active,
+            ..Default::default()
+        },
         initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test(0))),
         ..Default::default()
     };
@@ -92,7 +96,7 @@ pub async fn arithmetic<F, const N: usize>(
         // accumulated. This gives the best performance for vectorized operation.
         let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
         seq_join(
-            NonZeroUsize::new(active_work).unwrap(),
+            active,
             stream::iter((0..(width / u32::try_from(N).unwrap())).zip(col_data)).map(
                 move |(record, Inputs { a, b })| {
                     circuit(ctx.clone(), RecordId::from(record), depth, a, b)

@@ -412,17 +412,6 @@ mod test {
         }
     }
 
-    impl TwoBytes {
-        fn iter() -> impl Iterator<Item = Self> {
-            let mut count = 0;
-            std::iter::repeat_with(move || {
-                let next = Self::from(&count);
-                count += 1;
-                next
-            })
-        }
-    }
-
     impl Debug for TwoBytes {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             f.serialize_u16(u16::from_le_bytes(self.0))

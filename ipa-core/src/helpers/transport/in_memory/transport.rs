@@ -312,9 +312,10 @@ mod tests {
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use tokio::sync::{mpsc::channel, oneshot};
     use tokio_stream::wrappers::ReceiverStream;
+    use typenum::Unsigned;
 
     use crate::{
-        ff::{FieldType, Fp31},
+        ff::{FieldType, Fp31, Serializable},
         helpers::{
             make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
@@ -541,7 +542,12 @@ mod tests {
 
     #[tokio::test]
     async fn can_consume_ordering_sender() {
-        let tx = Arc::new(OrderingSender::new(NonZeroUsize::new(2).unwrap(), 2));
+        let capacity = NonZeroUsize::new(2).unwrap();
+        let tx = Arc::new(OrderingSender::new(
+            capacity,
+            <Fp31 as Serializable>::Size::USIZE.try_into().unwrap(),
+            capacity,
+        ));
         let rx = Arc::clone(&tx).as_rc_stream();
         let network = InMemoryMpcNetwork::default();
         let transport1 = network.transport(HelperIdentity::ONE);
