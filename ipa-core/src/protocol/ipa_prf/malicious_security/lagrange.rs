@@ -62,6 +62,7 @@ where
 /// The "x coordinates" of the output points `x_N` to `x_(N+M-1)` are `N*F::ONE` to `(N+M-1)*F::ONE`
 /// when generated using `from(denominator)`
 /// unless generated using `new(denominator, x_output)` for a specific output "x coordinate" `x_output`.
+#[derive(Debug)]
 pub struct LagrangeTable<F: Field, const N: usize, const M: usize> {
     table: [[F; N]; M],
 }
