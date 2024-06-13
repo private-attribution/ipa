@@ -140,7 +140,7 @@ macro_rules! boolean_array_impl_small {
                 v.0.iter()
                     .by_refs()
                     .enumerate()
-                    .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i))
+                    .fold(0_u128, |acc, (i, b)| acc + (u128::from(*b) << i))
             }
         }
 
