@@ -102,9 +102,8 @@ where
 
 // dp_for_aggregation is currently where the DP parameters epsilon, delta
 // are introduced and then from those the parameters of the noise distribution to generate are
-// calculated for use in aggregating histograms.  In the future these DP parameters will be
-// further inputs coming all the way from the client submitting the query.
-// per_user_sensitivity_cap = 2^{SS_BITS}
+// calculated for use in aggregating histograms.  The DP parameters query_epsilon and
+// per_user_credit_cap come as inputs to the query with per_user_sensitivity_cap = 2^{SS_BITS}
 /// # Errors
 /// will propogate errors from `apply_dp_noise`
 /// # Panics
