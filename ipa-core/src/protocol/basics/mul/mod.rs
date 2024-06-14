@@ -17,7 +17,6 @@ use crate::{
         context::{
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             semi_honest::Upgraded as SemiHonestUpgraded, Context, DZKPUpgradedMaliciousContext,
-            SemiHonestContext,
         },
         RecordId,
     },
@@ -85,25 +84,6 @@ where
 
 macro_rules! boolean_array_mul {
     ($dim:expr, $vec:ty) => {
-        impl<'a, B> BooleanArrayMul<SemiHonestContext<'a, B>> for Replicated<$vec>
-        where
-            B: sharding::ShardBinding,
-        {
-            type Vectorized = Replicated<Boolean, $dim>;
-
-            fn multiply<'fut>(
-                ctx: SemiHonestContext<'a, B>,
-                record_id: RecordId,
-                a: &'fut Self::Vectorized,
-                b: &'fut Self::Vectorized,
-            ) -> impl Future<Output = Result<Self::Vectorized, Error>> + Send + 'fut
-            where
-                SemiHonestContext<'a, B>: 'fut,
-            {
-                semi_honest_multiply(ctx, record_id, a, b)
-            }
-        }
-
         impl<'a, B, F> BooleanArrayMul<SemiHonestUpgraded<'a, B, F>> for Replicated<$vec>
         where
             B: sharding::ShardBinding,
