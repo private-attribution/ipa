@@ -233,6 +233,13 @@ impl PartialEq for IpaQueryConfig {
             && self.plaintext_match_keys == other.plaintext_match_keys
     }
 }
+
+// TODO switch to useing an enum
+// enum DPParams {
+//     No_DP,
+//     With_DP(f64),
+// }
+
 #[cfg(test)]
 impl Eq for IpaQueryConfig {}
 
