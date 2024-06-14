@@ -243,6 +243,12 @@ where
 {
     // Step used to add trigger values.
     type AdditionStep = ThirtyTwoBitStep;
+    assert!(
+        OV::BITS <= AdditionStep::BITS,
+        "{} not large enough to accommodate the sum of {} bit values",
+        type_name::<AdditionStep>(),
+        OV::BITS,
+    );
 
     let mut depth = 0;
     while num_rows > 1 {
@@ -271,12 +277,6 @@ where
                             }
                             Ok(mut chunk_pair) => {
                                 assert_eq!(chunk_pair.len(), 2);
-                                assert!(
-                                    OV::BITS <= AdditionStep::BITS,
-                                    "{} not large enough to accommodate the sum of {} bit values",
-                                    type_name::<AdditionStep>(),
-                                    OV::BITS,
-                                );
                                 let b = chunk_pair.pop().unwrap();
                                 let a = chunk_pair.pop().unwrap();
                                 let record_id = RecordId::from(i);
