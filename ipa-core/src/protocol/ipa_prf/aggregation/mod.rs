@@ -1,4 +1,5 @@
 use std::{
+    any::type_name,
     convert::Infallible,
     iter::{self, repeat},
     pin::Pin,
@@ -16,7 +17,7 @@ use crate::{
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
-        boolean::{step::SixteenBitStep, NBitStep},
+        boolean::{step::ThirtyTwoBitStep, NBitStep},
         context::Context,
         ipa_prf::{
             aggregation::step::{AggregateValuesStep, AggregationStep as Step},
@@ -240,6 +241,9 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
 {
+    // Step used to add trigger values.
+    type AdditionStep = ThirtyTwoBitStep;
+
     let mut depth = 0;
     while num_rows > 1 {
         // We reduce pairwise, passing through the odd record at the end if there is one, so the
@@ -267,16 +271,18 @@ where
                             }
                             Ok(mut chunk_pair) => {
                                 assert_eq!(chunk_pair.len(), 2);
+                                assert!(
+                                    OV::BITS <= AdditionStep::BITS,
+                                    "{} not large enough to accommodate the sum of {} bit values",
+                                    type_name::<AdditionStep>(),
+                                    OV::BITS,
+                                );
                                 let b = chunk_pair.pop().unwrap();
                                 let a = chunk_pair.pop().unwrap();
                                 let record_id = RecordId::from(i);
                                 if a.len() < usize::try_from(OV::BITS).unwrap() {
-                                    assert!(
-                                        OV::BITS <= SixteenBitStep::BITS,
-                                        "SixteenBitStep not large enough to accomodate this sum"
-                                    );
                                     // If we have enough output bits, add and keep the carry.
-                                    let (mut sum, carry) = integer_add::<_, SixteenBitStep, B>(
+                                    let (mut sum, carry) = integer_add::<_, AdditionStep, B>(
                                         ctx.narrow(&AggregateValuesStep::Add),
                                         record_id,
                                         &a,
@@ -286,11 +292,7 @@ where
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
-                                    assert!(
-                                        OV::BITS <= SixteenBitStep::BITS,
-                                        "SixteenBitStep not large enough to accommodate this sum"
-                                    );
-                                    integer_sat_add::<C, SixteenBitStep, B>(
+                                    integer_sat_add::<C, AdditionStep, B>(
                                         ctx.narrow(&AggregateValuesStep::SaturatingAdd),
                                         record_id,
                                         &a,
