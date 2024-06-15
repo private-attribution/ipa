@@ -19,7 +19,7 @@ pub mod base;
 mod sharded;
 pub(crate) mod step;
 
-#[tracing::instrument(name = "shuffle_inputs", skip_all)]
+#[tracing::instrument(name = "shuffle_inputs", skip_all, fields(sz = input.len()))]
 pub async fn shuffle_inputs<C, BK, TV, TS>(
     ctx: C,
     input: Vec<OPRFIPAInputRow<BK, TV, TS>>,
