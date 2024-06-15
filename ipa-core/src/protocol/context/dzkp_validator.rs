@@ -7,13 +7,13 @@ use futures_util::{StreamExt, TryFutureExt};
 
 use super::step::ZeroKnowledgeProofValidateStep as Step;
 #[cfg(all(test, unit_test))]
-use crate::protocol::context::dzkp_field::{UVSingleBlock, UVTupleBlock};
+use crate::protocol::context::dzkp_field::{DZKPBaseField, UVSingleBlock, UVTupleBlock};
 use crate::{
     error::{BoxError, Error},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_field::DZKPBaseField, dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
+            dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, Context,
             MaliciousContext, SemiHonestContext, UpgradableContext,
         },
@@ -553,11 +553,11 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Allows to validate the current `DZKPBatch` and empties it. The associated context is then
     /// considered safe until another multiplication is performed and thus new values are added
     /// to `DZKPBatch`.
-    /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
+    /// Currently only allows `Fp61BitPrime` and is not generic over `DZKPBaseFields`.
     ///
     /// `context_counter` allows to create distinct contexts
     /// when calling validate multiple times for the same base context.
-    async fn validate<DF: DZKPBaseField>(&self, context_counter: usize) -> Result<(), Error>;
+    async fn validate(&self) -> Result<(), Error>;
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
     /// within the associated `DZKPBatch`
@@ -571,7 +571,7 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// verified using `validator.validate()`, which uses DZKPs. Once the validation fails,
     /// the output stream will return an error.
     ///
-    fn validated_seq_join<'st, S, F, O, DF>(
+    fn validated_seq_join<'st, S, F, O>(
         &'st self,
         chunk_size: usize,
         source: S,
@@ -580,7 +580,6 @@ pub trait DZKPValidator<B: UpgradableContext> {
         S: Stream<Item = F> + Send + 'st,
         F: Future<Output = O> + Send + 'st,
         O: Send + Sync + Clone + 'static,
-        DF: DZKPBaseField,
     {
         // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
         // but there is some overhead
@@ -588,7 +587,7 @@ pub trait DZKPValidator<B: UpgradableContext> {
             .chunks(chunk_size)
             .enumerate()
             .then(move |(context_counter, chunk)| {
-                self.validate::<DF>(context_counter).map_ok(|()| chunk)
+                self.validate(context_counter).map_ok(|()| chunk)
             })
             .try_flatten_iters()
     }
@@ -614,7 +613,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
         self.context.clone()
     }
 
-    async fn validate<DF: DZKPBaseField>(&self, _context_counter: usize) -> Result<(), Error> {
+    async fn validate(&self, _context_counter: usize) -> Result<(), Error> {
         Ok(())
     }
 
@@ -641,7 +640,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
 
     /// ## Panics
     /// Panics when `context_counter` exceeds 256.
-    async fn validate<DF: DZKPBaseField>(&self, context_counter: usize) -> Result<(), Error> {
+    async fn validate(&self, context_counter: usize) -> Result<(), Error> {
         assert!(context_counter <= 256);
         // LOCK BEGIN
         let mut batch = self.batch_ref.lock().unwrap();
@@ -758,7 +757,7 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
+                    .validated_seq_join(
                         chunk_size,
                         iter(
                             zip(
@@ -795,7 +794,7 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
+                    .validated_seq_join(
                         chunk_size,
                         iter(
                             zip(
