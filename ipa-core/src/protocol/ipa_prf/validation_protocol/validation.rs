@@ -34,6 +34,7 @@ use crate::{
 /// `ProofsToVerify` also contains two masks `p_0` and `q_0` in `masks` stored as `(p_0,q_0)`
 /// These masks are used as additional `u,v` values for the final proof.
 /// These masks mask sensitive information when verifying the final proof.
+/// `size_m` is the amount of `u`, `v` tuples included in the proof.
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
@@ -43,6 +44,9 @@ pub struct BatchToVerify {
     proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     p_mask_from_left_prover: Fp61BitPrime,
     q_mask_from_right_prover: Fp61BitPrime,
+    // remove dead_code once we use size_m
+    #[allow(dead_code)]
+    size_m: u128,
 }
 
 impl BatchToVerify {
@@ -73,7 +77,7 @@ impl BatchToVerify {
         let first_lagrange_table = LagrangeTable::<Fp61BitPrime, LRF, LLL>::from(first_denominator);
 
         // generate first proof from input iterator
-        let (mut uv_values, first_proof_from_left, my_first_proof_left_share) =
+        let (mut uv_values, first_proof_from_left, my_first_proof_left_share, size_m) =
             LargeProofGenerator::gen_artefacts_from_recursive_step(
                 &ctx,
                 &mut record_counter,
@@ -109,7 +113,7 @@ impl BatchToVerify {
             if uv_values.len() < SRF {
                 uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
             }
-            let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =
+            let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share, _) =
                 SmallProofGenerator::gen_artefacts_from_recursive_step(
                     &ctx,
                     &mut record_counter,
@@ -147,6 +151,7 @@ impl BatchToVerify {
             proofs_from_right_prover: shares_of_batch_from_right_prover.proofs,
             p_mask_from_left_prover,
             q_mask_from_right_prover,
+            size_m,
         }
     }
 
