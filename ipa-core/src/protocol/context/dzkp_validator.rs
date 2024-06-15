@@ -554,7 +554,10 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// considered safe until another multiplication is performed and thus new values are added
     /// to `DZKPBatch`.
     /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
-    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
+    ///
+    /// `context_counter` allows to create distinct contexts
+    /// when calling validate multiple times for the same base context.
+    async fn validate<DF: DZKPBaseField>(&self, context_counter: usize) -> Result<(), Error>;
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
     /// within the associated `DZKPBatch`
@@ -583,7 +586,10 @@ pub trait DZKPValidator<B: UpgradableContext> {
         // but there is some overhead
         seq_join::<'st, S, F, O>(self.context().active_work(), source)
             .chunks(chunk_size)
-            .then(move |chunk| self.validate::<DF>().map_ok(|()| chunk))
+            .enumerate()
+            .then(move |(context_counter, chunk)| {
+                self.validate::<DF>(context_counter).map_ok(|()| chunk)
+            })
             .try_flatten_iters()
     }
 }
@@ -608,7 +614,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
         self.context.clone()
     }
 
-    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error> {
+    async fn validate<DF: DZKPBaseField>(&self, _context_counter: usize) -> Result<(), Error> {
         Ok(())
     }
 
@@ -633,13 +639,17 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         self.protocol_ctx.clone()
     }
 
-    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error> {
+    /// ## Panics
+    /// Panics when `context_counter` exceeds 256.
+    async fn validate<DF: DZKPBaseField>(&self, context_counter: usize) -> Result<(), Error> {
+        assert!(context_counter <= 256);
         // LOCK BEGIN
         let mut batch = self.batch_ref.lock().unwrap();
         if batch.is_empty() {
             Ok(())
         } else {
             // todo: generate proofs and validate them using `batch_list`
+            // use context_counter to generate a distinct context for each chunk
             // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
             batch.increment_record_ids();

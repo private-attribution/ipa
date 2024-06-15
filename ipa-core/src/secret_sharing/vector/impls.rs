@@ -102,7 +102,7 @@ macro_rules! boolean_vector {
                             )
                             .await?;
 
-                            v.validate::<Fp61BitPrime>().await?;
+                            v.validate::<Fp61BitPrime>(0usize).await?;
 
                             Ok::<_, Error>(result)
                         });
@@ -142,7 +142,7 @@ macro_rules! boolean_vector {
                             )
                             .await?;
 
-                            v.validate::<Fp61BitPrime>().await?;
+                            v.validate::<Fp61BitPrime>(0usize).await?;
 
                             Ok::<_, Error>(result)
                         });
