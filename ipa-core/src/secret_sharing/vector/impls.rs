@@ -63,7 +63,6 @@ macro_rules! boolean_vector {
                 use super::*;
                 use crate::{
                     error::Error,
-                    ff::Fp61BitPrime,
                     protocol::{
                         basics::select,
                         context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
@@ -102,7 +101,7 @@ macro_rules! boolean_vector {
                             )
                             .await?;
 
-                            v.validate::<Fp61BitPrime>().await?;
+                            v.validate().await?;
 
                             Ok::<_, Error>(result)
                         });
@@ -142,7 +141,7 @@ macro_rules! boolean_vector {
                             )
                             .await?;
 
-                            v.validate::<Fp61BitPrime>().await?;
+                            v.validate().await?;
 
                             Ok::<_, Error>(result)
                         });
