@@ -3,8 +3,6 @@ use std::fmt::{Debug, Display, Formatter};
 use serde::Deserialize;
 
 use crate::{Gate, Step, StepNarrow};
-use crate::descriptive::labels::{STEP, STEP_NARROWED};
-
 pub mod labels {
     pub const STEP_NARROWED: &str = "step.narrowed";
     pub const STEP: &str = "step";
