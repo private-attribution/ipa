@@ -247,6 +247,7 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
             "--per-user-credit-cap",
             &config.per_user_credit_cap.to_string(),
         ])
+        .args(["--dp-params", &config.dp_params.to_string()])
         .stdin(Stdio::piped());
     if config.attribution_window_seconds.is_some() {
         command.args([
@@ -254,6 +255,7 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
             &config.attribution_window_seconds.unwrap().to_string(),
         ]);
     }
+
     if !https {
         // No reason that match key encryption needs to be coupled with helper-to-helper TLS, but
         // currently it is.

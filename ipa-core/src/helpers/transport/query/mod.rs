@@ -279,6 +279,20 @@ impl From<&str> for DPParams {
     }
 }
 
+impl Display for DPParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DPParams::TestingWithNoDP => write!(f, "TestingWithNoDP"),
+            DPParams::WithDP(eps) => write!(f, "WithDP={eps}"),
+        }
+    }
+}
+// impl ToString for DPParams {
+//     fn to_string(&self) -> String {
+//         self.to_string()
+//     }
+// }
+
 #[cfg(test)]
 impl PartialEq<Self> for DPParams {
     fn eq(&self, other: &DPParams) -> bool {
