@@ -239,12 +239,19 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
+    if input_rows.is_empty() {
+        return Ok(vec![Replicated::ZERO; B]);
+    }
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
     let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
     let (histogram, ranges) = histograms_ranges_sortkeys(&mut prfd_inputs);
+    if histogram.len() == 1 {
+        // No user has more than one record.
+        return Ok(vec![Replicated::ZERO; B]);
+    }
     quicksort_ranges_by_key_insecure(
         ctx.narrow(&Step::SortByTimestamp),
         &mut prfd_inputs,
@@ -392,6 +399,59 @@ pub mod tests {
                 test_input(10, 12345, true, 0, 5),
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
+            ];
+
+            let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+
+    #[test]
+    fn semi_honest_empty() {
+        const EXPECTED: &[u128] = &[0, 0, 0, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::default();
+
+            let records: Vec<TestRawDataRecord> = vec![];
+
+            let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+
+    #[test]
+    fn semi_honest_degenerate() {
+        const EXPECTED: &[u128] = &[0, 0, 0, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::default();
+
+            let records: Vec<TestRawDataRecord> = vec![
+                test_input(0, 12345, false, 1, 0),
+                test_input(0, 68362, false, 1, 0),
             ];
 
             let mut result: Vec<_> = world

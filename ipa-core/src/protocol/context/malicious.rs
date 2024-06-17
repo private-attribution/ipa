@@ -114,7 +114,7 @@ impl<'a> super::Context for Context<'a> {
         }
     }
 
-    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: self.inner.set_total_records(total_records),
         }
@@ -287,7 +287,7 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         }
     }
 
-    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
             gate: self.gate.clone(),

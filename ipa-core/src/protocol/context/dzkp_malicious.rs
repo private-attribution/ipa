@@ -85,7 +85,7 @@ impl<'a> super::Context for DZKPUpgraded<'a> {
         }
     }
 
-    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
             gate: self.gate.clone(),

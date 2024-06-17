@@ -68,7 +68,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
     #[must_use]
-    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self;
+    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self;
 
     /// Returns the current setting for the number of records
     #[must_use]
@@ -259,7 +259,7 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
         }
     }
 
-    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: self.inner.clone(),
             gate: self.gate.clone(),

@@ -70,7 +70,7 @@ impl<'a, B: ShardBinding> super::Context for DZKPUpgraded<'a, B> {
         Self::new(self.inner.narrow(step))
     }
 
-    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
         Self::new(self.inner.set_total_records(total_records))
     }
 

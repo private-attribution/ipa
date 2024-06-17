@@ -6,7 +6,7 @@
 use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
-    num::NonZeroUsize,
+    num::{NonZeroUsize, TryFromIntError},
 };
 
 use generic_array::GenericArray;
@@ -509,6 +509,19 @@ impl Display for TotalRecords {
 }
 
 impl TotalRecords {
+    /// Construct a `TotalRecords` specifying a record count of `value`.
+    ///
+    /// ## Panics
+    /// If the supplied record count is zero.
+    #[must_use]
+    pub const fn specified(value: usize) -> Self {
+        // `Option::unwrap` is not yet `const`.
+        match NonZeroUsize::new(value) {
+            Some(value) => Self::Specified(value),
+            None => panic!("TotalRecords cannot be zero"),
+        }
+    }
+
     #[must_use]
     pub fn is_specified(&self) -> bool {
         !matches!(self, &TotalRecords::Unspecified)
@@ -543,8 +556,12 @@ impl TotalRecords {
     /// Any new value is OK if the current value is unspecified.
     /// Otherwise the new value can be indeterminate if the old value is specified.
     #[must_use]
-    pub fn overwrite<T: Into<TotalRecords>>(&self, value: T) -> TotalRecords {
-        match (self, value.into()) {
+    pub fn overwrite<T: TryInto<TotalRecords>>(&self, value: T) -> TotalRecords {
+        let new = value
+            .try_into()
+            .ok()
+            .expect("zero is not a valid value for TotalRecords");
+        match (self, new) {
             (Self::Unspecified, v) => v,
             (_, Self::Unspecified) => panic!("TotalRecords needs a specific value for overwriting"),
             (Self::Specified(_), Self::Indeterminate) => Self::Indeterminate,
@@ -553,12 +570,11 @@ impl TotalRecords {
     }
 }
 
-impl From<usize> for TotalRecords {
-    fn from(value: usize) -> Self {
-        match NonZeroUsize::new(value) {
-            Some(v) => TotalRecords::Specified(v),
-            None => TotalRecords::Unspecified,
-        }
+impl TryFrom<usize> for TotalRecords {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        NonZeroUsize::try_from(value).map(TotalRecords::Specified)
     }
 }
 
@@ -595,6 +611,26 @@ impl<T: Clone> ExactSizeIterator for RepeatN<T> {}
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "TotalRecords needs a specific value for overwriting")]
+    fn total_records_overwrite_unspecified() {
+        let _ = TotalRecords::Specified(NonZeroUsize::new(1).unwrap())
+            .overwrite(TotalRecords::Unspecified);
+    }
+
+    #[test]
+    #[should_panic(expected = "zero is not a valid value for TotalRecords")]
+    fn total_records_overwrite_zero() {
+        let _ = TotalRecords::Unspecified.overwrite(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "TotalRecords bad transition")]
+    fn total_records_overwrite_bad_transition() {
+        let _ = TotalRecords::Indeterminate
+            .overwrite(TotalRecords::Specified(NonZeroUsize::new(1).unwrap()));
+    }
 
     mod role_tests {
         use super::*;
