@@ -7,6 +7,7 @@ use ipa_step::{Step, StepNarrow};
 use crate::{
     error::Error,
     ff::Field,
+    helpers::TotalRecords,
     protocol::{
         boolean::step::TwoHundredFiftySixBitOpStep, context::UpgradedContext, Gate, NoRecord,
         RecordBinding, RecordId,
@@ -126,7 +127,9 @@ where
 {
     async fn upgrade(self, input: I) -> Result<Vec<M>, Error> {
         let iter = input.into_iter();
-        let ctx = self.ctx.set_total_records(iter.len());
+        let ctx = self
+            .ctx
+            .set_total_records(TotalRecords::specified(iter.len())?);
         let ctx_ref = &ctx;
         ctx.try_join(iter.enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
@@ -180,7 +183,7 @@ where
         let ctx = if self.ctx.total_records().is_specified() {
             self.ctx
         } else {
-            self.ctx.set_total_records(1)
+            self.ctx.set_total_records(typenum::Const::<1>)
         };
         UpgradeContext::new(ctx, RecordId::FIRST)
             .upgrade(input)

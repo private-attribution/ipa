@@ -20,10 +20,9 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     // have completed key exchange and each of them have established a shared secret with each peer.
     let left_channel = ChannelId::new(gateway.role().peer(Direction::Left), gate.clone());
     let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), gate.clone());
-    let total_records = TotalRecords::specified(1);
 
-    let left_sender = gateway.get_mpc_sender::<PublicKey>(&left_channel, total_records);
-    let right_sender = gateway.get_mpc_sender::<PublicKey>(&right_channel, total_records);
+    let left_sender = gateway.get_mpc_sender::<PublicKey>(&left_channel, TotalRecords::ONE);
+    let right_sender = gateway.get_mpc_sender::<PublicKey>(&right_channel, TotalRecords::ONE);
     let left_receiver = gateway.get_mpc_receiver::<PublicKey>(&left_channel);
     let right_receiver = gateway.get_mpc_receiver::<PublicKey>(&right_channel);
 

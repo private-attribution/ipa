@@ -2,11 +2,15 @@ use std::{convert::Infallible, iter, mem, ops::Range};
 
 use bitvec::prelude::{BitVec, Lsb0};
 use futures::stream::{self, repeat, StreamExt, TryStreamExt};
+use typenum::Const;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, boolean_array::BooleanArray, Expand},
-    helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
+    helpers::{
+        stream::{div_round_up, process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
+        TotalRecords,
+    },
     protocol::{
         basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
@@ -159,13 +163,15 @@ where
             .sum::<usize>()
             - ranges_to_sort.len();
 
-        // This can only be the case if all of the ranges have length 1. We handled this explicitly
-        // for the input; for subsequent passes, we shouldn't be generating trivial ranges.
-        assert!(num_comparisons_needed != 0);
-
+        // num_comparisons_needed can only be zero if all of the ranges have length 1. We handled
+        // this explicitly for the input; for subsequent passes, we shouldn't be generating trivial
+        // ranges.
+        let total_records =
+            TotalRecords::specified(div_round_up(num_comparisons_needed, Const::<SORT_CHUNK>))
+                .expect("num_comparisons_needed should not be zero");
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
-            .set_total_records((num_comparisons_needed + SORT_CHUNK - 1) / SORT_CHUNK);
+            .set_total_records(total_records);
         let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
         let rvl_ctx = c.narrow(&QuicksortPassStep::Reveal);
 

@@ -8,15 +8,16 @@
 //! MPC communication, it uses 6 rounds of intra-helper communications to send data between shards.
 //! In this implementation, this operation is called "resharding".
 
-use std::{cmp::max, future::Future, ops::Add};
+use std::{future::Future, num::NonZeroUsize, ops::Add};
 
 use futures::{future::try_join, stream, StreamExt, TryFutureExt};
 use ipa_step::Step;
 use rand::seq::SliceRandom;
+use typenum::Const;
 
 use crate::{
     ff::{boolean_array::BA64, U128Conversions},
-    helpers::{Direction, Error, Role},
+    helpers::{Direction, Error, Role, TotalRecords},
     protocol::{
         context::{reshard, ShardedContext},
         prss::{FromRandom, FromRandomU128, SharedRandomness},
@@ -41,7 +42,7 @@ trait ShuffleContext: ShardedContext {
     ) -> impl Future<Output = Result<(), crate::error::Error>> + Send {
         async move {
             Ok(self
-                .set_total_records(1)
+                .set_total_records(Const::<1>)
                 .send_channel::<BA64>(self.role().peer(direction))
                 .send(
                     RecordId::FIRST,
@@ -158,7 +159,7 @@ trait ShuffleContext: ShardedContext {
     {
         let shares = shares.into_iter();
         let sz = shares.len();
-        let ctx = self.set_total_records(max(1, sz));
+        let ctx = self.set_total_records(TotalRecords::specified(sz).unwrap_or(TotalRecords::ONE));
 
         async move {
             let send_channel = ctx.send_channel::<S>(ctx.role().peer(direction));
@@ -353,16 +354,16 @@ where
         .send_word(Direction::Left, x3.len())
         .await?;
 
-    if x3.is_empty() {
+    let Some(x3_len) = NonZeroUsize::new(x3.len()) else {
         return Ok(Vec::new());
-    }
+    };
 
     // Generate c_1 = x_3 ⊕ b, stream it to H3 and receive c_2 from it at the same time.
     // Knowing b, c_1 and c_2 lets us set our resulting share, according to the paper it is
     // (b, c_1 + c_2)
     let send_channel = ctx
         .narrow(&ShuffleStep::C)
-        .set_total_records(x3.len())
+        .set_total_records(x3_len)
         .send_channel(ctx.role().peer(Direction::Right));
     let recv_channel = ctx
         .narrow(&ShuffleStep::C)
@@ -413,15 +414,15 @@ where
         .mask_and_shuffle(Direction::Left, y2)
         .await?;
 
-    if y3.is_empty() {
+    let Some(y3_len) = NonZeroUsize::new(y3.len()) else {
         return Ok(Vec::new());
-    }
+    };
 
     // Generate c_2 = y_3 ⊕ a, stream it to H2 and receive c_1 from it at the same time.
     // Set our share to be (c_1 + c_2, a)
     let send_channel = ctx
         .narrow(&ShuffleStep::C)
-        .set_total_records(y3.len())
+        .set_total_records(y3_len)
         .send_channel(ctx.role().peer(Direction::Left));
     let recv_channel = ctx
         .narrow(&ShuffleStep::C)

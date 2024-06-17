@@ -114,7 +114,7 @@ impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
         }
     }
 
-    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: self.inner.set_total_records(total_records),
         }
@@ -228,7 +228,7 @@ impl<'a, B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'a, B,
         Self::new(self.inner.narrow(step))
     }
 
-    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         Self::new(self.inner.set_total_records(total_records))
     }
 

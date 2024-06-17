@@ -7,7 +7,7 @@ use std::{
 
 use futures::{stream, StreamExt, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{Unsigned, U18};
+use typenum::{Const, Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
@@ -18,7 +18,10 @@ use crate::{
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
     },
-    helpers::stream::{process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
+    helpers::{
+        stream::{div_round_up, process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
+        TotalRecords,
+    },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
         context::{
@@ -284,12 +287,13 @@ where
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<C, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
+    let conv_records =
+        TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
+    let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), Const::<PRF_CHUNK>))?;
     let convert_ctx = ctx
         .narrow(&Step::ConvertFp25519)
-        .set_total_records((input_rows.len() + CONV_CHUNK - 1) / CONV_CHUNK);
-    let eval_ctx = ctx
-        .narrow(&Step::EvalPrf)
-        .set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);
+        .set_total_records(conv_records);
+    let eval_ctx = ctx.narrow(&Step::EvalPrf).set_total_records(eval_records);
 
     let prf_key = gen_prf_key(&eval_ctx);
 

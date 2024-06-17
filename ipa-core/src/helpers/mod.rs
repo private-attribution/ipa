@@ -6,7 +6,7 @@
 use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
-    num::{NonZeroUsize, TryFromIntError},
+    num::NonZeroUsize,
 };
 
 use generic_array::GenericArray;
@@ -72,7 +72,7 @@ pub use transport::{
 };
 #[cfg(feature = "in-memory-infra")]
 pub use transport::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
-use typenum::{Unsigned, U8};
+use typenum::{Const, ToUInt, Unsigned, U8};
 use x25519_dalek::PublicKey;
 
 use crate::{
@@ -509,16 +509,17 @@ impl Display for TotalRecords {
 }
 
 impl TotalRecords {
-    /// Construct a `TotalRecords` specifying a record count of `value`.
-    ///
-    /// ## Panics
-    /// If the supplied record count is zero.
-    #[must_use]
-    pub const fn specified(value: usize) -> Self {
-        // `Option::unwrap` is not yet `const`.
-        match NonZeroUsize::new(value) {
-            Some(value) => Self::Specified(value),
-            None => panic!("TotalRecords cannot be zero"),
+    pub const ONE: Self = match NonZeroUsize::new(1) {
+        Some(value) => TotalRecords::Specified(value),
+        None => unreachable!(),
+    };
+
+    /// ## Errors
+    /// If `value` is zero. Only non-zero counts are supported.
+    pub fn specified(value: usize) -> Result<Self, ZeroRecordsError> {
+        match NonZeroUsize::try_from(value) {
+            Ok(value) => Ok(TotalRecords::Specified(value)),
+            Err(_) => Err(ZeroRecordsError),
         }
     }
 
@@ -556,12 +557,8 @@ impl TotalRecords {
     /// Any new value is OK if the current value is unspecified.
     /// Otherwise the new value can be indeterminate if the old value is specified.
     #[must_use]
-    pub fn overwrite<T: TryInto<TotalRecords>>(&self, value: T) -> TotalRecords {
-        let new = value
-            .try_into()
-            .ok()
-            .expect("zero is not a valid value for TotalRecords");
-        match (self, new) {
+    pub fn overwrite<T: Into<TotalRecords>>(&self, value: T) -> TotalRecords {
+        match (self, value.into()) {
             (Self::Unspecified, v) => v,
             (_, Self::Unspecified) => panic!("TotalRecords needs a specific value for overwriting"),
             (Self::Specified(_), Self::Indeterminate) => Self::Indeterminate,
@@ -570,11 +567,34 @@ impl TotalRecords {
     }
 }
 
-impl TryFrom<usize> for TotalRecords {
-    type Error = TryFromIntError;
+#[derive(Debug)]
+pub struct ZeroRecordsError;
 
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        NonZeroUsize::try_from(value).map(TotalRecords::Specified)
+// This one is convenient for tests, but we don't want the panic in production code.
+// For production code, use `TotalRecords::specified`.
+#[cfg(test)]
+impl From<usize> for TotalRecords {
+    fn from(value: usize) -> Self {
+        TotalRecords::specified(value).unwrap()
+    }
+}
+
+impl From<NonZeroUsize> for TotalRecords {
+    fn from(value: NonZeroUsize) -> Self {
+        TotalRecords::Specified(value)
+    }
+}
+
+impl<const N: usize> From<Const<N>> for TotalRecords
+where
+    Const<N>: ToUInt,
+    <Const<N> as ToUInt>::Output: Unsigned + typenum::NonZero,
+{
+    fn from(_value: Const<N>) -> Self {
+        let Some(value) = NonZeroUsize::new(<Const<N> as ToUInt>::Output::to_usize()) else {
+            unreachable!("NonZero typenum cannot be zero");
+        };
+        TotalRecords::Specified(value)
     }
 }
 
@@ -620,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "zero is not a valid value for TotalRecords")]
+    #[should_panic(expected = "ZeroRecordsError")]
     fn total_records_overwrite_zero() {
         let _ = TotalRecords::Unspecified.overwrite(0);
     }

@@ -68,7 +68,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
     #[must_use]
-    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self;
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self;
 
     /// Returns the current setting for the number of records
     #[must_use]
@@ -259,7 +259,7 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
         }
     }
 
-    fn set_total_records<T: TryInto<TotalRecords>>(&self, total_records: T) -> Self {
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: self.inner.clone(),
             gate: self.gate.clone(),
@@ -420,7 +420,8 @@ where
     // because it is not known in advance how many records each peer receives. We could've set
     // the channel capacity to be indeterminate, but it could be less efficient in using our most
     // precious resource - network.
-    let ctx = ctx.set_total_records(std::cmp::max(1, input_len));
+    let ctx =
+        ctx.set_total_records(TotalRecords::specified(input_len).unwrap_or(TotalRecords::ONE));
     let my_shard = ctx.shard_id();
 
     // Open communication channels to all shards on this helper and keep track of records sent

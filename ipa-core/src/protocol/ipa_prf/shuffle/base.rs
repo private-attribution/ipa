@@ -1,11 +1,14 @@
-use std::ops::{Add, AddAssign};
+use std::{
+    num::NonZeroUsize,
+    ops::{Add, AddAssign},
+};
 
 use futures::future;
 use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng};
 
 use crate::{
     error::Error,
-    helpers::{Direction, MpcReceivingEnd, Role},
+    helpers::{Direction, MpcReceivingEnd, Role, TotalRecords},
     protocol::{context::Context, ipa_prf::shuffle::step::OPRFShuffleStep, RecordId},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -28,19 +31,22 @@ where
     // TODO: this code works with iterators and that costs it an extra allocation at the end.
     // This protocol can take a mutable iterator and replace items in the input.
     let shares = shares.into_iter();
+    let Some(shares_len) = NonZeroUsize::new(shares.len()) else {
+        return Ok(vec![]);
+    };
     let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
-    let zs = generate_random_tables_with_peers(shares.len(), &ctx_z);
+    let zs = generate_random_tables_with_peers(shares_len, &ctx_z);
 
     match ctx.role() {
-        Role::H1 => run_h1(&ctx, shares.len(), shares, zs).await,
-        Role::H2 => run_h2(&ctx, shares.len(), shares, zs).await,
-        Role::H3 => run_h3(&ctx, shares.len(), zs).await,
+        Role::H1 => run_h1(&ctx, shares_len, shares, zs).await,
+        Role::H2 => run_h2(&ctx, shares_len, shares, zs).await,
+        Role::H3 => run_h3(&ctx, shares_len, zs).await,
     }
 }
 
 async fn run_h1<C, I, S, Zl, Zr>(
     ctx: &C,
-    batch_size: usize,
+    batch_size: NonZeroUsize,
     shares: I,
     (z_31, z_12): (Zl, Zr),
 ) -> Result<Vec<AdditiveShare<S>>, Error>
@@ -81,7 +87,7 @@ where
 
 async fn run_h2<C, I, S, Zl, Zr>(
     ctx: &C,
-    batch_size: usize,
+    batch_size: NonZeroUsize,
     shares: I,
     (z_12, z_23): (Zl, Zr),
 ) -> Result<Vec<AdditiveShare<S>>, Error>
@@ -108,7 +114,7 @@ where
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
     y_1.shuffle(&mut rng_perm_l);
 
-    let mut x_2: Vec<S> = Vec::with_capacity(batch_size);
+    let mut x_2: Vec<S> = Vec::with_capacity(batch_size.get());
     future::try_join(
         send_to_peer(&y_1, ctx, &OPRFShuffleStep::TransferY1, Direction::Right),
         receive_from_peer_into(
@@ -153,7 +159,7 @@ where
 
 async fn run_h3<C, S, Zl, Zr>(
     ctx: &C,
-    batch_size: usize,
+    batch_size: NonZeroUsize,
     (z_23, z_31): (Zl, Zr),
 ) -> Result<Vec<AdditiveShare<S>>, Error>
 where
@@ -170,7 +176,7 @@ where
         generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Right).collect();
 
     // 2. Run computations
-    let mut y_1 = Vec::<S>::with_capacity(batch_size);
+    let mut y_1 = Vec::<S>::with_capacity(batch_size.get());
     receive_from_peer_into(
         &mut y_1,
         batch_size,
@@ -254,7 +260,7 @@ where
 }
 
 fn generate_random_tables_with_peers<'a, C, S>(
-    batch_size: usize,
+    batch_size: NonZeroUsize,
     narrow_ctx: &'a C,
 ) -> (impl Iterator<Item = S> + 'a, impl Iterator<Item = S> + 'a)
 where
@@ -263,13 +269,13 @@ where
     S: 'a,
 {
     let (rng_l, rng_r) = narrow_ctx.prss_rng();
-    let with_left = rng_l.sample_iter(Standard).take(batch_size);
-    let with_right = rng_r.sample_iter(Standard).take(batch_size);
+    let with_left = rng_l.sample_iter(Standard).take(batch_size.get());
+    let with_right = rng_r.sample_iter(Standard).take(batch_size.get());
     (with_left, with_right)
 }
 
 fn generate_random_table_solo<'a, C, S>(
-    batch_size: usize,
+    batch_size: NonZeroUsize,
     narrow_ctx: &'a C,
     peer: Direction,
 ) -> impl Iterator<Item = S> + 'a
@@ -284,7 +290,7 @@ where
         Direction::Right => rngs.1,
     };
 
-    rng.sample_iter(Standard).take(batch_size)
+    rng.sample_iter(Standard).take(batch_size.get())
 }
 
 // ---------------------------- helper communication ------------------------------------ //
@@ -302,7 +308,7 @@ where
     let role = ctx.role().peer(direction);
     let send_channel = ctx
         .narrow(step)
-        .set_total_records(items.len())
+        .set_total_records(TotalRecords::specified(items.len())?)
         .send_channel(role);
 
     for (record_id, row) in items.iter().enumerate() {
@@ -313,7 +319,7 @@ where
 
 async fn receive_from_peer_into<C, S>(
     buf: &mut Vec<S>,
-    batch_size: usize,
+    batch_size: NonZeroUsize,
     ctx: &C,
     step: &OPRFShuffleStep,
     direction: Direction,
@@ -328,7 +334,7 @@ where
         .set_total_records(batch_size)
         .recv_channel(role);
 
-    for record_id in 0..batch_size {
+    for record_id in 0..batch_size.get() {
         let msg = receive_channel.receive(RecordId::from(record_id)).await?;
         buf.push(msg);
     }

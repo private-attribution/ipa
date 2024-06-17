@@ -1,4 +1,5 @@
 use futures_util::future::try_join;
+use typenum::Const;
 
 use crate::{
     error::Error,
@@ -38,7 +39,7 @@ where
     let hash_left = compute_hash(input_left);
 
     // set up context
-    let ctx_new = &(ctx.set_total_records(1usize));
+    let ctx_new = &(ctx.set_total_records(Const::<1>));
     // set up channels
     let send_channel = ctx_new.send_channel::<Hash>(ctx.role().peer(Direction::Right));
     let receive_channel = ctx_new.recv_channel::<Hash>(ctx.role().peer(Direction::Left));
