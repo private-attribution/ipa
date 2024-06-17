@@ -259,6 +259,7 @@ impl FromStr for DPParams {
         }
     }
 }
+
 impl From<&str> for DPParams {
     fn from(s: &str) -> Self {
         match s {
@@ -268,10 +269,10 @@ impl From<&str> for DPParams {
                 if parts.len() == 2 && parts[0] == "WithDP" {
                     match parts[1].parse::<f64>() {
                         Ok(value) => DPParams::WithDP(value),
-                        Err(e) => return Err(e).unwrap(),
+                        Err(e) => panic!("{e:?}"),
                     }
                 } else {
-                    return Err(s.parse::<f64>().unwrap_err()).unwrap();
+                    panic!("{:?}", s.parse::<f64>().unwrap_err());
                 }
             }
         }
