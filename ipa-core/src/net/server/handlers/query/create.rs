@@ -47,7 +47,7 @@ mod tests {
         ff::FieldType,
         helpers::{
             make_owned_handler,
-            query::{IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
+            query::{DPParams, IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
             routing::RouteId,
             HelperResponse, Role, RoleAssignment,
         },
@@ -95,8 +95,7 @@ mod tests {
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
-                    testing_with_no_dp: true,
-                    query_epsilon: -1.0,
+                    dp_params: DPParams::TestingWithNoDP,
                     plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
@@ -117,8 +116,7 @@ mod tests {
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
-                testing_with_no_dp: true,
-                query_epsilon: -1.0,
+                dp_params: DPParams::TestingWithNoDP,
                 plaintext_match_keys: true,
             }),
         })
@@ -191,16 +189,20 @@ mod tests {
         max_breakdown_key: String,
         attribution_window_seconds: Option<String>,
         num_multi_bits: String,
-        testing_with_no_dp: String,
-        query_epsilon: String,
+        dp_params: DPParams,
     }
 
     impl From<OverrideIPAReq> for hyper::Request<Body> {
         fn from(val: OverrideIPAReq) -> Self {
             let mut query = format!(
-                "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}&testing_with_no_dp={}&query_epsilon={}",
-                val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits, val.testing_with_no_dp, val.query_epsilon,
+                "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits,
             );
+            match val.dp_params {
+                DPParams::TestingWithNoDP => query.push_str("&dp_params=TestingWithNoDP"),
+                DPParams::WithDP(eps) => query.push_str(&format!("&dp_params=WithDP={eps}")),
+            }
+
             if let Some(window) = val.attribution_window_seconds {
                 query.push_str(&format!("&attribution_window_seconds={window}"));
             }
@@ -221,8 +223,7 @@ mod tests {
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
-                testing_with_no_dp: "false".into(),
-                query_epsilon: "-1.0".into(),
+                dp_params: "WithDP=1.0".into(),
             }
         }
     }

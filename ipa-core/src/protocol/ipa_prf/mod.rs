@@ -93,7 +93,10 @@ pub const SORT_CHUNK: usize = 256;
 
 use step::IpaPrfStep as Step;
 
-use crate::protocol::{context::Validator, dp::dp_for_histogram};
+use crate::{
+    helpers::query::DPParams,
+    protocol::{context::Validator, dp::dp_for_histogram},
+};
 
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -218,8 +221,7 @@ pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize
     ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
-    testing_with_no_dp: bool,
-    query_epsilon: f64,
+    dp_params: DPParams,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     BK: BreakdownKey<B>,
@@ -270,8 +272,7 @@ where
     let dp_ctx: UpgradedSemiHonestContext<_, _> = dp_validator.context();
 
     let noisy_histogram =
-        dp_for_histogram::<_, B, HV, SS_BITS>(dp_ctx, histogram, testing_with_no_dp, query_epsilon)
-            .await?;
+        dp_for_histogram::<_, B, HV, SS_BITS>(dp_ctx, histogram, dp_params).await?;
     Ok(noisy_histogram)
 }
 
@@ -370,6 +371,7 @@ pub mod tests {
             boolean_array::{BA16, BA20, BA3, BA5},
             U128Conversions,
         },
+        helpers::query::DPParams,
         protocol::ipa_prf::oprf_ipa,
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
@@ -405,19 +407,14 @@ pub mod tests {
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
             ];
-            let testing_with_do_dp = true;
-            let query_epsilon = -1.0;
+            let dp_params = DPParams::TestingWithNoDP;
+            // let testing_with_do_dp = true;
+            // let query_epsilon = -1.0;
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(
-                        ctx,
-                        input_rows,
-                        None,
-                        testing_with_do_dp,
-                        query_epsilon,
-                    )
-                    .await
-                    .unwrap()
+                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(ctx, input_rows, None, dp_params)
+                        .await
+                        .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -459,16 +456,16 @@ pub mod tests {
             ];
 
             records.shuffle(&mut thread_rng());
-            let testing_with_do_dp = true;
-            let query_epsilon = -1.0;
+            let dp_params = DPParams::TestingWithNoDP;
+            // let testing_with_do_dp = true;
+            // let query_epsilon = -1.0;
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(
-                        ctx,
-                        input_rows,
-                        None,
-                        testing_with_do_dp,
-                        query_epsilon,
+                        ctx, input_rows, None,
+                        dp_params,
+                        // testing_with_do_dp,
+                        // query_epsilon,
                     )
                     .await
                     .unwrap()

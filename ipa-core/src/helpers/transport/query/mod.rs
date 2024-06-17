@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display, Formatter},
-    num::NonZeroU32,
+    num::{NonZeroU32, ParseFloatError},
+    str::FromStr,
 };
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -228,17 +229,68 @@ impl PartialEq for IpaQueryConfig {
             && self.max_breakdown_key == other.max_breakdown_key
             && self.attribution_window_seconds == other.attribution_window_seconds
             && self.num_multi_bits == other.num_multi_bits
-            && self.testing_with_no_dp == other.testing_with_no_dp
-            && self.query_epsilon == other.query_epsilon
+            && self.dp_params == other.dp_params
             && self.plaintext_match_keys == other.plaintext_match_keys
     }
 }
 
-// TODO switch to useing an enum
-// enum DPParams {
-//     No_DP,
-//     With_DP(f64),
-// }
+// TODO switch to using an enum
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum DPParams {
+    TestingWithNoDP,
+    WithDP(f64),
+}
+
+impl FromStr for DPParams {
+    type Err = ParseFloatError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "TestingWithNoDP" {
+            Ok(DPParams::TestingWithNoDP)
+        } else {
+            let parts: Vec<&str> = s.splitn(2, '=').collect();
+            if parts.len() == 2 && parts[0] == "WithDP" {
+                match parts[1].parse::<f64>() {
+                    Ok(value) => Ok(DPParams::WithDP(value)),
+                    Err(e) => Err(e),
+                }
+            } else {
+                Err(s.parse::<f64>().unwrap_err())
+            }
+        }
+    }
+}
+impl From<&str> for DPParams {
+    fn from(s: &str) -> Self {
+        match s {
+            "TestingWithNoDP" => DPParams::TestingWithNoDP,
+            other => {
+                let parts: Vec<&str> = other.splitn(2, '=').collect();
+                if parts.len() == 2 && parts[0] == "WithDP" {
+                    match parts[1].parse::<f64>() {
+                        Ok(value) => DPParams::WithDP(value),
+                        Err(e) => return Err(e).unwrap(),
+                    }
+                } else {
+                    return Err(s.parse::<f64>().unwrap_err()).unwrap();
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+impl PartialEq<Self> for DPParams {
+    fn eq(&self, other: &DPParams) -> bool {
+        match (self, other) {
+            (DPParams::TestingWithNoDP, DPParams::TestingWithNoDP) => true,
+            (DPParams::WithDP(x), DPParams::WithDP(y)) => x == y,
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Eq for DPParams {}
 
 #[cfg(test)]
 impl Eq for IpaQueryConfig {}
@@ -255,12 +307,10 @@ pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
 
-    /// If true, IPA will not add any DP noise to the outputs and
-    /// ignore whatever value is passed in for `query_epsilon`
-    #[cfg_attr(feature = "clap", arg(long, default_value = "false"))]
-    pub testing_with_no_dp: bool,
-    #[cfg_attr(feature = "clap", arg(long, default_value = "1.0"))]
-    pub query_epsilon: f64,
+    /// If `TestingWithNoDP` is the value of the `DPParams` enum,
+    /// IPA will not add any DP noise to the outputs.
+    #[cfg_attr(feature = "clap", arg(long, default_value = "TestingWithNoDP"))]
+    pub dp_params: DPParams,
 
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
     /// shares from input reports directly. Setting this to true also activates an alternate
@@ -278,8 +328,7 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
-            testing_with_no_dp: false,
-            query_epsilon: 1.0,
+            dp_params: DPParams::WithDP(1.0),
             plaintext_match_keys: false,
         }
     }
@@ -294,8 +343,7 @@ impl IpaQueryConfig {
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
         num_multi_bits: u32,
-        testing_with_no_dp: bool,
-        query_epsilon: f64,
+        dp_params: DPParams,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -305,8 +353,7 @@ impl IpaQueryConfig {
                     .expect("attribution window must be a positive value > 0"),
             ),
             num_multi_bits,
-            testing_with_no_dp,
-            query_epsilon,
+            dp_params,
             plaintext_match_keys: false,
         }
     }
@@ -320,16 +367,14 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         num_multi_bits: u32,
-        testing_with_no_dp: bool,
-        query_epsilon: f64,
+        dp_params: DPParams,
     ) -> Self {
         Self {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds: None,
             num_multi_bits,
-            testing_with_no_dp,
-            query_epsilon,
+            dp_params,
             plaintext_match_keys: false,
         }
     }
