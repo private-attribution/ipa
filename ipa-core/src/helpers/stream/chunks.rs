@@ -10,6 +10,7 @@ use std::{
 
 use futures::{stream::FusedStream, Stream, TryStream};
 use pin_project::pin_project;
+use typenum::{Const, ToUInt, Unsigned};
 
 use crate::{
     error::{Error, LengthError},
@@ -504,6 +505,17 @@ where
         pad_record_fn: Some(pad_record_fn),
         pos: 0,
     }
+}
+
+#[must_use]
+#[allow(clippy::needless_pass_by_value)] // divisor argument is zero-size anyways
+pub fn div_round_up<const DIVISOR: usize>(dividend: usize, _divisor: Const<DIVISOR>) -> usize
+where
+    Const<DIVISOR>: ToUInt,
+    <Const<DIVISOR> as ToUInt>::Output: Unsigned + typenum::NonZero,
+{
+    let divisor = <Const<DIVISOR> as ToUInt>::Output::to_usize();
+    (dividend + divisor - 1) / divisor
 }
 
 /// Trait to flatten a stream of iterables.
