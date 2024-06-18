@@ -10,7 +10,7 @@ use typenum::Const;
 use crate::{
     error::Error,
     ff::Field,
-    helpers::Direction,
+    helpers::{Direction, TotalRecords},
     protocol::{
         basics::Reveal,
         context::{
@@ -218,7 +218,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
         let narrow_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
-            .set_total_records(Const::<1>);
+            .set_total_records(TotalRecords::ONE);
         let r = <F as ExtendableField>::ExtendedField::from_array(
             &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
         );
@@ -227,7 +227,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
         let check_zero_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
-            .set_total_records(Const::<1>);
+            .set_total_records(TotalRecords::ONE);
         let is_valid =
             crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 

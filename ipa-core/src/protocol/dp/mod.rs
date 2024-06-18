@@ -3,11 +3,11 @@ pub mod step;
 use std::f64;
 
 use futures_util::{stream, StreamExt};
-use typenum::Const;
 
 use crate::{
     error::{Error, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
+    helpers::TotalRecords,
     protocol::{
         boolean::step::SixteenBitStep,
         context::Context,
@@ -89,7 +89,7 @@ where
     // Step 4:  Add DP noise to output values
     let apply_noise_ctx = ctx
         .narrow(&DPStep::ApplyNoise)
-        .set_total_records(Const::<1>);
+        .set_total_records(TotalRecords::ONE);
     let (histogram_noised, _) = integer_add::<_, SixteenBitStep, B>(
         apply_noise_ctx,
         RecordId::FIRST,

@@ -183,7 +183,7 @@ where
         let ctx = if self.ctx.total_records().is_specified() {
             self.ctx
         } else {
-            self.ctx.set_total_records(typenum::Const::<1>)
+            self.ctx.set_total_records(TotalRecords::ONE)
         };
         UpgradeContext::new(ctx, RecordId::FIRST)
             .upgrade(input)

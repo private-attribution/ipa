@@ -13,7 +13,6 @@ use std::{future::Future, num::NonZeroUsize, ops::Add};
 use futures::{future::try_join, stream, StreamExt, TryFutureExt};
 use ipa_step::Step;
 use rand::seq::SliceRandom;
-use typenum::Const;
 
 use crate::{
     ff::{boolean_array::BA64, U128Conversions},
@@ -42,7 +41,7 @@ trait ShuffleContext: ShardedContext {
     ) -> impl Future<Output = Result<(), crate::error::Error>> + Send {
         async move {
             Ok(self
-                .set_total_records(Const::<1>)
+                .set_total_records(TotalRecords::ONE)
                 .send_channel::<BA64>(self.role().peer(direction))
                 .send(
                     RecordId::FIRST,
