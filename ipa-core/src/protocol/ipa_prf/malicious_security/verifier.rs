@@ -73,12 +73,12 @@ fn compute_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P
 /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
 ///
 /// The function uses streams since stream offers a chunk method.
-fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
+fn recurse_u_or_v<'a, F: PrimeField, J, const λ_FIRST: usize, const λ: usize>(
     u_or_v_stream: J,
-    lagrange_table: &'a LagrangeTable<F, λ, 1>,
+    lagrange_table: &'a LagrangeTable<F, λ_FIRST, 1>,
 ) -> impl Stream<Item = [F; λ]> + 'a
 where
-    J: Stream<Item = [F; λ]> + 'a,
+    J: Stream<Item = [F; λ_FIRST]> + 'a,
 {
     u_or_v_stream
         .map(|polynomial| lagrange_table.eval(polynomial)[0])
@@ -92,28 +92,40 @@ where
         })
 }
 
-pub async fn recursively_compute_final_check<F: PrimeField, J, const λ: usize>(
+pub async fn recursively_compute_final_check<
+    F: PrimeField,
+    J,
+    const λ_FIRST: usize,
+    const λ: usize,
+>(
     u_or_v_stream: J,
-    challenges: Vec<F>,
+    challenges: &[F],
     p_or_q_0: F,
 ) -> F
 where
-    J: Stream<Item = [F; λ]> + Unpin,
+    J: Stream<Item = [F; λ_FIRST]> + Unpin + Send,
 {
     let recursions = challenges.len();
 
     // compute Lagrange tables
+    let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, λ_FIRST>::new();
+    let table_first =
+        LagrangeTable::<F, λ_FIRST, 1>::new(&denominator_p_or_q_first, &challenges[0]);
     let denominator_p_or_q = CanonicalLagrangeDenominator::<F, λ>::new();
-    let tables = challenges
+    let tables = challenges[1..]
         .iter()
         .map(|r| LagrangeTable::<F, λ, 1>::new(&denominator_p_or_q, r))
         .collect::<Vec<_>>();
 
     // generate & evaluate recursive streams
     // to compute last array
-    let mut stream: Pin<Box<dyn Stream<Item = [F; λ]>>> = Box::pin(u_or_v_stream);
-    for lagrange_table in tables.iter().take(recursions - 1) {
-        stream = Box::pin(recurse_u_or_v(stream, lagrange_table));
+    let mut stream: Pin<Box<dyn Stream<Item = [F; λ]> + Send>> =
+        Box::pin(recurse_u_or_v::<_, _, λ_FIRST, λ>(
+            u_or_v_stream,
+            &table_first,
+        ));
+    for lagrange_table in tables.iter().take(recursions - 2) {
+        stream = Box::pin(recurse_u_or_v::<_, _, λ, λ>(stream, lagrange_table));
     }
     let mut last_u_or_v_array = stream.next().await.unwrap();
     // make sure stream is empty
@@ -133,7 +145,7 @@ where
     last_u_or_v_array[0] = p_or_q_0;
 
     // compute and output p_or_q
-    tables[recursions - 1].eval(last_u_or_v_array)[0]
+    tables[recursions - 2].eval(last_u_or_v_array)[0]
 }
 
 #[cfg(all(test, unit_test))]
@@ -296,18 +308,19 @@ mod test {
             u_or_v_3[0][0], // move first element to the end
         ];
 
-        let p_final = recurse_u_or_v(stream::iter(iter::once(u_or_v_3_masked)), &tables[2])
-            .collect::<Vec<_>>()
-            .await;
+        let p_final =
+            recurse_u_or_v::<_, _, 4, 4>(stream::iter(iter::once(u_or_v_3_masked)), &tables[2])
+                .collect::<Vec<_>>()
+                .await;
 
         assert_eq!(p_final[0][0].as_u128(), EXPECTED_P_FINAL);
 
         // uv values in input format
         let u_1 = make_chunks::<_, 4>(&U_1);
 
-        let p_final_another_way = recursively_compute_final_check::<Fp31, _, 4>(
+        let p_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
             stream::iter(u_1),
-            CHALLENGES
+            &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
                 .collect::<Vec<_>>(),
@@ -392,18 +405,19 @@ mod test {
         ];
 
         // final iteration
-        let p_final = recurse_u_or_v(stream::iter(iter::once(u_or_v_3_masked)), &tables[2])
-            .collect::<Vec<_>>()
-            .await;
+        let p_final =
+            recurse_u_or_v::<_, _, 4, 4>(stream::iter(iter::once(u_or_v_3_masked)), &tables[2])
+                .collect::<Vec<_>>()
+                .await;
 
         assert_eq!(p_final[0][0].as_u128(), EXPECTED_Q_FINAL);
 
         // uv values in input format
         let v_1 = make_chunks::<_, 4>(&V_1);
 
-        let q_final_another_way = recursively_compute_final_check::<Fp31, _, 4>(
+        let q_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
             stream::iter(v_1),
-            CHALLENGES
+            &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
                 .collect::<Vec<_>>(),
