@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::{
     ff::FieldType,
@@ -235,7 +235,7 @@ impl PartialEq for IpaQueryConfig {
 }
 
 // TODO switch to using an enum
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub enum DPParams {
     TestingWithNoDP,
     WithDP(f64),
@@ -287,11 +287,26 @@ impl Display for DPParams {
         }
     }
 }
-// impl ToString for DPParams {
-//     fn to_string(&self) -> String {
-//         self.to_string()
-//     }
-// }
+
+impl<'de> Deserialize<'de> for DPParams {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error>
+    {
+        let value = String::deserialize(deserializer)?;
+        println!("**********************************{value}");
+        match value.as_str() {
+            "TestingWithNoDP" => Ok(DPParams::TestingWithNoDP),
+            _ => {
+                // Assuming the input is not a string, try to parse it as a WithDP variant by splitting on the "=" character.
+                if let Some((_, value)) = value.split_once('=') {
+                    let v = value.parse::<f64>().unwrap();
+                    Ok(DPParams::WithDP(v))
+                } else {
+                    Err(de::Error::custom("Invalid input format"))
+                }
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 impl PartialEq<Self> for DPParams {
@@ -343,7 +358,8 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
-            dp_params: DPParams::WithDP(1.0),
+            // dp_params: DPParams::TestingWithNoDP,
+            dp_params: DPParams::WithDP(1.1),
             plaintext_match_keys: false,
         }
     }

@@ -96,6 +96,7 @@ mod tests {
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
                     dp_params: DPParams::TestingWithNoDP,
+                    // dp_params: DPParams::WithDP(1.0),
                     plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
@@ -104,6 +105,27 @@ mod tests {
             .unwrap(),
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn create_test_ipa_no_attr_window_with_dp() {
+        create_test(
+            QueryConfig::new(
+                QueryType::OprfIpa(IpaQueryConfig {
+                    per_user_credit_cap: 8,
+                    max_breakdown_key: 20,
+                    attribution_window_seconds: None,
+                    num_multi_bits: 3,
+                    // dp_params: DPParams::TestingWithNoDP,
+                    dp_params: DPParams::WithDP(1.1),
+                    plaintext_match_keys: true,
+                }),
+                FieldType::Fp32BitPrime,
+                1,
+            )
+                .unwrap(),
+        )
+            .await;
     }
 
     #[tokio::test]
@@ -223,7 +245,7 @@ mod tests {
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
-                dp_params: "WithDP=1.0".into(),
+                dp_params: "WithDP=1.1".into(),
             }
         }
     }
