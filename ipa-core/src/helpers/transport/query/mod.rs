@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     ff::FieldType,
@@ -235,7 +235,7 @@ impl PartialEq for IpaQueryConfig {
 }
 
 // TODO switch to using an enum
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Copy, Clone)]
 pub enum DPParams {
     TestingWithNoDP,
     WithDP(f64),
@@ -260,25 +260,7 @@ impl FromStr for DPParams {
     }
 }
 
-impl From<&str> for DPParams {
-    fn from(s: &str) -> Self {
-        match s {
-            "TestingWithNoDP" => DPParams::TestingWithNoDP,
-            other => {
-                let parts: Vec<&str> = other.splitn(2, '=').collect();
-                if parts.len() == 2 && parts[0] == "WithDP" {
-                    match parts[1].parse::<f64>() {
-                        Ok(value) => DPParams::WithDP(value),
-                        Err(e) => panic!("{e:?}"),
-                    }
-                } else {
-                    panic!("{:?}", s.parse::<f64>().unwrap_err());
-                }
-            }
-        }
-    }
-}
-
+// TODO: naming: s/TestingWithNoDp/no-dp
 impl Display for DPParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -288,23 +270,17 @@ impl Display for DPParams {
     }
 }
 
+impl Serialize for DPParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
 impl<'de> Deserialize<'de> for DPParams {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error>
     {
-        let value = String::deserialize(deserializer)?;
-        println!("**********************************{value}");
-        match value.as_str() {
-            "TestingWithNoDP" => Ok(DPParams::TestingWithNoDP),
-            _ => {
-                // Assuming the input is not a string, try to parse it as a WithDP variant by splitting on the "=" character.
-                if let Some((_, value)) = value.split_once('=') {
-                    let v = value.parse::<f64>().unwrap();
-                    Ok(DPParams::WithDP(v))
-                } else {
-                    Err(de::Error::custom("Invalid input format"))
-                }
-            }
-        }
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        Self::from_str(s).map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
     }
 }
 

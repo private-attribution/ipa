@@ -36,6 +36,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::num::NonZeroU32;
+    use std::str::FromStr;
 
     use axum::body::Body;
     use hyper::{
@@ -245,7 +246,7 @@ mod tests {
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
-                dp_params: "WithDP=1.1".into(),
+                dp_params: FromStr::from_str("WithDP=1.1").unwrap(),
             }
         }
     }
