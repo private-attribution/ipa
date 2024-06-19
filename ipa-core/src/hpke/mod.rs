@@ -106,7 +106,7 @@ pub fn open_in_place<'a>(
     let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
     let sk = key_registry
-        .private_kbey(key_id)
+        .private_key(key_id)
         .ok_or(CryptError::NoSuchKey(key_id))?;
 
     single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
