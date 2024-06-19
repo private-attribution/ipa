@@ -58,13 +58,57 @@ impl Deref for PublicKeyOnly {
     }
 }
 
+// This newtype is necessary because IpaPrivateKey is an associated type from another crate (hpke).
+// The coherence rules prohibit us from implementing `PrivateKeyRegistry` both for our concrete type
+// `KeyPair` and for `IpaPrivateKey`, because the impls would overlap if hpke chose to define
+// `IpaPrivateKey` to be the same as `KeyPair`.
+pub struct PrivateKeyOnly(pub IpaPrivateKey);
+
+impl Deref for PrivateKeyOnly {
+    type Target = IpaPrivateKey;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&KeyRegistry<KeyPair>> for KeyRegistry<PrivateKeyOnly> {
+    fn from(key_registry: &KeyRegistry<KeyPair>) -> Self {
+        let keys = key_registry
+            .keys
+            .iter()
+            .map(|k| PrivateKeyOnly(k.sk.clone()))
+            .collect::<Vec<_>>();
+        Self {
+            keys: keys.into_boxed_slice(),
+        }
+    }
+}
+
 pub trait PublicKeyRegistry {
     fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey>;
+}
+
+pub trait PrivateKeyRegistry {
+    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey>;
 }
 
 /// A registry that holds all the keys available for helper/UA to use.
 pub struct KeyRegistry<K> {
     keys: Box<[K]>,
+}
+
+impl KeyRegistry<PrivateKeyOnly> {
+    // #[cfg(any(test, feature = "test-fixture"))]
+    pub fn random<R: rand::RngCore + rand::CryptoRng>(keys_count: usize, r: &mut R) -> Self {
+        let keys = (0..keys_count)
+            .map(|_| PrivateKeyOnly(KeyPair::gen(r).sk))
+            .collect::<Vec<_>>();
+
+        Self {
+            keys: keys.into_boxed_slice(),
+        }
+    }
 }
 
 impl<K> KeyRegistry<K> {
@@ -102,10 +146,19 @@ impl KeyRegistry<KeyPair> {
             keys: keys.into_boxed_slice(),
         }
     }
+}
 
+impl PrivateKeyRegistry for KeyRegistry<KeyPair> {
     #[must_use]
-    pub(super) fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
+    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
         self.key(key_id).map(|v| &v.sk)
+    }
+}
+
+impl PrivateKeyRegistry for KeyRegistry<PrivateKeyOnly> {
+    #[must_use]
+    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
+        self.key(key_id).map(|sk| &**sk)
     }
 }
 
@@ -172,7 +225,7 @@ mod tests {
         let keypair1 = KeyPair::gen(&mut rng);
         let keypair2 = KeyPair::gen(&mut rng);
 
-        let registry = KeyRegistry::from_keys([keypair1, keypair2]);
+        let registry = KeyRegistry::<KeyPair>::from_keys([keypair1, keypair2]);
         let pt = b"This is a plaintext.";
         let ct_payload = encrypt(registry.public_key(0).unwrap(), pt, &mut rng);
         assert_eq!(

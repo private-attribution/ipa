@@ -14,7 +14,7 @@ use crate::{
     error::BoxError,
     ff::{boolean_array::BA64, Serializable},
     hpke::{
-        open_in_place, seal_in_place, CryptError, EncapsulationSize, Info, KeyPair, KeyRegistry,
+        open_in_place, seal_in_place, CryptError, EncapsulationSize, Info, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
@@ -310,7 +310,7 @@ where
     /// contents properly, which would be a bug.
     pub fn decrypt(
         &self,
-        key_registry: &KeyRegistry<KeyPair>,
+        key_registry: &impl PrivateKeyRegistry,
     ) -> Result<OprfReport<BK, TV, TS>, InvalidReportError> {
         type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
         type CTBTTLength<BK, TV, TS> = Sum<
@@ -530,7 +530,7 @@ mod test {
     use super::*;
     use crate::{
         ff::boolean_array::{BA20, BA3, BA8},
-        hpke::{Deserializable, IpaPrivateKey, IpaPublicKey},
+        hpke::{Deserializable, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, PrivateKeyOnly},
         report,
         report::EventType::{Source, Trigger},
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -557,7 +557,7 @@ mod test {
                 .collect(),
         };
 
-        let key_registry = KeyRegistry::random(1, &mut rng);
+        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
         let key_id = 0;
 
         let enc_report_bytes = report.encrypt(key_id, &key_registry, &mut rng).unwrap();
@@ -587,9 +587,9 @@ mod test {
                 .collect(),
         };
 
-        let enc_key_registry = KeyRegistry::random(1, &mut rng);
+        let enc_key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
         let enc_key_id = 0;
-        let dec_key_registry = KeyRegistry::random(1, &mut rng);
+        let dec_key_registry = KeyRegistry::<PrivateKeyOnly>::random(1, &mut rng);
 
         let enc_report_bytes = report
             .encrypt(enc_key_id, &enc_key_registry, &mut rng)
@@ -651,7 +651,7 @@ mod test {
         encrypted_report_bytes: &[u8],
         expected: &RawReport,
     ) -> OprfReport<BA8, BA3, BA20> {
-        let key_registry1 = KeyRegistry::from_keys([KeyPair::from((
+        let key_registry1 = KeyRegistry::<KeyPair>::from_keys([KeyPair::from((
             IpaPrivateKey::from_bytes(sk).unwrap(),
             IpaPublicKey::from_bytes(pk).unwrap(),
         ))]);
