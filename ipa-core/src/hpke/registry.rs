@@ -67,8 +67,12 @@ pub struct PrivateKeyOnly {
     sk: IpaPrivateKey,
 }
 
-pub trait PrivateKeyRegistry {
-    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey>;
+impl From<IpaPrivateKey> for PrivateKeyOnly {
+    fn from(value: IpaPrivateKey) -> Self {
+        Self {
+            sk: value
+        }
+    }
 }
 
 /// A registry that holds all the keys available for helper/UA to use.
@@ -130,8 +134,8 @@ impl PublicKeyRegistry for KeyRegistry<PublicKeyOnly> {
     }
 }
 
-impl PrivateKeyRegistry for KeyRegistry<PrivateKeyOnly> {
-    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
+impl KeyRegistry<PrivateKeyOnly> {
+    pub fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
         self.key(key_id).map(|v| &v.sk)
     }
 }
