@@ -237,7 +237,9 @@ impl PartialEq for IpaQueryConfig {
 #[derive(Debug, Copy, Clone)]
 pub enum DpParams {
     NoDp,
-    WithDp(f64),
+    WithDp{
+      epsilon: f64,
+    }
 }
 
 impl FromStr for DpParams {
