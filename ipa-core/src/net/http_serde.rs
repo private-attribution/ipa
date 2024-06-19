@@ -81,7 +81,7 @@ pub mod query {
 
     use crate::{
         ff::FieldType,
-        helpers::query::{DPParams, QueryConfig, QuerySize, QueryType},
+        helpers::query::{DpParams, QueryConfig, QuerySize, QueryType},
         net::Error,
     };
 
@@ -154,8 +154,8 @@ pub mod query {
                     )?;
 
                     match config.dp_params {
-                        DPParams::TestingWithNoDP => write!(f, "&dp_params=TestingWithNoDP")?,
-                        DPParams::WithDP(eps) => write!(f, "&dp_params=WithDP={eps}")?,
+                        DpParams::NoDp => write!(f, "&dp_params=NoDp")?,
+                        DpParams::WithDp(eps) => write!(f, "&dp_params=WithDp={eps}")?,
                     }
 
                     if config.plaintext_match_keys {

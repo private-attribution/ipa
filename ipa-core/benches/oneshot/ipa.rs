@@ -9,7 +9,7 @@ use ipa_core::{
     error::Error,
     ff::Fp32BitPrime,
     helpers::{
-        query::{DPParams, IpaQueryConfig},
+        query::{DpParams, IpaQueryConfig},
         GatewayConfig,
     },
     protocol::{step::ProtocolStep::IpaPrf, Gate},
@@ -65,7 +65,7 @@ struct Args {
     #[arg(long, default_value = "3")]
     num_multi_bits: u32,
     /// dp_params enum
-    dp_params: DPParams,
+    dp_params: DpParams,
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,

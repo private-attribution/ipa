@@ -7,7 +7,7 @@ use futures_util::{stream, StreamExt};
 use crate::{
     error::{Error, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::query::DPParams,
+    helpers::query::DpParams,
     protocol::{
         boolean::step::SixteenBitStep,
         context::Context,
@@ -113,7 +113,7 @@ where
 pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
     ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
-    dp_params: DPParams,
+    dp_params: DpParams,
 ) -> Result<Vec<Replicated<OV>>, Error>
 where
     C: Context,
@@ -125,8 +125,8 @@ where
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     match dp_params {
-        DPParams::TestingWithNoDP => Ok(Vec::transposed_from(&histogram_bin_values)?),
-        DPParams::WithDP(query_epsilon) => {
+        DpParams::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
+        DpParams::WithDp(query_epsilon) => {
             assert!(query_epsilon > 0.0 && query_epsilon <= 10.0);
             let epsilon = query_epsilon;
             let delta = 1e-6;

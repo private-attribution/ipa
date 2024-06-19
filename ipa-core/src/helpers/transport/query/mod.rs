@@ -234,23 +234,22 @@ impl PartialEq for IpaQueryConfig {
     }
 }
 
-// TODO switch to using an enum
 #[derive(Debug, Copy, Clone)]
-pub enum DPParams {
-    TestingWithNoDP,
-    WithDP(f64),
+pub enum DpParams {
+    NoDp,
+    WithDp(f64),
 }
 
-impl FromStr for DPParams {
+impl FromStr for DpParams {
     type Err = ParseFloatError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "TestingWithNoDP" {
-            Ok(DPParams::TestingWithNoDP)
+        if s == "NoDp" {
+            Ok(DpParams::NoDp)
         } else {
             let parts: Vec<&str> = s.splitn(2, '=').collect();
-            if parts.len() == 2 && parts[0] == "WithDP" {
+            if parts.len() == 2 && parts[0] == "WithDp" {
                 match parts[1].parse::<f64>() {
-                    Ok(value) => Ok(DPParams::WithDP(value)),
+                    Ok(value) => Ok(DpParams::WithDp(value)),
                     Err(e) => Err(e),
                 }
             } else {
@@ -260,43 +259,45 @@ impl FromStr for DPParams {
     }
 }
 
-// TODO: naming: s/TestingWithNoDp/no-dp
-impl Display for DPParams {
+impl Display for DpParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DPParams::TestingWithNoDP => write!(f, "TestingWithNoDP"),
-            DPParams::WithDP(eps) => write!(f, "WithDP={eps}"),
+            DpParams::NoDp => write!(f, "NoDp"),
+            DpParams::WithDp(eps) => write!(f, "WithDp={eps}"),
         }
     }
 }
 
-impl Serialize for DPParams {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+impl Serialize for DpParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_str(&self.to_string())
     }
 }
 
-impl<'de> Deserialize<'de> for DPParams {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error>
-    {
+impl<'de> Deserialize<'de> for DpParams {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s: &str = Deserialize::deserialize(deserializer)?;
-        Self::from_str(s).map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
+        Self::from_str(s)
+            .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
     }
 }
 
 #[cfg(test)]
-impl PartialEq<Self> for DPParams {
-    fn eq(&self, other: &DPParams) -> bool {
+impl PartialEq<Self> for DpParams {
+    fn eq(&self, other: &DpParams) -> bool {
         match (self, other) {
-            (DPParams::TestingWithNoDP, DPParams::TestingWithNoDP) => true,
-            (DPParams::WithDP(x), DPParams::WithDP(y)) => x == y,
+            (DpParams::NoDp, DpParams::NoDp) => true,
+            (DpParams::WithDp(x), DpParams::WithDp(y)) => x == y,
             _ => false,
         }
     }
 }
 
 #[cfg(test)]
-impl Eq for DPParams {}
+impl Eq for DpParams {}
 
 #[cfg(test)]
 impl Eq for IpaQueryConfig {}
@@ -313,10 +314,10 @@ pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
 
-    /// If `TestingWithNoDP` is the value of the `DPParams` enum,
+    /// If `NoDp` is the value of the `DpParams` enum,
     /// IPA will not add any DP noise to the outputs.
-    #[cfg_attr(feature = "clap", arg(long, default_value = "TestingWithNoDP"))]
-    pub dp_params: DPParams,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "NoDp"))]
+    pub dp_params: DpParams,
 
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
     /// shares from input reports directly. Setting this to true also activates an alternate
@@ -334,8 +335,7 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
-            // dp_params: DPParams::TestingWithNoDP,
-            dp_params: DPParams::WithDP(1.1),
+            dp_params: DpParams::WithDp(1.1),
             plaintext_match_keys: false,
         }
     }
@@ -350,7 +350,7 @@ impl IpaQueryConfig {
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
         num_multi_bits: u32,
-        dp_params: DPParams,
+        dp_params: DpParams,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -374,7 +374,7 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         num_multi_bits: u32,
-        dp_params: DPParams,
+        dp_params: DpParams,
     ) -> Self {
         Self {
             per_user_credit_cap,

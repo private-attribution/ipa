@@ -94,12 +94,11 @@ pub trait CommandExt {
 
 impl CommandExt for Command {
     fn silent(&mut self) -> &mut Self {
-        // if std::env::var("VERBOSE").ok().is_none() {
-        //     self.arg("--quiet")
-        // } else {
-        //     self.arg("-vv")
-        // }
-        return self
+        if std::env::var("VERBOSE").ok().is_none() {
+            self.arg("--quiet")
+        } else {
+            self.arg("-vv")
+        }
     }
 }
 

@@ -140,7 +140,7 @@ mod tests {
             U128Conversions,
         },
         helpers::{
-            query::{DPParams, IpaQueryConfig, QuerySize},
+            query::{DpParams, IpaQueryConfig, QuerySize},
             BodyStream,
         },
         hpke::KeyRegistry,
@@ -225,7 +225,7 @@ mod tests {
                 per_user_credit_cap: 8,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
-                dp_params: DPParams::TestingWithNoDP,
+                dp_params: DpParams::NoDp,
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);

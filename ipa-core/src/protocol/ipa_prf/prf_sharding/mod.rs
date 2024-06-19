@@ -406,7 +406,6 @@ pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, const SS_BITS: usize,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-// -> Result<Vec<Replicated<HV>>, Error>
 where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
@@ -440,7 +439,6 @@ where
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
     let Some(first_row) = input_stream.next().await else {
-        // return Ok(vec![]);
         return Ok(BitDecomposed::new(
             iter::repeat(Replicated::<Boolean, B>::ZERO).take(B),
         ));
@@ -1008,7 +1006,6 @@ pub mod tests {
             );
         });
     }
-    // attribute_cap_aggregate<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
     #[test]
     fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;

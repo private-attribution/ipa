@@ -35,8 +35,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::num::NonZeroU32;
-    use std::str::FromStr;
+    use std::{num::NonZeroU32, str::FromStr};
 
     use axum::body::Body;
     use hyper::{
@@ -48,7 +47,7 @@ mod tests {
         ff::FieldType,
         helpers::{
             make_owned_handler,
-            query::{DPParams, IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
+            query::{DpParams, IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
             routing::RouteId,
             HelperResponse, Role, RoleAssignment,
         },
@@ -96,8 +95,8 @@ mod tests {
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
-                    dp_params: DPParams::TestingWithNoDP,
-                    // dp_params: DPParams::WithDP(1.0),
+                    dp_params: DpParams::NoDp,
+                    // dp_params: DpParams::WithDp(1.0),
                     plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
@@ -117,16 +116,16 @@ mod tests {
                     max_breakdown_key: 20,
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
-                    // dp_params: DPParams::TestingWithNoDP,
-                    dp_params: DPParams::WithDP(1.1),
+                    // dp_params: DpParams::NoDp,
+                    dp_params: DpParams::WithDp(1.1),
                     plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
                 1,
             )
-                .unwrap(),
+            .unwrap(),
         )
-            .await;
+        .await;
     }
 
     #[tokio::test]
@@ -139,7 +138,7 @@ mod tests {
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
-                dp_params: DPParams::TestingWithNoDP,
+                dp_params: DpParams::NoDp,
                 plaintext_match_keys: true,
             }),
         })
@@ -212,7 +211,7 @@ mod tests {
         max_breakdown_key: String,
         attribution_window_seconds: Option<String>,
         num_multi_bits: String,
-        dp_params: DPParams,
+        dp_params: DpParams,
     }
 
     impl From<OverrideIPAReq> for hyper::Request<Body> {
@@ -222,8 +221,8 @@ mod tests {
                 val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits,
             );
             match val.dp_params {
-                DPParams::TestingWithNoDP => query.push_str("&dp_params=TestingWithNoDP"),
-                DPParams::WithDP(eps) => query.push_str(&format!("&dp_params=WithDP={eps}")),
+                DpParams::NoDp => query.push_str("&dp_params=NoDp"),
+                DpParams::WithDp(eps) => query.push_str(&format!("&dp_params=WithDp={eps}")),
             }
 
             if let Some(window) = val.attribution_window_seconds {
@@ -246,7 +245,7 @@ mod tests {
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
-                dp_params: FromStr::from_str("WithDP=1.1").unwrap(),
+                dp_params: FromStr::from_str("WithDp=1.1").unwrap(),
             }
         }
     }
