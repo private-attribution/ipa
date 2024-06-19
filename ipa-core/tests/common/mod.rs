@@ -218,7 +218,6 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         .arg("gen-ipa-inputs")
         .args(["--count", &INPUT_SIZE.to_string()])
         .args(["--max-breakdown-key", &config.max_breakdown_key.to_string()])
-        // .args(["--dp-params", &config.dp_params.to_string()]) // don't need to pass dp_params when generating input
         .args(["--seed", &thread_rng().next_u64().to_string()])
         .silent()
         .stdin(Stdio::piped());

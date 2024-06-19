@@ -419,8 +419,6 @@ pub mod tests {
                 test_input(20, 68362, true, 0, 2),
             ];
             let dp_params = DpParams::NoDp;
-            // let testing_with_do_dp = true;
-            // let query_epsilon = -1.0;
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(ctx, input_rows, None, dp_params)

@@ -128,7 +128,6 @@ pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N:
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-// -> Result<Vec<Replicated<HV>>, Error>
 where
     C: Context,
     St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
