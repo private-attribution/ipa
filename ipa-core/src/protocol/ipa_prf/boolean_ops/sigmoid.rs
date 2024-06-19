@@ -1,6 +1,6 @@
 use std::{iter::repeat, ops::Not};
 
-use futures::future::{try_join, try_join4, try_join5, try_join_all};
+use futures::future::{try_join, try_join4, try_join5};
 
 use crate::{
     error::Error,
@@ -51,7 +51,7 @@ where
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
-    try_join_all(repeat(bit).zip(segments).enumerate().map(|(i, (b, seg))| {
+    ctx.try_join(repeat(bit).zip(segments).enumerate().map(|(i, (b, seg))| {
         let c = ctx.narrow(&ThirtyTwoBitStep::from(step_counter + i));
         async move { b.multiply(seg, c, record_id).await }
     }))
@@ -68,7 +68,7 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-/// 
+///
 /// # Panics
 /// If x is not exactly an 8-bit value
 pub async fn sigmoid<C, const N: usize>(

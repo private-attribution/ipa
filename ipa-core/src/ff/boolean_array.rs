@@ -121,7 +121,7 @@ macro_rules! boolean_array_impl_small {
             fn as_i128(&self) -> i128 {
                 let mut out: i128 = i128::try_from(self.as_u128()).unwrap();
                 let msb = (out >> $bits - 1) & 1;
-                out -= msb*(1 << $bits);
+                out -= msb * (1 << $bits);
                 out
             }
         }
