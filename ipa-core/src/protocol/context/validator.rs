@@ -5,11 +5,12 @@ use std::{
 };
 
 use async_trait::async_trait;
+use typenum::Const;
 
 use crate::{
     error::Error,
     ff::Field,
-    helpers::Direction,
+    helpers::{Direction, TotalRecords},
     protocol::{
         basics::Reveal,
         context::{
@@ -217,7 +218,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
         let narrow_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
-            .set_total_records(1);
+            .set_total_records(TotalRecords::ONE);
         let r = <F as ExtendableField>::ExtendedField::from_array(
             &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
         );
@@ -226,7 +227,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
         let check_zero_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
-            .set_total_records(1);
+            .set_total_records(TotalRecords::ONE);
         let is_valid =
             crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
@@ -278,7 +279,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUAndW)
-            .set_total_records(2);
+            .set_total_records(Const::<2>);
         let helper_right = propagate_ctx.send_channel(propagate_ctx.role().peer(Direction::Right));
         let helper_left = propagate_ctx.recv_channel(propagate_ctx.role().peer(Direction::Left));
         let (u_local, w_local) = {

@@ -8,7 +8,7 @@ use crate::{
     ff::Fp61BitPrime,
     helpers::{
         hashing::{compute_hash, hash_to_field, Hash},
-        Direction,
+        Direction, TotalRecords,
     },
     protocol::{
         context::{dzkp_field::UVTupleBlock, Context},
@@ -247,7 +247,7 @@ impl ProofHashes {
     /// Sends the one verifier's hashes to the other verifier
     /// `side` indicates the direction of the prover.
     async fn send_hashes<C: Context>(&self, ctx: &C, side: Side) -> Result<(), Error> {
-        let communication_ctx = ctx.set_total_records(self.hashes.len());
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(self.hashes.len())?);
 
         let send_channel = match side {
             // send left hashes to the right
@@ -270,7 +270,7 @@ impl ProofHashes {
     /// `side` indicates the direction of the prover.
     async fn receive_hashes<C: Context>(ctx: &C, length: usize, side: Side) -> Result<Self, Error> {
         // set up context for the communication over the network
-        let communication_ctx = ctx.set_total_records(length);
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
 
         let recv_channel = match side {
             // receive left hashes from the right helper
