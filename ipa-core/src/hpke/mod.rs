@@ -16,7 +16,7 @@ mod info;
 mod registry;
 
 pub use info::Info;
-pub use registry::{KeyPair, KeyRegistry, PublicKeyOnly, PublicKeyRegistry};
+pub use registry::{KeyPair, KeyRegistry, PrivateKeyOnly, PublicKeyOnly, PublicKeyRegistry};
 
 use crate::{
     ff::{GaloisField, Serializable as IpaSerializable},
@@ -95,7 +95,7 @@ impl From<io::Error> for CryptError {
 ///
 /// [`HPKE decryption`]: https://datatracker.ietf.org/doc/html/rfc9180#name-encryption-and-decryption
 pub fn open_in_place<'a>(
-    key_registry: &KeyRegistry<KeyPair>,
+    key_registry: &KeyRegistry<PrivateKeyOnly>,
     enc: &[u8],
     ciphertext: &'a mut [u8],
     info: &Info,
@@ -106,7 +106,7 @@ pub fn open_in_place<'a>(
     let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
     let sk = key_registry
-        .private_key(key_id)
+        .private_kbey(key_id)
         .ok_or(CryptError::NoSuchKey(key_id))?;
 
     single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(

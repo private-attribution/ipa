@@ -125,13 +125,9 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         _ => panic!("should have been rejected by clap"),
     };
 
-    let mk_encryption = args
-        .mk_public_key
-        .zip(args.mk_private_key)
-        .map(|(pk_path, sk_path)| HpkeServerConfig::File {
-            public_key_file: pk_path,
-            private_key_file: sk_path,
-        });
+    let mk_encryption = args.mk_private_key.map(|(sk_path)| HpkeServerConfig::File {
+        private_key_file: sk_path,
+    });
 
     let key_registry = hpke_registry(mk_encryption.as_ref()).await?;
     let (setup, handler) = AppSetup::with_key_registry(key_registry);

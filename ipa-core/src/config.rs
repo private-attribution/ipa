@@ -19,7 +19,8 @@ use crate::{
     error::BoxError,
     helpers::HelperIdentity,
     hpke::{
-        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, Serializable as _,
+        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry, PrivateKeyOnly,
+        Serializable as _,
     },
 };
 
@@ -215,16 +216,10 @@ pub enum TlsConfig {
 #[derive(Clone, Debug)]
 pub enum HpkeServerConfig {
     File {
-        /// Path to file containing public key which encrypts match keys
-        public_key_file: PathBuf,
-
         /// Path to file containing private key which decrypts match keys
         private_key_file: PathBuf,
     },
     Inline {
-        /// Public key in hex format
-        public_key: String,
-
         // Private key in hex format
         private_key: String,
     },
@@ -234,32 +229,20 @@ pub enum HpkeServerConfig {
 /// If there is a problem with the HPKE configuration.
 pub async fn hpke_registry(
     config: Option<&HpkeServerConfig>,
-) -> Result<KeyRegistry<KeyPair>, BoxError> {
-    let (pk_str, sk_str) = match config {
-        None => return Ok(KeyRegistry::empty()),
-        Some(HpkeServerConfig::Inline {
-            public_key,
-            private_key,
-        }) => (
-            Cow::Borrowed(public_key.trim().as_bytes()),
-            Cow::Borrowed(private_key.trim().as_bytes()),
-        ),
-        Some(HpkeServerConfig::File {
-            public_key_file,
-            private_key_file,
-        }) => (
-            Cow::Owned(fs::read_to_string(public_key_file).await?.trim().into()),
-            Cow::Owned(fs::read_to_string(private_key_file).await?.trim().into()),
-        ),
+) -> Result<KeyRegistry<PrivateKeyOnly>, BoxError> {
+    let sk_str = match config {
+        None => return Ok(KeyRegistry::<PrivateKeyOnly>::empty()),
+        Some(HpkeServerConfig::Inline { private_key }) => {
+            Cow::Borrowed(private_key.trim().as_bytes())
+        }
+        Some(HpkeServerConfig::File { private_key_file }) => {
+            Cow::Owned(fs::read_to_string(private_key_file).await?.trim().into())
+        }
     };
 
-    let pk = hex::decode(pk_str)?;
     let sk = hex::decode(sk_str)?;
 
-    Ok(KeyRegistry::from_keys([KeyPair::from((
-        IpaPrivateKey::from_bytes(&sk)?,
-        IpaPublicKey::from_bytes(&pk)?,
-    ))]))
+    Ok(KeyRegistry::from_keys([IpaPrivateKey::from_bytes(&sk)?]))
 }
 
 /// Configuration information for launching an instance of the helper party web service.
@@ -274,7 +257,7 @@ pub struct ServerConfig {
     /// TLS configuration for helper-to-helper communication
     pub tls: Option<TlsConfig>,
 
-    /// Configuration needed for encrypting and decrypting match keys
+    /// Configuration needed for decrypting match keys
     pub hpke_config: Option<HpkeServerConfig>,
 }
 

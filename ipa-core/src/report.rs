@@ -14,8 +14,8 @@ use crate::{
     error::BoxError,
     ff::{boolean_array::BA64, Serializable},
     hpke::{
-        open_in_place, seal_in_place, CryptError, EncapsulationSize, Info, KeyPair, KeyRegistry,
-        PublicKeyRegistry, TagSize,
+        open_in_place, seal_in_place, CryptError, EncapsulationSize, Info, KeyRegistry,
+        PrivateKeyOnly, PublicKeyRegistry, TagSize,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
@@ -310,7 +310,7 @@ where
     /// contents properly, which would be a bug.
     pub fn decrypt(
         &self,
-        key_registry: &KeyRegistry<KeyPair>,
+        key_registry: &KeyRegistry<PrivateKeyOnly>,
     ) -> Result<OprfReport<BK, TV, TS>, InvalidReportError> {
         type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
         type CTBTTLength<BK, TV, TS> = Sum<
