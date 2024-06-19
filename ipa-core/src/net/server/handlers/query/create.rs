@@ -117,7 +117,7 @@ mod tests {
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
                     // dp_params: DpParams::NoDp,
-                    dp_params: DpParams::WithDp(1.1),
+                    dp_params: DpParams::WithDp { epsilon: 1.1 },
                     plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
@@ -222,7 +222,9 @@ mod tests {
             );
             match val.dp_params {
                 DpParams::NoDp => query.push_str("&dp_params=NoDp"),
-                DpParams::WithDp(eps) => query.push_str(&format!("&dp_params=WithDp={eps}")),
+                DpParams::WithDp { epsilon } => {
+                    query.push_str(&format!("&dp_params=WithDp={epsilon}"));
+                }
             }
 
             if let Some(window) = val.attribution_window_seconds {

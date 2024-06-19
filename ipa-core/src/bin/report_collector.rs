@@ -131,10 +131,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
         ReportCollectorCommand::OprfIpa(config) => {
-            println!(
-                "#############################################{}",
-                config.dp_params
-            );
             ipa(
                 &args,
                 &network,

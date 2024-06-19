@@ -155,7 +155,7 @@ pub mod query {
 
                     match config.dp_params {
                         DpParams::NoDp => write!(f, "&dp_params=NoDp")?,
-                        DpParams::WithDp(eps) => write!(f, "&dp_params=WithDp={eps}")?,
+                        DpParams::WithDp { epsilon } => write!(f, "&dp_params=WithDp={epsilon}")?,
                     }
 
                     if config.plaintext_match_keys {

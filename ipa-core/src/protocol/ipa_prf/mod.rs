@@ -379,7 +379,7 @@ where
 pub mod tests {
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA3, BA5},
+            boolean_array::{BA16, BA20, BA3, BA5, BA8},
             U128Conversions,
         },
         helpers::query::DpParams,
@@ -443,10 +443,11 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<TestRawDataRecord> = vec![];
+            let dp_params = DpParams::NoDp;
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None, dp_params)
                         .await
                         .unwrap()
                 })
@@ -471,10 +472,11 @@ pub mod tests {
                 test_input(0, 12345, false, 1, 0),
                 test_input(0, 68362, false, 1, 0),
             ];
+            let dp_params = DpParams::NoDp;
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None, dp_params)
                         .await
                         .unwrap()
                 })

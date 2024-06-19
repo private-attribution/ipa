@@ -234,12 +234,10 @@ impl PartialEq for IpaQueryConfig {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DpParams {
     NoDp,
-    WithDp{
-      epsilon: f64,
-    }
+    WithDp { epsilon: f64 },
 }
 
 impl FromStr for DpParams {
@@ -251,7 +249,7 @@ impl FromStr for DpParams {
             let parts: Vec<&str> = s.splitn(2, '=').collect();
             if parts.len() == 2 && parts[0] == "WithDp" {
                 match parts[1].parse::<f64>() {
-                    Ok(value) => Ok(DpParams::WithDp(value)),
+                    Ok(epsilon) => Ok(DpParams::WithDp { epsilon }),
                     Err(e) => Err(e),
                 }
             } else {
@@ -265,7 +263,7 @@ impl Display for DpParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DpParams::NoDp => write!(f, "NoDp"),
-            DpParams::WithDp(eps) => write!(f, "WithDp={eps}"),
+            DpParams::WithDp { epsilon } => write!(f, "WithDp={epsilon}"),
         }
     }
 }
@@ -284,17 +282,6 @@ impl<'de> Deserialize<'de> for DpParams {
         let s: &str = Deserialize::deserialize(deserializer)?;
         Self::from_str(s)
             .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
-    }
-}
-
-#[cfg(test)]
-impl PartialEq<Self> for DpParams {
-    fn eq(&self, other: &DpParams) -> bool {
-        match (self, other) {
-            (DpParams::NoDp, DpParams::NoDp) => true,
-            (DpParams::WithDp(x), DpParams::WithDp(y)) => x == y,
-            _ => false,
-        }
     }
 }
 
@@ -337,7 +324,7 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
-            dp_params: DpParams::WithDp(1.1),
+            dp_params: DpParams::WithDp { epsilon: 1.1 },
             plaintext_match_keys: false,
         }
     }
