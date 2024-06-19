@@ -160,12 +160,12 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use rand::Rng;
+    use std::iter;
 
     use crate::{
-        ff::{boolean_array::BA8, ArrayAccess, I128Conversions},
+        ff::{boolean::Boolean, boolean_array::BA8, I128Conversions, U128Conversions},
         protocol::{context::Context, ipa_prf::boolean_ops::sigmoid::sigmoid, RecordId},
-        rand::thread_rng,
+        secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, TransposeFrom},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -221,22 +221,34 @@ mod test {
         run(|| async move {
             let world = TestWorld::default();
 
-            let mut rng = thread_rng();
+            let all_x_values = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
 
-            let x_ba8 = rng.gen::<BA8>();
-            let x = x_ba8.as_i128();
+            let result: Vec<BA8> = world
+                .upgraded_semi_honest(all_x_values, |ctx, all_x_values| async move {
+                    let mut vectorized_inputs: BitDecomposed<AdditiveShare<Boolean, 256>> =
+                        BitDecomposed::new(iter::empty());
+                    let _ = vectorized_inputs.transpose_from(&all_x_values);
 
-            let expected = piecewise_linear_sigmoid_approximation(x);
+                    let result = sigmoid::<_, 256>(
+                        ctx.set_total_records(1),
+                        RecordId::FIRST,
+                        &vectorized_inputs,
+                    )
+                    .await
+                    .unwrap();
 
-            let result = world
-                .upgraded_semi_honest(x_ba8, |ctx, x| async move {
-                    sigmoid::<_, 1>(ctx.set_total_records(1), RecordId::FIRST, &x.to_bits())
-                        .await
-                        .unwrap()
+                    Vec::transposed_from(&result).unwrap()
                 })
                 .await
                 .reconstruct();
-            assert_eq!((x, result.as_u128()), (x, expected));
+
+            for (i, res) in result.iter().enumerate() {
+                let u8 = BA8::truncate_from(u128::try_from(i).unwrap());
+                let i8 = u8.as_i128();
+                let expected = piecewise_linear_sigmoid_approximation(i8);
+
+                assert_eq!((i8, res.as_u128()), (i8, expected));
+            }
         });
     }
 }
