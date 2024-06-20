@@ -1,7 +1,10 @@
 mod oprf_ipa;
+mod test_add;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 mod test_multiply;
 
+#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+pub(super) use test_add::add as test_add;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 pub(super) use test_multiply::execute_test_multiply;
 

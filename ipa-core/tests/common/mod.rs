@@ -12,7 +12,9 @@ use std::{
 
 use command_fds::CommandFdExt;
 use ipa_core::{
-    cli::IpaQueryResult, helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel,
+    cli::IpaQueryResult,
+    helpers::query::{IpaQueryConfig, QueryType},
+    test_fixture::ipa::IpaSecurityModel,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -184,7 +186,22 @@ pub fn test_multiply(config_dir: &Path, https: bool) {
     test_mpc.wait().unwrap_status();
 }
 
-pub fn test_network(https: bool) {
+pub fn test_add(config_dir: &Path, https: bool) {
+    let mut command = Command::new(TEST_MPC_BIN);
+    command
+        .args(["--network".into(), config_dir.join("network.toml")])
+        .args(["--wait", "2"])
+        .args(["--generate", "10"]);
+    if !https {
+        command.arg("--disable-https");
+    }
+    command.silent().arg("add");
+
+    let test_mpc = command.spawn().unwrap().terminate_on_drop();
+    test_mpc.wait().unwrap_status();
+}
+
+pub fn test_network(https: bool, protocol: QueryType) {
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
@@ -192,7 +209,13 @@ pub fn test_network(https: bool) {
     let sockets = test_setup(path);
     let _helpers = spawn_helpers(path, &sockets, https);
 
-    test_multiply(path, https);
+    match protocol {
+        QueryType::TestMultiply => test_multiply(path, https),
+        QueryType::TestAdd => test_add(path, https),
+        QueryType::OprfIpa(_) => {
+            panic!("Only test protocols are supported.")
+        }
+    }
 }
 
 pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
