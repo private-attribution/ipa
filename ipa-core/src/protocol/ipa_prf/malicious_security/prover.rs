@@ -123,8 +123,6 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
     /// `https://eprint.iacr.org/2023/909.pdf`
-    ///
-    /// returns proof and number of summands `m` which is important for the verification
     fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, λ, M>) -> [F; P]
     where
         J: Iterator<Item = B>,
@@ -208,11 +206,10 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     /// from an iterator over uv values
     /// It also computes the next uv values
     ///
-    /// It output `(uv values, share_of_proof_from_prover_left, my_proof_left_share, m)`
+    /// It output `(uv values, share_of_proof_from_prover_left, my_proof_left_share)`
     /// where
     /// `share_of_proof_from_prover_left` from left has type `Vec<[F; P]>`,
     /// `my_proof_left_share` has type `Vec<[F; P]>`,
-    /// and `m` is the amount of `u`, `v` tuples
     pub fn gen_artefacts_from_recursive_step<C, J, B, const N: usize>(
         ctx: &C,
         record_counter: &mut RecordId,

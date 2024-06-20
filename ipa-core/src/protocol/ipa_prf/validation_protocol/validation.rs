@@ -34,7 +34,7 @@ use crate::{
 /// `ProofsToVerify` also contains two masks `p_0` and `q_0` in `masks` stored as `(p_0,q_0)`
 /// These masks are used as additional `u,v` values for the final proof.
 /// These masks mask sensitive information when verifying the final proof.
-/// `size_m` is the amount of `u`, `v` tuples included in the proof.
+/// `sum_of_uv` is `sum u*v`.
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
