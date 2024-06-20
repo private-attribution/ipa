@@ -7,10 +7,10 @@ use futures_util::{StreamExt, TryFutureExt};
 
 use super::step::ZeroKnowledgeProofValidateStep as Step;
 #[cfg(all(test, unit_test))]
-use crate::protocol::context::dzkp_field::{DZKPBaseField, UVSingleBlock, UVTupleBlock};
+use crate::protocol::context::dzkp_field::UVSingleBlock;
 use crate::{
     error::{BoxError, Error},
-    ff::{Fp61BitPrime, U128Conversions},
+    ff::Fp61BitPrime,
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
@@ -265,7 +265,7 @@ impl MultiplicationInputsBatch {
     /// This function returns the amount of multiplications in one bit multiplications
     /// that are currently stored in the `MultiplicationInputsBatch`.
     fn get_number_of_multiplications(&self) -> usize {
-        self.vec.len() * self.multiplication_bit_size
+        self.vec.len() * 256
     }
 
     /// `increment_record_ids` increments the current batch to the next set of records.
@@ -655,20 +655,15 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             // todo: generate proofs and validate them using `batch_list`
             // get amount of u, v values which is 4 times the amount of multiplications
             // divided by 2 to compute m/2
-            // which satisfies sum u*v = m/2
-            let m_half = 4 * batch.get_number_of_multiplications();
+            let m = 4 * batch.get_number_of_multiplications();
             debug_assert_eq!(
-                Fp61BitPrime::truncate_from(u128::try_from(m_half).unwrap()),
+                m,
                 batch
                     .get_field_values_prover::<Fp61BitPrime>()
-                    .map(|(u_array, v_array)| {
-                        u_array
-                            .iter()
-                            .zip(v_array)
-                            .map(|(u, v)| *u * v)
-                            .sum::<Fp61BitPrime>()
+                    .flat_map(|(u_array, v_array)| {
+                        u_array.into_iter().zip(v_array).map(|(u, v)| u * v)
                     })
-                    .sum::<Fp61BitPrime>()
+                    .count()
             );
             // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
