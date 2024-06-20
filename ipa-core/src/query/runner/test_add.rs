@@ -29,7 +29,7 @@ where
     Ok(Box::new(add_internal::<F>(ctx, input).await?))
 }
 
-pub async fn add_internal<F>(
+async fn add_internal<F>(
     _ctx: SemiHonestContext<'_>,
     input_stream: BodyStream,
 ) -> Result<Vec<Replicated<F>>, Error>
