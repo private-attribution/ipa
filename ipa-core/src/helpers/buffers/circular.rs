@@ -207,7 +207,8 @@ impl CircularBuf {
         self.closed
     }
 
-    fn capacity(&self) -> usize {
+    /// Returns the capacity of this buffer, in bytes.
+    pub fn capacity(&self) -> usize {
         self.data.len()
     }
 

@@ -73,7 +73,6 @@ impl State {
 
         self.buf.next().write(m);
 
-        // todo: test tht it is not in_full call
         if self.buf.can_read() {
             Self::wake(&mut self.stream_ready);
         }
@@ -517,10 +516,12 @@ mod test {
         stream::StreamExt,
         Future, FutureExt,
     };
+    use futures_util::future::try_join;
     use generic_array::GenericArray;
     use rand::{seq::SliceRandom, Rng};
     #[cfg(feature = "shuttle")]
     use shuttle::future as tokio;
+    use tokio::sync::Barrier;
     use typenum::Unsigned;
 
     use super::OrderingSender;
@@ -528,6 +529,7 @@ mod test {
         ff::{Fp31, Fp32BitPrime, Gf20Bit, Gf9Bit, PrimeField, Serializable, U128Conversions},
         helpers::MpcMessage,
         rand::thread_rng,
+        secret_sharing::SharedValue,
         sync::Arc,
         test_executor::run,
     };
@@ -775,6 +777,53 @@ mod test {
             }))
             .await
             .unwrap();
+        });
+    }
+
+    /// Make sure writers, when awakened, get the correct state. Currently, mutex used inside the
+    /// sender prevents seeing inconsistent results, but if it were ever removed, waking up writer
+    /// may lead to it going to sleep again because `take()` hasn't been called yet
+    #[test]
+    fn take_wake_race() {
+        run(|| async {
+            let sender = sender::<Fp31>();
+            let read_barrier = Arc::new(Barrier::new(2));
+            let write_barrier = Arc::new(Barrier::new(2));
+
+            // field size is one byte, so capacity in bytes is equal to capacity in units
+            let capacity = sender.state.lock().unwrap().buf.capacity();
+            let read_task = tokio::spawn({
+                let sender = Arc::clone(&sender);
+                let read_barrier = Arc::clone(&read_barrier);
+                let write_barrier = Arc::clone(&write_barrier);
+
+                async move {
+                    read_barrier.wait().await;
+                    let mut stream = sender.as_stream();
+                    let Some(next) = stream.next().await else {
+                        panic!("Stream is empty")
+                    };
+                    write_barrier.wait().await;
+
+                    assert_eq!(capacity, next.len());
+                }
+            });
+
+            let write_task = tokio::spawn({
+                let sender = Arc::clone(&sender);
+                async move {
+                    let _ = join_all((0..capacity).map(|i| sender.send(i, Fp31::ZERO))).await;
+                    let mut f = pin!(sender.send(capacity, Fp31::ZERO));
+
+                    assert_eq!(poll_immediate(&mut f).await, None);
+                    read_barrier.wait().await;
+                    write_barrier.wait().await;
+                    // f should be resolved if `take` is implemented correctly.
+                    assert_eq!(poll_immediate(f).await, Some(()));
+                }
+            });
+
+            try_join(read_task, write_task).await.unwrap();
         });
     }
 
