@@ -126,6 +126,7 @@ where
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
+    println!("************************ In dp_for_histograms ");
     match dp_params {
         DpParams::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
         DpParams::WithDp { epsilon } => {
@@ -249,7 +250,7 @@ fn error(num_bernoulli: u32, success_prob: f64, dimensions: f64, quantization_sc
 /// for fixed p (and other params), find smallest `num_bernoulli` such that `epsilon < desired_epsilon`
 #[allow(clippy::too_many_arguments)]
 #[allow(dead_code)]
-fn find_smallest_num_bernoulli(
+pub fn find_smallest_num_bernoulli(
     desired_epsilon: f64,
     success_prob: f64,
     delta: f64,
