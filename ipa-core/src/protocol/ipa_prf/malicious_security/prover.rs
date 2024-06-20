@@ -128,17 +128,15 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     fn compute_proof<J, B>(
         uv_iterator: J,
         lagrange_table: &LagrangeTable<F, λ, M>,
-    ) -> ([F; P], u128)
+    ) -> [F; P]
     where
         J: Iterator<Item = B>,
         B: Borrow<([F; λ], [F; λ])>,
     {
         let mut proof = [F::ZERO; P];
-        let mut m = 0;
         for uv_polynomial in uv_iterator {
             for (i, proof_part) in proof.iter_mut().enumerate().take(λ) {
                 *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
-                m += 1;
             }
             let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
             let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
@@ -149,7 +147,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
                 proof[λ + i] += x * y;
             }
         }
-        (proof, m)
+        proof
     }
 
     fn gen_challenge_and_recurse<J, B, const N: usize>(
@@ -223,7 +221,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
         record_counter: &mut RecordId,
         lagrange_table: &LagrangeTable<F, λ, M>,
         uv_iterator: J,
-    ) -> (UVValues<F, N>, [F; P], [F; P], u128)
+    ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
         J: Iterator<Item = B> + Clone,
@@ -231,7 +229,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     {
         // generate next proof
         // from iterator
-        let (my_proof, m) = Self::compute_proof(uv_iterator.clone(), lagrange_table);
+        let my_proof= Self::compute_proof(uv_iterator.clone(), lagrange_table);
 
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
@@ -253,7 +251,6 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
             uv_values,
             share_of_proof_from_prover_left,
             my_proof_left_share,
-            m,
         )
     }
 }
@@ -322,12 +319,11 @@ mod test {
         let uv_1 = zip_chunks(U_1, V_1);
 
         // first iteration
-        let (proof_1, m_1) = TestProofGenerator::compute_proof(uv_1.iter(), &lagrange_table);
+        let proof_1 = TestProofGenerator::compute_proof(uv_1.iter(), &lagrange_table);
         assert_eq!(
             proof_1.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_1,
         );
-        assert_eq!(m_1, 32);
 
         // ZKP is secret-shared into two pieces
         // proof_left comes from PRSS
@@ -347,7 +343,7 @@ mod test {
         assert_eq!(uv_2, zip_chunks(U_2, V_2));
 
         // next iteration
-        let (proof_2, _) = TestProofGenerator::compute_proof(uv_2.iter(), &lagrange_table);
+        let proof_2 = TestProofGenerator::compute_proof(uv_2.iter(), &lagrange_table);
         assert_eq!(
             proof_2.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_2,
@@ -376,7 +372,7 @@ mod test {
         );
 
         // final iteration
-        let (proof_3, _) = TestProofGenerator::compute_proof(masked_uv_3.iter(), &lagrange_table);
+        let proof_3 = TestProofGenerator::compute_proof(masked_uv_3.iter(), &lagrange_table);
         assert_eq!(
             proof_3.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_3,
@@ -404,7 +400,7 @@ mod test {
             // first iteration
             let world = TestWorld::default();
             let mut record_counter = RecordId::from(0);
-            let (uv_values, _, _, _) =
+            let (uv_values, _, _) =
                 TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, _, 4>(
                     &world.contexts()[0],
                     &mut record_counter,
@@ -446,10 +442,9 @@ mod test {
         >::from(denominator);
 
         // compute proof
-        let (proof, m) = SmallProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+        let proof = SmallProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
-        assert_eq!(m, 64);
 
         let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
             &proof,
@@ -483,10 +478,9 @@ mod test {
         >::from(denominator);
 
         // compute proof
-        let (proof, m) = LargeProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+        let proof = LargeProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
-        assert_eq!(m, 1024);
 
         let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
             &proof,

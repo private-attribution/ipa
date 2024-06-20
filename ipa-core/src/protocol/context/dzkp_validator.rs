@@ -24,6 +24,7 @@ use crate::{
     sync::{Arc, Mutex, Weak},
     telemetry::metrics::DZKP_BATCH_INCREMENTS,
 };
+use crate::ff::{Fp61BitPrime, U128Conversions};
 
 // constants for metrics::increment_counter!
 const ALLOCATED_AMOUNT: &str = "allocated amount of multiplications";
@@ -261,6 +262,13 @@ impl MultiplicationInputsBatch {
         }
     }
 
+    /// This function returns the amount of multiplications in one bit multiplications
+    /// that are currently stored in the `MultiplicationInputsBatch`.
+    fn get_number_of_multiplications(&self) -> usize
+    {
+        self.vec.len()*self.multiplication_bit_size
+    }
+
     /// `increment_record_ids` increments the current batch to the next set of records.
     /// it maintains all the allocated memory and increments the `RecordIds` as follows:
     /// It sets `last_record` and `first_record` to the record that follows `last_record`.
@@ -465,6 +473,15 @@ impl Batch {
             .insert_segment(record_id, segment);
     }
 
+
+    /// This function returns the amount of multiplications in one bit multiplications
+    /// that are currently stored in the `batch`.
+    fn get_number_of_multiplications(&self) -> usize
+    {
+        self.inner.values().map(MultiplicationInputsBatch::get_number_of_multiplications).sum()
+    }
+
+
     /// This function should only be called by `validate`!
     ///
     /// Updates all `MultiplicationInputsBatch` in hashmap by incrementing the record ids to next chunk
@@ -640,6 +657,16 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             Ok(())
         } else {
             // todo: generate proofs and validate them using `batch_list`
+            // get amount of u, v values which is 4 times the amount of multiplications
+            // divided by 2 to compute m/2
+            // which satisfies sum u*v = m/2
+            let m_half = 4 * batch.get_number_of_multiplications();
+            debug_assert_eq!(
+                Fp61BitPrime::truncate_from(u128::try_from(m_half).unwrap()),
+                batch.get_field_values_prover::<Fp61BitPrime>()
+                    .map(|(u_array,v_array)|{
+                        u_array.iter().zip(v_array).map(|(u,v)|*u*v).sum::<Fp61BitPrime>()
+                    }).sum::<Fp61BitPrime>());
             // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
             batch.increment_record_ids();
