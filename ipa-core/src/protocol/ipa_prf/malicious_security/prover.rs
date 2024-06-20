@@ -302,7 +302,7 @@ mod test {
         const U_3: [u128; 2] = [3, 3]; // will later be padded with zeroes
         const V_3: [u128; 2] = [5, 24]; // will later be padded with zeroes
 
-        const PROOF_3: [u128; 7] = [12, 15, 10, 0, 18, 6, 5];
+        const PROOF_3: [u128; 7] = [12, 10, 0, 15, 16, 19, 5];
         const P_RANDOM_WEIGHT: u128 = 12;
         const Q_RANDOM_WEIGHT: u128 = 1;
 
@@ -361,8 +361,8 @@ mod test {
         assert_eq!(uv_3, zip_chunks(U_3, V_3));
 
         let masked_uv_3 = zip_chunks(
-            [P_RANDOM_WEIGHT, U_3[0], U_3[1]],
-            [Q_RANDOM_WEIGHT, V_3[0], V_3[1]],
+            [P_RANDOM_WEIGHT, U_3[1], 0, U_3[0]],
+            [Q_RANDOM_WEIGHT, V_3[1], 0, V_3[0]],
         );
 
         // final iteration

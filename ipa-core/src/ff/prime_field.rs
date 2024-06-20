@@ -123,6 +123,7 @@ macro_rules! field_impl {
             fn add(self, rhs: Self) -> Self::Output {
                 let c = u64::from;
                 debug_assert!(c(Self::PRIME) < (u64::MAX >> 1));
+                #[allow(clippy::cast_possible_truncation)]
                 Self(((c(self.0) + c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
             }
         }
@@ -149,6 +150,7 @@ macro_rules! field_impl {
                 let c = u64::from;
                 debug_assert!(c(Self::PRIME) < (u64::MAX >> 1));
                 // TODO(mt) - constant time?
+                #[allow(clippy::cast_possible_truncation)]
                 Self(
                     ((c(Self::PRIME) + c(self.0) - c(rhs.0)) % c(Self::PRIME))
                         as <Self as SharedValue>::Storage,

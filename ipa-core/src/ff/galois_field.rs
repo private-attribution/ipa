@@ -395,7 +395,7 @@ macro_rules! bit_array_impl {
                         .iter()
                         .by_refs()
                         .enumerate()
-                        .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i))
+                        .fold(0_u128, |acc, (i, b)| acc + (u128::from(*b) << i))
                 }
             }
 
