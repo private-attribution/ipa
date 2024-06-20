@@ -83,10 +83,12 @@ where
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
+    println!("************************ In apply_dp_noise ");
     let noise_gen_ctx = ctx.narrow(&DPStep::NoiseGen);
     let noise_vector = gen_binomial_noise::<C, B, OV>(noise_gen_ctx, num_bernoulli)
         .await
         .unwrap();
+    println!("************************ In apply_dp_noise, finished noise gen");
     // Step 4:  Add DP noise to output values
     let apply_noise_ctx = ctx
         .narrow(&DPStep::ApplyNoise)
@@ -99,6 +101,8 @@ where
     )
     .await
     .unwrap();
+    println!("************************ In apply_dp_noise, finished applying noise");
+
     // Step 5 Transpose output representation
     Ok(Vec::transposed_from(&histogram_noised)?)
 }
@@ -153,6 +157,8 @@ where
                 apply_dp_noise::<C, B, OV>(ctx, histogram_bin_values, num_bernoulli)
                     .await
                     .unwrap();
+            println!("************************ Finishing dp_for_histograms ");
+
             Ok(noisy_histogram)
         }
     }
