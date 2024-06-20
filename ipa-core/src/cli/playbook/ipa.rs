@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use bitvec::macros::internal::funty::Fundamental;
 use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::rngs::StdRng;
@@ -159,6 +160,12 @@ where
         .reconstruct();
 
     let lat = mpc_time.elapsed();
+    let result_len = results.len().as_u128();
+    let max_breakdown_key = query_config.max_breakdown_key.as_u128();
+    assert!(
+        result_len == max_breakdown_key,
+        "result len = {result_len} and max breakdown key = {max_breakdown_key}"
+    );
 
     tracing::info!("Running IPA for {query_size:?} records took {t:?}", t = lat);
     let mut breakdowns = vec![0; usize::try_from(query_config.max_breakdown_key).unwrap()];
