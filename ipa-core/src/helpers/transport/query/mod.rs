@@ -249,17 +249,10 @@ impl FromStr for DpParams {
             let parts: Vec<&str> = s.splitn(2, '=').collect();
             if parts.len() == 2 && parts[0] == "WithDp" {
                 match parts[1].parse::<f64>() {
-                    Ok(epsilon) => {
-                        println!("****************** in from_str epsilon = {epsilon}");
-                        Ok(DpParams::WithDp { epsilon })
-                    }
-                    Err(e) => {
-                        println!("******************* Error in from_str");
-                        return Err(e);
-                    }
+                    Ok(epsilon) => Ok(DpParams::WithDp { epsilon }),
+                    Err(e) => Err(e),
                 }
             } else {
-                println!("******************* Error in from_str");
                 Err(s.parse::<f64>().unwrap_err())
             }
         }
@@ -280,7 +273,6 @@ impl Serialize for DpParams {
     where
         S: Serializer,
     {
-        println!("****************** Serialize: {}", &self.to_string());
         serializer.serialize_str(&self.to_string())
     }
 }
@@ -288,8 +280,6 @@ impl Serialize for DpParams {
 impl<'de> Deserialize<'de> for DpParams {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s: &str = Deserialize::deserialize(deserializer)?;
-        println!("****************** Deserialize : {}", s);
-
         Self::from_str(s)
             .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
     }
@@ -334,7 +324,8 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
-            dp_params: DpParams::WithDp { epsilon: 1.1 },
+            dp_params: DpParams::NoDp, // TODO default with noise
+            // dp_params: DpParams::WithDp { epsilon: 1.1 },
             plaintext_match_keys: false,
         }
     }

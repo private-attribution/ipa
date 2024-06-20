@@ -157,12 +157,9 @@ where
                 .unwrap()
         })
         .reconstruct();
+    println!("reconstructed results of length {}", results.len());
     println!(
-        "************ reconstructed the results of length {}",
-        results.len()
-    );
-    println!(
-        "************ query_config.max_breakdown_key {}",
+        "query_config.max_breakdown_key is {}",
         query_config.max_breakdown_key
     );
 

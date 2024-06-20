@@ -46,7 +46,7 @@ where
     // add an assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
     assert!(
         num_bernoulli.ilog2() < OV::BITS,
-        "not enough bits in output size for noise gen sum, num_bernoulli = {num_bernoulli}"
+        "not enough bits in output size for noise gen sum; num_bernoulli = {num_bernoulli}"
     );
     let bits = 1;
     let mut vector_input_to_agg: Vec<_> = vec![];
@@ -83,12 +83,10 @@ where
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    println!("************************ In apply_dp_noise ");
     let noise_gen_ctx = ctx.narrow(&DPStep::NoiseGen);
     let noise_vector = gen_binomial_noise::<C, B, OV>(noise_gen_ctx, num_bernoulli)
         .await
         .unwrap();
-    println!("************************ In apply_dp_noise, finished noise gen");
     // Step 4:  Add DP noise to output values
     let apply_noise_ctx = ctx
         .narrow(&DPStep::ApplyNoise)
@@ -101,7 +99,6 @@ where
     )
     .await
     .unwrap();
-    println!("************************ In apply_dp_noise, finished applying noise");
 
     // Step 5 Transpose output representation
     Ok(Vec::transposed_from(&histogram_noised)?)
@@ -130,7 +127,6 @@ where
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    println!("************************ In dp_for_histograms ");
     match dp_params {
         DpParams::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
         DpParams::WithDp { epsilon } => {
@@ -157,7 +153,6 @@ where
                 apply_dp_noise::<C, B, OV>(ctx, histogram_bin_values, num_bernoulli)
                     .await
                     .unwrap();
-            println!("************************ Finishing dp_for_histograms ");
 
             Ok(noisy_histogram)
         }
@@ -254,8 +249,11 @@ fn error(num_bernoulli: u32, success_prob: f64, dimensions: f64, quantization_sc
         * (1.0 - success_prob)
 }
 /// for fixed p (and other params), find smallest `num_bernoulli` such that `epsilon < desired_epsilon`
+/// # Panics
+/// will panic if can't find smallest `num_bernoulli` less than 10M.
 #[allow(clippy::too_many_arguments)]
 #[allow(dead_code)]
+#[must_use]
 pub fn find_smallest_num_bernoulli(
     desired_epsilon: f64,
     success_prob: f64,

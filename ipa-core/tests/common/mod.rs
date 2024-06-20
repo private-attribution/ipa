@@ -94,12 +94,11 @@ pub trait CommandExt {
 
 impl CommandExt for Command {
     fn silent(&mut self) -> &mut Self {
-        // if std::env::var("VERBOSE").ok().is_none() {
-        //     self.arg("--quiet")
-        // } else {
-        //     self.arg("-vv")
-        // }
-        return self;
+        if std::env::var("VERBOSE").ok().is_none() {
+            self.arg("--quiet")
+        } else {
+            self.arg("-vv")
+        }
     }
 }
 
@@ -265,7 +264,7 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
     test_mpc.wait().unwrap_status();
-
+    println!("****************, in test_ipa_with_config ");
     // basic output checks - output should have the exact size as number of breakdowns
     let output = serde_json::from_str::<IpaQueryResult>(
         &std::fs::read_to_string(&output_file).expect("IPA results file exists"),

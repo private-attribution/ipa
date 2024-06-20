@@ -283,7 +283,6 @@ where
 
     let noisy_histogram =
         dp_for_histogram::<_, B, HV, SS_BITS>(dp_ctx, histogram, dp_params).await?;
-    println!("************************ Finishing oprf_ipa ");
     Ok(noisy_histogram)
 }
 
@@ -441,8 +440,12 @@ pub mod tests {
     #[test]
     fn semi_honest_with_dp() {
         run(|| async {
+            const SS_BITS: usize = 5;
             let world = TestWorld::default();
             let expected: Vec<u32> = vec![0, 2, 5, 0, 0, 0, 0, 0];
+            let epsilon = 3.1;
+            let dp_params = DpParams::WithDp { epsilon };
+            let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
 
             let records: Vec<TestRawDataRecord> = vec![
                 test_input(0, 12345, false, 1, 0),
@@ -451,10 +454,6 @@ pub mod tests {
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
             ];
-            let epsilon = 3.1;
-            let dp_params = DpParams::WithDp { epsilon };
-            const SS_BITS: usize = 5;
-            let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -488,7 +487,7 @@ pub mod tests {
                         > f64::from(expected[index]) - 5.0 * standard_deviation
                         && f64::from(*sample_u128) - mean
                             < f64::from(expected[index]) + 5.0 * standard_deviation
-                )
+                );
             }
         });
     }
