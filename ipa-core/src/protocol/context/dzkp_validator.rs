@@ -7,7 +7,7 @@ use futures_util::{StreamExt, TryFutureExt};
 
 use super::step::ZeroKnowledgeProofValidateStep as Step;
 #[cfg(all(test, unit_test))]
-use crate::protocol::context::dzkp_field::UVSingleBlock;
+use crate::protocol::context::dzkp_field::{DZKPBaseField, UVSingleBlock, UVTupleBlock};
 use crate::{
     error::{BoxError, Error},
     ff::{Fp61BitPrime, U128Conversions},
@@ -567,8 +567,8 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Allows to validate the current `DZKPBatch` and empties it. The associated context is then
     /// considered safe until another multiplication is performed and thus new values are added
     /// to `DZKPBatch`.
-    /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
-    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
+    /// Currently only allows `Fp61BitPrime` and is not generic over `DZKPBaseFields`.
+    async fn validate(&self) -> Result<(), Error>;
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
     /// within the associated `DZKPBatch`
@@ -582,7 +582,7 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// verified using `validator.validate()`, which uses DZKPs. Once the validation fails,
     /// the output stream will return an error.
     ///
-    fn validated_seq_join<'st, S, F, O, DF>(
+    fn validated_seq_join<'st, S, F, O>(
         &'st self,
         chunk_size: usize,
         source: S,
@@ -591,13 +591,12 @@ pub trait DZKPValidator<B: UpgradableContext> {
         S: Stream<Item = F> + Send + 'st,
         F: Future<Output = O> + Send + 'st,
         O: Send + Sync + Clone + 'static,
-        DF: DZKPBaseField,
     {
         // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
         // but there is some overhead
         seq_join::<'st, S, F, O>(self.context().active_work(), source)
             .chunks(chunk_size)
-            .then(move |chunk| self.validate::<DF>().map_ok(|()| chunk))
+            .then(move |chunk| self.validate().map_ok(|()| chunk))
             .try_flatten_iters()
     }
 }
@@ -622,7 +621,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
         self.context.clone()
     }
 
-    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error> {
+    async fn validate(&self) -> Result<(), Error> {
         Ok(())
     }
 
@@ -647,7 +646,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         self.protocol_ctx.clone()
     }
 
-    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error> {
+    async fn validate(&self) -> Result<(), Error> {
         // LOCK BEGIN
         let mut batch = self.batch_ref.lock().unwrap();
         if batch.is_empty() {
@@ -779,7 +778,7 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
+                    .validated_seq_join(
                         chunk_size,
                         iter(
                             zip(
@@ -816,7 +815,7 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
+                    .validated_seq_join(
                         chunk_size,
                         iter(
                             zip(

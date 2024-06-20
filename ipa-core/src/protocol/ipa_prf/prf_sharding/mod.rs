@@ -18,7 +18,7 @@ use crate::{
         boolean_array::{BooleanArray, BA32, BA7},
         ArrayAccess, Field, U128Conversions,
     },
-    helpers::{repeat_n, stream::TryFlattenItersExt},
+    helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::{
@@ -331,7 +331,7 @@ where
     (histogram, ranges)
 }
 
-fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
+fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Result<Vec<C>, Error>
 where
     C: Context,
 {
@@ -340,13 +340,14 @@ where
         if row_number == 0 {
             // no multiplications needed for each user's row 0. No context needed
         } else {
+            let total_records = TotalRecords::specified(*num_users_having_that_row_number)?;
             let ctx_for_row_number = root_ctx
                 .narrow(&UserNthRowStep::from(row_number))
-                .set_total_records(*num_users_having_that_row_number);
+                .set_total_records(total_records);
             context_per_row_depth.push(ctx_for_row_number);
         }
     }
-    context_per_row_depth
+    Ok(context_per_row_depth)
 }
 
 ///
@@ -433,7 +434,7 @@ where
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram)?;
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
