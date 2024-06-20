@@ -82,13 +82,16 @@ impl State {
 
     fn take(&mut self, cx: &Context<'_>) -> Poll<Vec<u8>> {
         if self.buf.can_read() {
-            if !self.buf.can_write() {
+            let can_write = self.buf.can_write();
+            let next = self.buf.take();
+
+            if !can_write {
                 // We are ready to unblock writers by taking some data that we know is there off
                 // the buffer
                 Self::wake(&mut self.write_ready);
             }
 
-            Poll::Ready(self.buf.take())
+            Poll::Ready(next)
         } else {
             Self::save_waker(&mut self.stream_ready, cx);
             Poll::Pending
