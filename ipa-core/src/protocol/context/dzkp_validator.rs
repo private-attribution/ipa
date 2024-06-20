@@ -7,15 +7,17 @@ use futures_util::{StreamExt, TryFutureExt};
 
 use super::step::ZeroKnowledgeProofValidateStep as Step;
 #[cfg(all(test, unit_test))]
-use crate::protocol::context::dzkp_field::{UVSingleBlock, UVTupleBlock};
+use crate::protocol::context::dzkp_field::UVSingleBlock;
 use crate::{
     error::{BoxError, Error},
+    ff::{Fp61BitPrime, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_field::DZKPBaseField, dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
-            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, Context,
-            MaliciousContext, SemiHonestContext, UpgradableContext,
+            dzkp_field::{DZKPBaseField, UVTupleBlock},
+            dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
         },
         Gate, RecordId,
     },
@@ -24,7 +26,6 @@ use crate::{
     sync::{Arc, Mutex, Weak},
     telemetry::metrics::DZKP_BATCH_INCREMENTS,
 };
-use crate::ff::{Fp61BitPrime, U128Conversions};
 
 // constants for metrics::increment_counter!
 const ALLOCATED_AMOUNT: &str = "allocated amount of multiplications";
@@ -98,7 +99,6 @@ impl MultiplicationInputsBlock {
 
     /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the prover.
-    #[cfg(all(test, unit_test))]
     fn convert_prover<DF: DZKPBaseField>(&self) -> Vec<UVTupleBlock<DF>> {
         DF::convert_prover(
             &self.x_left,
@@ -264,9 +264,8 @@ impl MultiplicationInputsBatch {
 
     /// This function returns the amount of multiplications in one bit multiplications
     /// that are currently stored in the `MultiplicationInputsBatch`.
-    fn get_number_of_multiplications(&self) -> usize
-    {
-        self.vec.len()*self.multiplication_bit_size
+    fn get_number_of_multiplications(&self) -> usize {
+        self.vec.len() * self.multiplication_bit_size
     }
 
     /// `increment_record_ids` increments the current batch to the next set of records.
@@ -408,7 +407,6 @@ impl MultiplicationInputsBatch {
 
     /// `get_field_values_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
     /// values used by the prover of the DZKPs
-    #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
@@ -473,14 +471,14 @@ impl Batch {
             .insert_segment(record_id, segment);
     }
 
-
     /// This function returns the amount of multiplications in one bit multiplications
     /// that are currently stored in the `batch`.
-    fn get_number_of_multiplications(&self) -> usize
-    {
-        self.inner.values().map(MultiplicationInputsBatch::get_number_of_multiplications).sum()
+    fn get_number_of_multiplications(&self) -> usize {
+        self.inner
+            .values()
+            .map(MultiplicationInputsBatch::get_number_of_multiplications)
+            .sum()
     }
-
 
     /// This function should only be called by `validate`!
     ///
@@ -496,7 +494,6 @@ impl Batch {
 
     /// `get_field_values_prover` converts a `Batch` into an iterator over field values
     /// which is used by the prover of the DZKP
-    #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
@@ -663,10 +660,17 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             let m_half = 4 * batch.get_number_of_multiplications();
             debug_assert_eq!(
                 Fp61BitPrime::truncate_from(u128::try_from(m_half).unwrap()),
-                batch.get_field_values_prover::<Fp61BitPrime>()
-                    .map(|(u_array,v_array)|{
-                        u_array.iter().zip(v_array).map(|(u,v)|*u*v).sum::<Fp61BitPrime>()
-                    }).sum::<Fp61BitPrime>());
+                batch
+                    .get_field_values_prover::<Fp61BitPrime>()
+                    .map(|(u_array, v_array)| {
+                        u_array
+                            .iter()
+                            .zip(v_array)
+                            .map(|(u, v)| *u * v)
+                            .sum::<Fp61BitPrime>()
+                    })
+                    .sum::<Fp61BitPrime>()
+            );
             // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
             batch.increment_record_ids();

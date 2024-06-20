@@ -58,7 +58,11 @@ impl BatchToVerify {
     /// Finally, each helper receives a batch of secret-shares from the helper to its right.
     /// The final proof must be "masked" with random values drawn from PRSS.
     /// These values will be needed at verification time.
-    pub async fn generate_batch_to_verify<C, I>(ctx: C, uv_tuple_inputs: I, sum_of_uv: usize) -> Self
+    pub async fn generate_batch_to_verify<C, I>(
+        ctx: C,
+        uv_tuple_inputs: I,
+        sum_of_uv: usize,
+    ) -> Self
     where
         C: Context,
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,

@@ -125,10 +125,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     /// `https://eprint.iacr.org/2023/909.pdf`
     ///
     /// returns proof and number of summands `m` which is important for the verification
-    fn compute_proof<J, B>(
-        uv_iterator: J,
-        lagrange_table: &LagrangeTable<F, λ, M>,
-    ) -> [F; P]
+    fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, λ, M>) -> [F; P]
     where
         J: Iterator<Item = B>,
         B: Borrow<([F; λ], [F; λ])>,
@@ -229,7 +226,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     {
         // generate next proof
         // from iterator
-        let my_proof= Self::compute_proof(uv_iterator.clone(), lagrange_table);
+        let my_proof = Self::compute_proof(uv_iterator.clone(), lagrange_table);
 
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
