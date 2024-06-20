@@ -62,18 +62,10 @@ pub trait PublicKeyRegistry {
     fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey>;
 }
 
-// Similar as above with PublicKeyOnly, we need this type for when only the private key is required.
-pub struct PrivateKeyOnly {
-    sk: IpaPrivateKey,
+pub trait PrivateKeyRegistry {
+    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey>;
 }
 
-impl From<IpaPrivateKey> for PrivateKeyOnly {
-    fn from(value: IpaPrivateKey) -> Self {
-        Self {
-            sk: value
-        }
-    }
-}
 
 /// A registry that holds all the keys available for helper/UA to use.
 pub struct KeyRegistry<K> {
@@ -115,12 +107,22 @@ impl KeyRegistry<KeyPair> {
             keys: keys.into_boxed_slice(),
         }
     }
+}
 
+impl PrivateKeyRegistry for KeyRegistry<KeyPair> {
     #[must_use]
-    pub(super) fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
+    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
         self.key(key_id).map(|v| &v.sk)
     }
 }
+
+impl PrivateKeyRegistry for KeyRegistry<IpaPrivateKey> {
+    #[must_use]
+    fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
+        self.key(key_id)
+    }
+}
+
 
 impl PublicKeyRegistry for KeyRegistry<KeyPair> {
     fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey> {
@@ -131,12 +133,6 @@ impl PublicKeyRegistry for KeyRegistry<KeyPair> {
 impl PublicKeyRegistry for KeyRegistry<PublicKeyOnly> {
     fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey> {
         self.key(key_id).map(|pk| &**pk)
-    }
-}
-
-impl KeyRegistry<PrivateKeyOnly> {
-    pub fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
-        self.key(key_id).map(|v| &v.sk)
     }
 }
 

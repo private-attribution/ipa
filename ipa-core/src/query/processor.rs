@@ -12,7 +12,7 @@ use crate::{
         Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
         ShardTransportImpl, Transport,
     },
-    hpke::{KeyRegistry, PrivateKeyOnly},
+    hpke::{IpaPrivateKey, KeyRegistry},
     protocol::QueryId,
     query::{
         executor,
@@ -41,14 +41,14 @@ use crate::{
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
 pub struct Processor {
     queries: RunningQueries,
-    key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
+    key_registry: Arc<KeyRegistry<IpaPrivateKey>>,
 }
 
 impl Default for Processor {
     fn default() -> Self {
         Self {
             queries: RunningQueries::default(),
-            key_registry: Arc::new(KeyRegistry::<PrivateKeyOnly>::empty()),
+            key_registry: Arc::new(KeyRegistry::<IpaPrivateKey>::empty()),
         }
     }
 }
@@ -112,7 +112,7 @@ impl Debug for Processor {
 
 impl Processor {
     #[must_use]
-    pub fn new(key_registry: KeyRegistry<PrivateKeyOnly>) -> Self {
+    pub fn new(key_registry: KeyRegistry<IpaPrivateKey>) -> Self {
         Self {
             queries: RunningQueries::default(),
             key_registry: Arc::new(key_registry),

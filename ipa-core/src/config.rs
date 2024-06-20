@@ -19,7 +19,7 @@ use crate::{
     error::BoxError,
     helpers::HelperIdentity,
     hpke::{
-        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry, PrivateKeyOnly,
+        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry,
         Serializable as _,
     },
 };
@@ -229,9 +229,9 @@ pub enum HpkeServerConfig {
 /// If there is a problem with the HPKE configuration.
 pub async fn hpke_registry(
     config: Option<&HpkeServerConfig>,
-) -> Result<KeyRegistry<PrivateKeyOnly>, BoxError> {
+) -> Result<KeyRegistry<IpaPrivateKey>, BoxError> {
     let sk_str = match config {
-        None => return Ok(KeyRegistry::<PrivateKeyOnly>::empty()),
+        None => return Ok(KeyRegistry::<IpaPrivateKey>::empty()),
         Some(HpkeServerConfig::Inline { private_key }) => {
             Cow::Borrowed(private_key.trim().as_bytes())
         }
