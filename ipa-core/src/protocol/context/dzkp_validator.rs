@@ -654,7 +654,6 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         } else {
             // todo: generate proofs and validate them using `batch_list`
             // get amount of u, v values which is 4 times the amount of multiplications
-            // divided by 2 to compute m/2
             let m = 4 * batch.get_number_of_multiplications();
             debug_assert_eq!(
                 m,
