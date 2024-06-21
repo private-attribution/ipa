@@ -514,6 +514,7 @@ mod test {
         pin::{pin, Pin},
     };
 
+    use ::tokio::sync::Barrier;
     use futures::{
         future::{join, join3, join_all, poll_immediate, try_join_all},
         stream::StreamExt,
@@ -524,7 +525,6 @@ mod test {
     use rand::{seq::SliceRandom, Rng};
     #[cfg(feature = "shuttle")]
     use shuttle::future as tokio;
-    use tokio::sync::Barrier;
     use typenum::Unsigned;
 
     use super::OrderingSender;
