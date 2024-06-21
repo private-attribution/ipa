@@ -13,10 +13,7 @@ use crate::{
         Direction,
     },
     protocol::{
-        context::{
-            dzkp_field::{UVSingleBlock, UVTupleBlock, BLOCK_SIZE},
-            Context,
-        },
+        context::{dzkp_field::UVTupleBlock, Context},
         ipa_prf::{
             malicious_security::{
                 lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
@@ -166,10 +163,13 @@ impl BatchToVerify {
         &self,
         ctx: &C,
     ) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>) {
+        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+
         // exclude for first proof
-        let exclude_large = u128::try_from(LargeProofGenerator::RECURSION_FACTOR).unwrap();
+        let exclude_large = u128::try_from(LRF).unwrap();
         // exclude for other proofs
-        let exclude_small = u128::try_from(SmallProofGenerator::RECURSION_FACTOR).unwrap();
+        let exclude_small = u128::try_from(SRF).unwrap();
 
         // generate hashes
         let my_hashes_prover_left = ProofHashes::generate_hashes(self, Side::Left);
@@ -222,29 +222,22 @@ impl BatchToVerify {
     ) -> Result<Fp61BitPrime, Error>
     where
         C: Context,
-        U: Iterator<Item = UVSingleBlock<Fp61BitPrime>> + Send,
-        V: Iterator<Item = UVSingleBlock<Fp61BitPrime>> + Send,
+        U: Iterator<Item = Fp61BitPrime> + Send,
+        V: Iterator<Item = Fp61BitPrime> + Send,
     {
+        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+
         // compute p_r
-        let p_r_right_prover = recursively_compute_final_check::<
-            Fp61BitPrime,
-            _,
-            { LargeProofGenerator::RECURSION_FACTOR },
-            { SmallProofGenerator::RECURSION_FACTOR },
-        >(
-            stream::iter(single_polynomial_from_input(u_from_right_prover)),
+        let p_r_right_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
+            stream::iter(u_from_right_prover),
             challenges_for_right_prover,
             self.p_mask_from_right_prover,
         )
         .await;
         // compute q_r
-        let q_r_left_prover = recursively_compute_final_check::<
-            Fp61BitPrime,
-            _,
-            { LargeProofGenerator::RECURSION_FACTOR },
-            { SmallProofGenerator::RECURSION_FACTOR },
-        >(
-            stream::iter(single_polynomial_from_input(v_from_left_prover)),
+        let q_r_left_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
+            stream::iter(v_from_left_prover),
             challenges_for_left_prover,
             self.q_mask_from_left_prover,
         )
@@ -266,30 +259,6 @@ impl BatchToVerify {
 
         Ok(p_r_right_prover * q_r_right_prover)
     }
-}
-
-/// This is a helper function that allows to split a `SingleUVInput`
-/// which consists of arrays of size `BLOCK_SIZE`
-/// into an iterator over arrays of size `LargeProofGenerator::RECURSION_FACTOR`.
-///
-/// ## Panic
-/// Panics when `unwrap` panics, i.e. `try_from` fails to convert a slice to an array.
-pub fn single_polynomial_from_input<I>(
-    inputs: I,
-) -> impl Iterator<Item = [Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR]>
-where
-    I: Iterator<Item = UVSingleBlock<Fp61BitPrime>>,
-{
-    assert_eq!(BLOCK_SIZE % LargeProofGenerator::RECURSION_FACTOR, 0);
-    inputs.flat_map(|u_or_v_block| {
-        (0usize..(BLOCK_SIZE / LargeProofGenerator::RECURSION_FACTOR)).map(move |i| {
-            <[Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR]>::try_from(
-                &u_or_v_block[i * LargeProofGenerator::RECURSION_FACTOR
-                    ..(i + 1) * LargeProofGenerator::RECURSION_FACTOR],
-            )
-            .unwrap()
-        })
-    })
 }
 
 struct ProofHashes {
@@ -385,7 +354,7 @@ pub mod test {
         ff::{Fp61BitPrime, U128Conversions},
         protocol::{
             context::{
-                dzkp_field::{UVSingleBlock, UVTupleBlock, BLOCK_SIZE},
+                dzkp_field::{UVTupleBlock, BLOCK_SIZE},
                 Context,
             },
             ipa_prf::{
@@ -560,14 +529,14 @@ pub mod test {
         ctx: &C,
     ) -> (
         Vec<UVTupleBlock<Fp61BitPrime>>,
-        Vec<UVSingleBlock<Fp61BitPrime>>,
-        Vec<UVSingleBlock<Fp61BitPrime>>,
+        Vec<Fp61BitPrime>,
+        Vec<Fp61BitPrime>,
     ) {
         const SIZE: usize = 100;
 
         // outputs
-        let mut vec_u_from_right_prover = Vec::<[Fp61BitPrime; BLOCK_SIZE]>::with_capacity(SIZE);
-        let mut vec_v_from_left_prover = Vec::<[Fp61BitPrime; BLOCK_SIZE]>::with_capacity(SIZE);
+        let mut vec_u_from_right_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * SIZE);
+        let mut vec_v_from_left_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * SIZE);
 
         let mut vec_my_u_and_v =
             Vec::<([Fp61BitPrime; BLOCK_SIZE], [Fp61BitPrime; BLOCK_SIZE])>::with_capacity(SIZE);
@@ -578,26 +547,17 @@ pub mod test {
         for _ in 0..SIZE {
             let mut my_u_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
             let mut my_v_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
-            let mut u_from_right_prover_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
-            let mut v_from_left_prover_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
             for i in 0..BLOCK_SIZE {
-                // todo
-                let (my_u, u_from_right_prover) =
-                    // (Fp61BitPrime::ZERO,Fp61BitPrime::ZERO);
-                    ctx.prss().generate_fields(counter);
+                let (my_u, u_from_right_prover) = ctx.prss().generate_fields(counter);
                 counter += 1;
-                let (v_from_left_prover, my_v) =
-                    // (Fp61BitPrime::ZERO,Fp61BitPrime::ZERO);
-                    ctx.prss().generate_fields(counter);
+                let (v_from_left_prover, my_v) = ctx.prss().generate_fields(counter);
                 counter += 1;
                 my_u_array[i] = my_u;
                 my_v_array[i] = my_v;
-                u_from_right_prover_array[i] = u_from_right_prover;
-                v_from_left_prover_array[i] = v_from_left_prover;
+                vec_u_from_right_prover.push(u_from_right_prover);
+                vec_v_from_left_prover.push(v_from_left_prover);
             }
             vec_my_u_and_v.push((my_u_array, my_v_array));
-            vec_u_from_right_prover.push(u_from_right_prover_array);
-            vec_v_from_left_prover.push(v_from_left_prover_array);
         }
 
         (
@@ -617,7 +577,9 @@ pub mod test {
             .collect()
     }
 
-    /// This test checks the consistency of the final `p` and `q` values generated by the prover and verifiers
+    /// This test checks the batches to verify by running a partial verification
+    /// The verification checks whether the zero shares of intermediate proofs
+    /// are indeed zero by recombining the shares (without sending them over the "network")
     #[test]
     fn check_batch_to_verify_consistency() {
         run(|| async move {
@@ -675,6 +637,10 @@ pub mod test {
     }
 
     fn assert_batch(left: &BatchToVerify, right: &BatchToVerify, challenges: &[Fp61BitPrime]) {
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+        const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
+        const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
+
         let first = recombine(
             &left.first_proof_from_left_prover,
             &right.first_proof_from_right_prover,
@@ -685,39 +651,19 @@ pub mod test {
             .zip(right.proofs_from_right_prover.iter())
             .map(|(left, right)| recombine(left, right))
             .collect::<Vec<_>>();
-        let denominator_first = CanonicalLagrangeDenominator::<
-            Fp61BitPrime,
-            { LargeProofGenerator::PROOF_LENGTH },
-        >::new();
-        let denominator = CanonicalLagrangeDenominator::<
-            Fp61BitPrime,
-            { SmallProofGenerator::PROOF_LENGTH },
-        >::new();
+        let denominator_first = CanonicalLagrangeDenominator::<_, LPL>::new();
+        let denominator = CanonicalLagrangeDenominator::<_, SPL>::new();
 
         let length = others.len();
 
         let mut out = interpolate_at_r(&first, &challenges[0], &denominator_first);
         for (i, proof) in others.iter().take(length - 1).enumerate() {
-            assert_eq!(
-                (i, out),
-                (
-                    i,
-                    compute_sum_share::<
-                        Fp61BitPrime,
-                        { SmallProofGenerator::RECURSION_FACTOR },
-                        { SmallProofGenerator::PROOF_LENGTH },
-                    >(proof)
-                )
-            );
+            assert_eq!((i, out), (i, compute_sum_share::<_, SRF, SPL>(proof)));
             out = interpolate_at_r(proof, &challenges[i + 1], &denominator);
         }
         // last sum without masks
         let masks = others[length - 1][0];
-        let last_sum = compute_sum_share::<
-            Fp61BitPrime,
-            { SmallProofGenerator::RECURSION_FACTOR },
-            { SmallProofGenerator::PROOF_LENGTH },
-        >(&others[length - 1]);
+        let last_sum = compute_sum_share::<_, SRF, SPL>(&others[length - 1]);
         assert_eq!(out, last_sum - masks);
     }
 

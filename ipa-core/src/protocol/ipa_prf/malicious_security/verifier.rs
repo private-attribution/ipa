@@ -77,23 +77,21 @@ pub fn compute_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[
 /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
 ///
 /// The function uses streams since stream offers a chunk method.
-fn recurse_u_or_v<'a, F: PrimeField, J, const λ_FIRST: usize, const λ: usize>(
+fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
     u_or_v_stream: J,
-    lagrange_table: &'a LagrangeTable<F, λ_FIRST, 1>,
-) -> impl Stream<Item = [F; λ]> + 'a
+    lagrange_table: &'a LagrangeTable<F, λ, 1>,
+) -> impl Stream<Item = F> + 'a
 where
-    J: Stream<Item = [F; λ_FIRST]> + 'a,
+    J: Stream<Item = F> + 'a,
 {
     u_or_v_stream
-        .map(|polynomial| lagrange_table.eval(polynomial)[0])
         .chunks(λ)
-        .map(|chunk| {
-            let mut new_u_or_v_vec = [F::ZERO; λ];
-            for (i, &x) in chunk.iter().enumerate() {
-                new_u_or_v_vec[i] = x;
-            }
-            new_u_or_v_vec
+        .map(|x| {
+            let mut array = [F::ZERO; λ];
+            array[..x.len()].copy_from_slice(&x[..]);
+            array
         })
+        .map(|polynomial| lagrange_table.eval(polynomial)[0])
 }
 
 pub async fn recursively_compute_final_check<
@@ -107,9 +105,9 @@ pub async fn recursively_compute_final_check<
     p_or_q_0: F,
 ) -> F
 where
-    J: Stream<Item = [F; λ_FIRST]> + Unpin + Send,
+    J: Stream<Item = F> + Unpin + Send,
 {
-    let recursions = challenges.len();
+    let recursions_after_first = challenges.len() - 1;
 
     // compute Lagrange tables
     let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, λ_FIRST>::new();
@@ -123,43 +121,41 @@ where
 
     // generate & evaluate recursive streams
     // to compute last array
-    let mut stream: Pin<Box<dyn Stream<Item = [F; λ]> + Send>> =
-        Box::pin(recurse_u_or_v::<_, _, λ_FIRST, λ>(
-            u_or_v_stream,
-            &table_first,
-        ));
-    for lagrange_table in tables.iter().take(recursions - 2) {
-        stream = Box::pin(recurse_u_or_v::<_, _, λ, λ>(stream, lagrange_table));
+    let mut stream: Pin<Box<dyn Stream<Item = F> + Send>> = Box::pin(
+        recurse_u_or_v::<_, _, λ_FIRST>(u_or_v_stream, &table_first),
+    );
+    // all following recursion except last one
+    for lagrange_table in tables.iter().take(recursions_after_first - 1) {
+        stream = Box::pin(recurse_u_or_v::<_, _, λ>(stream, lagrange_table));
     }
-    let mut last_u_or_v_array = stream.next().await.unwrap();
-    // make sure stream is empty
-    assert!(stream.next().await.is_none());
-
+    let last_u_or_v_values = stream.collect::<Vec<F>>().await;
+    // make sure there at at most λ last u or v values
     // In the protocol, the prover is expected to continue recursively compressing the
     // u and v vectors until it has length strictly less than λ.
-    // For this reason, we can safely assume that in the final proof, the last value
-    // in the ZKP is zero.
-    // A debug assert will help catch any errors while in development.
-    // set mask
-    debug_assert!(
-        last_u_or_v_array[λ - 1] == F::ZERO,
-        "Should not be overwriting non-zero values"
+    assert!(
+        last_u_or_v_values.len() < λ,
+        "Too many u or v values in last recursion"
     );
-    last_u_or_v_array[λ - 1] = last_u_or_v_array[0];
-    last_u_or_v_array[0] = p_or_q_0;
+
+    let mut last_array = [F::ZERO; λ];
+
+    // array needs to be consistent with what the prover does
+    // i.e. set first u or v value to the end
+    last_array[λ - 1] = last_u_or_v_values[0];
+    last_array[0] = p_or_q_0;
+
+    last_array[1..last_u_or_v_values.len()].copy_from_slice(&last_u_or_v_values[1..]);
 
     // compute and output p_or_q
-    tables[recursions - 2].eval(last_u_or_v_array)[0]
+    tables.last().unwrap().eval(last_array)[0]
 }
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::iter;
-
     use futures_util::{stream, StreamExt};
 
     use crate::{
-        ff::{Fp31, PrimeField, U128Conversions},
+        ff::{Fp31, U128Conversions},
         protocol::ipa_prf::malicious_security::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
             verifier::{
@@ -170,19 +166,14 @@ mod test {
         secret_sharing::SharedValue,
     };
 
-    fn make_chunks<F: PrimeField, const N: usize>(a: &[u128]) -> Vec<[F; N]> {
-        a.chunks(N)
-            .map(|chunk| <[u128; N]>::try_from(chunk).unwrap().map(F::truncate_from))
+    fn to_field(a: &[u128]) -> Vec<Fp31> {
+        a.iter()
+            .map(|x| Fp31::truncate_from(*x))
             .collect::<Vec<_>>()
     }
 
-    fn chunks_from_vector<F: PrimeField, const N: usize>(a: Vec<&[u128]>) -> Vec<[F; N]> {
-        make_chunks(
-            &a.into_iter()
-                .flat_map(|x| x.iter())
-                .map(Clone::clone)
-                .collect::<Vec<u128>>(),
-        )
+    fn array_to_field<const N: usize>(a: &[u128; N]) -> [Fp31; N] {
+        a.map(Fp31::truncate_from)
     }
 
     // test proof for Fp31
@@ -291,39 +282,32 @@ mod test {
         let tables: [LagrangeTable<Fp31, 4, 1>; 3] = CHALLENGES
             .map(|r| LagrangeTable::new(&denominator_p_or_q, &Fp31::try_from(r).unwrap()));
 
-        // uv values in input format
-        let u_1 = make_chunks::<_, 4>(&U_1);
-
-        let u_or_v_2 = recurse_u_or_v(stream::iter(u_1), &tables[0])
-            .collect::<Vec<_>>()
+        let u_or_v_2 = recurse_u_or_v::<_, _, 4>(stream::iter(to_field(&U_1)), &tables[0])
+            .collect::<Vec<Fp31>>()
             .await;
-        assert_eq!(u_or_v_2, make_chunks::<Fp31, 4>(&U_2));
+        assert_eq!(u_or_v_2, to_field(&U_2));
 
-        let u_or_v_3 = recurse_u_or_v(stream::iter(u_or_v_2.into_iter()), &tables[1])
+        let u_or_v_3 = recurse_u_or_v::<_, _, 4>(stream::iter(u_or_v_2), &tables[1])
             .collect::<Vec<_>>()
             .await;
 
-        assert_eq!(u_or_v_3, make_chunks::<Fp31, 4>(&U_3));
+        assert_eq!(u_or_v_3, to_field(&U_3[..2]));
 
         let u_or_v_3_masked = [
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(), // set mask at index 0
-            u_or_v_3[0][1],
+            u_or_v_3[1],
             Fp31::ZERO,
-            u_or_v_3[0][0], // move first element to the end
+            u_or_v_3[0], // move first element to the end
         ];
 
-        let p_final =
-            recurse_u_or_v::<_, _, 4, 4>(stream::iter(iter::once(u_or_v_3_masked)), &tables[2])
-                .collect::<Vec<_>>()
-                .await;
+        let p_final = recurse_u_or_v::<_, _, 4>(stream::iter(u_or_v_3_masked), &tables[2])
+            .collect::<Vec<_>>()
+            .await;
 
-        assert_eq!(p_final[0][0].as_u128(), EXPECTED_P_FINAL);
-
-        // uv values in input format
-        let u_1 = make_chunks::<_, 4>(&U_1);
+        assert_eq!(p_final[0].as_u128(), EXPECTED_P_FINAL);
 
         let p_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
-            stream::iter(u_1),
+            stream::iter(to_field(&U_1)),
             &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
@@ -388,36 +372,35 @@ mod test {
             .map(|r| LagrangeTable::new(&denominator_p_or_q, &Fp31::try_from(r).unwrap()));
 
         // uv values in input format
-        let v_1 = make_chunks::<_, 4>(&V_1);
+        let v_1 = to_field(&V_1);
 
         let u_or_v_2 = recurse_u_or_v(stream::iter(v_1), &tables[0])
             .collect::<Vec<_>>()
             .await;
-        assert_eq!(u_or_v_2, make_chunks::<Fp31, 4>(&V_2));
+        assert_eq!(u_or_v_2, to_field(&V_2));
 
         let u_or_v_3 = recurse_u_or_v(stream::iter(u_or_v_2.into_iter()), &tables[1])
             .collect::<Vec<_>>()
             .await;
 
-        assert_eq!(u_or_v_3, make_chunks::<Fp31, 4>(&V_3));
+        assert_eq!(u_or_v_3, to_field(&V_3[..2]));
 
         let u_or_v_3_masked = [
             Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(), // set mask at index 0
-            u_or_v_3[0][1],
+            u_or_v_3[1],
             Fp31::ZERO,
-            u_or_v_3[0][0], // move first element to the end
+            u_or_v_3[0], // move first element to the end
         ];
 
         // final iteration
-        let p_final =
-            recurse_u_or_v::<_, _, 4, 4>(stream::iter(iter::once(u_or_v_3_masked)), &tables[2])
-                .collect::<Vec<_>>()
-                .await;
+        let p_final = recurse_u_or_v::<_, _, 4>(stream::iter(u_or_v_3_masked), &tables[2])
+            .collect::<Vec<_>>()
+            .await;
 
-        assert_eq!(p_final[0][0].as_u128(), EXPECTED_Q_FINAL);
+        assert_eq!(p_final[0].as_u128(), EXPECTED_Q_FINAL);
 
         // uv values in input format
-        let v_1 = make_chunks::<_, 4>(&V_1);
+        let v_1 = to_field(&V_1);
 
         let q_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
             stream::iter(v_1),
@@ -434,8 +417,8 @@ mod test {
 
     #[test]
     fn differences_are_zero() {
-        let zkp_left = chunks_from_vector::<Fp31, 7>(vec![&ZKP_1_LEFT, &ZKP_2_LEFT]);
-        let zkp_right = chunks_from_vector::<Fp31, 7>(vec![&ZKP_1_RIGHT, &ZKP_2_RIGHT]);
+        let zkp_left = vec![array_to_field(&ZKP_1_LEFT), array_to_field(&ZKP_2_LEFT)];
+        let zkp_right = vec![array_to_field(&ZKP_1_RIGHT), array_to_field(&ZKP_2_RIGHT)];
         let challenges = vec![Fp31::truncate_from(22u128), Fp31::truncate_from(17u128)];
 
         let g_differences_left =
@@ -453,6 +436,5 @@ mod test {
             .collect::<Vec<_>>();
 
         assert_eq!(Fp31::ZERO, g_differences[0]);
-        assert_eq!(Fp31::ZERO, g_differences[1]);
     }
 }

@@ -185,10 +185,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
         let mut out_right = [F::ZERO; P];
         // use PRSS
         for i in 0..P {
-            let (left, right) =
-                // (F::ZERO,F::ZERO);
-                // todo
-                ctx.prss().generate_fields::<F, RecordId>(*record_counter);
+            let (left, right) = ctx.prss().generate_fields::<F, RecordId>(*record_counter);
             *record_counter += 1;
 
             out_left[i] = left;
