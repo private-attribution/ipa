@@ -12,7 +12,9 @@ use std::{
 
 use command_fds::CommandFdExt;
 use ipa_core::{
-    cli::IpaQueryResult, helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel,
+    cli::IpaQueryResult,
+    helpers::query::{DpParams, IpaQueryConfig},
+    test_fixture::ipa::IpaSecurityModel,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -197,7 +199,14 @@ pub fn test_network(https: bool) {
 }
 
 pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
-    test_ipa_with_config(mode, https, IpaQueryConfig::default());
+    test_ipa_with_config(
+        mode,
+        https,
+        IpaQueryConfig {
+            dp_params: DpParams::NoDp,
+            ..Default::default()
+        },
+    );
 }
 
 pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQueryConfig) {

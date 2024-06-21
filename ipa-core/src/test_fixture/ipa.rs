@@ -6,7 +6,7 @@ use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 #[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{PrimeField, Serializable},
-    helpers::query::IpaQueryConfig,
+    helpers::query::{DpParams, IpaQueryConfig},
     protocol::ipa_prf::OPRFIPAInputRow,
     secret_sharing::{
         replicated::{
@@ -254,7 +254,38 @@ pub async fn test_oprf_ipa<F>(
 
     //TODO(richaj): To be removed once the function supports non power of 2 breakdowns
     let _ = result.split_off(expected_results.len());
-    assert_eq!(result, expected_results);
+
+    match config.dp_params {
+        DpParams::NoDp => {
+            assert_eq!(result, expected_results);
+        }
+        DpParams::WithDp { epsilon } => {
+            let per_user_credit_cap_f64 = f64::from(config.per_user_credit_cap);
+            //TODO(bmcase): make a more concise way to query the mean and standard deviation
+            // giving it the query config
+            let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(
+                epsilon,
+                0.5,
+                1e-6,
+                1.0,
+                1.0,
+                per_user_credit_cap_f64,
+                per_user_credit_cap_f64,
+                per_user_credit_cap_f64,
+            );
+            let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
+            let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+            for (index, sample) in result.iter().enumerate() {
+                assert!(
+                    f64::from(*sample) - mean
+                        > f64::from(expected_results[index]) - 5.0 * standard_deviation
+                        && f64::from(*sample) - mean
+                        < f64::from(expected_results[index]) + 5.0 * standard_deviation
+                    , "DP result was more than 5 standard deviations of the noise from the expected result"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(all(test, unit_test))]
