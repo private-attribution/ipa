@@ -324,8 +324,8 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
-            dp_params: DpParams::NoDp, // TODO default with noise
-            // dp_params: DpParams::WithDp { epsilon: 1.1 },
+            // dp_params: DpParams::NoDp, // TODO default with noise
+            dp_params: DpParams::WithDp { epsilon: 3.0 },
             plaintext_match_keys: false,
         }
     }
