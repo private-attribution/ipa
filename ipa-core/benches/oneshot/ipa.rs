@@ -8,10 +8,7 @@ use clap::Parser;
 use ipa_core::{
     error::Error,
     ff::Fp32BitPrime,
-    helpers::{
-        query::{DpParams, IpaQueryConfig},
-        GatewayConfig,
-    },
+    helpers::{query::IpaQueryConfig, GatewayConfig},
     protocol::{step::ProtocolStep::IpaPrf, Gate},
     test_fixture::{
         ipa::{ipa_in_the_clear, test_oprf_ipa, CappingOrder, IpaSecurityModel},
@@ -65,7 +62,7 @@ struct Args {
     #[arg(long, default_value = "3")]
     num_multi_bits: u32,
     /// dp_params enum
-    dp_params: DpParams,
+    // dp_params: DpParams,
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,
@@ -97,8 +94,9 @@ impl Args {
             max_breakdown_key: self.breakdown_keys,
             attribution_window_seconds: self.attribution_window(),
             num_multi_bits: self.num_multi_bits,
-            dp_params: self.dp_params,
+            // dp_params: self.dp_params,
             plaintext_match_keys: true,
+            ..Default::default()
         }
     }
 }

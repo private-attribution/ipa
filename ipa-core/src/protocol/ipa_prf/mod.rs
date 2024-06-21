@@ -476,13 +476,19 @@ pub mod tests {
             );
             let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
             let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
-            println!("In semi_honest_with_dp:  mean = {mean}, standard_deviation = {standard_deviation}");
+            println!(
+                "In semi_honest_with_dp:  mean = {mean}, standard_deviation = {standard_deviation}"
+            );
             let result_u32: Vec<u32> = result
                 .iter()
                 .map(|&v| u32::try_from(v.as_u128()).unwrap())
                 .collect::<Vec<_>>();
 
-            println!("in test: semi_honest_with_dp. len result = {} and expected len =  {}",result_u32.len(),expected.len());
+            println!(
+                "in test: semi_honest_with_dp. len result = {} and expected len =  {}",
+                result_u32.len(),
+                expected.len()
+            );
             for (index, sample_u128) in result_u32.iter().enumerate() {
                 assert!(
                     f64::from(*sample_u128) - mean
