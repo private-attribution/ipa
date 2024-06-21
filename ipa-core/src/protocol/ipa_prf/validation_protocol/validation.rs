@@ -215,8 +215,8 @@ impl BatchToVerify {
     async fn p_and_q_r_check<C, U, V>(
         &self,
         ctx: &C,
-        challenges_for_left_prover: Vec<Fp61BitPrime>,
-        challenges_for_right_prover: Vec<Fp61BitPrime>,
+        challenges_for_left_prover: &[Fp61BitPrime],
+        challenges_for_right_prover: &[Fp61BitPrime],
         u_from_right_prover: U,
         v_from_left_prover: V,
     ) -> Result<Fp61BitPrime, Error>
@@ -233,7 +233,7 @@ impl BatchToVerify {
             { SmallProofGenerator::RECURSION_FACTOR },
         >(
             stream::iter(single_polynomial_from_input(u_from_right_prover)),
-            &challenges_for_right_prover,
+            challenges_for_right_prover,
             self.p_mask_from_right_prover,
         )
         .await;
@@ -245,7 +245,7 @@ impl BatchToVerify {
             { SmallProofGenerator::RECURSION_FACTOR },
         >(
             stream::iter(single_polynomial_from_input(v_from_left_prover)),
-            &challenges_for_left_prover,
+            challenges_for_left_prover,
             self.q_mask_from_left_prover,
         )
         .await;
@@ -258,13 +258,13 @@ impl BatchToVerify {
         let receive_channel =
             communication_ctx.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
 
-        let ((), p_r_left_prover) = try_join(
-            send_channel.send(RecordId::FIRST, p_r_right_prover),
+        let ((), q_r_right_prover) = try_join(
+            send_channel.send(RecordId::FIRST, q_r_left_prover),
             receive_channel.receive(RecordId::FIRST),
         )
         .await?;
 
-        Ok(p_r_left_prover * q_r_left_prover)
+        Ok(p_r_right_prover * q_r_right_prover)
     }
 }
 
@@ -379,7 +379,6 @@ impl ProofHashes {
 
 #[cfg(all(test, unit_test))]
 pub mod test {
-    use futures_util::stream;
     use rand::{thread_rng, Rng};
 
     use crate::{
@@ -391,11 +390,11 @@ pub mod test {
             },
             ipa_prf::{
                 malicious_security::{
-                    lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-                    prover::{LargeProofGenerator, SmallProofGenerator, UVValues},
-                    verifier::recursively_compute_final_check,
+                    lagrange::CanonicalLagrangeDenominator,
+                    prover::{LargeProofGenerator, SmallProofGenerator},
+                    verifier::{compute_sum_share, interpolate_at_r},
                 },
-                validation_protocol::validation::{single_polynomial_from_input, BatchToVerify},
+                validation_protocol::validation::BatchToVerify,
             },
             prss::SharedRandomness,
             RecordId,
@@ -582,9 +581,14 @@ pub mod test {
             let mut u_from_right_prover_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
             let mut v_from_left_prover_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
             for i in 0..BLOCK_SIZE {
-                let (my_u, u_from_right_prover) = ctx.prss().generate_fields(counter);
+                // todo
+                let (my_u, u_from_right_prover) =
+                    // (Fp61BitPrime::ZERO,Fp61BitPrime::ZERO);
+                    ctx.prss().generate_fields(counter);
                 counter += 1;
-                let (v_from_left_prover, my_v) = ctx.prss().generate_fields(counter);
+                let (v_from_left_prover, my_v) =
+                    // (Fp61BitPrime::ZERO,Fp61BitPrime::ZERO);
+                    ctx.prss().generate_fields(counter);
                 counter += 1;
                 my_u_array[i] = my_u;
                 my_v_array[i] = my_v;
@@ -603,76 +607,127 @@ pub mod test {
         )
     }
 
-    /// This is a helper function to compute final `p`, `q` of the prover
-    fn final_p_and_q<I>(
-        u_and_v: I,
-        challenges: &[Fp61BitPrime],
-        my_p_mask: Fp61BitPrime,
-        my_q_mask: Fp61BitPrime,
-    ) -> (Fp61BitPrime, Fp61BitPrime)
-    where
-        I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
-    {
-        // first iteration
-        let denominator = CanonicalLagrangeDenominator::<
-            Fp61BitPrime,
-            { LargeProofGenerator::RECURSION_FACTOR },
-        >::new();
-        let lagrange_table_r = LagrangeTable::<
-            Fp61BitPrime,
-            { LargeProofGenerator::RECURSION_FACTOR },
-            1,
-        >::new(&denominator, &challenges[0]);
-
-        // iter and interpolate at x coordinate r
-        let mut u_and_v = u_and_v
-            .map(|(u_chunk, v_chunk)| {
-                (
-                    // new u value
-                    lagrange_table_r.eval(u_chunk)[0],
-                    // new v value
-                    lagrange_table_r.eval(v_chunk)[0],
-                )
-            })
-            .collect::<UVValues<Fp61BitPrime, { SmallProofGenerator::RECURSION_FACTOR }>>();
-
-        for challenge in challenges.iter().skip(1) {
-            if u_and_v.len() < SmallProofGenerator::RECURSION_FACTOR {
-                u_and_v.set_masks(my_p_mask, my_q_mask).unwrap();
-            }
-            let denominator = CanonicalLagrangeDenominator::<
-                Fp61BitPrime,
-                { SmallProofGenerator::RECURSION_FACTOR },
-            >::new();
-            let lagrange_table_r = LagrangeTable::<
-                Fp61BitPrime,
-                { SmallProofGenerator::RECURSION_FACTOR },
-                1,
-            >::new(&denominator, challenge);
-
-            u_and_v = u_and_v
-                .iter()
-                .map(|(u_chunk, v_chunk)| {
-                    (
-                        // new u value
-                        lagrange_table_r.eval(u_chunk)[0],
-                        // new v value
-                        lagrange_table_r.eval(v_chunk)[0],
-                    )
-                })
-                .collect::<UVValues<Fp61BitPrime, { SmallProofGenerator::RECURSION_FACTOR }>>();
-        }
-        let (p, q) = u_and_v.iter().next().unwrap();
-        (p[0], q[0])
+    fn recombine<const P: usize>(
+        left: &[Fp61BitPrime; P],
+        right: &[Fp61BitPrime; P],
+    ) -> [Fp61BitPrime; P] {
+        left.iter()
+            .zip(right.iter())
+            .map(|(left, right)| *left + *right)
+            .collect()
     }
 
     /// This test checks the consistency of the final `p` and `q` values generated by the prover and verifiers
     #[test]
-    fn final_p_q_r_consistency() {
+    fn check_batch_to_verify_consistency() {
         run(|| async move {
             let world = TestWorld::default();
 
-            let [(h1_p_right, h1_q_left, h1_c_left, h1_c_right, h1_u_and_v, h1_batch), (h2_p_right, h2_q_left, h2_c_left, h2_c_right, h2_u_and_v, h2_batch), (h3_p_right, h3_q_left, h3_c_left, h3_c_right, h3_u_and_v, h3_batch)] =
+            let [(h1_c_left, h1_c_right, h1_batch), (h2_c_left, h2_c_right, h2_batch), (h3_c_left, h3_c_right, h3_batch)] =
+                world
+                    .semi_honest((), |ctx, ()| async move {
+                        // generate u, v values
+                        let (vec_my_u_and_v, _, _) = generate_u_v(&ctx);
+
+                        // generate and output VerifierBatch together with h value
+                        let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                            ctx.narrow("generate_batch"),
+                            vec_my_u_and_v.clone().into_iter(),
+                        )
+                        .await;
+
+                        // generate challenges
+                        let (challenges_for_left_prover, challenges_for_right_prover) =
+                            batch_to_verify
+                                .generate_challenges(&ctx.narrow("generate_hash"))
+                                .await;
+
+                        assert_eq!(
+                            challenges_for_right_prover.len(),
+                            batch_to_verify.proofs_from_right_prover.len() + 1
+                        );
+
+                        // output challenges and batches to verify
+                        (
+                            challenges_for_left_prover,
+                            challenges_for_right_prover,
+                            batch_to_verify,
+                        )
+                    })
+                    .await;
+
+            // check challenges
+            // h1 prover
+            assert_eq!(h2_c_left, h3_c_right);
+            // h2 prover
+            assert_eq!(h3_c_left, h1_c_right);
+            // h3 prover
+            assert_eq!(h1_c_left, h2_c_right);
+
+            // assert batches
+            // h1
+            assert_batch(&h2_batch, &h3_batch, &h3_c_right);
+            // h2
+            assert_batch(&h3_batch, &h1_batch, &h1_c_right);
+            // h3
+            assert_batch(&h1_batch, &h2_batch, &h2_c_right);
+        });
+    }
+
+    fn assert_batch(left: &BatchToVerify, right: &BatchToVerify, challenges: &[Fp61BitPrime]) {
+        let first = recombine(
+            &left.first_proof_from_left_prover,
+            &right.first_proof_from_right_prover,
+        );
+        let others = left
+            .proofs_from_left_prover
+            .iter()
+            .zip(right.proofs_from_right_prover.iter())
+            .map(|(left, right)| recombine(left, right))
+            .collect::<Vec<_>>();
+        let denominator_first = CanonicalLagrangeDenominator::<
+            Fp61BitPrime,
+            { LargeProofGenerator::PROOF_LENGTH },
+        >::new();
+        let denominator = CanonicalLagrangeDenominator::<
+            Fp61BitPrime,
+            { SmallProofGenerator::PROOF_LENGTH },
+        >::new();
+
+        let length = others.len();
+
+        let mut out = interpolate_at_r(&first, &challenges[0], &denominator_first);
+        for (i, proof) in others.iter().take(length - 1).enumerate() {
+            assert_eq!(
+                (i, out),
+                (
+                    i,
+                    compute_sum_share::<
+                        Fp61BitPrime,
+                        { SmallProofGenerator::RECURSION_FACTOR },
+                        { SmallProofGenerator::PROOF_LENGTH },
+                    >(proof)
+                )
+            );
+            out = interpolate_at_r(proof, &challenges[i + 1], &denominator);
+        }
+        // last sum without masks
+        let masks = others[length - 1][0];
+        let last_sum = compute_sum_share::<
+            Fp61BitPrime,
+            { SmallProofGenerator::RECURSION_FACTOR },
+            { SmallProofGenerator::PROOF_LENGTH },
+        >(&others[length - 1]);
+        assert_eq!(out, last_sum - masks);
+    }
+
+    /// This test checks that `p_r*q_r` is consistent with the last proof
+    #[test]
+    fn p_times_q() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let [(pq_h1, h1_left, h1_right), (pq_h2, h2_left, h2_right), (pq_h3, h3_left, h3_right)] =
                 world
                     .semi_honest((), |ctx, ()| async move {
                         // generate u, v values
@@ -697,133 +752,44 @@ pub mod test {
                             batch_to_verify.proofs_from_right_prover.len() + 1
                         );
 
-                        // compute p_r
-                        let p_r_right_prover = recursively_compute_final_check::<
-                            Fp61BitPrime,
-                            _,
-                            { LargeProofGenerator::RECURSION_FACTOR },
-                            { SmallProofGenerator::RECURSION_FACTOR },
-                        >(
-                            stream::iter(single_polynomial_from_input(
+                        let p_times_q = batch_to_verify
+                            .p_and_q_r_check(
+                                &ctx,
+                                &challenges_for_left_prover,
+                                &challenges_for_right_prover,
                                 vec_u_from_right_prover.into_iter(),
-                            )),
-                            &challenges_for_right_prover,
-                            batch_to_verify.p_mask_from_right_prover,
-                        )
-                        .await;
-
-                        // compute q_r
-                        let q_r_left_prover = recursively_compute_final_check::<
-                            Fp61BitPrime,
-                            _,
-                            { LargeProofGenerator::RECURSION_FACTOR },
-                            { SmallProofGenerator::RECURSION_FACTOR },
-                        >(
-                            stream::iter(single_polynomial_from_input(
                                 vec_v_from_left_prover.into_iter(),
-                            )),
-                            &challenges_for_left_prover,
-                            batch_to_verify.q_mask_from_left_prover,
-                        )
-                        .await;
+                            )
+                            .await
+                            .unwrap();
 
-                        // output check
-                        (
-                            p_r_right_prover,
-                            q_r_left_prover,
-                            challenges_for_left_prover,
-                            challenges_for_right_prover,
-                            vec_my_u_and_v,
-                            batch_to_verify,
-                        )
+                        let denominator = CanonicalLagrangeDenominator::<
+                            Fp61BitPrime,
+                            { SmallProofGenerator::PROOF_LENGTH },
+                        >::new();
+
+                        let g_r_left = interpolate_at_r(
+                            batch_to_verify.proofs_from_left_prover.last().unwrap(),
+                            challenges_for_left_prover.last().unwrap(),
+                            &denominator,
+                        );
+                        let g_r_right = interpolate_at_r(
+                            batch_to_verify.proofs_from_right_prover.last().unwrap(),
+                            challenges_for_right_prover.last().unwrap(),
+                            &denominator,
+                        );
+                        (p_times_q, g_r_left, g_r_right)
                     })
                     .await;
 
-            // check challenges
-            // h1 prover
-            assert_eq!(h2_c_left, h3_c_right);
-            // h2 prover
-            assert_eq!(h3_c_left, h1_c_right);
-            // h3 prover
-            assert_eq!(h1_c_left, h2_c_right);
+            // check h1's proof
+            assert_eq!(pq_h3, h2_left + h3_right);
 
-            // compute p and q
-            let (h1_p, h1_q) = final_p_and_q(
-                h1_u_and_v.into_iter(),
-                &h2_c_left,
-                h3_batch.p_mask_from_right_prover,
-                h2_batch.q_mask_from_left_prover,
-            );
-            let (h2_p, h2_q) = final_p_and_q(
-                h2_u_and_v.into_iter(),
-                &h3_c_left,
-                h1_batch.p_mask_from_right_prover,
-                h3_batch.q_mask_from_left_prover,
-            );
-            let (h3_p, h3_q) = final_p_and_q(
-                h3_u_and_v.into_iter(),
-                &h1_c_left,
-                h2_batch.p_mask_from_right_prover,
-                h1_batch.q_mask_from_left_prover,
-            );
+            // check h2's proof
+            assert_eq!(pq_h1, h3_left + h1_right);
 
-            // h1's values
-            assert_eq!(h1_p, h3_p_right);
-            assert_eq!(h1_q, h2_q_left);
-
-            // h2's values
-            assert_eq!(h2_p, h1_p_right);
-            assert_eq!(h2_q, h3_q_left);
-
-            // h3's values
-            assert_eq!(h3_p, h2_p_right);
-            assert_eq!(h3_q, h1_q_left);
-        });
-    }
-
-    /// This test checks that the `p_r*q_r` does not panic.
-    ///
-    /// todo: change to consistency check, once we support different `recursion_factors` for the verifier
-    #[test]
-    fn p_times_q() {
-        run(|| async move {
-            let world = TestWorld::default();
-
-            let [_, _, _] = world
-                .semi_honest((), |ctx, ()| async move {
-                    // generate u, v values
-                    let (vec_my_u_and_v, vec_u_from_right_prover, vec_v_from_left_prover) =
-                        generate_u_v(&ctx);
-
-                    // generate and output VerifierBatch together with h value
-                    let batch_to_verify = BatchToVerify::generate_batch_to_verify(
-                        ctx.narrow("generate_batch"),
-                        vec_my_u_and_v.clone().into_iter(),
-                    )
-                    .await;
-
-                    // generate challenges
-                    let (challenges_for_left_prover, challenges_for_right_prover) = batch_to_verify
-                        .generate_challenges(&ctx.narrow("generate_hash"))
-                        .await;
-
-                    assert_eq!(
-                        challenges_for_right_prover.len(),
-                        batch_to_verify.proofs_from_right_prover.len() + 1
-                    );
-
-                    batch_to_verify
-                        .p_and_q_r_check(
-                            &ctx,
-                            challenges_for_left_prover,
-                            challenges_for_right_prover,
-                            vec_u_from_right_prover.into_iter(),
-                            vec_v_from_left_prover.into_iter(),
-                        )
-                        .await
-                        .unwrap()
-                })
-                .await;
+            // check h3's proof
+            assert_eq!(pq_h2, h1_left + h2_right);
         });
     }
 }

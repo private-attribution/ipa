@@ -31,17 +31,21 @@ where
             challenges
                 .iter()
                 .zip(zkps)
-                .map(|(challenge, zkp)| interpolate_at_r(zkp, *challenge, &lagrange_denominator)),
+                .map(|(challenge, zkp)| interpolate_at_r(zkp, challenge, &lagrange_denominator)),
         )
         .collect::<Vec<_>>();
 
     // compute g_sum)
-    let g_sums = zkps
+    let mut g_sums = zkps
         .iter()
         .map(compute_sum_share::<F, λ, P>)
         // append spot for final sum
         .chain(iter::once(F::ZERO))
         .collect::<Vec<_>>();
+
+    // remove masks from second last g_sum (last gsum is 0 placeholder)
+    let second_last = g_sums.len() - 2;
+    g_sums[second_last] -= zkps.last().unwrap()[0];
 
     g_sums
         .iter()
@@ -56,17 +60,17 @@ where
 ///
 /// This function interprets the zkp as points on a polynomial, and interpolates the
 /// value of this polynomial at the provided value of `r`
-fn interpolate_at_r<F: PrimeField, const P: usize>(
+pub fn interpolate_at_r<F: PrimeField, const P: usize>(
     zkp: &[F; P],
-    r: F,
+    r: &F,
     lagrange_denominator: &CanonicalLagrangeDenominator<F, P>,
 ) -> F {
-    let lagrange_table_g = LagrangeTable::<F, P, 1>::new(lagrange_denominator, &r);
+    let lagrange_table_g = LagrangeTable::<F, P, 1>::new(lagrange_denominator, r);
     lagrange_table_g.eval(zkp)[0]
 }
 
 /// This function computes the sum of the first λ elements of the zero-knowledge proof
-fn compute_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P]) -> F {
+pub fn compute_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P]) -> F {
     (0..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
 }
 
@@ -244,7 +248,7 @@ mod test {
 
         let g_r_share_1 = interpolate_at_r(
             &zkp_1,
-            Fp31::try_from(CHALLENGES[0]).unwrap(),
+            &Fp31::try_from(CHALLENGES[0]).unwrap(),
             &lagrange_denominator,
         );
         let sum_share_1 = compute_sum_share::<Fp31, 4, 7>(&zkp_1);
@@ -258,7 +262,7 @@ mod test {
 
         let g_r_share_2 = interpolate_at_r(
             &zkp_2,
-            Fp31::try_from(CHALLENGES[1]).unwrap(),
+            &Fp31::try_from(CHALLENGES[1]).unwrap(),
             &lagrange_denominator,
         );
         let sum_share_2 = compute_sum_share::<Fp31, 4, 7>(&zkp_2);
@@ -273,7 +277,7 @@ mod test {
         let final_lagrange_denominator = CanonicalLagrangeDenominator::<Fp31, 5>::new();
         let g_r_share_3 = interpolate_at_r(
             &zkp_3,
-            Fp31::try_from(CHALLENGES[2]).unwrap(),
+            &Fp31::try_from(CHALLENGES[2]).unwrap(),
             &final_lagrange_denominator,
         );
 
@@ -341,7 +345,7 @@ mod test {
 
         let g_r_share_1 = interpolate_at_r(
             &zkp_1,
-            Fp31::try_from(CHALLENGES[0]).unwrap(),
+            &Fp31::try_from(CHALLENGES[0]).unwrap(),
             &lagrange_denominator,
         );
         let sum_share_1 = compute_sum_share::<Fp31, 4, 7>(&zkp_1);
@@ -355,7 +359,7 @@ mod test {
 
         let g_r_share_2 = interpolate_at_r(
             &zkp_2,
-            Fp31::try_from(CHALLENGES[1]).unwrap(),
+            &Fp31::try_from(CHALLENGES[1]).unwrap(),
             &lagrange_denominator,
         );
         let sum_share_2 = compute_sum_share::<Fp31, 4, 7>(&zkp_2);
@@ -370,7 +374,7 @@ mod test {
         let final_lagrange_denominator = CanonicalLagrangeDenominator::<Fp31, 5>::new();
         let g_r_share_3 = interpolate_at_r(
             &zkp_3,
-            Fp31::try_from(CHALLENGES[2]).unwrap(),
+            &Fp31::try_from(CHALLENGES[2]).unwrap(),
             &final_lagrange_denominator,
         );
         assert_eq!(g_r_share_3, EXPECTED_G_R_FINAL_RIGHT);
