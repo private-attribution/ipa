@@ -3,6 +3,7 @@ use std::iter::zip;
 use crate::{
     error::Error,
     ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
+    helpers::TotalRecords,
     protocol::{
         basics::{Reveal, SecureMul},
         context::Context,
@@ -29,7 +30,7 @@ where
     AdditiveShare<Boolean, 1>: SecureMul<C>,
     AdditiveShare<Fp25519>: SecureMul<C>,
 {
-    let ctx = sh_ctx.set_total_records(input_match_keys.len());
+    let ctx = sh_ctx.set_total_records(TotalRecords::specified(input_match_keys.len())?);
     let futures = input_match_keys
         .into_iter()
         .enumerate()

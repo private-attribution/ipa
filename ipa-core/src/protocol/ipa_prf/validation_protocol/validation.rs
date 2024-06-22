@@ -10,7 +10,7 @@ use crate::{
     ff::Fp61BitPrime,
     helpers::{
         hashing::{compute_hash, hash_to_field, Hash},
-        Direction,
+        Direction, TotalRecords,
     },
     protocol::{
         context::{dzkp_field::UVTupleBlock, Context},
@@ -36,9 +36,10 @@ use crate::{
 /// The first proof has a different length, i.e. length `P`.
 /// It is therefore not stored in the vector with the other proofs.
 ///
-/// `ProofsToVerify` also contains two masks `p_0` and `q_0` in `masks` stored as `(p_0,q_0)`
+/// `ProofsToVerify` also contains two masks, `p` and `q`
 /// These masks are used as additional `u,v` values for the final proof.
 /// These masks mask sensitive information when verifying the final proof.
+/// `sum_of_uv` is `sum u*v`.
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
@@ -48,6 +49,9 @@ pub struct BatchToVerify {
     proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     p_mask_from_right_prover: Fp61BitPrime,
     q_mask_from_left_prover: Fp61BitPrime,
+    // remove dead_code once we use size_m
+    #[allow(dead_code)]
+    sum_of_uv: usize,
 }
 
 impl BatchToVerify {
@@ -59,7 +63,11 @@ impl BatchToVerify {
     /// Finally, each helper receives a batch of secret-shares from the helper to its right.
     /// The final proof must be "masked" with random values drawn from PRSS.
     /// These values will be needed at verification time.
-    pub async fn generate_batch_to_verify<C, I>(ctx: C, uv_tuple_inputs: I) -> Self
+    pub async fn generate_batch_to_verify<C, I>(
+        ctx: C,
+        uv_tuple_inputs: I,
+        sum_of_uv: usize,
+    ) -> Self
     where
         C: Context,
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
@@ -97,12 +105,14 @@ impl BatchToVerify {
             Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
 
         // generate masks
-        // verifier on the left has p,
-        // therefore the left share is "implicitly sent" to the left ("communicated" via PRSS)
+        // Prover `P_i` and verifier `P_{i-1}` both compute p(x)
+        // therefore the "right" share computed by this verifier corresponds to that which
+        // was used by the prover to the right.
         let (my_p_mask, p_mask_from_right_prover) = ctx.prss().generate_fields(record_counter);
         record_counter += 1;
-        // and verifier on the right has q
-        // therefore the right share is "implicitly sent" to the right (communication via PRSS)
+        // Prover `P_i` and verifier `P_{i+1}` both compute q(x)
+        // therefore the "left" share computed by this verifier corresponds to that which
+        // was used by the prover to the left.
         let (q_mask_from_left_prover, my_q_mask) = ctx.prss().generate_fields(record_counter);
         record_counter += 1;
 
@@ -152,6 +162,7 @@ impl BatchToVerify {
             proofs_from_right_prover: shares_of_batch_from_right_prover.proofs,
             p_mask_from_right_prover,
             q_mask_from_left_prover,
+            sum_of_uv,
         }
     }
 
@@ -213,14 +224,14 @@ impl BatchToVerify {
         )
     }
 
-    /// This function computes and outputs the final `p_r_from_left_prover * q_r_from_left_prover` value.
+    /// This function computes and outputs the final `p_r_right_prover * q_r_right_prover` value.
     async fn p_and_q_r_check<C, U, V>(
         &self,
         ctx: &C,
         challenges_for_left_prover: &[Fp61BitPrime],
         challenges_for_right_prover: &[Fp61BitPrime],
-        u_from_right_prover: U,
-        v_from_left_prover: V,
+        u_from_right_prover: U, // Prover P_i and verifier P_{i-1} both compute `u` and `p(x)`
+        v_from_left_prover: V,  // Prover P_i and verifier P_{i+1} both compute `v` and `q(x)`
     ) -> Result<Fp61BitPrime, Error>
     where
         C: Context,
@@ -248,14 +259,14 @@ impl BatchToVerify {
         // send to the left
         let communication_ctx = ctx.set_total_records(1);
 
-        let send_channel =
+        let send_right =
             communication_ctx.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
-        let receive_channel =
+        let receive_left =
             communication_ctx.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
 
         let ((), q_r_right_prover) = try_join(
-            send_channel.send(RecordId::FIRST, q_r_left_prover),
-            receive_channel.receive(RecordId::FIRST),
+            send_right.send(RecordId::FIRST, q_r_left_prover),
+            receive_left.receive(RecordId::FIRST),
         )
         .await?;
 
@@ -376,12 +387,7 @@ impl ProofHashes {
 
         Self {
             hashes: once(compute_hash(first_proof))
-                .chain(
-                    other_proofs
-                        .iter()
-                        //.take(length - 1) // we don't need to hash last proof
-                        .map(|proof| compute_hash(proof.iter())),
-                )
+                .chain(other_proofs.iter().map(|proof| compute_hash(proof.iter())))
                 .collect::<Vec<_>>(),
         }
     }
@@ -389,7 +395,7 @@ impl ProofHashes {
     /// Sends the one verifier's hashes to the other verifier
     /// `side` indicates the direction of the prover.
     async fn send_hashes<C: Context>(&self, ctx: &C, side: Side) -> Result<(), Error> {
-        let communication_ctx = ctx.set_total_records(self.hashes.len());
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(self.hashes.len())?);
 
         let send_channel = match side {
             // send left hashes to the right
@@ -412,7 +418,7 @@ impl ProofHashes {
     /// `side` indicates the direction of the prover.
     async fn receive_hashes<C: Context>(ctx: &C, length: usize, side: Side) -> Result<Self, Error> {
         // set up context for the communication over the network
-        let communication_ctx = ctx.set_total_records(length);
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
 
         let recv_channel = match side {
             // receive left hashes from the right helper
@@ -595,6 +601,8 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             uv_tuple_vec.into_iter(),
+                            // sum is not asserted in this test
+                            0,
                         )
                         .await;
 
@@ -613,6 +621,9 @@ pub mod test {
     }
 
     /// This is a helper function to generate `u`, `v` values.
+    ///
+    /// Prover `P_i` and verifier `P_{i+1}` both generate `u`
+    /// Prover `P_i` and verifier `P_{i-1}` both generate `v`
     ///
     /// outputs `(my_u_and_v, u_from_right_prover, v_from_left_prover)`
     #[allow(clippy::type_complexity)]
@@ -686,6 +697,8 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             vec_my_u_and_v.clone().into_iter(),
+                            // sum is not asserted in this test
+                            0,
                         )
                         .await;
 
@@ -775,6 +788,8 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             vec_my_u_and_v.clone().into_iter(),
+                            // sum is not asserted in this test
+                            0,
                         )
                         .await;
 

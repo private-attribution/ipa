@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::Fp61BitPrime,
-    helpers::Direction,
+    helpers::{Direction, TotalRecords},
     protocol::{
         context::{
             dzkp_field::{UVTupleBlock, BLOCK_SIZE},
@@ -54,7 +54,7 @@ impl ProofBatch {
         C: Context,
     {
         // set up context for the communication over the network
-        let communication_ctx = ctx.set_total_records(self.len());
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(self.len())?);
 
         // set up channel
         let send_channel_left =
@@ -78,7 +78,7 @@ impl ProofBatch {
         C: Context,
     {
         // set up context
-        let communication_ctx = ctx.set_total_records(length);
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
 
         // set up channel
         let receive_channel_right =
@@ -191,7 +191,7 @@ mod test {
                     // generate and output VerifierBatch together with h value
                     (
                         h,
-                        BatchToVerify::generate_batch_to_verify(ctx, uv_tuple_vec.into_iter())
+                        BatchToVerify::generate_batch_to_verify(ctx, uv_tuple_vec.into_iter(), 0)
                             .await,
                     )
                 })
