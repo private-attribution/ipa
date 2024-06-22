@@ -6,16 +6,16 @@ use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
 
 use super::step::ZeroKnowledgeProofValidateStep as Step;
-#[cfg(all(test, unit_test))]
-use crate::protocol::context::dzkp_field::{DZKPBaseField, UVTupleBlock};
 use crate::{
     error::{BoxError, Error},
+    ff::Fp61BitPrime,
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
+            dzkp_field::{DZKPBaseField, UVTupleBlock},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
-            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, Context,
-            MaliciousContext, SemiHonestContext, UpgradableContext,
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
         },
         Gate, RecordId,
     },
@@ -97,7 +97,6 @@ impl MultiplicationInputsBlock {
 
     /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the prover.
-    #[cfg(all(test, unit_test))]
     fn convert_prover<DF: DZKPBaseField>(&self) -> Vec<UVTupleBlock<DF>> {
         DF::convert_prover(
             &self.x_left,
@@ -261,6 +260,12 @@ impl MultiplicationInputsBatch {
         }
     }
 
+    /// This function returns the amount of multiplications in one bit multiplications
+    /// that are currently stored in the `MultiplicationInputsBatch`.
+    fn get_number_of_multiplications(&self) -> usize {
+        self.vec.len() * 256
+    }
+
     /// `increment_record_ids` increments the current batch to the next set of records.
     /// it maintains all the allocated memory and increments the `RecordIds` as follows:
     /// It sets `last_record` and `first_record` to the record that follows `last_record`.
@@ -400,7 +405,6 @@ impl MultiplicationInputsBatch {
 
     /// `get_field_values_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
     /// values used by the prover of the DZKPs
-    #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
@@ -461,6 +465,15 @@ impl Batch {
             .insert_segment(record_id, segment);
     }
 
+    /// This function returns the amount of multiplications in one bit multiplications
+    /// that are currently stored in the `batch`.
+    fn get_number_of_multiplications(&self) -> usize {
+        self.inner
+            .values()
+            .map(MultiplicationInputsBatch::get_number_of_multiplications)
+            .sum()
+    }
+
     /// This function should only be called by `validate`!
     ///
     /// Updates all `MultiplicationInputsBatch` in hashmap by incrementing the record ids to next chunk
@@ -475,7 +488,6 @@ impl Batch {
 
     /// `get_field_values_prover` converts a `Batch` into an iterator over field values
     /// which is used by the prover of the DZKP
-    #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
@@ -638,7 +650,17 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             Ok(())
         } else {
             // todo: generate proofs and validate them using `batch_list`
-            // use context_counter to generate a distinct context for each chunk
+            // get amount of u, v values which is 4 times the amount of multiplications
+            let m = 4 * batch.get_number_of_multiplications();
+            debug_assert_eq!(
+                m,
+                batch
+                    .get_field_values_prover::<Fp61BitPrime>()
+                    .flat_map(|(u_array, v_array)| {
+                        u_array.into_iter().zip(v_array).map(|(u, v)| u * v)
+                    })
+                    .count()
+            );
             // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
             batch.increment_record_ids();
