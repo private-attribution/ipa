@@ -93,8 +93,8 @@ where
         )
     }
 
-    let inputs = buffers.map(BodyStream::from);
-    tracing::info!("Starting query for OPRF");
+    tracing::info!("Starting query for OPRF, sending {} bytes towards each helper", buffers[0].len());
+    let inputs = buffers.map(BodyStream::from_byte_vec);
 
     run_query_and_validate::<HV>(inputs, query_size, clients, query_id, query_config).await
 }

@@ -70,12 +70,14 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
+            tracing::info!("starting polling the plaintext stream to get {sz} items");
             let mut v = RecordsStream::<OPRFIPAInputRow<BA8, BA3, BA20>, _>::new(input_stream)
                 .try_concat()
                 .await?;
             v.truncate(sz);
             v
         } else {
+            tracing::info!("starting polling the encrypted stream to get {query_size:?} items");
             LengthDelimitedStream::<EncryptedOprfReport<BA8, BA3, BA20, _>, _>::new(input_stream)
                 .map_err(Into::<Error>::into)
                 .map_ok(|enc_reports| {
@@ -111,6 +113,7 @@ where
                 .await?
         };
 
+        tracing::info!("ready for OPRF ipa, got {} items", input.len());
         let aws = config.attribution_window_seconds;
         match config.per_user_credit_cap {
             8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws).await,

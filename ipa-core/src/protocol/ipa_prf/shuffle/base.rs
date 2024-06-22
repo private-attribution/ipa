@@ -44,6 +44,7 @@ where
     }
 }
 
+#[tracing::instrument(name = "h1_shuffle", skip_all, fields(%batch_size))]
 async fn run_h1<C, I, S, Zl, Zr>(
     ctx: &C,
     batch_size: NonZeroUsize,
@@ -85,6 +86,7 @@ where
     Ok(res)
 }
 
+#[tracing::instrument(name = "h2_shuffle", skip_all, fields(%batch_size))]
 async fn run_h2<C, I, S, Zl, Zr>(
     ctx: &C,
     batch_size: NonZeroUsize,
@@ -157,6 +159,7 @@ where
     Ok(res)
 }
 
+#[tracing::instrument(name = "h3_shuffle", skip_all, fields(%batch_size))]
 async fn run_h3<C, S, Zl, Zr>(
     ctx: &C,
     batch_size: NonZeroUsize,
@@ -295,6 +298,7 @@ where
 
 // ---------------------------- helper communication ------------------------------------ //
 
+#[tracing::instrument(name = "send_to", skip_all, fields(step, direction, sz = items.len()))]
 async fn send_to_peer<C, S>(
     items: &[S],
     ctx: &C,
@@ -317,6 +321,7 @@ where
     Ok(())
 }
 
+#[tracing::instrument(name = "receive_from", skip_all, fields(step, direction, sz = batch_size))]
 async fn receive_from_peer_into<C, S>(
     buf: &mut Vec<S>,
     batch_size: NonZeroUsize,
