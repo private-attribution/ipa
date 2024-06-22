@@ -1,4 +1,7 @@
-use std::{iter::{self, repeat}, pin::Pin};
+use std::{
+    iter::{self, repeat},
+    pin::Pin,
+};
 
 use futures::Stream;
 use futures_util::StreamExt;
@@ -41,11 +44,9 @@ where
         .take(zkps.len() - 1)
         .map(compute_sum_share::<F, λ, P>)
         // in the final proof, skip the random weights
-        .chain(iter::once(
-            compute_final_sum_share::<F, λ, P>(
-                zkps.last().unwrap()
-            )
-        ))
+        .chain(iter::once(compute_final_sum_share::<F, λ, P>(
+            zkps.last().unwrap(),
+        )))
         // append spot for final sum
         .chain(iter::once(F::ZERO))
         .collect::<Vec<_>>();
@@ -92,14 +93,12 @@ fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
 where
     J: Stream<Item = F> + 'a,
 {
-    u_or_v_stream
-        .chunks(λ)
-        .map(|mut x| {
-            if x.len() < λ {
-                x.extend(repeat(F::ZERO).take(λ - x.len()));
-            }   
-            lagrange_table.eval(&x)[0]
-        })
+    u_or_v_stream.chunks(λ).map(|mut x| {
+        if x.len() < λ {
+            x.extend(repeat(F::ZERO).take(λ - x.len()));
+        }
+        lagrange_table.eval(&x)[0]
+    })
 }
 
 pub async fn recursively_compute_final_check<
