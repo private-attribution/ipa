@@ -10,7 +10,7 @@ use crate::{
     ff::Fp61BitPrime,
     helpers::{
         hashing::{compute_hash, hash_to_field, Hash},
-        Direction,
+        Direction, TotalRecords,
     },
     protocol::{
         context::{dzkp_field::UVTupleBlock, Context},
@@ -37,6 +37,7 @@ use crate::{
 /// `ProofsToVerify` also contains two masks `p_0` and `q_0` in `masks` stored as `(p_0,q_0)`
 /// These masks are used as additional `u,v` values for the final proof.
 /// These masks mask sensitive information when verifying the final proof.
+/// `sum_of_uv` is `sum u*v`.
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
@@ -46,6 +47,9 @@ pub struct BatchToVerify {
     proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     p_mask_from_right_prover: Fp61BitPrime,
     q_mask_from_left_prover: Fp61BitPrime,
+    // remove dead_code once we use size_m
+    #[allow(dead_code)]
+    sum_of_uv: usize,
 }
 
 impl BatchToVerify {
@@ -57,7 +61,11 @@ impl BatchToVerify {
     /// Finally, each helper receives a batch of secret-shares from the helper to its right.
     /// The final proof must be "masked" with random values drawn from PRSS.
     /// These values will be needed at verification time.
-    pub async fn generate_batch_to_verify<C, I>(ctx: C, uv_tuple_inputs: I) -> Self
+    pub async fn generate_batch_to_verify<C, I>(
+        ctx: C,
+        uv_tuple_inputs: I,
+        sum_of_uv: usize,
+    ) -> Self
     where
         C: Context,
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
@@ -150,6 +158,7 @@ impl BatchToVerify {
             proofs_from_right_prover: shares_of_batch_from_right_prover.proofs,
             p_mask_from_right_prover,
             q_mask_from_left_prover,
+            sum_of_uv,
         }
     }
 
@@ -300,7 +309,7 @@ impl ProofHashes {
     /// Sends the one verifier's hashes to the other verifier
     /// `side` indicates the direction of the prover.
     async fn send_hashes<C: Context>(&self, ctx: &C, side: Side) -> Result<(), Error> {
-        let communication_ctx = ctx.set_total_records(self.hashes.len());
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(self.hashes.len())?);
 
         let send_channel = match side {
             // send left hashes to the right
@@ -323,7 +332,7 @@ impl ProofHashes {
     /// `side` indicates the direction of the prover.
     async fn receive_hashes<C: Context>(ctx: &C, length: usize, side: Side) -> Result<Self, Error> {
         // set up context for the communication over the network
-        let communication_ctx = ctx.set_total_records(length);
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
 
         let recv_channel = match side {
             // receive left hashes from the right helper
@@ -504,6 +513,8 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             uv_tuple_vec.into_iter(),
+                            // sum is not asserted in this test
+                            0,
                         )
                         .await;
 
@@ -595,6 +606,8 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             vec_my_u_and_v.clone().into_iter(),
+                            // sum is not asserted in this test
+                            0,
                         )
                         .await;
 
@@ -684,6 +697,8 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             vec_my_u_and_v.clone().into_iter(),
+                            // sum is not asserted in this test
+                            0,
                         )
                         .await;
 

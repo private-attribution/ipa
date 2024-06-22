@@ -6,7 +6,12 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{helpers::Role, report::InvalidReportError, sharding::ShardIndex, task::JoinError};
+use crate::{
+    helpers::{Role, ZeroRecordsError},
+    report::InvalidReportError,
+    sharding::ShardIndex,
+    task::JoinError,
+};
 
 /// An error raised by the IPA protocol.
 ///
@@ -75,6 +80,8 @@ pub enum Error {
     InconsistentShares,
     #[error("The Masks cannot be set safely, i.e. without deleting non-zero field elements")]
     DZKPMasks,
+    #[error("Attempt to operate on zero records")]
+    ZeroRecords,
 }
 
 impl Default for Error {
@@ -93,6 +100,12 @@ impl Error {
 impl From<std::num::ParseIntError> for Error {
     fn from(err: std::num::ParseIntError) -> Self {
         Error::ParseError(err.into())
+    }
+}
+
+impl From<ZeroRecordsError> for Error {
+    fn from(_err: ZeroRecordsError) -> Self {
+        Error::ZeroRecords
     }
 }
 
