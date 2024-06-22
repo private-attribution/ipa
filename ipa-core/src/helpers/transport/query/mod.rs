@@ -235,6 +235,7 @@ impl PartialEq for IpaQueryConfig {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+// #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum DpParams {
     NoDp,
     WithDp { epsilon: f64 },
@@ -284,6 +285,32 @@ impl<'de> Deserialize<'de> for DpParams {
             .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
     }
 }
+use clap::ValueEnum;
+use clap::builder::PossibleValue;
+
+impl ValueEnum for DpParams {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[
+            DpParams::NoDp,
+            DpParams::WithDp { epsilon: 0.0 },
+        ]
+    }
+    fn from_str(input: &str, ignore_case: bool) -> Result<Self, String>
+    {
+        match input {
+            "NoDp" => Ok(DpParams::NoDp),
+            "WithDp" => Ok(DpParams::WithDp { epsilon: 0.0 }),
+            _ => Err(format!("invalid variant: {}", input)),
+        }
+    }
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        match self {
+            DpParams::NoDp => Some(PossibleValue::new("NoDp")),
+            DpParams::WithDp { .. } => Some(PossibleValue::new("WithDp")),
+        }
+    }
+}
+
 
 #[cfg(test)]
 impl Eq for DpParams {}

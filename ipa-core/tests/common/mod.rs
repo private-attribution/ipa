@@ -203,7 +203,7 @@ pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
         mode,
         https,
         IpaQueryConfig {
-            dp_params: DpParams::NoDp,
+            // dp_params: DpParams::NoDp,
             ..Default::default()
         },
     );

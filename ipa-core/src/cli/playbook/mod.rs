@@ -43,7 +43,7 @@ where
             break;
         }
 
-        let same = next_expected == next_actual;
+        let same = next_expected == next_actual; // with DP non-exact match here
         let color = if same { Color::Green } else { Color::Red };
         table.add_row(vec![
             Cell::new(format!("{i}")).fg(color),

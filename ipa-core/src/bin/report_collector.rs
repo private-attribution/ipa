@@ -304,6 +304,7 @@ async fn ipa(
 
     tracing::info!("{m:?}", m = ipa_query_config);
 
+
     validate(&expected, &actual.breakdowns);
 
     Ok(())
