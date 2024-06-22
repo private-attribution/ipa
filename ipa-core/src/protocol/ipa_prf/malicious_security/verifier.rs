@@ -1,4 +1,4 @@
-use std::{iter, pin::Pin};
+use std::{iter::{self, repeat}, pin::Pin};
 
 use futures::Stream;
 use futures_util::StreamExt;
@@ -36,16 +36,19 @@ where
         .collect::<Vec<_>>();
 
     // compute g_sum)
-    let mut g_sums = zkps
+    let g_sums = zkps
         .iter()
+        .take(zkps.len() - 1)
         .map(compute_sum_share::<F, λ, P>)
+        // in the final proof, skip the random weights
+        .chain(iter::once(
+            compute_final_sum_share::<F, λ, P>(
+                zkps.last().unwrap()
+            )
+        ))
         // append spot for final sum
         .chain(iter::once(F::ZERO))
         .collect::<Vec<_>>();
-
-    // remove masks from second last g_sum (last gsum is 0 placeholder)
-    let second_last = g_sums.len() - 2;
-    g_sums[second_last] -= zkps.last().unwrap()[0];
 
     g_sums
         .iter()
@@ -74,6 +77,11 @@ pub fn compute_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[
     (0..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
 }
 
+/// In the final proof, skip the random weights when computing the sum
+pub fn compute_final_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P]) -> F {
+    (1..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
+}
+
 /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
 ///
 /// The function uses streams since stream offers a chunk method.
@@ -86,12 +94,12 @@ where
 {
     u_or_v_stream
         .chunks(λ)
-        .map(|x| {
-            let mut array = [F::ZERO; λ];
-            array[..x.len()].copy_from_slice(&x[..]);
-            array
+        .map(|mut x| {
+            if x.len() < λ {
+                x.extend(repeat(F::ZERO).take(λ - x.len()));
+            }   
+            lagrange_table.eval(&x)[0]
         })
-        .map(|polynomial| lagrange_table.eval(polynomial)[0])
 }
 
 pub async fn recursively_compute_final_check<
