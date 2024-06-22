@@ -303,7 +303,7 @@ mod tests {
 
         let TestServer { transport, .. } = TestServer::default().await;
 
-        let body = BodyStream::from_receiver_stream(Box::new(ReceiverStream::new(rx)));
+        let body = BodyStream::from_bytes_stream(ReceiverStream::new(rx));
 
         // Register the stream with the transport (normally called by step data HTTP API handler)
         Arc::clone(&transport).receive_stream(QueryId, STEP.clone(), HelperIdentity::TWO, body);

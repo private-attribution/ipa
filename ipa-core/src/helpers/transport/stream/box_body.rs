@@ -12,7 +12,9 @@ pub struct WrappedBoxBodyStream(BoxBytesStream);
 
 impl WrappedBoxBodyStream {
     /// Wrap an axum body stream, returning an instance of `crate::helpers::BodyStream`.
-    #[cfg(all(feature = "in-memory-infra", feature = "web-app"))]
+    /// If the given byte chunk exceeds [`super::MAX_HTTP_CHUNK_SIZE`],
+    /// it will be split into multiple parts, each not exceeding that size.
+    /// See #ipa/1141
     #[must_use]
     pub fn new(bytes: bytes::Bytes) -> Self {
         let stream = futures::stream::once(futures::future::ready(Ok(bytes)));
@@ -29,7 +31,7 @@ impl WrappedBoxBodyStream {
 
     #[must_use]
     pub fn empty() -> Self {
-        WrappedBoxBodyStream(Box::pin(futures::stream::empty()))
+        Self(Box::pin(futures::stream::empty()))
     }
 }
 
@@ -45,9 +47,7 @@ impl Stream for WrappedBoxBodyStream {
 #[cfg(any(test, feature = "test-fixture"))]
 impl<Buf: Into<bytes::Bytes>> From<Buf> for WrappedBoxBodyStream {
     fn from(buf: Buf) -> Self {
-        Self(Box::pin(futures::stream::once(futures::future::ready(Ok(
-            buf.into(),
-        )))))
+        Self::new(buf.into())
     }
 }
 
