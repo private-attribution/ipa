@@ -16,7 +16,9 @@ mod info;
 mod registry;
 
 pub use info::Info;
-pub use registry::{KeyPair, KeyRegistry, PrivateKeyOnly, PrivateKeyRegistry, PublicKeyRegistry};
+pub use registry::{
+    KeyPair, KeyRegistry, PrivateKeyOnly, PrivateKeyRegistry, PublicKeyOnly, PublicKeyRegistry,
+};
 
 use crate::{
     ff::{GaloisField, Serializable as IpaSerializable},
