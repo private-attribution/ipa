@@ -28,7 +28,7 @@ use crate::{
         query::{QueryConfig, QueryType},
         BodyStream, Gateway,
     },
-    hpke::{IpaPrivateKey, KeyRegistry},
+    hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, Gate},
     query::{
         runner::{OprfIpaQuery, QueryResult},
@@ -62,7 +62,7 @@ where
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub fn execute(
     config: QueryConfig,
-    key_registry: Arc<KeyRegistry<IpaPrivateKey>>,
+    key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
     gateway: Gateway,
     input: BodyStream,
 ) -> RunningQuery {

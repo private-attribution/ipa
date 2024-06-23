@@ -14,7 +14,7 @@ use crate::{
         query::{IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
-    hpke::{IpaPrivateKey, KeyRegistry},
+    hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::{
         basics::ShareKnownValue,
         context::{Context, SemiHonestContext},
@@ -31,12 +31,12 @@ use crate::{
 
 pub struct OprfIpaQuery<'a, HV> {
     config: IpaQueryConfig,
-    key_registry: Arc<KeyRegistry<IpaPrivateKey>>,
+    key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
     phantom_data: PhantomData<&'a HV>,
 }
 
 impl<'a, HV> OprfIpaQuery<'a, HV> {
-    pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<IpaPrivateKey>>) -> Self {
+    pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<PrivateKeyOnly>>) -> Self {
         Self {
             config,
             key_registry,
@@ -142,7 +142,7 @@ mod tests {
             query::{IpaQueryConfig, QuerySize},
             BodyStream,
         },
-        hpke::KeyRegistry,
+        hpke::{KeyPair, KeyRegistry, PrivateKeyOnly},
         query::runner::OprfIpaQuery,
         report::{OprfReport, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
@@ -202,7 +202,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
-        let key_registry = Arc::new(KeyRegistry::random(1, &mut rng));
+        let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
 
         let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
 
@@ -227,7 +227,8 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            OprfIpaQuery::<BA16>::new(query_config, Arc::clone(&key_registry))
+            let private_key_registry = KeyRegistry::<PrivateKeyOnly>::from(key_registry.as_ref());
+            OprfIpaQuery::<BA16>::new(query_config, Arc::new(private_key_registry))
                 .execute(ctx, query_size, input)
         }))
         .await;

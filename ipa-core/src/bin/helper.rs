@@ -125,7 +125,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         _ => panic!("should have been rejected by clap"),
     };
 
-    let mk_encryption = args.mk_private_key.map(|(sk_path)| HpkeServerConfig::File {
+    let mk_encryption = args.mk_private_key.map(|sk_path| HpkeServerConfig::File {
         private_key_file: sk_path,
     });
 

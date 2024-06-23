@@ -19,7 +19,7 @@ use crate::{
     error::BoxError,
     helpers::HelperIdentity,
     hpke::{
-        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry,
+        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry, PrivateKeyOnly,
         Serializable as _,
     },
 };
@@ -229,9 +229,9 @@ pub enum HpkeServerConfig {
 /// If there is a problem with the HPKE configuration.
 pub async fn hpke_registry(
     config: Option<&HpkeServerConfig>,
-) -> Result<KeyRegistry<IpaPrivateKey>, BoxError> {
+) -> Result<KeyRegistry<PrivateKeyOnly>, BoxError> {
     let sk_str = match config {
-        None => return Ok(KeyRegistry::<IpaPrivateKey>::empty()),
+        None => return Ok(KeyRegistry::<PrivateKeyOnly>::empty()),
         Some(HpkeServerConfig::Inline { private_key }) => {
             Cow::Borrowed(private_key.trim().as_bytes())
         }
@@ -242,7 +242,9 @@ pub async fn hpke_registry(
 
     let sk = hex::decode(sk_str)?;
 
-    Ok(KeyRegistry::from_keys([IpaPrivateKey::from_bytes(&sk)?]))
+    Ok(KeyRegistry::from_keys([PrivateKeyOnly(
+        IpaPrivateKey::from_bytes(&sk)?,
+    )]))
 }
 
 /// Configuration information for launching an instance of the helper party web service.
