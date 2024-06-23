@@ -49,9 +49,6 @@ pub struct BatchToVerify {
     proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     p_mask_from_right_prover: Fp61BitPrime,
     q_mask_from_left_prover: Fp61BitPrime,
-    // remove dead_code once we use size_m
-    #[allow(dead_code)]
-    sum_of_uv: usize,
 }
 
 impl BatchToVerify {
@@ -63,11 +60,7 @@ impl BatchToVerify {
     /// Finally, each helper receives a batch of secret-shares from the helper to its right.
     /// The final proof must be "masked" with random values drawn from PRSS.
     /// These values will be needed at verification time.
-    pub async fn generate_batch_to_verify<C, I>(
-        ctx: C,
-        uv_tuple_inputs: I,
-        sum_of_uv: usize,
-    ) -> Self
+    pub async fn generate_batch_to_verify<C, I>(ctx: C, uv_tuple_inputs: I) -> Self
     where
         C: Context,
         I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
@@ -162,7 +155,6 @@ impl BatchToVerify {
             proofs_from_right_prover: shares_of_batch_from_right_prover.proofs,
             p_mask_from_right_prover,
             q_mask_from_left_prover,
-            sum_of_uv,
         }
     }
 
@@ -601,8 +593,6 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             uv_tuple_vec.into_iter(),
-                            // sum is not asserted in this test
-                            0,
                         )
                         .await;
 
@@ -697,8 +687,6 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             vec_my_u_and_v.clone().into_iter(),
-                            // sum is not asserted in this test
-                            0,
                         )
                         .await;
 
@@ -788,8 +776,6 @@ pub mod test {
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
                             vec_my_u_and_v.clone().into_iter(),
-                            // sum is not asserted in this test
-                            0,
                         )
                         .await;
 

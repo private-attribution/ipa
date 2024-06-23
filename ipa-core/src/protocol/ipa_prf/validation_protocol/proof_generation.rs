@@ -191,7 +191,7 @@ mod test {
                     // generate and output VerifierBatch together with h value
                     (
                         h,
-                        BatchToVerify::generate_batch_to_verify(ctx, uv_tuple_vec.into_iter(), 0)
+                        BatchToVerify::generate_batch_to_verify(ctx, uv_tuple_vec.into_iter())
                             .await,
                     )
                 })

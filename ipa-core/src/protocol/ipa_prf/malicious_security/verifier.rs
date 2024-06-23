@@ -54,10 +54,12 @@ where
         .collect::<Vec<_>>();
 
     // compute g_sum)
-    let g_sums = zkps
-        .iter()
-        .take(zkps.len() - 1)
-        .map(compute_sum_share::<F, λ, P>)
+    let g_sums = iter::once(compute_sum_share::<F, λ_FIRST, P_FIRST>(first_zkp))
+        .chain(
+            zkps.iter()
+                .take(zkps.len() - 1)
+                .map(compute_sum_share::<F, λ, P>),
+        )
         // in the final proof, skip the random weights
         .chain(iter::once(compute_final_sum_share::<F, λ, P>(
             zkps.last().unwrap(),
