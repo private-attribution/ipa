@@ -559,9 +559,20 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// to `DZKPBatch`.
     /// Currently only allows `Fp61BitPrime` and is not generic over `DZKPBaseFields`.
     ///
+    /// Can only be called once per validator
+    /// due to uniqueness requirement of contexts in PRSS and networking.
+    async fn validate(&self) -> Result<(), Error> {
+        Self::validate_chunk(self, 0usize).await
+    }
+
+    /// Allows to validate the current `DZKPBatch` and empties it. The associated context is then
+    /// considered safe until another multiplication is performed and thus new values are added
+    /// to `DZKPBatch`.
+    /// Currently only allows `Fp61BitPrime` and is not generic over `DZKPBaseFields`.
+    ///
     /// `context_counter` allows to create distinct contexts
     /// when calling validate multiple times for the same base context.
-    async fn validate(&self, chunk_counter: usize) -> Result<(), Error>;
+    async fn validate_chunk(&self, chunk_counter: usize) -> Result<(), Error>;
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
     /// within the associated `DZKPBatch`
@@ -590,7 +601,9 @@ pub trait DZKPValidator<B: UpgradableContext> {
         seq_join::<'st, S, F, O>(self.context().active_work(), source)
             .chunks(chunk_size)
             .enumerate()
-            .then(move |(context_counter, chunk)| self.validate(context_counter).map_ok(|()| chunk))
+            .then(move |(context_counter, chunk)| {
+                self.validate_chunk(context_counter).map_ok(|()| chunk)
+            })
             .try_flatten_iters()
     }
 }
@@ -615,7 +628,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
         self.context.clone()
     }
 
-    async fn validate(&self, _context_counter: usize) -> Result<(), Error> {
+    async fn validate_chunk(&self, _context_counter: usize) -> Result<(), Error> {
         Ok(())
     }
 
@@ -642,7 +655,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
 
     /// ## Panics
     /// Panics when `context_counter` exceeds 256.
-    async fn validate(&self, context_counter: usize) -> Result<(), Error> {
+    async fn validate_chunk(&self, context_counter: usize) -> Result<(), Error> {
         assert!(context_counter <= 256);
         // LOCK BEGIN
         let mut batch = self.batch_ref.lock().unwrap();

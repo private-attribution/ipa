@@ -101,7 +101,7 @@ macro_rules! boolean_vector {
                             )
                             .await?;
 
-                            v.validate(0usize).await?;
+                            v.validate().await?;
 
                             Ok::<_, Error>(result)
                         });
@@ -141,7 +141,7 @@ macro_rules! boolean_vector {
                             )
                             .await?;
 
-                            v.validate(0usize).await?;
+                            v.validate().await?;
 
                             Ok::<_, Error>(result)
                         });
