@@ -80,6 +80,7 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
     let mut table = Table::new();
     table.set_header(vec!["Row", "Expected", "Actual", "Diff?"]);
 
+    let mut all_equal: bool = true;
     let mut i = 0;
     loop {
         let next_expected = expected.next();
@@ -88,6 +89,12 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
         if next_expected.is_none() && next_actual.is_none() {
             break;
         }
+
+        // make sure DP noise actually changed at least one of the results
+        if next_expected != next_actual {
+            all_equal = false;
+        }
+
         let next_expected_f64: f64 = next_expected.unwrap().into();
         let actual_expect_f64: f64 = next_actual.unwrap().into();
 
@@ -128,6 +135,10 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
         mismatch.is_empty(),
         "Expected and actual results don't match: {mismatch:?}",
     );
+
+    // make sure DP noise actually changed the results
+    assert!(all_equal == false,
+    "Expected and actual results match exactly...probably DP noise is not being added when it should be");
 }
 
 /// Creates 3 clients to talk to MPC helpers.
