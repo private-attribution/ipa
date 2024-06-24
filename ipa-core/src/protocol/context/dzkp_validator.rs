@@ -5,18 +5,19 @@ use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
 use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
 
-use super::step::ZeroKnowledgeProofValidateStep as Step;
 use crate::{
     error::{BoxError, Error},
-    ff::Fp61BitPrime,
+    ff::{Fp61BitPrime, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
             dzkp_field::{DZKPBaseField, UVTupleBlock},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+            step::DZKPValidationStep as Step,
             Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
         },
+        ipa_prf::validation_protocol::validation::BatchToVerify,
         Gate, RecordId,
     },
     seq_join::{seq_join, SeqJoin},
@@ -107,11 +108,11 @@ impl MultiplicationInputsBlock {
         )
     }
 
-    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
+    /// `convert_values_from_right_prover` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the left.
     #[cfg(all(test, unit_test))]
-    fn convert_verifier_left<DF: DZKPBaseField>(&self) -> Vec<DF> {
-        DF::convert_verifier_left(
+    fn convert_values_from_right_prover<DF: DZKPBaseField>(&self) -> Vec<DF> {
+        DF::convert_value_from_right_prover(
             &self.x_right,
             &self.y_right,
             &self.prss_right,
@@ -119,11 +120,11 @@ impl MultiplicationInputsBlock {
         )
     }
 
-    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
+    /// `convert_values_from_left_prover` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the right.
     #[cfg(all(test, unit_test))]
-    fn convert_verifier_right<DF: DZKPBaseField>(&self) -> Vec<DF> {
-        DF::convert_verifier_right(&self.x_left, &self.y_left, &self.prss_left)
+    fn convert_values_from_left_prover<DF: DZKPBaseField>(&self) -> Vec<DF> {
+        DF::convert_value_from_left_prover(&self.x_left, &self.y_left, &self.prss_left)
     }
 }
 
@@ -407,28 +408,32 @@ impl MultiplicationInputsBatch {
     /// values used by the prover of the DZKPs
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + Clone + '_ {
         self.vec
             .iter()
             .flat_map(MultiplicationInputsBlock::convert_prover::<DF>)
     }
 
-    /// `get_field_values_verifier_left` converts a `MultiplicationInputsBatch` into an iterator over `field`
-    /// values used by the verifier of the DZKPs on the left side of the prover
+    /// `get_field_values_from_right_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
+    /// values used by the verifier of the DZKPs on the left side of the prover, i.e. the `u` values.
     #[cfg(all(test, unit_test))]
-    fn get_field_values_verifier_left<DF: DZKPBaseField>(&self) -> impl Iterator<Item = DF> + '_ {
+    fn get_field_values_from_right_prover<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = DF> + '_ {
         self.vec
             .iter()
-            .flat_map(MultiplicationInputsBlock::convert_verifier_left::<DF>)
+            .flat_map(MultiplicationInputsBlock::convert_values_from_right_prover::<DF>)
     }
 
-    /// `get_field_values_verifier_right` converts a `MultiplicationInputsBatch` into an iterator over `field`
-    /// values used by the verifier of the DZKPs on the right side of the prover
+    /// `get_field_values_from_left_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
+    /// values used by the verifier of the DZKPs on the right side of the prover, i.e. the `v` values.
     #[cfg(all(test, unit_test))]
-    fn get_field_values_verifier_right<DF: DZKPBaseField>(&self) -> impl Iterator<Item = DF> + '_ {
+    fn get_field_values_from_left_prover<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = DF> + '_ {
         self.vec
             .iter()
-            .flat_map(MultiplicationInputsBlock::convert_verifier_right::<DF>)
+            .flat_map(MultiplicationInputsBlock::convert_values_from_left_prover::<DF>)
     }
 }
 
@@ -490,28 +495,34 @@ impl Batch {
     /// which is used by the prover of the DZKP
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + Clone + '_ {
         self.inner
             .values()
             .flat_map(MultiplicationInputsBatch::get_field_values_prover::<DF>)
     }
 
-    /// `get_field_values_verifier_left` converts a `Batch` into an iterator over field values
-    /// which is used by the verifier of the DZKP on the left side of the prover
+    /// `get_field_values_from_right_prover` converts a `Batch` into an iterator over field values
+    /// which is used by the verifier of the DZKP on the left side of the prover.
+    /// This produces the `u` values.
     #[cfg(all(test, unit_test))]
-    fn get_field_values_verifier_left<DF: DZKPBaseField>(&self) -> impl Iterator<Item = DF> + '_ {
+    fn get_field_values_from_right_prover<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = DF> + '_ {
         self.inner
             .values()
-            .flat_map(MultiplicationInputsBatch::get_field_values_verifier_left::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_from_right_prover::<DF>)
     }
 
-    /// `get_field_values_verifier_right` converts a `Batch` into an iterator over field values
-    /// which is used by the verifier of the DZKP on the right side of the prover
+    /// `get_field_values_from_left_prover` converts a `Batch` into an iterator over field values
+    /// which is used by the verifier of the DZKP on the right side of the prover.
+    /// This produces the `v` values.
     #[cfg(all(test, unit_test))]
-    fn get_field_values_verifier_right<DF: DZKPBaseField>(&self) -> impl Iterator<Item = DF> + '_ {
+    fn get_field_values_from_left_prover<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = DF> + '_ {
         self.inner
             .values()
-            .flat_map(MultiplicationInputsBatch::get_field_values_verifier_right::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_from_left_prover::<DF>)
     }
 }
 
@@ -654,7 +665,8 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     }
 
     /// ## Panics
-    /// Panics when `context_counter` exceeds 256.
+    /// Panics when `context_counter` exceeds 256
+    /// or when `usize` to `u128` conversion fails.
     async fn validate_chunk(&self, context_counter: usize) -> Result<(), Error> {
         assert!(context_counter <= 256);
         // LOCK BEGIN
@@ -662,9 +674,12 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         if batch.is_empty() {
             Ok(())
         } else {
-            // todo: generate proofs and validate them using `batch_list`
-            // get amount of u, v values which is 4 times the amount of multiplications
-            let m = 4 * batch.get_number_of_multiplications();
+            // set up context for this chunk
+            let chunk_ctx = self
+                .validate_ctx
+                .narrow(&Step::ValidationChunk(context_counter));
+            // get number of multiplications
+            let m = batch.get_number_of_multiplications();
             debug_assert_eq!(
                 m,
                 batch
@@ -673,8 +688,38 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
                         u_array.into_iter().zip(v_array).map(|(u, v)| u * v)
                     })
                     .count()
+                    / 4,
+                "Number of multiplications is counted incorrectly"
             );
-            // use get_values to get iterator over field elements for dzkp
+            let sum_of_uv = Fp61BitPrime::truncate_from(u128::try_from(m).unwrap())
+                * Fp61BitPrime::MINUS_ONE_HALF;
+            debug_assert_eq!(
+                sum_of_uv,
+                batch
+                    .get_field_values_prover::<Fp61BitPrime>()
+                    .flat_map(|(u_array, v_array)| {
+                        u_array.into_iter().zip(v_array).map(|(u, v)| u * v)
+                    })
+                    .sum::<Fp61BitPrime>(),
+                "Number of multiplications counted correctly but do not sum up correctly"
+            );
+            // generate BatchToVerify
+            let chunk_batch = BatchToVerify::generate_batch_to_verify(
+                chunk_ctx.narrow(&Step::GenerateProof),
+                batch.get_field_values_prover(),
+            )
+            .await;
+
+            // verify BatchToVerify
+            chunk_batch
+                .verify(
+                    chunk_ctx.narrow(&Step::VerifyProof),
+                    sum_of_uv,
+                    batch.get_field_values_from_right_prover(),
+                    batch.get_field_values_from_left_prover(),
+                )
+                .await?;
+
             // update which empties batch_list and increments offsets to next chunk
             batch.increment_record_ids();
             Ok(())
@@ -1036,12 +1081,12 @@ mod tests {
             .get_field_values_prover::<Fp61BitPrime>()
             .zip(
                 batch_left
-                    .get_field_values_verifier_left::<Fp61BitPrime>()
+                    .get_field_values_from_right_prover::<Fp61BitPrime>()
                     .collect::<Vec<[Fp61BitPrime; BLOCK_SIZE]>>(),
             )
             .zip(
                 batch_right
-                    .get_field_values_verifier_right::<Fp61BitPrime>()
+                    .get_field_values_from_left_prover::<Fp61BitPrime>()
                     .collect::<Vec<[Fp61BitPrime; BLOCK_SIZE]>>(),
             )
             .for_each(|((prover, verifier_left), verifier_right)| {

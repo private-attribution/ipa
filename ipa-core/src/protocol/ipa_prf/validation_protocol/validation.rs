@@ -13,14 +13,13 @@ use crate::{
         Direction, TotalRecords,
     },
     protocol::{
-        context::{dzkp_field::UVTupleBlock, Context},
+        context::{dzkp_field::UVTupleBlock, step::DZKPValidationStep as Step, Context},
         ipa_prf::{
             malicious_security::{
                 lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
                 prover::{LargeProofGenerator, SmallProofGenerator},
                 verifier::{compute_g_differences, recursively_compute_final_check},
             },
-            step::ValidationStep as Step,
             validation_protocol::proof_generation::ProofBatch,
         },
         prss::SharedRandomness,
@@ -164,7 +163,7 @@ impl BatchToVerify {
     /// ## Panics
     /// Panics when recursion factor constant cannot be converted to `u128`
     /// or when sending and receiving hashes over the network fails.
-    pub async fn generate_challenges<C>(&self, ctx: &C) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>)
+    pub async fn generate_challenges<C>(&self, ctx: C) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>)
     where
         C: Context,
     {
@@ -182,10 +181,10 @@ impl BatchToVerify {
 
         // receive hashes from the other verifier
         let ((), (), other_hashes_prover_left, other_hashes_prover_right) = try_join4(
-            my_hashes_prover_left.send_hashes(ctx, Side::Left),
-            my_hashes_prover_right.send_hashes(ctx, Side::Right),
-            ProofHashes::receive_hashes(ctx, my_hashes_prover_left.hashes.len(), Side::Left),
-            ProofHashes::receive_hashes(ctx, my_hashes_prover_right.hashes.len(), Side::Right),
+            my_hashes_prover_left.send_hashes(&ctx, Side::Left),
+            my_hashes_prover_right.send_hashes(&ctx, Side::Right),
+            ProofHashes::receive_hashes(&ctx, my_hashes_prover_left.hashes.len(), Side::Left),
+            ProofHashes::receive_hashes(&ctx, my_hashes_prover_right.hashes.len(), Side::Right),
         )
         .await
         .unwrap();
@@ -219,7 +218,7 @@ impl BatchToVerify {
     /// This function computes and outputs the final `p_r_right_prover * q_r_right_prover` value.
     async fn p_and_q_r_check<C, U, V>(
         &self,
-        ctx: &C,
+        ctx: C,
         challenges_for_left_prover: &[Fp61BitPrime],
         challenges_for_right_prover: &[Fp61BitPrime],
         u_from_right_prover: U, // Prover P_i and verifier P_{i-1} both compute `u` and `p(x)`
@@ -268,7 +267,7 @@ impl BatchToVerify {
     /// This function verifies a `BatchToVerify`.
     pub async fn verify<C, U, V>(
         &self,
-        ctx: &C,
+        ctx: C,
         sum_of_uv_right: Fp61BitPrime,
         u_from_right_prover: U,
         v_from_left_prover: V,
@@ -285,11 +284,11 @@ impl BatchToVerify {
         const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
 
         let (challenges_for_left_prover, challenges_for_right_prover) =
-            Self::generate_challenges(self, &ctx.narrow(&Step::Challenge)).await;
+            Self::generate_challenges(self, ctx.narrow(&Step::Challenge)).await;
 
         let p_times_q_right = Self::p_and_q_r_check(
             self,
-            &ctx.narrow(&Step::PTimesQ),
+            ctx.narrow(&Step::PTimesQ),
             &challenges_for_left_prover,
             &challenges_for_right_prover,
             u_from_right_prover,
@@ -597,7 +596,7 @@ pub mod test {
                         .await;
 
                         // generate and output challenges
-                        batch_to_verify.generate_challenges(&ctx).await
+                        batch_to_verify.generate_challenges(ctx).await
                     })
                     .await;
 
@@ -693,7 +692,7 @@ pub mod test {
                         // generate challenges
                         let (challenges_for_left_prover, challenges_for_right_prover) =
                             batch_to_verify
-                                .generate_challenges(&ctx.narrow("generate_hash"))
+                                .generate_challenges(ctx.narrow("generate_hash"))
                                 .await;
 
                         assert_eq!(
@@ -782,7 +781,7 @@ pub mod test {
                         // generate challenges
                         let (challenges_for_left_prover, challenges_for_right_prover) =
                             batch_to_verify
-                                .generate_challenges(&ctx.narrow("generate_hash"))
+                                .generate_challenges(ctx.narrow("generate_hash"))
                                 .await;
 
                         assert_eq!(
@@ -792,7 +791,7 @@ pub mod test {
 
                         let p_times_q = batch_to_verify
                             .p_and_q_r_check(
-                                &ctx,
+                                ctx,
                                 &challenges_for_left_prover,
                                 &challenges_for_right_prover,
                                 vec_u_from_right_prover.into_iter(),
@@ -882,7 +881,7 @@ pub mod test {
 
                     batch_to_verify
                         .verify(
-                            &v_ctx,
+                            v_ctx,
                             sum_of_uv_right,
                             vec_u_from_right_prover.into_iter(),
                             vec_v_from_left_prover.into_iter(),

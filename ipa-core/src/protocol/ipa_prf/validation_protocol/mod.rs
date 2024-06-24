@@ -1,2 +1,2 @@
 mod proof_generation;
-mod validation;
+pub mod validation;
