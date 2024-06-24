@@ -160,7 +160,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::iter;
+    use std::{iter, num::TryFromIntError};
 
     use crate::{
         ff::{boolean::Boolean, boolean_array::BA8, U128Conversions},
@@ -172,50 +172,24 @@ mod test {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    fn piecewise_linear_sigmoid_approximation(x: i128) -> u128 {
-        if x < -112 {
-            return 0;
-        }
-        if x < -96 {
-            return 1;
-        }
-        if x < -80 {
-            return 2 + (u128::try_from(x + 96).unwrap() >> 3);
-        }
-        if x < -64 {
-            return 4 + (u128::try_from(x + 80).unwrap() >> 2);
-        }
-        if x < -48 {
-            return 8 + (u128::try_from(x + 64).unwrap() >> 1);
-        }
-        if x < -32 {
-            return 16 + u128::try_from(x + 48).unwrap();
-        }
-        if x < -16 {
-            return 32 + 2 * u128::try_from(x + 32).unwrap();
-        }
-        if x < 16 {
-            return 64 + 4 * u128::try_from(x + 16).unwrap();
-        }
-        if x < 32 {
-            return 192 + 2 * u128::try_from(x - 16).unwrap();
-        }
-        if x < 48 {
-            return 224 + u128::try_from(x - 32).unwrap();
-        }
-        if x < 64 {
-            return 240 + (u128::try_from(x - 48).unwrap() >> 1);
-        }
-        if x < 80 {
-            return 248 + (u128::try_from(x - 64).unwrap() >> 2);
-        }
-        if x < 96 {
-            return 252 + (u128::try_from(x - 80).unwrap() >> 3);
-        }
-        if x < 112 {
-            return 254;
-        }
-        255
+    fn piecewise_linear_sigmoid_approximation(x: i128) -> Result<u128, TryFromIntError> {
+        Ok(match x {
+            i128::MIN..=-113 => 0,
+            -112..=-97 => 1,
+            -96..=-81 => 2 + (u128::try_from(x + 96)? >> 3),
+            -80..=-65 => 4 + (u128::try_from(x + 80)? >> 2),
+            -64..=-49 => 8 + (u128::try_from(x + 64)? >> 1),
+            -48..=-33 => 16 + u128::try_from(x + 48)?,
+            -32..=-17 => 32 + (u128::try_from(x + 32)? << 1),
+            -16..=15 => 64 + (u128::try_from(x + 16)? << 2),
+            16..=31 => 192 + (u128::try_from(x - 16)? << 1),
+            32..=47 => 224 + u128::try_from(x - 32)?,
+            48..=63 => 240 + (u128::try_from(x - 48)? >> 1),
+            64..=79 => 248 + (u128::try_from(x - 64)? >> 2),
+            80..=95 => 252 + (u128::try_from(x - 80)? >> 3),
+            96..=111 => 254,
+            _ => 255,
+        })
     }
 
     fn as_i128(x: BA8) -> i128 {
@@ -226,6 +200,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn semi_honest_sigmoid() {
         run(|| async move {
             let world = TestWorld::default();
@@ -254,9 +229,15 @@ mod test {
             for (i, res) in result.iter().enumerate() {
                 let u8 = BA8::truncate_from(u128::try_from(i).unwrap());
                 let i8 = as_i128(u8);
-                let expected = piecewise_linear_sigmoid_approximation(i8);
+                let expected = piecewise_linear_sigmoid_approximation(i8).unwrap();
 
                 assert_eq!((i8, res.as_u128()), (i8, expected));
+
+                let x_f64 = (i8 as f64) / 16_f64;
+                let y_f64 = (res.as_u128() as f64) / 256_f64;
+                let exact_sigmoid = 1.0_f64 / (1.0_f64 + f64::exp(-x_f64));
+                let delta_from_exact = f64::abs(exact_sigmoid - y_f64);
+                assert!(delta_from_exact < 0.0197_f64, "At x={x_f64} the delta from an exact sigmoid is {delta_from_exact}. Exact value: {exact_sigmoid}, approximate value: {y_f64}");
             }
         });
     }
