@@ -293,11 +293,13 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
+    <C as UpgradableContext>::DZKPValidator: Send + Sync,
     C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
-    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<C, CONV_CHUNK>,
+    Replicated<Boolean, CONV_CHUNK>:
+        BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
     let conv_records =

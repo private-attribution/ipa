@@ -18,6 +18,12 @@ pub(crate) enum IpaPrfStep {
 }
 
 #[derive(CompactStep)]
+pub(crate) enum ValidationStep {
+    PTimesQ,
+    Challenge,
+}
+
+#[derive(CompactStep)]
 pub(crate) enum QuicksortStep {
     /// Sort up to 1B rows. We can't exceed that limit for other reasons as well `record_id`.
     #[step(count = 30, child = crate::protocol::ipa_prf::step::QuicksortPassStep)]

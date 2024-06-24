@@ -207,7 +207,8 @@ impl CircularBuf {
         self.closed
     }
 
-    fn capacity(&self) -> usize {
+    /// Returns the capacity of this buffer, in bytes.
+    pub fn capacity(&self) -> usize {
         self.data.len()
     }
 
@@ -409,17 +410,6 @@ mod test {
     impl From<TwoBytes> for usize {
         fn from(value: TwoBytes) -> Self {
             usize::from(u16::from_le_bytes(value.0))
-        }
-    }
-
-    impl TwoBytes {
-        fn iter() -> impl Iterator<Item = Self> {
-            let mut count = 0;
-            std::iter::repeat_with(move || {
-                let next = Self::from(&count);
-                count += 1;
-                next
-            })
         }
     }
 

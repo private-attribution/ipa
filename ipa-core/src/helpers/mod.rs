@@ -482,7 +482,7 @@ impl Serializable for PublicKey {
 
 impl MpcMessage for PublicKey {}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TotalRecords {
     Unspecified,
     Specified(NonZeroUsize),
@@ -796,7 +796,10 @@ mod concurrency_tests {
                 shuttle::future::block_on(async {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
-                        gateway_config: GatewayConfig::new(input.len()),
+                        gateway_config: GatewayConfig {
+                            active: input.len().try_into().unwrap(),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     };
                     let world = TestWorld::new_with(config);
@@ -851,7 +854,10 @@ mod concurrency_tests {
                 shuttle::future::block_on(async {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
-                        gateway_config: GatewayConfig::new(input.len()),
+                        gateway_config: GatewayConfig {
+                            active: input.len().try_into().unwrap(),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     };
                     let world = TestWorld::new_with(config);

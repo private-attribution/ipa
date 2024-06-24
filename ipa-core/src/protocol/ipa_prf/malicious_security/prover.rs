@@ -123,7 +123,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
     /// `https://eprint.iacr.org/2023/909.pdf`
-    fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, λ, M>) -> [F; P]
+    pub fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, λ, M>) -> [F; P]
     where
         J: Iterator<Item = B>,
         B: Borrow<([F; λ], [F; λ])>,
