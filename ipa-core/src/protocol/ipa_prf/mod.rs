@@ -490,15 +490,16 @@ pub mod tests {
                 result_u32.len(),
                 expected.len()
             );
+            assert!(result_u32.len() == expected.len());
             for (index, actual_u128) in result_u32.iter().enumerate() {
                 println!("actual = {actual_u128}, expected = {}", expected[index]);
-                // assert!(
-                //     f64::from(*actual_u128) - mean
-                //         > f64::from(expected[index]) - 5.0 * standard_deviation
-                //         && f64::from(*actual_u128) - mean
-                //             < f64::from(expected[index]) + 5.0 * standard_deviation
-                // , "DP result was more than 5 standard deviations of the noise from the expected result"
-                // );
+                assert!(
+                    f64::from(*actual_u128) - mean
+                        > f64::from(expected[index]) - 5.0 * standard_deviation
+                        && f64::from(*actual_u128) - mean
+                            < f64::from(expected[index]) + 5.0 * standard_deviation
+                , "DP result was more than 5 standard deviations of the noise from the expected result"
+                );
             }
         });
     }

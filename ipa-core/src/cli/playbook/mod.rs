@@ -137,7 +137,7 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
     );
 
     // make sure DP noise actually changed the results
-    assert!(all_equal == false,
+    assert!(!all_equal,
     "Expected and actual results match exactly...probably DP noise is not being added when it should be");
 }
 
