@@ -16,22 +16,37 @@ use crate::{
 /// This function computes the shares that sum to zero from the zero-knowledge proofs.
 ///
 /// `out_share` is a share of `x` where the proof proves the statement `sum_i u_i * v_i = x`
-pub fn compute_g_differences<F, const P: usize, const λ: usize>(
+pub fn compute_g_differences<
+    F,
+    const P: usize,
+    const λ: usize,
+    const P_FIRST: usize,
+    const λ_FIRST: usize,
+>(
+    first_zkp: &[F; P_FIRST],
     zkps: &Vec<[F; P]>,
     challenges: &[F],
-    out_share: F,
+    sum_of_uv: F,
+    p_times_q: F,
 ) -> Vec<F>
 where
     F: PrimeField,
 {
     // compute denominator
+    let first_lagrange_denominator: CanonicalLagrangeDenominator<F, P_FIRST> =
+        CanonicalLagrangeDenominator::<F, P_FIRST>::new();
     let lagrange_denominator: CanonicalLagrangeDenominator<F, P> =
         CanonicalLagrangeDenominator::<F, P>::new();
 
     // compute expected_sum with "out_share" at the first spot
-    let expected_sums = iter::once(out_share)
+    let expected_sums = iter::once(sum_of_uv)
+        .chain(iter::once(interpolate_at_r(
+            first_zkp,
+            &challenges[0],
+            &first_lagrange_denominator,
+        )))
         .chain(
-            challenges
+            challenges[1..]
                 .iter()
                 .zip(zkps)
                 .map(|(challenge, zkp)| interpolate_at_r(zkp, challenge, &lagrange_denominator)),
@@ -39,16 +54,18 @@ where
         .collect::<Vec<_>>();
 
     // compute g_sum)
-    let g_sums = zkps
-        .iter()
-        .take(zkps.len() - 1)
-        .map(compute_sum_share::<F, λ, P>)
+    let g_sums = iter::once(compute_sum_share::<F, λ_FIRST, P_FIRST>(first_zkp))
+        .chain(
+            zkps.iter()
+                .take(zkps.len() - 1)
+                .map(compute_sum_share::<F, λ, P>),
+        )
         // in the final proof, skip the random weights
         .chain(iter::once(compute_final_sum_share::<F, λ, P>(
             zkps.last().unwrap(),
         )))
         // append spot for final sum
-        .chain(iter::once(F::ZERO))
+        .chain(iter::once(p_times_q))
         .collect::<Vec<_>>();
 
     g_sums
@@ -424,16 +441,26 @@ mod test {
 
     #[test]
     fn differences_are_zero() {
-        let zkp_left = vec![array_to_field(&ZKP_1_LEFT), array_to_field(&ZKP_2_LEFT)];
-        let zkp_right = vec![array_to_field(&ZKP_1_RIGHT), array_to_field(&ZKP_2_RIGHT)];
+        let zkp_left = [array_to_field(&ZKP_1_LEFT), array_to_field(&ZKP_2_LEFT)];
+        let zkp_right = [array_to_field(&ZKP_1_RIGHT), array_to_field(&ZKP_2_RIGHT)];
         let challenges = vec![Fp31::truncate_from(22u128), Fp31::truncate_from(17u128)];
 
-        let g_differences_left =
-            compute_g_differences::<_, 7, 4>(&zkp_left, &challenges, Fp31::truncate_from(OUT_LEFT));
-        let g_differences_right = compute_g_differences::<_, 7, 4>(
-            &zkp_right,
+        let p_times_q =
+            Fp31::truncate_from(EXPECTED_Q_FINAL) * Fp31::truncate_from(EXPECTED_P_FINAL);
+
+        let g_differences_left = compute_g_differences::<_, 7, 4, 7, 4>(
+            &zkp_left[0],
+            &zkp_left[1..].to_vec(),
+            &challenges,
+            Fp31::truncate_from(OUT_LEFT),
+            Fp31::ZERO,
+        );
+        let g_differences_right = compute_g_differences::<_, 7, 4, 7, 4>(
+            &zkp_right[0],
+            &zkp_right[1..].to_vec(),
             &challenges,
             Fp31::truncate_from(OUT_RIGHT),
+            p_times_q,
         );
 
         let g_differences = g_differences_left
