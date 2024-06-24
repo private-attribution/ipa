@@ -7,6 +7,7 @@ use futures_util::{stream, StreamExt};
 use crate::{
     error::{Error, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
+    helpers::TotalRecords,
     protocol::{
         boolean::step::SixteenBitStep,
         context::Context,
@@ -86,7 +87,9 @@ where
         .await
         .unwrap();
     // Step 4:  Add DP noise to output values
-    let apply_noise_ctx = ctx.narrow(&DPStep::ApplyNoise).set_total_records(1);
+    let apply_noise_ctx = ctx
+        .narrow(&DPStep::ApplyNoise)
+        .set_total_records(TotalRecords::ONE);
     let (histogram_noised, _) = integer_add::<_, SixteenBitStep, B>(
         apply_noise_ctx,
         RecordId::FIRST,

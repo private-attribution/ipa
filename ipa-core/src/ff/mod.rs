@@ -56,10 +56,6 @@ pub trait U128Conversions: FromRandomU128 + TryFrom<u128, Error = crate::error::
     fn as_u128(&self) -> u128;
 }
 
-pub trait I128Conversions {
-    fn as_i128(&self) -> i128;
-}
-
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network

@@ -1,14 +1,16 @@
 use std::iter::{once, repeat};
 
-use futures::future::try_join4;
-use futures_util::future::try_join;
+use futures_util::{
+    future::{try_join, try_join4},
+    stream,
+};
 
 use crate::{
     error::Error,
     ff::Fp61BitPrime,
     helpers::{
         hashing::{compute_hash, hash_to_field, Hash},
-        Direction,
+        Direction, TotalRecords,
     },
     protocol::{
         context::{dzkp_field::UVTupleBlock, Context},
@@ -16,12 +18,15 @@ use crate::{
             malicious_security::{
                 lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
                 prover::{LargeProofGenerator, SmallProofGenerator},
+                verifier::{compute_g_differences, recursively_compute_final_check},
             },
+            step::ValidationStep as Step,
             validation_protocol::proof_generation::ProofBatch,
         },
         prss::SharedRandomness,
         RecordId,
     },
+    secret_sharing::SharedValue,
 };
 
 /// This is a tuple of `ZeroKnowledgeProofs` owned by a verifier.
@@ -31,9 +36,10 @@ use crate::{
 /// The first proof has a different length, i.e. length `P`.
 /// It is therefore not stored in the vector with the other proofs.
 ///
-/// `ProofsToVerify` also contains two masks `p_0` and `q_0` in `masks` stored as `(p_0,q_0)`
+/// `ProofsToVerify` also contains two masks, `p` and `q`
 /// These masks are used as additional `u,v` values for the final proof.
 /// These masks mask sensitive information when verifying the final proof.
+/// `sum_of_uv` is `sum u*v`.
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
@@ -41,8 +47,8 @@ pub struct BatchToVerify {
     first_proof_from_right_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
     proofs_from_left_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
-    p_mask_from_left_prover: Fp61BitPrime,
-    q_mask_from_right_prover: Fp61BitPrime,
+    p_mask_from_right_prover: Fp61BitPrime,
+    q_mask_from_left_prover: Fp61BitPrime,
 }
 
 impl BatchToVerify {
@@ -92,13 +98,15 @@ impl BatchToVerify {
             Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
 
         // generate masks
-        // verifier on the right has p,
-        // therefore the right share is "implicitly sent" to the right ("communicated" via PRSS)
-        let (p_mask_from_left_prover, my_p_mask) = ctx.prss().generate_fields(record_counter);
+        // Prover `P_i` and verifier `P_{i-1}` both compute p(x)
+        // therefore the "right" share computed by this verifier corresponds to that which
+        // was used by the prover to the right.
+        let (my_p_mask, p_mask_from_right_prover) = ctx.prss().generate_fields(record_counter);
         record_counter += 1;
-        // and verifier on the left has q
-        // therefore the left share is "implicitly sent" to the left (communication via PRSS)
-        let (my_q_mask, q_mask_from_right_prover) = ctx.prss().generate_fields(record_counter);
+        // Prover `P_i` and verifier `P_{i+1}` both compute q(x)
+        // therefore the "left" share computed by this verifier corresponds to that which
+        // was used by the prover to the left.
+        let (q_mask_from_left_prover, my_q_mask) = ctx.prss().generate_fields(record_counter);
         record_counter += 1;
 
         let denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, SRF>::new();
@@ -145,8 +153,8 @@ impl BatchToVerify {
             first_proof_from_right_prover: shares_of_batch_from_right_prover.first_proof,
             proofs_from_left_prover: shares_of_batch_from_left_prover.proofs,
             proofs_from_right_prover: shares_of_batch_from_right_prover.proofs,
-            p_mask_from_left_prover,
-            q_mask_from_right_prover,
+            p_mask_from_right_prover,
+            q_mask_from_left_prover,
         }
     }
 
@@ -156,14 +164,17 @@ impl BatchToVerify {
     /// ## Panics
     /// Panics when recursion factor constant cannot be converted to `u128`
     /// or when sending and receiving hashes over the network fails.
-    async fn generate_challenges<C: Context>(
-        &self,
-        ctx: &C,
-    ) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>) {
+    pub async fn generate_challenges<C>(&self, ctx: &C) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>)
+    where
+        C: Context,
+    {
+        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+
         // exclude for first proof
-        let exclude_large = u128::try_from(LargeProofGenerator::RECURSION_FACTOR).unwrap();
+        let exclude_large = u128::try_from(LRF).unwrap();
         // exclude for other proofs
-        let exclude_small = u128::try_from(SmallProofGenerator::RECURSION_FACTOR).unwrap();
+        let exclude_small = u128::try_from(SRF).unwrap();
 
         // generate hashes
         let my_hashes_prover_left = ProofHashes::generate_hashes(self, Side::Left);
@@ -204,6 +215,142 @@ impl BatchToVerify {
             challenges_for_prover_right.collect(),
         )
     }
+
+    /// This function computes and outputs the final `p_r_right_prover * q_r_right_prover` value.
+    async fn p_and_q_r_check<C, U, V>(
+        &self,
+        ctx: &C,
+        challenges_for_left_prover: &[Fp61BitPrime],
+        challenges_for_right_prover: &[Fp61BitPrime],
+        u_from_right_prover: U, // Prover P_i and verifier P_{i-1} both compute `u` and `p(x)`
+        v_from_left_prover: V,  // Prover P_i and verifier P_{i+1} both compute `v` and `q(x)`
+    ) -> Result<Fp61BitPrime, Error>
+    where
+        C: Context,
+        U: Iterator<Item = Fp61BitPrime> + Send,
+        V: Iterator<Item = Fp61BitPrime> + Send,
+    {
+        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+
+        // compute p_r
+        let p_r_right_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
+            stream::iter(u_from_right_prover),
+            challenges_for_right_prover,
+            self.p_mask_from_right_prover,
+        )
+        .await;
+        // compute q_r
+        let q_r_left_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
+            stream::iter(v_from_left_prover),
+            challenges_for_left_prover,
+            self.q_mask_from_left_prover,
+        )
+        .await;
+
+        // send to the left
+        let communication_ctx = ctx.set_total_records(1);
+
+        let send_right =
+            communication_ctx.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
+        let receive_left =
+            communication_ctx.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
+
+        let ((), q_r_right_prover) = try_join(
+            send_right.send(RecordId::FIRST, q_r_left_prover),
+            receive_left.receive(RecordId::FIRST),
+        )
+        .await?;
+
+        Ok(p_r_right_prover * q_r_right_prover)
+    }
+
+    /// This function verifies a `BatchToVerify`.
+    pub async fn verify<C, U, V>(
+        &self,
+        ctx: &C,
+        sum_of_uv_right: Fp61BitPrime,
+        u_from_right_prover: U,
+        v_from_left_prover: V,
+    ) -> Result<(), Error>
+    where
+        C: Context,
+        U: Iterator<Item = Fp61BitPrime> + Send,
+        V: Iterator<Item = Fp61BitPrime> + Send,
+    {
+        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+
+        const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
+        const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
+
+        let (challenges_for_left_prover, challenges_for_right_prover) =
+            Self::generate_challenges(self, &ctx.narrow(&Step::Challenge)).await;
+
+        let p_times_q_right = Self::p_and_q_r_check(
+            self,
+            &ctx.narrow(&Step::PTimesQ),
+            &challenges_for_left_prover,
+            &challenges_for_right_prover,
+            u_from_right_prover,
+            v_from_left_prover,
+        )
+        .await?;
+
+        // add Zero for p_times_q and sum since they are not secret shared
+        let diff_left = compute_g_differences::<_, SPL, SRF, LPL, LRF>(
+            &self.first_proof_from_left_prover,
+            &self.proofs_from_left_prover,
+            &challenges_for_left_prover,
+            Fp61BitPrime::ZERO,
+            Fp61BitPrime::ZERO,
+        );
+
+        let diff_right = compute_g_differences::<_, SPL, SRF, LPL, LRF>(
+            &self.first_proof_from_right_prover,
+            &self.proofs_from_right_prover,
+            &challenges_for_right_prover,
+            sum_of_uv_right,
+            p_times_q_right,
+        );
+
+        // send dif_left to the right
+        let length = diff_left.len();
+        let communication_ctx = ctx.set_total_records(length);
+
+        let send_channel =
+            communication_ctx.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
+        let receive_channel =
+            communication_ctx.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
+
+        let send_channel_ref = &send_channel;
+        let receive_channel_ref = &receive_channel;
+
+        communication_ctx
+            .parallel_join(
+                diff_left
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| async move { send_channel_ref.send(RecordId::from(i), f).await }),
+            )
+            .await?;
+
+        let diff_right_from_other_verifier = communication_ctx
+            .parallel_join(
+                (0..length)
+                    .map(|i| async move { receive_channel_ref.receive(RecordId::from(i)).await }),
+            )
+            .await?;
+
+        // compare recombined dif to zero
+        for i in 0..length {
+            if diff_right[i] + diff_right_from_other_verifier[i] != Fp61BitPrime::ZERO {
+                return Err(Error::DZKPValidationFailed);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 struct ProofHashes {
@@ -230,16 +377,9 @@ impl ProofHashes {
             ),
         };
 
-        let length = other_proofs.len();
-
         Self {
             hashes: once(compute_hash(first_proof))
-                .chain(
-                    other_proofs
-                        .iter()
-                        .take(length - 1) // we don't need to hash last proof
-                        .map(|proof| compute_hash(proof.iter())),
-                )
+                .chain(other_proofs.iter().map(|proof| compute_hash(proof.iter())))
                 .collect::<Vec<_>>(),
         }
     }
@@ -247,7 +387,7 @@ impl ProofHashes {
     /// Sends the one verifier's hashes to the other verifier
     /// `side` indicates the direction of the prover.
     async fn send_hashes<C: Context>(&self, ctx: &C, side: Side) -> Result<(), Error> {
-        let communication_ctx = ctx.set_total_records(self.hashes.len());
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(self.hashes.len())?);
 
         let send_channel = match side {
             // send left hashes to the right
@@ -270,7 +410,7 @@ impl ProofHashes {
     /// `side` indicates the direction of the prover.
     async fn receive_hashes<C: Context>(ctx: &C, length: usize, side: Side) -> Result<Self, Error> {
         // set up context for the communication over the network
-        let communication_ctx = ctx.set_total_records(length);
+        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
 
         let recv_channel = match side {
             // receive left hashes from the right helper
@@ -295,16 +435,27 @@ impl ProofHashes {
 
 #[cfg(all(test, unit_test))]
 pub mod test {
+    use futures_util::future::try_join;
     use rand::{thread_rng, Rng};
 
     use crate::{
         ff::{Fp61BitPrime, U128Conversions},
+        helpers::Direction,
         protocol::{
-            context::{dzkp_field::BLOCK_SIZE, Context},
+            context::{
+                dzkp_field::{UVTupleBlock, BLOCK_SIZE},
+                Context,
+            },
             ipa_prf::{
-                malicious_security::prover::{LargeProofGenerator, SmallProofGenerator},
+                malicious_security::{
+                    lagrange::CanonicalLagrangeDenominator,
+                    prover::{LargeProofGenerator, SmallProofGenerator},
+                    verifier::{compute_sum_share, interpolate_at_r},
+                },
                 validation_protocol::validation::BatchToVerify,
             },
+            prss::SharedRandomness,
+            RecordId,
         },
         secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
         test_executor::run,
@@ -341,8 +492,8 @@ pub mod test {
         // check that masks are not 0
         assert_ne!(
             (
-                left_verifier.q_mask_from_right_prover,
-                right_verifier.p_mask_from_left_prover
+                left_verifier.q_mask_from_left_prover,
+                right_verifier.p_mask_from_right_prover
             ),
             (Fp61BitPrime::ZERO, Fp61BitPrime::ZERO)
         );
@@ -456,6 +607,290 @@ pub mod test {
             assert_eq!(helper_3_left, helper_1_right);
             // verifier when H3 is prover
             assert_eq!(helper_1_left, helper_2_right);
+        });
+    }
+
+    /// This is a helper function to generate `u`, `v` values.
+    ///
+    /// Prover `P_i` and verifier `P_{i+1}` both generate `u`
+    /// Prover `P_i` and verifier `P_{i-1}` both generate `v`
+    ///
+    /// outputs `(my_u_and_v, u_from_right_prover, v_from_left_prover)`
+    #[allow(clippy::type_complexity)]
+    fn generate_u_v<C: Context>(
+        ctx: &C,
+    ) -> (
+        Vec<UVTupleBlock<Fp61BitPrime>>,
+        Vec<Fp61BitPrime>,
+        Vec<Fp61BitPrime>,
+    ) {
+        const SIZE: usize = 100;
+
+        // outputs
+        let mut vec_u_from_right_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * SIZE);
+        let mut vec_v_from_left_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * SIZE);
+
+        let mut vec_my_u_and_v =
+            Vec::<([Fp61BitPrime; BLOCK_SIZE], [Fp61BitPrime; BLOCK_SIZE])>::with_capacity(SIZE);
+
+        // generate random u, v values using PRSS
+        let mut counter = RecordId::FIRST;
+
+        for _ in 0..SIZE {
+            let mut my_u_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
+            let mut my_v_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
+            for i in 0..BLOCK_SIZE {
+                let (my_u, u_from_right_prover) = ctx.prss().generate_fields(counter);
+                counter += 1;
+                let (v_from_left_prover, my_v) = ctx.prss().generate_fields(counter);
+                counter += 1;
+                my_u_array[i] = my_u;
+                my_v_array[i] = my_v;
+                vec_u_from_right_prover.push(u_from_right_prover);
+                vec_v_from_left_prover.push(v_from_left_prover);
+            }
+            vec_my_u_and_v.push((my_u_array, my_v_array));
+        }
+
+        (
+            vec_my_u_and_v,
+            vec_u_from_right_prover,
+            vec_v_from_left_prover,
+        )
+    }
+
+    fn recombine<const P: usize>(
+        left: &[Fp61BitPrime; P],
+        right: &[Fp61BitPrime; P],
+    ) -> [Fp61BitPrime; P] {
+        left.iter()
+            .zip(right.iter())
+            .map(|(left, right)| *left + *right)
+            .collect()
+    }
+
+    /// This test checks the batches to verify by running a partial verification
+    /// The verification checks whether the zero shares of intermediate proofs
+    /// are indeed zero by recombining the shares (without sending them over the "network")
+    #[test]
+    fn check_batch_to_verify_consistency() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let [(h1_c_left, h1_c_right, h1_batch), (h2_c_left, h2_c_right, h2_batch), (h3_c_left, h3_c_right, h3_batch)] =
+                world
+                    .semi_honest((), |ctx, ()| async move {
+                        // generate u, v values
+                        let (vec_my_u_and_v, _, _) = generate_u_v(&ctx);
+
+                        // generate and output VerifierBatch together with h value
+                        let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                            ctx.narrow("generate_batch"),
+                            vec_my_u_and_v.clone().into_iter(),
+                        )
+                        .await;
+
+                        // generate challenges
+                        let (challenges_for_left_prover, challenges_for_right_prover) =
+                            batch_to_verify
+                                .generate_challenges(&ctx.narrow("generate_hash"))
+                                .await;
+
+                        assert_eq!(
+                            challenges_for_right_prover.len(),
+                            batch_to_verify.proofs_from_right_prover.len() + 1
+                        );
+
+                        // output challenges and batches to verify
+                        (
+                            challenges_for_left_prover,
+                            challenges_for_right_prover,
+                            batch_to_verify,
+                        )
+                    })
+                    .await;
+
+            // check challenges
+            // h1 prover
+            assert_eq!(h2_c_left, h3_c_right);
+            // h2 prover
+            assert_eq!(h3_c_left, h1_c_right);
+            // h3 prover
+            assert_eq!(h1_c_left, h2_c_right);
+
+            // assert batches
+            // h1
+            assert_batch(&h2_batch, &h3_batch, &h3_c_right);
+            // h2
+            assert_batch(&h3_batch, &h1_batch, &h1_c_right);
+            // h3
+            assert_batch(&h1_batch, &h2_batch, &h2_c_right);
+        });
+    }
+
+    fn assert_batch(left: &BatchToVerify, right: &BatchToVerify, challenges: &[Fp61BitPrime]) {
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+        const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
+        const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
+
+        let first = recombine(
+            &left.first_proof_from_left_prover,
+            &right.first_proof_from_right_prover,
+        );
+        let others = left
+            .proofs_from_left_prover
+            .iter()
+            .zip(right.proofs_from_right_prover.iter())
+            .map(|(left, right)| recombine(left, right))
+            .collect::<Vec<_>>();
+        let denominator_first = CanonicalLagrangeDenominator::<_, LPL>::new();
+        let denominator = CanonicalLagrangeDenominator::<_, SPL>::new();
+
+        let length = others.len();
+
+        let mut out = interpolate_at_r(&first, &challenges[0], &denominator_first);
+        for (i, proof) in others.iter().take(length - 1).enumerate() {
+            assert_eq!((i, out), (i, compute_sum_share::<_, SRF, SPL>(proof)));
+            out = interpolate_at_r(proof, &challenges[i + 1], &denominator);
+        }
+        // last sum without masks
+        let masks = others[length - 1][0];
+        let last_sum = compute_sum_share::<_, SRF, SPL>(&others[length - 1]);
+        assert_eq!(out, last_sum - masks);
+    }
+
+    /// This test checks that `p_r*q_r` is consistent with the last proof
+    #[test]
+    fn p_times_q() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let [(pq_h1, h1_left, h1_right), (pq_h2, h2_left, h2_right), (pq_h3, h3_left, h3_right)] =
+                world
+                    .semi_honest((), |ctx, ()| async move {
+                        // generate u, v values
+                        let (vec_my_u_and_v, vec_u_from_right_prover, vec_v_from_left_prover) =
+                            generate_u_v(&ctx);
+
+                        // generate and output VerifierBatch together with h value
+                        let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                            ctx.narrow("generate_batch"),
+                            vec_my_u_and_v.clone().into_iter(),
+                        )
+                        .await;
+
+                        // generate challenges
+                        let (challenges_for_left_prover, challenges_for_right_prover) =
+                            batch_to_verify
+                                .generate_challenges(&ctx.narrow("generate_hash"))
+                                .await;
+
+                        assert_eq!(
+                            challenges_for_right_prover.len(),
+                            batch_to_verify.proofs_from_right_prover.len() + 1
+                        );
+
+                        let p_times_q = batch_to_verify
+                            .p_and_q_r_check(
+                                &ctx,
+                                &challenges_for_left_prover,
+                                &challenges_for_right_prover,
+                                vec_u_from_right_prover.into_iter(),
+                                vec_v_from_left_prover.into_iter(),
+                            )
+                            .await
+                            .unwrap();
+
+                        let denominator = CanonicalLagrangeDenominator::<
+                            Fp61BitPrime,
+                            { SmallProofGenerator::PROOF_LENGTH },
+                        >::new();
+
+                        let g_r_left = interpolate_at_r(
+                            batch_to_verify.proofs_from_left_prover.last().unwrap(),
+                            challenges_for_left_prover.last().unwrap(),
+                            &denominator,
+                        );
+                        let g_r_right = interpolate_at_r(
+                            batch_to_verify.proofs_from_right_prover.last().unwrap(),
+                            challenges_for_right_prover.last().unwrap(),
+                            &denominator,
+                        );
+                        (p_times_q, g_r_left, g_r_right)
+                    })
+                    .await;
+
+            // check h1's proof
+            assert_eq!(pq_h3, h2_left + h3_right);
+
+            // check h2's proof
+            assert_eq!(pq_h1, h3_left + h1_right);
+
+            // check h3's proof
+            assert_eq!(pq_h2, h1_left + h2_right);
+        });
+    }
+
+    /// This test checks that a `BatchToVerify` verifies
+    #[test]
+    fn verify_batch() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let _ = world
+                .semi_honest((), |ctx, ()| async move {
+                    // generate u, v values
+                    let (vec_my_u_and_v, vec_u_from_right_prover, vec_v_from_left_prover) =
+                        generate_u_v(&ctx);
+
+                    // generate and output VerifierBatch together with h value
+                    let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                        ctx.narrow("generate_batch"),
+                        vec_my_u_and_v.clone().into_iter(),
+                    )
+                    .await;
+
+                    // compute sum
+                    let sum_of_uv = vec_my_u_and_v
+                        .iter()
+                        .flat_map(|(left_array, right_array)| {
+                            left_array
+                                .iter()
+                                .zip(right_array)
+                                .map(|(left, right)| *left * *right)
+                        })
+                        .sum::<Fp61BitPrime>();
+
+                    // context for verification
+                    let v_ctx = ctx.narrow("verify");
+
+                    // send sum to the left
+                    // and receive from the right
+                    let communication_ctx = ctx.set_total_records(1);
+
+                    let send_channel = communication_ctx
+                        .send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
+                    let receive_channel = communication_ctx
+                        .recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
+
+                    let ((), sum_of_uv_right) = try_join(
+                        send_channel.send(RecordId::FIRST, sum_of_uv),
+                        receive_channel.receive(RecordId::FIRST),
+                    )
+                    .await
+                    .unwrap();
+
+                    batch_to_verify
+                        .verify(
+                            &v_ctx,
+                            sum_of_uv_right,
+                            vec_u_from_right_prover.into_iter(),
+                            vec_v_from_left_prover.into_iter(),
+                        )
+                        .await
+                        .unwrap();
+                })
+                .await;
         });
     }
 }

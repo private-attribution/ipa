@@ -9,10 +9,7 @@ use typenum::{U14, U2, U32, U8};
 
 use crate::{
     error::LengthError,
-    ff::{
-        boolean::Boolean, ArrayAccess, Expand, Field, I128Conversions, Serializable,
-        U128Conversions,
-    },
+    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
@@ -114,15 +111,6 @@ macro_rules! boolean_array_impl_small {
 
             fn as_u128(&self) -> u128 {
                 (*self).into()
-            }
-        }
-
-        impl I128Conversions for $name {
-            fn as_i128(&self) -> i128 {
-                let mut out: i128 = i128::try_from(self.as_u128()).unwrap();
-                let msb = (out >> $bits - 1) & 1;
-                out -= msb * (1 << $bits);
-                out
             }
         }
 
@@ -581,8 +569,6 @@ macro_rules! boolean_array_impl {
                 use rand::{thread_rng, Rng};
                 use bitvec::bits;
 
-                use crate::ff::I128Conversions;
-
                 use super::*;
 
                 impl Arbitrary for $name {
@@ -646,46 +632,6 @@ macro_rules! boolean_array_impl {
                         assert_eq!(a * c, if bool::from(c) { a } else { $name::ZERO });
                         assert_eq!(a * &c, if bool::from(c) { a } else { $name::ZERO });
                     }
-                }
-
-                #[test]
-                fn signed_integer_conversions() {
-                    let v = BA4::truncate_from(10_u128);
-                    assert_eq!(v.as_i128(), -6);
-                }
-
-                #[test]
-                fn boolean_array_from_vec() {
-                    let v = [false, false, true].map(Boolean::from).to_vec();
-                    assert_eq!(BA3::try_from(v.clone()), Ok(BA3::truncate_from(4_u128)));
-                    assert_eq!(
-                        BA8::try_from(v),
-                        Err(LengthError {
-                            expected: 8,
-                            actual: 3
-                        })
-                    );
-                }
-
-                #[test]
-                fn boolean_array_from_fn() {
-                    assert_eq!(
-                        BA3::from_fn(|i| Boolean::from(i == 2)),
-                        BA3::truncate_from(4_u128)
-                    );
-                }
-
-                #[test]
-                fn boolean_array_from_iter() {
-                    let iter = [false, false, true].into_iter().map(Boolean::from);
-                    assert_eq!(BA3::from_iter(iter), BA3::truncate_from(4_u128));
-                }
-
-                #[test]
-                #[should_panic(expected = "Expected iterator to produce 3 items, got only 2")]
-                fn boolean_array_from_short_iter() {
-                    let iter = [false, false].into_iter().map(Boolean::from);
-                    assert_eq!(BA3::from_iter(iter), BA3::truncate_from(4_u128));
                 }
 
                 #[test]
@@ -855,5 +801,45 @@ impl FromRandom for BA256 {
 impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
         (rng.gen(), rng.gen()).into()
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use super::*;
+    use crate::secret_sharing::SharedValueArray;
+
+    #[test]
+    fn boolean_array_from_vec() {
+        let v = [false, false, true].map(Boolean::from).to_vec();
+        assert_eq!(BA3::try_from(v.clone()), Ok(BA3::truncate_from(4_u128)));
+        assert_eq!(
+            BA8::try_from(v),
+            Err(LengthError {
+                expected: 8,
+                actual: 3
+            })
+        );
+    }
+
+    #[test]
+    fn boolean_array_from_fn() {
+        assert_eq!(
+            BA3::from_fn(|i| Boolean::from(i == 2)),
+            BA3::truncate_from(4_u128)
+        );
+    }
+
+    #[test]
+    fn boolean_array_from_iter() {
+        let iter = [false, false, true].into_iter().map(Boolean::from);
+        assert_eq!(iter.collect::<BA3>(), BA3::truncate_from(4_u128));
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected iterator to produce 3 items, got only 2")]
+    fn boolean_array_from_short_iter() {
+        let iter = [false, false].into_iter().map(Boolean::from);
+        assert_eq!(iter.collect::<BA3>(), BA3::truncate_from(4_u128));
     }
 }

@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         basics::{partial_reveal, BooleanProtocols},
         boolean::step::TwoHundredFiftySixBitOpStep,
-        context::Context,
+        context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
         ipa_prf::boolean_ops::{
             addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
         },
@@ -93,23 +93,25 @@ use crate::{
 /// a vector of (NC / NP) shares, each with dimension `NP`.
 ///
 /// # Errors
-/// Propagates Errors from Integer Subtraction and Partial Reveal
+/// Propagates Errors from Integer Subtraction, Partial Reveal and Validate
 /// # Panics
 /// If values processed by this function is smaller than 256 bits.
+/// If vectorization is too large, i.e. `NC>=100k`.
 pub async fn convert_to_fp25519<C, const NC: usize, const NP: usize>(
     ctx: C,
     record_id: RecordId,
     x: BitDecomposed<AdditiveShare<Boolean, NC>>,
 ) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
 where
-    C: Context,
+    C: UpgradableContext,
     Fp25519: Vectorizable<NP>,
     Boolean: FieldSimd<NC>,
     BitDecomposed<AdditiveShare<Boolean, NC>>: FromPrss<usize>,
-    AdditiveShare<Boolean, NC>: BooleanProtocols<C, NC>,
+    AdditiveShare<Boolean, NC>: BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, NC>,
     Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, NC>>>,
     Vec<BA256>:
         for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<NC>>::Array; 256], Error = Infallible>,
+    <C as UpgradableContext>::DZKPValidator: Send + Sync,
 {
     // `BITS` is the number of bits in the memory representation of Fp25519 field elements. It does
     // not vary with vectorization. Where the type `BA256` appears literally in the source of this
@@ -131,11 +133,21 @@ where
     let (sh_r, sh_s) =
         gen_sh_r_and_sh_s::<_, BITS, NC>(&ctx.narrow(&Step::GenerateSecretSharing), record_id);
 
+    // generate upgraded context
+    // we expect 2*256 = 512 gates in total for two additions
+    // the vectorization factor is NC
+    // the total amount of multiplications is therefore NC*512
+    // make sure proof does not get too big, i.e. less that 100k
+    // (such that there are less than 50m multiplications)
+    assert!(NC < 100_000);
+    let validator = ctx.dzkp_validator(NC);
+    let m_ctx = validator.context();
+
     // addition r+s might cause carry,
     // this is no problem since we have set bit 254 of sh_r and sh_s to 0
     let sh_rs = {
         let (mut rs_with_higherorderbits, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-            ctx.narrow(&Step::IntegerAddBetweenMasks),
+            m_ctx.narrow(&Step::IntegerAddBetweenMasks),
             record_id,
             &sh_r,
             &sh_s,
@@ -153,18 +165,21 @@ where
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
     let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-        ctx.narrow(&Step::IntegerAddMaskToX),
+        m_ctx.narrow(&Step::IntegerAddMaskToX),
         record_id,
         &sh_rs,
         &x,
     )
     .await?;
 
+    // validate before reveal
+    validator.validate().await?;
+
     // this leaks information, but with negligible probability
-    let mut y = (ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
+    let mut y = (m_ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
     for i in 0..BITS {
         let y_bit = partial_reveal(
-            ctx.narrow(&Step::RevealY(i)),
+            m_ctx.narrow(&Step::RevealY(i)),
             record_id,
             Role::H3,
             sh_y.get(i).unwrap(),
@@ -188,7 +203,7 @@ where
         .ok()
         .expect("sh_s was constructed with the correct number of bits");
 
-    output_shares::<_, NC, NP>(&ctx, &sh_r, &sh_s, y)
+    output_shares::<_, NC, NP>(&m_ctx, &sh_r, &sh_s, y)
 }
 
 /// Generates `sh_r` and `sh_s` from PRSS randomness (`r`).
@@ -421,7 +436,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             let [res0, res1, res2] = world
-                .upgraded_semi_honest(records.into_iter(), |ctx, records| async move {
+                .semi_honest(records.into_iter(), |ctx, records| async move {
                     seq_join(
                         ctx.active_work(),
                         process_slice_by_chunks(

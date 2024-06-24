@@ -163,9 +163,11 @@ mod test {
     use std::iter;
 
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA8, I128Conversions, U128Conversions},
+        ff::{boolean::Boolean, boolean_array::BA8, U128Conversions},
         protocol::{context::Context, ipa_prf::boolean_ops::sigmoid::sigmoid, RecordId},
-        secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, TransposeFrom},
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare, BitDecomposed, SharedValue, TransposeFrom,
+        },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -216,6 +218,13 @@ mod test {
         255
     }
 
+    fn as_i128(x: BA8) -> i128 {
+        let mut out: i128 = i128::try_from(x.as_u128()).unwrap();
+        let msb = (out >> (BA8::BITS - 1)) & 1;
+        out -= msb * (1 << BA8::BITS);
+        out
+    }
+
     #[test]
     fn semi_honest_sigmoid() {
         run(|| async move {
@@ -244,7 +253,7 @@ mod test {
 
             for (i, res) in result.iter().enumerate() {
                 let u8 = BA8::truncate_from(u128::try_from(i).unwrap());
-                let i8 = u8.as_i128();
+                let i8 = as_i128(u8);
                 let expected = piecewise_linear_sigmoid_approximation(i8);
 
                 assert_eq!((i8, res.as_u128()), (i8, expected));
