@@ -275,7 +275,10 @@ impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
             // Only keep a small amount of active work on hand.
-            gateway_config: GatewayConfig::new(16),
+            gateway_config: GatewayConfig {
+                active: 16.try_into().unwrap(),
+                ..Default::default()
+            },
             // Disable metrics by default because `logging` only enables `Level::INFO` spans.
             // Can be overridden by setting `RUST_LOG` environment variable to match this level.
             metrics_level: Level::DEBUG,
