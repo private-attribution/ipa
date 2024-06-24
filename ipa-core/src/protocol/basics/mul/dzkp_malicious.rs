@@ -113,7 +113,7 @@ mod test {
                 assert!(matches!(mctx.is_verified(), Err(Error::ContextUnsafe(_))));
 
                 // validate all elements in the batch
-                validator.validate(0usize).await.unwrap();
+                validator.validate().await.unwrap();
 
                 // batch is empty now
                 assert!(mctx.is_verified().is_ok());

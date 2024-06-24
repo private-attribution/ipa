@@ -111,7 +111,7 @@ where
     Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, NC>>>,
     Vec<BA256>:
         for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<NC>>::Array; 256], Error = Infallible>,
-    <C as UpgradableContext>::DZKPValidator: Send,
+    <C as UpgradableContext>::DZKPValidator: Send + Sync,
 {
     // `BITS` is the number of bits in the memory representation of Fp25519 field elements. It does
     // not vary with vectorization. Where the type `BA256` appears literally in the source of this
@@ -173,7 +173,7 @@ where
     .await?;
 
     // validate before reveal
-    validator.validate(0).await?;
+    validator.validate().await?;
 
     // this leaks information, but with negligible probability
     let mut y = (m_ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
