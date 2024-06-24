@@ -326,21 +326,19 @@ impl BatchToVerify {
         let send_channel_ref = &send_channel;
         let receive_channel_ref = &receive_channel;
 
-        communication_ctx
-            .parallel_join(
-                diff_left
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| async move { send_channel_ref.send(RecordId::from(i), f).await }),
-            )
-            .await?;
+        let send_future = communication_ctx.parallel_join(
+            diff_left
+                .iter()
+                .enumerate()
+                .map(|(i, f)| async move { send_channel_ref.send(RecordId::from(i), f).await }),
+        );
 
-        let diff_right_from_other_verifier = communication_ctx
-            .parallel_join(
-                (0..length)
-                    .map(|i| async move { receive_channel_ref.receive(RecordId::from(i)).await }),
-            )
-            .await?;
+        let receive_future = communication_ctx.parallel_join(
+            (0..length)
+                .map(|i| async move { receive_channel_ref.receive(RecordId::from(i)).await }),
+        );
+
+        let (_, diff_right_from_other_verifier) = try_join(send_future, receive_future).await?;
 
         // compare recombined dif to zero
         for i in 0..length {
