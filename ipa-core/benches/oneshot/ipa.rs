@@ -18,7 +18,6 @@ use ipa_core::{
 use ipa_step::StepNarrow;
 use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
-use ipa_core::helpers::query::DpParams;
 
 #[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
 #[global_allocator]
@@ -63,8 +62,8 @@ struct Args {
     #[arg(long, default_value = "3")]
     num_multi_bits: u32,
     /// dp_params enum
-    #[arg(short = 'd', long, value_enum, default_value_t=DpParams::WithDp{epsilon : 3.0})]
-    dp_params: DpParams,
+    // #[arg(short = 'd', long, value_enum, default_value_t=DpParams::WithDp{epsilon : 3.0})]
+    // dp_params: DpParams,
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,

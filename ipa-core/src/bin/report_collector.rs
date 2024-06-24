@@ -15,12 +15,12 @@ use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
         noise::{apply, ApplyDpArgs},
-        playbook::{make_clients, playbook_oprf_ipa, validate, InputSource},
+        playbook::{make_clients, playbook_oprf_ipa, validate, validate_dp, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
     ff::{boolean_array::BA16, FieldType},
-    helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+    helpers::query::{DpParams, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
     report::{KeyIdentifier, DEFAULT_KEY_ID},
@@ -304,8 +304,19 @@ async fn ipa(
 
     tracing::info!("{m:?}", m = ipa_query_config);
 
-
-    validate(&expected, &actual.breakdowns);
+    match ipa_query_config.dp_params {
+        DpParams::NoDp => {
+            validate(&expected, &actual.breakdowns);
+        }
+        DpParams::WithDp { epsilon } => {
+            validate_dp(
+                expected,
+                actual.breakdowns,
+                epsilon,
+                ipa_query_config.per_user_credit_cap,
+            );
+        }
+    }
 
     Ok(())
 }

@@ -44,6 +44,69 @@ where
         }
 
         let same = next_expected == next_actual; // with DP non-exact match here
+
+        let color = if same { Color::Green } else { Color::Red };
+        table.add_row(vec![
+            Cell::new(format!("{i}")).fg(color),
+            Cell::new(format!("{next_expected:?}")).fg(color),
+            Cell::new(format!("{next_actual:?}")).fg(color),
+            Cell::new(if same { "" } else { "X" }),
+        ]);
+
+        if !same {
+            mismatch.push((i, next_expected, next_actual));
+        }
+
+        i += 1;
+    }
+
+    tracing::info!("\n{table}\n");
+
+    assert!(
+        mismatch.is_empty(),
+        "Expected and actual results don't match: {mismatch:?}",
+    );
+}
+
+/// Validates that the expected result matches the actual.
+///
+/// ## Panics
+/// If results don't match.
+pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_credit_cap: u32) {
+    let mut expected = expected.into_iter().fuse();
+    let mut actual = actual.into_iter().fuse();
+    let mut mismatch = Vec::new();
+
+    let mut table = Table::new();
+    table.set_header(vec!["Row", "Expected", "Actual", "Diff?"]);
+
+    let mut i = 0;
+    loop {
+        let next_expected = expected.next();
+        let next_actual = actual.next();
+
+        if next_expected.is_none() && next_actual.is_none() {
+            break;
+        }
+        let next_expected_f64: f64 = next_expected.unwrap().into();
+        let actual_expect_f64: f64 = next_actual.unwrap().into();
+
+        let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(
+            epsilon,
+            0.5,
+            1e-6,
+            1.0,
+            1.0,
+            per_user_credit_cap.into(),
+            per_user_credit_cap.into(),
+            per_user_credit_cap.into(),
+        );
+        let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
+        let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+
+        let same = actual_expect_f64 - mean > next_expected_f64 - 10.0 * standard_deviation
+            && actual_expect_f64 - mean < next_expected_f64 + 10.0 * standard_deviation;
+
         let color = if same { Color::Green } else { Color::Red };
         table.add_row(vec![
             Cell::new(format!("{i}")).fg(color),

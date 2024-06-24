@@ -12,9 +12,7 @@ use std::{
 
 use command_fds::CommandFdExt;
 use ipa_core::{
-    cli::IpaQueryResult,
-    helpers::query::{DpParams, IpaQueryConfig},
-    test_fixture::ipa::IpaSecurityModel,
+    cli::IpaQueryResult, helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel,
 };
 use rand::thread_rng;
 use rand_core::RngCore;

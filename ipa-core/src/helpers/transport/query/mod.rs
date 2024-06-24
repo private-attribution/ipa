@@ -285,8 +285,7 @@ impl<'de> Deserialize<'de> for DpParams {
             .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
     }
 }
-use clap::ValueEnum;
-use clap::builder::PossibleValue;
+// use clap::{builder::PossibleValue, ValueEnum};
 //
 // impl ValueEnum for DpParams {
 //     fn value_variants<'a>() -> &'a [Self] {
@@ -310,7 +309,6 @@ use clap::builder::PossibleValue;
 //         }
 //     }
 // }
-
 
 // Attempt 2
 // impl ValueEnum for DpParams {
@@ -369,21 +367,6 @@ use clap::builder::PossibleValue;
 //         // }
 // }
 
-impl clap::ValueEnum for DpParams {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[DpParams::NoDp, DpParams::WithDp{epsilon : 0.0}]
-    }
-    fn to_possible_value<'a>(&self) -> ::std::option::Option<clap::builder::PossibleValue> {
-        match self {
-            Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
-            Self::WithDp{epsilon} => Some(clap::builder::PossibleValue::new(format!("WithDp({})", epsilon).as_str())),
-        }
-    }
-}
-
-
-
-
 // impl clap::ValueEnum for DpParams {
 //     fn value_variants<'a>() -> &'a [Self] {
 //         static VARIANTS: [DpParams; 2] = [DpParams::NoDp, DpParams::WithDp { epsilon: 0.0 }];
@@ -393,6 +376,19 @@ impl clap::ValueEnum for DpParams {
 //         match self {
 //             Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
 //             Self::WithDp { .. } => Some(clap::builder::PossibleValue::new("WithDp")),
+//         }
+//     }
+// }
+
+// Latest Attempt
+// impl clap::ValueEnum for DpParams {
+//     fn value_variants<'a>() -> &'a [Self] {
+//         &[DpParams::NoDp, DpParams::WithDp{epsilon : 0.0}]
+//     }
+//     fn to_possible_value<'a>(&self) -> ::std::option::Option<clap::builder::PossibleValue> {
+//         match self {
+//             Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
+//             Self::WithDp{epsilon} => Some(clap::builder::PossibleValue::new(format!("WithDp({})", epsilon).as_str())),
 //         }
 //     }
 // }
