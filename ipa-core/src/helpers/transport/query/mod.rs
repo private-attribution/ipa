@@ -281,36 +281,121 @@ impl Serialize for DpParams {
 impl<'de> Deserialize<'de> for DpParams {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s: &str = Deserialize::deserialize(deserializer)?;
-        Self::from_str(s)
+        <DpParams as FromStr>::from_str(s)
             .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
     }
 }
 use clap::ValueEnum;
 use clap::builder::PossibleValue;
+//
+// impl ValueEnum for DpParams {
+//     fn value_variants<'a>() -> &'a [Self] {
+//         &[
+//             DpParams::NoDp,
+//             DpParams::WithDp { epsilon: 0.0 },
+//         ]
+//     }
+//     fn from_str(input: &str, ignore_case: bool) -> Result<Self, String>
+//     {
+//         match input {
+//             "NoDp" => Ok(DpParams::NoDp),
+//             "WithDp" => Ok(DpParams::WithDp { epsilon: 3.0 }),
+//             _ => Err(format!("invalid variant: {}", input)),
+//         }
+//     }
+//     fn to_possible_value(&self) -> Option<PossibleValue> {
+//         match self {
+//             DpParams::NoDp => Some(PossibleValue::new("NoDp")),
+//             DpParams::WithDp { .. } => Some(PossibleValue::new("WithDp")),
+//         }
+//     }
+// }
 
-impl ValueEnum for DpParams {
+
+// Attempt 2
+// impl ValueEnum for DpParams {
+//         fn value_variants<'a>() -> &'a [Self] {
+//             &[
+//                 DpParams::NoDp,
+//                 DpParams::WithDp { epsilon: 0.0 },
+//             ]
+//         }
+//
+//
+//     fn from_str(s: &str, ignore_case: bool) -> Result<Self, String> {
+//         match s {
+//             "NoDp" => Ok(DpParams::NoDp),
+//             s if s.starts_with("WithDp{") && s.ends_with(")") => {
+//                 let epsilon = s.trim_start_matches("WithDp{").trim_end_matches("}").parse()?;
+//                 Ok(DpParams::WithDp { epsilon })
+//             }
+//             _ => Err(format!("invalid variant: {s}")),
+//         }
+//     }
+//
+//
+//     fn to_possible_value(&self) -> Option<PossibleValue> {
+//         match self {
+//             DpParams::NoDp => Some(PossibleValue::new("NoDp")),
+//             DpParams::WithDp { epsilon } => Some(PossibleValue::new(format!("WithDp({})", epsilon))),
+//         }
+//     }
+// }
+
+// Attempt 3
+// impl clap::ValueEnum for DpParams {
+//     fn value_variants<'a>() -> &'a [Self] {
+//         &[DpParams::NoDp, DpParams::WithDp{epsilon : 0.0}]
+//     }
+//     fn to_possible_value<'a>(&self) -> ::std::option::Option<clap::builder::PossibleValue> {
+//         match self {
+//             Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
+//             Self::WithDp { epsilon } => {
+//                 let formatted_string = format!("WithDp");
+//                 Some(clap::builder::PossibleValue::new(formatted_string))
+//             }
+//         }
+//     }
+//
+//         // fn from_str(s: &str, ignore_case: bool) -> Result<Self, String> {
+//         //     match s {
+//         //         "NoDp" => Ok(DpParams::NoDp),
+//         //         s if s.starts_with("WithDp{") && s.ends_with(")") => {
+//         //             let epsilon = s.trim_start_matches("WithDp{").trim_end_matches("}").parse()?;
+//         //             Ok(DpParams::WithDp { epsilon })
+//         //         }
+//         //         _ => Err(format!("invalid variant: {s}")),
+//         //     }
+//         // }
+// }
+
+impl clap::ValueEnum for DpParams {
     fn value_variants<'a>() -> &'a [Self] {
-        &[
-            DpParams::NoDp,
-            DpParams::WithDp { epsilon: 0.0 },
-        ]
+        &[DpParams::NoDp, DpParams::WithDp{epsilon : 0.0}]
     }
-    fn from_str(input: &str, ignore_case: bool) -> Result<Self, String>
-    {
-        match input {
-            "NoDp" => Ok(DpParams::NoDp),
-            "WithDp" => Ok(DpParams::WithDp { epsilon: 0.0 }),
-            _ => Err(format!("invalid variant: {}", input)),
-        }
-    }
-    fn to_possible_value(&self) -> Option<PossibleValue> {
+    fn to_possible_value<'a>(&self) -> ::std::option::Option<clap::builder::PossibleValue> {
         match self {
-            DpParams::NoDp => Some(PossibleValue::new("NoDp")),
-            DpParams::WithDp { .. } => Some(PossibleValue::new("WithDp")),
+            Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
+            Self::WithDp{epsilon} => Some(clap::builder::PossibleValue::new(format!("WithDp({})", epsilon).as_str())),
         }
     }
 }
 
+
+
+
+// impl clap::ValueEnum for DpParams {
+//     fn value_variants<'a>() -> &'a [Self] {
+//         static VARIANTS: [DpParams; 2] = [DpParams::NoDp, DpParams::WithDp { epsilon: 0.0 }];
+//         &VARIANTS
+//     }
+//     fn to_possible_value<'a>(&self) -> Option<clap::builder::PossibleValue> {
+//         match self {
+//             Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
+//             Self::WithDp { .. } => Some(clap::builder::PossibleValue::new("WithDp")),
+//         }
+//     }
+// }
 
 #[cfg(test)]
 impl Eq for DpParams {}
