@@ -98,19 +98,6 @@ pub struct KeyRegistry<K> {
     keys: Box<[K]>,
 }
 
-impl KeyRegistry<PrivateKeyOnly> {
-    // #[cfg(any(test, feature = "test-fixture"))]
-    pub fn random<R: rand::RngCore + rand::CryptoRng>(keys_count: usize, r: &mut R) -> Self {
-        let keys = (0..keys_count)
-            .map(|_| PrivateKeyOnly(KeyPair::gen(r).sk))
-            .collect::<Vec<_>>();
-
-        Self {
-            keys: keys.into_boxed_slice(),
-        }
-    }
-}
-
 impl<K> KeyRegistry<K> {
     /// Create a key registry with no keys. Since the registry is immutable, it is useless,
     /// but this avoids `Option<KeyRegistry>` when the registry is ultimately not optional.
