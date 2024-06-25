@@ -68,7 +68,8 @@ pub use transport::{
     make_owned_handler, query, routing, ApiError, BodyStream, BytesStream, HandlerBox, HandlerRef,
     HelperResponse, Identity as TransportIdentity, LengthDelimitedStream, LogErrors, NoQueryId,
     NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RecordsStream, RequestHandler,
-    RouteParams, StepBinding, StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
+    RouteParams, SingleRecordStream, StepBinding, StreamCollection, StreamKey, Transport,
+    WrappedBoxBodyStream,
 };
 #[cfg(feature = "in-memory-infra")]
 pub use transport::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};

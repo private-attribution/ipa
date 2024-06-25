@@ -1,3 +1,5 @@
+mod add;
+mod generator;
 mod input;
 mod ipa;
 mod multiply;
@@ -5,6 +7,7 @@ mod multiply;
 use core::fmt::Debug;
 use std::{fs, path::Path, time::Duration};
 
+pub use add::secure_add;
 use comfy_table::{Cell, Color, Table};
 use hyper::http::uri::Scheme;
 pub use input::InputSource;
