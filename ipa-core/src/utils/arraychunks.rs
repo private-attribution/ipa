@@ -2,6 +2,9 @@ use crate::{ff::Fp61BitPrime, secret_sharing::SharedValue};
 
 #[allow(dead_code)]
 pub trait ArrayChunkIterator: Iterator {
+    /// This function returns an iterator that yields arrays of size `L`.
+    /// When the amount of items in the iterator is not a multiple of `L`
+    /// the iterator fills the last array with zero elements.
     fn chunk_array<const L: usize>(self) -> ArrayChunk<Self, L>
     where
         Self: Sized,
