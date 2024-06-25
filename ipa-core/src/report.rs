@@ -530,7 +530,7 @@ mod test {
     use super::*;
     use crate::{
         ff::boolean_array::{BA20, BA3, BA8},
-        hpke::{Deserializable, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, PrivateKeyOnly},
+        hpke::{Deserializable, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry},
         report,
         report::EventType::{Source, Trigger},
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -589,7 +589,7 @@ mod test {
 
         let enc_key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
         let enc_key_id = 0;
-        let dec_key_registry = KeyRegistry::<PrivateKeyOnly>::random(1, &mut rng);
+        let dec_key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
 
         let enc_report_bytes = report
             .encrypt(enc_key_id, &enc_key_registry, &mut rng)
