@@ -1,4 +1,4 @@
-use crate::{ff::Fp61BitPrime, secret_sharing::SharedValue};
+use crate::ff::PrimeField;
 
 #[allow(dead_code)]
 pub trait ArrayChunkIterator: Iterator {
@@ -17,17 +17,17 @@ pub struct ArrayChunk<I, const L: usize> {
     iter: I,
 }
 
-impl<I: Iterator<Item = Fp61BitPrime>> ArrayChunkIterator for I {}
+impl<F:PrimeField, I: Iterator<Item = F>> ArrayChunkIterator for I {}
 
 #[allow(clippy::while_let_on_iterator)]
-impl<I, const L: usize> Iterator for ArrayChunk<I, L>
+impl<F: PrimeField, I, const L: usize> Iterator for ArrayChunk<I, L>
 where
-    I: Iterator<Item = Fp61BitPrime>,
+    I: Iterator<Item = F>,
 {
     type Item = [I::Item; L];
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut array = [Fp61BitPrime::ZERO; L];
+        let mut array = [F::ZERO; L];
         let mut counter = 0usize;
         while let Some(element) = self.iter.next() {
             array[counter] = element;

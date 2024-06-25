@@ -2,7 +2,6 @@ use std::iter::{once, repeat};
 
 use futures_util::{
     future::{try_join, try_join4},
-    stream,
 };
 
 use crate::{
@@ -235,18 +234,16 @@ impl BatchToVerify {
 
         // compute p_r
         let p_r_right_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
-            stream::iter(u_from_right_prover),
+            u_from_right_prover.into_iter(),
             challenges_for_right_prover,
             self.p_mask_from_right_prover,
-        )
-        .await;
+        );
         // compute q_r
         let q_r_left_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
-            stream::iter(v_from_left_prover),
+            v_from_left_prover.into_iter(),
             challenges_for_left_prover,
             self.q_mask_from_left_prover,
-        )
-        .await;
+        );
 
         // send to the left
         let communication_ctx = ctx.set_total_records(1);
