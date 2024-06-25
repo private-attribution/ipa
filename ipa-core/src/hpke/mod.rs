@@ -96,7 +96,7 @@ impl From<io::Error> for CryptError {
 /// If ciphertext cannot be opened for any reason.
 ///
 /// [`HPKE decryption`]: https://datatracker.ietf.org/doc/html/rfc9180#name-encryption-and-decryption
-pub fn open_in_place<'a, R: PrivateKeyRegistry + ?Sized>(
+pub fn open_in_place<'a, R: PrivateKeyRegistry>(
     key_registry: &R,
     enc: &[u8],
     ciphertext: &'a mut [u8],
