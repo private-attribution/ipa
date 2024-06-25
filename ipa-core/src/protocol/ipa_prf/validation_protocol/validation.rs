@@ -216,17 +216,16 @@ impl BatchToVerify {
         )
     }
 
-    /// This function computes and outputs the final `p_r_right_prover * q_r_right_prover` value.
-    async fn p_and_q_r_check<C, U, V>(
+    /// This function computes and outputs `p_r_right_prover`, `q_r_left_prover`.
+    // todo: change from async fn to fn once stream is replaced
+    pub async fn compute_p_and_q_r<U, V>(
         &self,
-        ctx: &C,
         challenges_for_left_prover: &[Fp61BitPrime],
         challenges_for_right_prover: &[Fp61BitPrime],
         u_from_right_prover: U, // Prover P_i and verifier P_{i-1} both compute `u` and `p(x)`
         v_from_left_prover: V,  // Prover P_i and verifier P_{i+1} both compute `v` and `q(x)`
-    ) -> Result<Fp61BitPrime, Error>
+    ) -> (Fp61BitPrime, Fp61BitPrime)
     where
-        C: Context,
         U: Iterator<Item = Fp61BitPrime> + Send,
         V: Iterator<Item = Fp61BitPrime> + Send,
     {
@@ -248,6 +247,18 @@ impl BatchToVerify {
         )
         .await;
 
+        (p_r_right_prover, q_r_left_prover)
+    }
+
+    /// This function computes and outputs the final `p_r_right_prover * q_r_right_prover` value.
+    async fn compute_p_times_q<C>(
+        ctx: &C,
+        p_r_right_prover: Fp61BitPrime,
+        q_r_left_prover: Fp61BitPrime,
+    ) -> Result<Fp61BitPrime, Error>
+    where
+        C: Context,
+    {
         // send to the left
         let communication_ctx = ctx.set_total_records(1);
 
@@ -266,17 +277,17 @@ impl BatchToVerify {
     }
 
     /// This function verifies a `BatchToVerify`.
-    pub async fn verify<C, U, V>(
+    pub async fn verify<C>(
         &self,
         ctx: &C,
         sum_of_uv_right: Fp61BitPrime,
-        u_from_right_prover: U,
-        v_from_left_prover: V,
+        p_r_right_prover: Fp61BitPrime,
+        q_r_left_prover: Fp61BitPrime,
+        challenges_for_left_prover: &[Fp61BitPrime],
+        challenges_for_right_prover: &[Fp61BitPrime],
     ) -> Result<(), Error>
     where
         C: Context,
-        U: Iterator<Item = Fp61BitPrime> + Send,
-        V: Iterator<Item = Fp61BitPrime> + Send,
     {
         const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
@@ -284,16 +295,10 @@ impl BatchToVerify {
         const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
         const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
 
-        let (challenges_for_left_prover, challenges_for_right_prover) =
-            Self::generate_challenges(self, &ctx.narrow(&Step::Challenge)).await;
-
-        let p_times_q_right = Self::p_and_q_r_check(
-            self,
+        let p_times_q_right = Self::compute_p_times_q(
             &ctx.narrow(&Step::PTimesQ),
-            &challenges_for_left_prover,
-            &challenges_for_right_prover,
-            u_from_right_prover,
-            v_from_left_prover,
+            p_r_right_prover,
+            q_r_left_prover,
         )
         .await?;
 
@@ -301,7 +306,7 @@ impl BatchToVerify {
         let diff_left = compute_g_differences::<_, SPL, SRF, LPL, LRF>(
             &self.first_proof_from_left_prover,
             &self.proofs_from_left_prover,
-            &challenges_for_left_prover,
+            challenges_for_left_prover,
             Fp61BitPrime::ZERO,
             Fp61BitPrime::ZERO,
         );
@@ -309,7 +314,7 @@ impl BatchToVerify {
         let diff_right = compute_g_differences::<_, SPL, SRF, LPL, LRF>(
             &self.first_proof_from_right_prover,
             &self.proofs_from_right_prover,
-            &challenges_for_right_prover,
+            challenges_for_right_prover,
             sum_of_uv_right,
             p_times_q_right,
         );
@@ -788,16 +793,16 @@ pub mod test {
                             batch_to_verify.proofs_from_right_prover.len() + 1
                         );
 
-                        let p_times_q = batch_to_verify
-                            .p_and_q_r_check(
-                                &ctx,
+                        let (p, q) = batch_to_verify
+                            .compute_p_and_q_r(
                                 &challenges_for_left_prover,
                                 &challenges_for_right_prover,
                                 vec_u_from_right_prover.into_iter(),
                                 vec_v_from_left_prover.into_iter(),
                             )
-                            .await
-                            .unwrap();
+                            .await;
+
+                        let p_times_q = BatchToVerify::compute_p_times_q(&ctx, p, q).await.unwrap();
 
                         let denominator = CanonicalLagrangeDenominator::<
                             Fp61BitPrime,
@@ -878,12 +883,28 @@ pub mod test {
                     .await
                     .unwrap();
 
+                    // generate challenges
+                    let (challenges_for_left_prover, challenges_for_right_prover) = batch_to_verify
+                        .generate_challenges(&ctx.narrow("generate_hash"))
+                        .await;
+
+                    let (p, q) = batch_to_verify
+                        .compute_p_and_q_r(
+                            &challenges_for_left_prover,
+                            &challenges_for_right_prover,
+                            vec_u_from_right_prover.into_iter(),
+                            vec_v_from_left_prover.into_iter(),
+                        )
+                        .await;
+
                     batch_to_verify
                         .verify(
                             &v_ctx,
                             sum_of_uv_right,
-                            vec_u_from_right_prover.into_iter(),
-                            vec_v_from_left_prover.into_iter(),
+                            p,
+                            q,
+                            &challenges_for_left_prover,
+                            &challenges_for_right_prover,
                         )
                         .await
                         .unwrap();
