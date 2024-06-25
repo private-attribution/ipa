@@ -39,7 +39,7 @@ struct Inner {
 impl Setup {
     #[must_use]
     pub fn new() -> (Self, HandlerRef) {
-        Self::with_key_registry(KeyRegistry::empty())
+        Self::with_key_registry(KeyRegistry::<PrivateKeyOnly>::empty())
     }
 
     #[must_use]

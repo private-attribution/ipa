@@ -29,14 +29,14 @@ use crate::{
     sync::Arc,
 };
 
-pub struct OprfIpaQuery<'a, HV> {
+pub struct OprfIpaQuery<'a, HV, R: PrivateKeyRegistry> {
     config: IpaQueryConfig,
-    key_registry: Arc<dyn PrivateKeyRegistry>,
+    key_registry: Arc<R>,
     phantom_data: PhantomData<&'a HV>,
 }
 
-impl<'a, HV> OprfIpaQuery<'a, HV> {
-    pub fn new(config: IpaQueryConfig, key_registry: Arc<dyn PrivateKeyRegistry>) -> Self {
+impl<'a, HV, R: PrivateKeyRegistry> OprfIpaQuery<'a, HV, R> {
+    pub fn new(config: IpaQueryConfig, key_registry: Arc<R>) -> Self {
         Self {
             config,
             key_registry,
@@ -46,9 +46,10 @@ impl<'a, HV> OprfIpaQuery<'a, HV> {
 }
 
 #[allow(clippy::too_many_lines)]
-impl<'ctx, HV> OprfIpaQuery<'ctx, HV>
+impl<'ctx, HV, R> OprfIpaQuery<'ctx, HV, R>
 where
     HV: BooleanArray + U128Conversions,
+    R: PrivateKeyRegistry,
     Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'ctx>, Boolean>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
@@ -142,7 +143,7 @@ mod tests {
             query::{IpaQueryConfig, QuerySize},
             BodyStream,
         },
-        hpke::{KeyPair, KeyRegistry, PrivateKeyOnly},
+        hpke::{KeyPair, KeyRegistry},
         query::runner::OprfIpaQuery,
         report::{OprfReport, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
@@ -228,8 +229,7 @@ mod tests {
             };
             let input = BodyStream::from(buffer);
 
-            let private_key_registry = KeyRegistry::<PrivateKeyOnly>::from(key_registry.as_ref());
-            OprfIpaQuery::<BA16>::new(query_config, Arc::new(private_key_registry))
+            OprfIpaQuery::<BA16, KeyRegistry<KeyPair>>::new(query_config, Arc::clone(&key_registry))
                 .execute(ctx, query_size, input)
         }))
         .await;

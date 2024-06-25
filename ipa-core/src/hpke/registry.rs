@@ -72,19 +72,6 @@ impl Deref for PrivateKeyOnly {
     }
 }
 
-impl From<&KeyRegistry<KeyPair>> for KeyRegistry<PrivateKeyOnly> {
-    fn from(key_registry: &KeyRegistry<KeyPair>) -> Self {
-        let keys = key_registry
-            .keys
-            .iter()
-            .map(|k| PrivateKeyOnly(k.sk.clone()))
-            .collect::<Vec<_>>();
-        Self {
-            keys: keys.into_boxed_slice(),
-        }
-    }
-}
-
 pub trait PublicKeyRegistry {
     fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey>;
 }

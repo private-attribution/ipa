@@ -308,7 +308,7 @@ where
     /// ## Panics
     /// Should not panic. Only panics if a `Report` constructor failed to validate the
     /// contents properly, which would be a bug.
-    pub fn decrypt<P: PrivateKeyRegistry + Send + 'static + ?Sized>(
+    pub fn decrypt<P: PrivateKeyRegistry>(
         &self,
         key_registry: &P,
     ) -> Result<OprfReport<BK, TV, TS>, InvalidReportError> {
