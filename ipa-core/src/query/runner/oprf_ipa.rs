@@ -14,6 +14,7 @@ use crate::{
         query::{IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
+    hpke::PrivateKeyRegistry,
     protocol::{
         basics::ShareKnownValue,
         context::{Context, SemiHonestContext},
@@ -27,7 +28,6 @@ use crate::{
     },
     sync::Arc,
 };
-use crate::hpke::PrivateKeyRegistry;
 
 pub struct OprfIpaQuery<'a, HV> {
     config: IpaQueryConfig,
@@ -227,6 +227,7 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
+
             let private_key_registry = KeyRegistry::<PrivateKeyOnly>::from(key_registry.as_ref());
             OprfIpaQuery::<BA16>::new(query_config, Arc::new(private_key_registry))
                 .execute(ctx, query_size, input)
