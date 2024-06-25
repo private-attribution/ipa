@@ -11,7 +11,7 @@ use ipa_core::{
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions},
     helpers::query::{
         QueryConfig,
-        QueryType::{TestAdd, TestMultiply},
+        QueryType::{TestAddInPrimeField, TestMultiply},
     },
     net::MpcHelperClient,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
@@ -144,7 +144,8 @@ where
         expected += v;
         v
     });
-    let query_config = QueryConfig::new(TestAdd, args.input.field, input_rows.len()).unwrap();
+    let query_config =
+        QueryConfig::new(TestAddInPrimeField, args.input.field, input_rows.len()).unwrap();
 
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let actual = secure_add(input_rows, helper_clients, query_id).await;

@@ -15,8 +15,8 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
-#[tracing::instrument("test-add", skip_all)]
-pub async fn add<'a, F>(
+#[tracing::instrument("add_in_prime_field", skip_all)]
+pub async fn execute<'a, F>(
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     input: BodyStream,
@@ -25,11 +25,11 @@ where
     F: PrimeField,
     Replicated<F>: Serializable,
 {
-    let ctx = SemiHonestContext::new(prss, gateway).narrow(&ProtocolStep::Add);
-    Ok(Box::new(add_internal::<F>(ctx, input).await?))
+    let ctx = SemiHonestContext::new(prss, gateway).narrow(&ProtocolStep::PrimeFieldAddition);
+    Ok(Box::new(execute_internal::<F>(ctx, input).await?))
 }
 
-async fn add_internal<F>(
+async fn execute_internal<F>(
     _ctx: SemiHonestContext<'_>,
     input_stream: BodyStream,
 ) -> Result<Vec<Replicated<F>>, Error>
@@ -90,7 +90,7 @@ mod tests {
             helper_shares
                 .into_iter()
                 .zip(contexts)
-                .map(|(shares, context)| add_internal::<Fp31>(context, shares)),
+                .map(|(shares, context)| execute_internal::<Fp31>(context, shares)),
         )
         .await;
 

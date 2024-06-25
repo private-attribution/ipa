@@ -27,7 +27,7 @@ fn https_network_multiply() {
 #[test]
 #[cfg(all(test, web_test))]
 fn http_network_add() {
-    test_network(false, QueryType::TestAdd);
+    test_network(false, QueryType::TestAddInPrimeField);
 }
 
 #[test]

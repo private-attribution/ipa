@@ -211,7 +211,7 @@ pub fn test_network(https: bool, protocol: QueryType) {
 
     match protocol {
         QueryType::TestMultiply => test_multiply(path, https),
-        QueryType::TestAdd => test_add(path, https),
+        QueryType::TestAddInPrimeField => test_add(path, https),
         QueryType::OprfIpa(_) => {
             panic!("Only test protocols are supported.")
         }

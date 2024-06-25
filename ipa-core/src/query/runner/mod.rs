@@ -1,11 +1,11 @@
-mod oprf_ipa;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-mod test_add;
+mod add_in_prime_field;
+mod oprf_ipa;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 mod test_multiply;
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-pub(super) use test_add::add as test_add;
+pub(super) use add_in_prime_field::execute as test_add_in_prime_field;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 pub(super) use test_multiply::execute_test_multiply;
 

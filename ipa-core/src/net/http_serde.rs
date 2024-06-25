@@ -121,7 +121,7 @@ pub mod query {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-                QueryType::TEST_ADD_STR => Ok(QueryType::TestAdd),
+                QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
                 QueryType::OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::OprfIpa(q))
@@ -147,7 +147,7 @@ pub mod query {
             )?;
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-                QueryType::TestMultiply | QueryType::TestAdd => Ok(()),
+                QueryType::TestMultiply | QueryType::TestAddInPrimeField => Ok(()),
                 QueryType::OprfIpa(config) => {
                     write!(
                         f,

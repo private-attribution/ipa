@@ -203,7 +203,7 @@ pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-    TestAdd,
+    TestAddInPrimeField,
     OprfIpa(IpaQueryConfig),
 }
 
@@ -221,7 +221,7 @@ impl AsRef<str> for QueryType {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-            QueryType::TestAdd => Self::TEST_ADD_STR,
+            QueryType::TestAddInPrimeField => Self::TEST_ADD_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
         }
     }

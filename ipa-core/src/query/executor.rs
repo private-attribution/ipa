@@ -20,7 +20,9 @@ use shuttle::future as tokio;
 use typenum::Unsigned;
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-use crate::{ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add};
+use crate::{
+    ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add_in_prime_field,
+};
 use crate::{
     ff::{boolean_array::BA16, FieldType, Serializable},
     helpers::{
@@ -82,15 +84,19 @@ pub fn execute(
             })
         }
         #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::TestAdd, FieldType::Fp31) => {
+        (QueryType::TestAddInPrimeField, FieldType::Fp31) => {
             do_query(config, gateway, input, |prss, gateway, _config, input| {
-                Box::pin(test_add::<crate::ff::Fp31>(prss, gateway, input))
+                Box::pin(test_add_in_prime_field::<crate::ff::Fp31>(
+                    prss, gateway, input,
+                ))
             })
         }
         #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-        (QueryType::TestAdd, FieldType::Fp32BitPrime) => {
+        (QueryType::TestAddInPrimeField, FieldType::Fp32BitPrime) => {
             do_query(config, gateway, input, |prss, gateway, _config, input| {
-                Box::pin(test_add::<Fp32BitPrime>(prss, gateway, input))
+                Box::pin(test_add_in_prime_field::<Fp32BitPrime>(
+                    prss, gateway, input,
+                ))
             })
         }
         // TODO(953): This is really using BA32, not Fp32bitPrime. The `FieldType` mechanism needs
