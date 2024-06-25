@@ -1,8 +1,6 @@
 use std::iter::{once, repeat};
 
-use futures_util::{
-    future::{try_join, try_join4},
-};
+use futures_util::future::{try_join, try_join4};
 
 use crate::{
     error::Error,

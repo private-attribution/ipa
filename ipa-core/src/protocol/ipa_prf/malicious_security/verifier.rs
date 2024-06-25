@@ -1,14 +1,12 @@
-use std::{
-    iter::{self},
-};
+use std::iter::{self};
 
 use crate::{
     ff::PrimeField,
     protocol::ipa_prf::malicious_security::lagrange::{
         CanonicalLagrangeDenominator, LagrangeTable,
     },
+    utils::arraychunks::ArrayChunkIterator,
 };
-use crate::utils::arraychunks::ArrayChunkIterator;
 
 /// This function computes the shares that sum to zero from the zero-knowledge proofs.
 ///
@@ -107,18 +105,12 @@ fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
 where
     J: Iterator<Item = F> + 'a,
 {
-    u_or_v_iterator.chunk_array::<λ>()
-        .map(|x| {
-        lagrange_table.eval(&x)[0]
-    })
+    u_or_v_iterator
+        .chunk_array::<λ>()
+        .map(|x| lagrange_table.eval(&x)[0])
 }
 
-pub fn recursively_compute_final_check<
-    F: PrimeField,
-    J,
-    const λ_FIRST: usize,
-    const λ: usize,
->(
+pub fn recursively_compute_final_check<F: PrimeField, J, const λ_FIRST: usize, const λ: usize>(
     u_or_v_iterator: J,
     challenges: &[F],
     p_or_q_0: F,
@@ -140,9 +132,10 @@ where
 
     // generate & evaluate recursive streams
     // to compute last array
-    let mut iterator: Box<dyn Iterator<Item = F>> = Box::new(
-        recurse_u_or_v::<_, _, λ_FIRST>(u_or_v_iterator, &table_first),
-    );
+    let mut iterator: Box<dyn Iterator<Item = F>> = Box::new(recurse_u_or_v::<_, _, λ_FIRST>(
+        u_or_v_iterator,
+        &table_first,
+    ));
     // all following recursion except last one
     for lagrange_table in tables.iter().take(recursions_after_first - 1) {
         iterator = Box::new(recurse_u_or_v::<_, _, λ>(iterator, lagrange_table));
@@ -303,8 +296,8 @@ mod test {
             .collect::<Vec<Fp31>>();
         assert_eq!(u_or_v_2, to_field(&U_2));
 
-        let u_or_v_3 = recurse_u_or_v::<_, _, 4>(u_or_v_2.into_iter(), &tables[1])
-            .collect::<Vec<_>>();
+        let u_or_v_3 =
+            recurse_u_or_v::<_, _, 4>(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
 
         assert_eq!(u_or_v_3, to_field(&U_3[..2]));
 
@@ -315,8 +308,8 @@ mod test {
             u_or_v_3[0], // move first element to the end
         ];
 
-        let p_final = recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2])
-            .collect::<Vec<_>>();
+        let p_final =
+            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_P_FINAL);
 
@@ -387,12 +380,10 @@ mod test {
         // uv values in input format
         let v_1 = to_field(&V_1);
 
-        let u_or_v_2 = recurse_u_or_v(v_1.into_iter(), &tables[0])
-            .collect::<Vec<_>>();
+        let u_or_v_2 = recurse_u_or_v(v_1.into_iter(), &tables[0]).collect::<Vec<_>>();
         assert_eq!(u_or_v_2, to_field(&V_2));
 
-        let u_or_v_3 = recurse_u_or_v(u_or_v_2.into_iter().into_iter(), &tables[1])
-            .collect::<Vec<_>>();
+        let u_or_v_3 = recurse_u_or_v(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
 
         assert_eq!(u_or_v_3, to_field(&V_3[..2]));
 
@@ -404,8 +395,8 @@ mod test {
         ];
 
         // final iteration
-        let p_final = recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2])
-            .collect::<Vec<_>>();
+        let p_final =
+            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_Q_FINAL);
 
