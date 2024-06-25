@@ -308,9 +308,9 @@ where
     /// ## Panics
     /// Should not panic. Only panics if a `Report` constructor failed to validate the
     /// contents properly, which would be a bug.
-    pub fn decrypt(
+    pub fn decrypt<P: PrivateKeyRegistry + Send + 'static + ?Sized>(
         &self,
-        key_registry: &impl PrivateKeyRegistry,
+        key_registry: &P,
     ) -> Result<OprfReport<BK, TV, TS>, InvalidReportError> {
         type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
         type CTBTTLength<BK, TV, TS> = Sum<

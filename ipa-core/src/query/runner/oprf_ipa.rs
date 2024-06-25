@@ -14,7 +14,6 @@ use crate::{
         query::{IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
-    hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::{
         basics::ShareKnownValue,
         context::{Context, SemiHonestContext},
@@ -28,15 +27,16 @@ use crate::{
     },
     sync::Arc,
 };
+use crate::hpke::PrivateKeyRegistry;
 
 pub struct OprfIpaQuery<'a, HV> {
     config: IpaQueryConfig,
-    key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
+    key_registry: Arc<dyn PrivateKeyRegistry>,
     phantom_data: PhantomData<&'a HV>,
 }
 
 impl<'a, HV> OprfIpaQuery<'a, HV> {
-    pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<PrivateKeyOnly>>) -> Self {
+    pub fn new(config: IpaQueryConfig, key_registry: Arc<dyn PrivateKeyRegistry>) -> Self {
         Self {
             config,
             key_registry,

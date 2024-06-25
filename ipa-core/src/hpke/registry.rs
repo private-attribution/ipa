@@ -89,7 +89,7 @@ pub trait PublicKeyRegistry {
     fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey>;
 }
 
-pub trait PrivateKeyRegistry {
+pub trait PrivateKeyRegistry: Send + Sync + 'static {
     fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey>;
 }
 
