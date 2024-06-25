@@ -8,7 +8,10 @@ use clap::Parser;
 use ipa_core::{
     error::Error,
     ff::Fp32BitPrime,
-    helpers::{query::IpaQueryConfig, GatewayConfig},
+    helpers::{
+        query::{DpParams, IpaQueryConfig},
+        GatewayConfig,
+    },
     protocol::{step::ProtocolStep::IpaPrf, Gate},
     test_fixture::{
         ipa::{ipa_in_the_clear, test_oprf_ipa, CappingOrder, IpaSecurityModel},
@@ -64,6 +67,14 @@ struct Args {
     /// dp_params enum
     // #[arg(short = 'd', long, value_enum, default_value_t=DpParams::WithDp{epsilon : 3.0})]
     // dp_params: DpParams,
+    // #[arg(short = 'd', long,default_value ="true")]
+    // with_dp : bool,
+
+    #[arg(short = 'd', long, default_value = "1")]
+    with_dp: u32,
+    #[arg(short = 'e', long, default_value = "1.0")]
+    epsilon: f64,
+
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,
@@ -90,14 +101,30 @@ impl Args {
     }
 
     fn config(&self) -> IpaQueryConfig {
-        IpaQueryConfig {
-            per_user_credit_cap: self.per_user_cap,
-            max_breakdown_key: self.breakdown_keys,
-            attribution_window_seconds: self.attribution_window(),
-            num_multi_bits: self.num_multi_bits,
-            // dp_params: self.dp_params,
-            plaintext_match_keys: true,
-            ..Default::default()
+        match self.with_dp {
+            0 => IpaQueryConfig {
+                per_user_credit_cap: self.per_user_cap,
+                max_breakdown_key: self.breakdown_keys,
+                attribution_window_seconds: self.attribution_window(),
+                num_multi_bits: self.num_multi_bits,
+                dp_params: DpParams::NoDp,
+                plaintext_match_keys: true,
+                ..Default::default()
+            },
+            _ => {
+                // TODO handle case epsilon not given to default to having an epsilon
+                // or returning an error
+                let epsilon = self.epsilon;
+                IpaQueryConfig {
+                    per_user_credit_cap: self.per_user_cap,
+                    max_breakdown_key: self.breakdown_keys,
+                    attribution_window_seconds: self.attribution_window(),
+                    num_multi_bits: self.num_multi_bits,
+                    dp_params: DpParams::WithDp { epsilon },
+                    plaintext_match_keys: true,
+                    ..Default::default()
+                }
+            }
         }
     }
 }

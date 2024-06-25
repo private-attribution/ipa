@@ -413,7 +413,7 @@ pub struct IpaQueryConfig {
 
     /// If `NoDp` is the value of the `DpParams` enum,
     /// IPA will not add any DP noise to the outputs.
-    #[cfg_attr(feature = "clap", arg(long, default_value = "NoDp"))]
+    // #[cfg_attr(feature = "clap", arg(long, default_value = "NoDp"))]
     pub dp_params: DpParams,
 
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
