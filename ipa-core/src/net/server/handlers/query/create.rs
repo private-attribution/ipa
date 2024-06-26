@@ -95,10 +95,8 @@ mod tests {
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
-                    // dp_params: DpParams::NoDp,
                     with_dp: 0,
                     epsilon: 1.0,
-                    // dp_params: DpParams::WithDp(1.0),
                     plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
@@ -118,7 +116,6 @@ mod tests {
                     max_breakdown_key: 20,
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
-                    // dp_params: DpParams::WithDp { epsilon: 1.1 },
                     with_dp: 1,
                     epsilon: 1.1,
                     plaintext_match_keys: true,
@@ -141,7 +138,6 @@ mod tests {
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
-                // dp_params: DpParams::NoDp,
                 with_dp: 0,
                 epsilon: 1.0,
                 plaintext_match_keys: true,
@@ -216,7 +212,6 @@ mod tests {
         max_breakdown_key: String,
         attribution_window_seconds: Option<String>,
         num_multi_bits: String,
-        // dp_params: DpParams,
         with_dp: String,
         epsilon: String,
     }
@@ -227,12 +222,6 @@ mod tests {
                 "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}&with_dp={}&epsilon={}",
                 val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits, val.with_dp, val.epsilon,
             );
-            // match val.with_dp {
-            //     DpParams::NoDp => query.push_str("&dp_params=NoDp"),
-            //     DpParams::WithDp { epsilon } => {
-            //         query.push_str(&format!("&dp_params=WithDp={epsilon}"));
-            //     }
-            // }
 
             if let Some(window) = val.attribution_window_seconds {
                 query.push_str(&format!("&attribution_window_seconds={window}"));
@@ -254,7 +243,6 @@ mod tests {
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
-                // dp_params: FromStr::from_str("WithDp=1.1").unwrap(),
                 with_dp: "1".into(),
                 epsilon: "3.0".into(),
             }

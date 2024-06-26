@@ -207,7 +207,6 @@ pub async fn test_oprf_ipa<F>(
             epsilon: config.epsilon,
         },
     };
-    // let dp_params = config.dp_params;
     let result: Vec<_> = if config.per_user_credit_cap == 256 {
         // Note that many parameters are different in this case, not just the credit cap.
         // This config is needed for collect_steps coverage.

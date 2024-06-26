@@ -211,7 +211,6 @@ async fn ipa(
     helper_clients: &[MpcHelperClient; 3],
     query_style: IpaQueryStyle,
 ) -> Result<(), Box<dyn Error>> {
-    println!("in report_collector.rs/ipa");
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
     match (security_model, &query_style) {

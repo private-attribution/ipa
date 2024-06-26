@@ -61,17 +61,12 @@ struct Args {
     /// while doing modulus conversion and attribution
     #[arg(long, default_value = "3")]
     num_multi_bits: u32,
-    /// dp_params enum
-    // #[arg(short = 'd', long, value_enum, default_value_t=DpParams::WithDp{epsilon : 3.0})]
-    // dp_params: DpParams,
-    // #[arg(short = 'd', long,default_value ="true")]
-    // with_dp : bool,
-
+    /// DP parameters. Will run with DP by default. Can only be run without DP if `with_dp` == 0.
+    /// in which case the value of `epsilon` is ignored.
     #[arg(short = 'd', long, default_value = "1")]
     with_dp: u32,
     #[arg(short = 'e', long, default_value = "1.0")]
     epsilon: f64,
-
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,
@@ -98,9 +93,6 @@ impl Args {
     }
 
     fn config(&self) -> IpaQueryConfig {
-        print!("I'm in config for the Args struct");
-        // match self.with_dp {
-        //     0 =>
         IpaQueryConfig {
             per_user_credit_cap: self.per_user_cap,
             max_breakdown_key: self.breakdown_keys,
@@ -108,26 +100,10 @@ impl Args {
             num_multi_bits: self.num_multi_bits,
             with_dp: self.with_dp,
             epsilon: self.epsilon,
-            // dp_params: DpParams::NoDp,
             plaintext_match_keys: true,
             ..Default::default()
         }
-        // _ => {
-        //     // TODO handle case epsilon not given to default to having an epsilon
-        //     // or returning an error
-        //     let epsilon = self.epsilon;
-        //     IpaQueryConfig {
-        //         per_user_credit_cap: self.per_user_cap,
-        //         max_breakdown_key: self.breakdown_keys,
-        //         attribution_window_seconds: self.attribution_window(),
-        //         num_multi_bits: self.num_multi_bits,
-        //         dp_params: DpParams::WithDp { epsilon },
-        //         plaintext_match_keys: true,
-        //         ..Default::default()
-        //     }
     }
-    // }
-    // }
 }
 
 async fn run(args: Args) -> Result<(), Error> {
@@ -215,7 +191,6 @@ fn main() -> Result<(), Error> {
             ),
         );
     }
-    println!("****************** in main");
 
     let args = Args::parse();
     let rt = Builder::new_multi_thread()

@@ -223,7 +223,6 @@ pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
         mode,
         https,
         IpaQueryConfig {
-            // dp_params: DpParams::NoDp,
             ..Default::default()
         },
     );
@@ -277,7 +276,6 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
             "--per-user-credit-cap",
             &config.per_user_credit_cap.to_string(),
         ]);
-    // .args(["--dp-params", &config.dp_params.to_string()])
 
     match config.with_dp {
         0 => {
@@ -290,7 +288,6 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         }
     }
     command.stdin(Stdio::piped());
-    println!("***********************");
 
     if config.attribution_window_seconds.is_some() {
         command.args([

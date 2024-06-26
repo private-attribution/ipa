@@ -148,7 +148,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 typenum = { version = "1.17", features = ["i128"] }
 # hpke is pinned to it
 x25519-dalek = "2.0.0-rc.3"
-flamegraph = "0.6.5"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5.0"

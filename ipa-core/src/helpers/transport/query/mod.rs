@@ -235,7 +235,6 @@ impl PartialEq for IpaQueryConfig {
             && self.max_breakdown_key == other.max_breakdown_key
             && self.attribution_window_seconds == other.attribution_window_seconds
             && self.num_multi_bits == other.num_multi_bits
-            // && self.dp_params == other.dp_params
             && self.with_dp == other.with_dp
             && self.epsilon == other.epsilon
             && self.plaintext_match_keys == other.plaintext_match_keys
@@ -243,7 +242,6 @@ impl PartialEq for IpaQueryConfig {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-// #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum DpParams {
     NoDp,
     WithDp { epsilon: f64 },
@@ -311,12 +309,6 @@ pub struct IpaQueryConfig {
     pub attribution_window_seconds: Option<NonZeroU32>,
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
-
-    /// If `NoDp` is the value of the `DpParams` enum,
-    /// IPA will not add any DP noise to the outputs.
-    // #[cfg_attr(feature = "clap", arg(long, default_value = "WithDp"))]
-    // pub dp_params: DpParams,
-
     #[arg(short = 'd', long, default_value = "1")]
     pub with_dp: u32,
     #[arg(short = 'e', long, default_value = "1.0")]
@@ -338,8 +330,6 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
-            // dp_params: DpParams::NoDp, // TODO default with noise
-            // dp_params: DpParams::WithDp { epsilon: 3.0 },
             with_dp: 1,
             epsilon: 3.0,
             plaintext_match_keys: false,
@@ -358,7 +348,6 @@ impl IpaQueryConfig {
         num_multi_bits: u32,
         with_dp: u32,
         epsilon: f64,
-        // dp_params: DpParams,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -386,7 +375,6 @@ impl IpaQueryConfig {
         num_multi_bits: u32,
         with_dp: u32,
         epsilon: f64,
-        // dp_params: DpParams,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -395,7 +383,6 @@ impl IpaQueryConfig {
             num_multi_bits,
             with_dp,
             epsilon,
-            // dp_params,
             plaintext_match_keys: false,
         }
     }

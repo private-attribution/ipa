@@ -118,7 +118,6 @@ where
                 epsilon: config.epsilon,
             },
         };
-        // let dp_params = config.dp_params;
         match config.per_user_credit_cap {
             8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params).await,
             16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params).await,
@@ -231,7 +230,6 @@ mod tests {
                 per_user_credit_cap: 8,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
-                // dp_params: DpParams::NoDp,
                 with_dp: 0,
                 epsilon: 1.0,
                 plaintext_match_keys: false,
