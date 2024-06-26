@@ -20,10 +20,7 @@ pub async fn integer_mul<C, S, const N: usize>(
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
     y: &BitDecomposed<AdditiveShare<Boolean, N>>,
 ) -> Result<
-    (
-        BitDecomposed<AdditiveShare<Boolean, N>>,
-        AdditiveShare<Boolean, N>,
-    ),
+    BitDecomposed<AdditiveShare<Boolean, N>>,
     Error,
 >
 where
