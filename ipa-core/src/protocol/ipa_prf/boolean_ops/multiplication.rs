@@ -31,7 +31,6 @@ where
     S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
-    Gate: StepNarrow<S>,
 {
     //TODO: To be implemented
 }
