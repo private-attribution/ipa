@@ -6,7 +6,10 @@ use std::{
     path::PathBuf,
 };
 
-use crate::{ff::U128Conversions, test_fixture::ipa::TestRawDataRecord};
+use crate::{
+    cli::playbook::generator::U128Generator, ff::U128Conversions,
+    test_fixture::ipa::TestRawDataRecord,
+};
 
 pub trait InputItem {
     fn from_str(s: &str) -> Self;
@@ -55,6 +58,7 @@ impl InputItem for TestRawDataRecord {
 
 pub struct InputSource {
     inner: Box<dyn BufRead>,
+    sz: Option<u64>,
 }
 
 impl InputSource {
@@ -66,6 +70,7 @@ impl InputSource {
     pub fn from_file(path: &PathBuf) -> Self {
         Self {
             inner: Box::new(BufReader::new(File::open(path).unwrap())),
+            sz: None,
         }
     }
 
@@ -73,6 +78,15 @@ impl InputSource {
     pub fn from_stdin() -> Self {
         Self {
             inner: Box::new(BufReader::new(stdin())),
+            sz: None,
+        }
+    }
+
+    #[must_use]
+    pub fn from_generator(count: u64) -> Self {
+        Self {
+            inner: Box::new(BufReader::new(U128Generator::new(count))),
+            sz: Some(count),
         }
     }
 
@@ -81,12 +95,32 @@ impl InputSource {
     pub fn from_static_str(input: &'static str) -> Self {
         Self {
             inner: Box::new(BufReader::new(input.as_bytes())),
+            sz: None,
         }
     }
 
     pub fn iter<T: InputItem>(self) -> impl Iterator<Item = T> {
         self.lines()
             .filter_map(|line| line.map(|l| T::from_str(&l)).ok())
+    }
+
+    /// This method returns an iterator with known size that yields
+    /// [`u128`] values that can be later converted to any field.
+    /// # Panics
+    /// This will panic if input was created from a file or any other
+    /// source where the size of it is not known in advance.
+    /// Currently only [`Self::from_generator`] allows for this method
+    /// to work.
+    #[must_use]
+    pub fn known_size_iter(self) -> impl ExactSizeIterator<Item = u128> {
+        if let Some(sz) = &self.sz {
+            U128Reader {
+                inner: self.inner,
+                count: usize::try_from(*sz).unwrap(),
+            }
+        } else {
+            panic!("Can't build an iterator with known size from this input type.")
+        }
     }
 
     /// Reads all the bytes from this instance and returns an owned buffer that contains them.
@@ -116,6 +150,38 @@ impl BufRead for InputSource {
         self.inner.consume(amt);
     }
 }
+
+/// A bridge between [`BufRead`] and [`Iterator`]
+/// that only works for 16 byte values read from
+/// the buffer. It never reads more than `count`
+/// elements from the buffer.
+struct U128Reader {
+    inner: Box<dyn BufRead>,
+    count: usize,
+}
+
+impl Iterator for U128Reader {
+    type Item = u128;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.count == 0 {
+            return None;
+        }
+
+        let mut buf = [0_u8; 16];
+        self.inner
+            .read_exact(&mut buf)
+            .expect("Buffer does not have enough bytes to read the next u128 element");
+        self.count -= 1;
+        Some(u128::from_le_bytes(buf))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.count, Some(self.count))
+    }
+}
+
+impl ExactSizeIterator for U128Reader {}
 
 #[cfg(all(test, unit_test))]
 mod tests {

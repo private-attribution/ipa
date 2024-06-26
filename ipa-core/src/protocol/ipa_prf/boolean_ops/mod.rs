@@ -5,3 +5,4 @@ pub(crate) mod step;
 pub use share_conversion_aby::{
     convert_to_fp25519, expand_shared_array_in_place, extract_from_shared_array,
 };
+pub mod sigmoid;
