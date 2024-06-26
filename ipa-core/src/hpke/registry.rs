@@ -211,5 +211,14 @@ mod tests {
             HpkeError::OpenError,
             decrypt(registry.private_key(1).unwrap(), &ct_payload).unwrap_err()
         );
+
+        let keypair3 = KeyPair::gen(&mut rng);
+        let private_registry =
+            KeyRegistry::<PrivateKeyOnly>::from_keys([PrivateKeyOnly(keypair3.sk)]);
+
+        assert_eq!(
+            HpkeError::OpenError,
+            decrypt(private_registry.private_key(0).unwrap(), &ct_payload).unwrap_err()
+        );
     }
 }
