@@ -80,7 +80,7 @@ pub const MK_BITS: usize = BA64::BITS as usize;
 // `BreakdownKey` trait in places where the `B` const parameter is not already available.
 pub trait BreakdownKey<const MAX_BREAKDOWNS: usize>: BooleanArray + U128Conversions {}
 impl BreakdownKey<32> for BA5 {}
-impl BreakdownKey<256> for BA8 {} // these are the 2 size we support
+impl BreakdownKey<256> for BA8 {}
 
 /// Vectorization dimension for share conversion
 pub const CONV_CHUNK: usize = 256;

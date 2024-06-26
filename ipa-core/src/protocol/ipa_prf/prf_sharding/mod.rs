@@ -11,6 +11,7 @@ use futures::{
     FutureExt, Stream, StreamExt,
 };
 
+use super::aggregation::breakdown_reveal::breakdown_reveal_aggregation;
 use crate::{
     error::{Error, LengthError},
     ff::{
@@ -45,17 +46,12 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-            ReplicatedSecretSharing,
-        },
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
     seq_join::seq_join,
     sharding::NotSharded,
 };
-
-use super::aggregation::breakdown_reveal::breakdown_reveal_aggregation;
 
 pub mod feature_label_dot_product;
 pub(crate) mod step;
@@ -286,7 +282,32 @@ pub struct AttributionOutputs<BK, TV> {
 }
 
 pub type SecretSharedAttributionOutputs<BK, TV> =
-    AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>;
+    AttributionOutputs<Replicated<BK>, Replicated<TV>>;
+
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
+pub struct AttributionOutputsTestInput<BK: BooleanArray, TV: BooleanArray> {
+    pub bk: BK,
+    pub tv: TV,
+}
+
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+impl<BK, TV> crate::secret_sharing::IntoShares<(Replicated<BK>, Replicated<TV>)>
+    for AttributionOutputsTestInput<BK, TV>
+where
+    BK: BooleanArray + crate::secret_sharing::IntoShares<Replicated<BK>>,
+    TV: BooleanArray + crate::secret_sharing::IntoShares<Replicated<TV>>,
+{
+    fn share_with<R: rand::Rng>(self, rng: &mut R) -> [(Replicated<BK>, Replicated<TV>); 3] {
+        let bk_sh = self.bk.share_with(rng);
+        let tv_sh = self.tv.share_with(rng);
+        [
+            (bk_sh[0].clone(), tv_sh[0].clone()),
+            (bk_sh[1].clone(), tv_sh[1].clone()),
+            (bk_sh[2].clone(), tv_sh[2].clone()),
+        ]
+    }
+}
 
 pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
@@ -434,7 +455,6 @@ where
     let binary_m_ctx = binary_validator.context();
 
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = input_rows.len() - histogram[0];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram)?;
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
@@ -456,12 +476,7 @@ where
 
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
-    breakdown_reveal_aggregation::<_, _, _, HV, B>(
-        ctx,
-        stream::iter(flattened_user_results),
-        num_outputs,
-    )
-    .await
+    breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, stream::iter(flattened_user_results)).await
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
@@ -865,10 +880,10 @@ pub mod tests {
         }
     }
 
-    #[derive(Debug, PartialEq)]
-    struct PreAggregationTestOutputInDecimal {
-        attributed_breakdown_key: u128,
-        capped_attributed_trigger_value: u128,
+    #[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
+    pub struct PreAggregationTestOutputInDecimal {
+        pub attributed_breakdown_key: u128,
+        pub capped_attributed_trigger_value: u128,
     }
 
     impl<BK, TV, TS> IntoShares<PrfShardedIpaInputRow<BK, TV, TS>>
