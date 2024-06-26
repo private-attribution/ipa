@@ -81,7 +81,7 @@ pub mod query {
 
     use crate::{
         ff::FieldType,
-        helpers::query::{DpParams, QueryConfig, QuerySize, QueryType},
+        helpers::query::{QueryConfig, QuerySize, QueryType},
         net::Error,
     };
 
@@ -149,14 +149,14 @@ pub mod query {
                 QueryType::OprfIpa(config) => {
                     write!(
                         f,
-                        "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        config.per_user_credit_cap, config.max_breakdown_key, config.num_multi_bits,
+                        "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}&with_dp={}&epsilon={}",
+                        config.per_user_credit_cap, config.max_breakdown_key, config.num_multi_bits,config.with_dp,config.epsilon
                     )?;
 
-                    match config.dp_params {
-                        DpParams::NoDp => write!(f, "&dp_params=NoDp")?,
-                        DpParams::WithDp { epsilon } => write!(f, "&dp_params=WithDp={epsilon}")?,
-                    }
+                    // match config.dp_params {
+                    //     DpParams::NoDp => write!(f, "&dp_params=NoDp")?,
+                    //     DpParams::WithDp { epsilon } => write!(f, "&dp_params=WithDp={epsilon}")?,
+                    // }
 
                     if config.plaintext_match_keys {
                         write!(f, "&plaintext_match_keys=true")?;

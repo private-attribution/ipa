@@ -529,7 +529,7 @@ mod test {
 
     use super::OrderingSender;
     use crate::{
-        ff::{Fp31, Fp32BitPrime, Gf20Bit, Gf9Bit, PrimeField, Serializable, U128Conversions},
+        ff::{Fp31, Fp32BitPrime, Gf9Bit, PrimeField, Serializable, U128Conversions},
         helpers::MpcMessage,
         rand::thread_rng,
         secret_sharing::SharedValue,

@@ -20,7 +20,7 @@ use ipa_core::{
     },
     config::NetworkConfig,
     ff::{boolean_array::BA16, FieldType},
-    helpers::query::{DpParams, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+    helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
     report::{KeyIdentifier, DEFAULT_KEY_ID},
@@ -211,6 +211,7 @@ async fn ipa(
     helper_clients: &[MpcHelperClient; 3],
     query_style: IpaQueryStyle,
 ) -> Result<(), Box<dyn Error>> {
+    println!("in report_collector.rs/ipa");
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
     match (security_model, &query_style) {
@@ -304,15 +305,15 @@ async fn ipa(
 
     tracing::info!("{m:?}", m = ipa_query_config);
 
-    match ipa_query_config.dp_params {
-        DpParams::NoDp => {
+    match ipa_query_config.with_dp {
+        0 => {
             validate(&expected, &actual.breakdowns);
         }
-        DpParams::WithDp { epsilon } => {
+        _ => {
             validate_dp(
                 expected,
                 actual.breakdowns,
-                epsilon,
+                ipa_query_config.epsilon,
                 ipa_query_config.per_user_credit_cap,
             );
         }

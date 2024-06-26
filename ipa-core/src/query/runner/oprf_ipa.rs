@@ -11,7 +11,7 @@ use crate::{
         Field, Serializable, U128Conversions,
     },
     helpers::{
-        query::{IpaQueryConfig, QuerySize},
+        query::{DpParams, IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
     hpke::{KeyPair, KeyRegistry},
@@ -112,7 +112,13 @@ where
         };
 
         let aws = config.attribution_window_seconds;
-        let dp_params = config.dp_params;
+        let dp_params: DpParams = match config.with_dp {
+            0 => DpParams::NoDp,
+            _ => DpParams::WithDp {
+                epsilon: config.epsilon,
+            },
+        };
+        // let dp_params = config.dp_params;
         match config.per_user_credit_cap {
             8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params).await,
             16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params).await,
@@ -140,7 +146,7 @@ mod tests {
             U128Conversions,
         },
         helpers::{
-            query::{DpParams, IpaQueryConfig, QuerySize},
+            query::{IpaQueryConfig, QuerySize},
             BodyStream,
         },
         hpke::KeyRegistry,
@@ -225,7 +231,9 @@ mod tests {
                 per_user_credit_cap: 8,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
-                dp_params: DpParams::NoDp,
+                // dp_params: DpParams::NoDp,
+                with_dp: 0,
+                epsilon: 1.0,
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);

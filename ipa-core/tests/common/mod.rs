@@ -99,7 +99,6 @@ impl CommandExt for Command {
         } else {
             self.arg("-vv")
         }
-        // return self;
     }
 }
 
@@ -254,9 +253,22 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         .args([
             "--per-user-credit-cap",
             &config.per_user_credit_cap.to_string(),
-        ])
-        .args(["--dp-params", &config.dp_params.to_string()])
-        .stdin(Stdio::piped());
+        ]);
+    // .args(["--dp-params", &config.dp_params.to_string()])
+
+    match config.with_dp {
+        0 => {
+            command.args(["--with-dp", &0_u32.to_string()]);
+        }
+        _ => {
+            command
+                .args(["--with-dp", &1_u32.to_string()])
+                .args(["--epsilon", &config.epsilon.to_string()]);
+        }
+    }
+    command.stdin(Stdio::piped());
+    println!("***********************");
+
     if config.attribution_window_seconds.is_some() {
         command.args([
             "--attribution-window-seconds",

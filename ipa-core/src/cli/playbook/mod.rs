@@ -15,6 +15,7 @@ pub use self::ipa::playbook_oprf_ipa;
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
     net::{ClientIdentity, MpcHelperClient},
+    protocol::dp::NoiseParams,
 };
 
 /// Validates that the expected result matches the actual.
@@ -97,17 +98,15 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
 
         let next_expected_f64: f64 = next_expected.unwrap().into();
         let actual_expect_f64: f64 = next_actual.unwrap().into();
-
-        let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(
+        let noise_params = NoiseParams {
             epsilon,
-            0.5,
-            1e-6,
-            1.0,
-            1.0,
-            per_user_credit_cap.into(),
-            per_user_credit_cap.into(),
-            per_user_credit_cap.into(),
-        );
+            ell_1_sensitivity: per_user_credit_cap.into(),
+            ell_2_sensitivity: per_user_credit_cap.into(),
+            ell_infty_sensitivity: per_user_credit_cap.into(),
+            ..Default::default()
+        };
+
+        let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(&noise_params);
         let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
         let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
 

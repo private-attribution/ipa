@@ -6,10 +6,7 @@ mod common;
 use std::num::NonZeroU32;
 
 use common::test_ipa_with_config;
-use ipa_core::{
-    helpers::query::{DpParams, IpaQueryConfig},
-    test_fixture::ipa::IpaSecurityModel,
-};
+use ipa_core::{helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel};
 
 fn test_compact_gate<I: TryInto<NonZeroU32>>(
     mode: IpaSecurityModel,
@@ -19,7 +16,7 @@ fn test_compact_gate<I: TryInto<NonZeroU32>>(
     let config = IpaQueryConfig {
         per_user_credit_cap,
         attribution_window_seconds: attribution_window_seconds.try_into().ok(),
-        dp_params: DpParams::NoDp,
+        with_dp: 0,
         ..Default::default()
     };
 

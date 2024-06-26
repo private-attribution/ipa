@@ -229,7 +229,9 @@ impl PartialEq for IpaQueryConfig {
             && self.max_breakdown_key == other.max_breakdown_key
             && self.attribution_window_seconds == other.attribution_window_seconds
             && self.num_multi_bits == other.num_multi_bits
-            && self.dp_params == other.dp_params
+            // && self.dp_params == other.dp_params
+            && self.with_dp == other.with_dp
+            && self.epsilon == other.epsilon
             && self.plaintext_match_keys == other.plaintext_match_keys
     }
 }
@@ -285,113 +287,6 @@ impl<'de> Deserialize<'de> for DpParams {
             .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
     }
 }
-// use clap::{builder::PossibleValue, ValueEnum};
-//
-// impl ValueEnum for DpParams {
-//     fn value_variants<'a>() -> &'a [Self] {
-//         &[
-//             DpParams::NoDp,
-//             DpParams::WithDp { epsilon: 0.0 },
-//         ]
-//     }
-//     fn from_str(input: &str, ignore_case: bool) -> Result<Self, String>
-//     {
-//         match input {
-//             "NoDp" => Ok(DpParams::NoDp),
-//             "WithDp" => Ok(DpParams::WithDp { epsilon: 3.0 }),
-//             _ => Err(format!("invalid variant: {}", input)),
-//         }
-//     }
-//     fn to_possible_value(&self) -> Option<PossibleValue> {
-//         match self {
-//             DpParams::NoDp => Some(PossibleValue::new("NoDp")),
-//             DpParams::WithDp { .. } => Some(PossibleValue::new("WithDp")),
-//         }
-//     }
-// }
-
-// Attempt 2
-// impl ValueEnum for DpParams {
-//         fn value_variants<'a>() -> &'a [Self] {
-//             &[
-//                 DpParams::NoDp,
-//                 DpParams::WithDp { epsilon: 0.0 },
-//             ]
-//         }
-//
-//
-//     fn from_str(s: &str, ignore_case: bool) -> Result<Self, String> {
-//         match s {
-//             "NoDp" => Ok(DpParams::NoDp),
-//             s if s.starts_with("WithDp{") && s.ends_with(")") => {
-//                 let epsilon = s.trim_start_matches("WithDp{").trim_end_matches("}").parse()?;
-//                 Ok(DpParams::WithDp { epsilon })
-//             }
-//             _ => Err(format!("invalid variant: {s}")),
-//         }
-//     }
-//
-//
-//     fn to_possible_value(&self) -> Option<PossibleValue> {
-//         match self {
-//             DpParams::NoDp => Some(PossibleValue::new("NoDp")),
-//             DpParams::WithDp { epsilon } => Some(PossibleValue::new(format!("WithDp({})", epsilon))),
-//         }
-//     }
-// }
-
-// Attempt 3
-// impl clap::ValueEnum for DpParams {
-//     fn value_variants<'a>() -> &'a [Self] {
-//         &[DpParams::NoDp, DpParams::WithDp{epsilon : 0.0}]
-//     }
-//     fn to_possible_value<'a>(&self) -> ::std::option::Option<clap::builder::PossibleValue> {
-//         match self {
-//             Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
-//             Self::WithDp { epsilon } => {
-//                 let formatted_string = format!("WithDp");
-//                 Some(clap::builder::PossibleValue::new(formatted_string))
-//             }
-//         }
-//     }
-//
-//         // fn from_str(s: &str, ignore_case: bool) -> Result<Self, String> {
-//         //     match s {
-//         //         "NoDp" => Ok(DpParams::NoDp),
-//         //         s if s.starts_with("WithDp{") && s.ends_with(")") => {
-//         //             let epsilon = s.trim_start_matches("WithDp{").trim_end_matches("}").parse()?;
-//         //             Ok(DpParams::WithDp { epsilon })
-//         //         }
-//         //         _ => Err(format!("invalid variant: {s}")),
-//         //     }
-//         // }
-// }
-
-// impl clap::ValueEnum for DpParams {
-//     fn value_variants<'a>() -> &'a [Self] {
-//         static VARIANTS: [DpParams; 2] = [DpParams::NoDp, DpParams::WithDp { epsilon: 0.0 }];
-//         &VARIANTS
-//     }
-//     fn to_possible_value<'a>(&self) -> Option<clap::builder::PossibleValue> {
-//         match self {
-//             Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
-//             Self::WithDp { .. } => Some(clap::builder::PossibleValue::new("WithDp")),
-//         }
-//     }
-// }
-
-// Latest Attempt
-// impl clap::ValueEnum for DpParams {
-//     fn value_variants<'a>() -> &'a [Self] {
-//         &[DpParams::NoDp, DpParams::WithDp{epsilon : 0.0}]
-//     }
-//     fn to_possible_value<'a>(&self) -> ::std::option::Option<clap::builder::PossibleValue> {
-//         match self {
-//             Self::NoDp => Some(clap::builder::PossibleValue::new("NoDp")),
-//             Self::WithDp{epsilon} => Some(clap::builder::PossibleValue::new(format!("WithDp({})", epsilon).as_str())),
-//         }
-//     }
-// }
 
 #[cfg(test)]
 impl Eq for DpParams {}
@@ -413,8 +308,13 @@ pub struct IpaQueryConfig {
 
     /// If `NoDp` is the value of the `DpParams` enum,
     /// IPA will not add any DP noise to the outputs.
-    // #[cfg_attr(feature = "clap", arg(long, default_value = "NoDp"))]
-    pub dp_params: DpParams,
+    // #[cfg_attr(feature = "clap", arg(long, default_value = "WithDp"))]
+    // pub dp_params: DpParams,
+
+    #[arg(short = 'd', long, default_value = "1")]
+    pub with_dp: u32,
+    #[arg(short = 'e', long, default_value = "1.0")]
+    pub epsilon: f64,
 
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
     /// shares from input reports directly. Setting this to true also activates an alternate
@@ -433,7 +333,9 @@ impl Default for IpaQueryConfig {
             attribution_window_seconds: None,
             num_multi_bits: 3,
             // dp_params: DpParams::NoDp, // TODO default with noise
-            dp_params: DpParams::WithDp { epsilon: 3.0 },
+            // dp_params: DpParams::WithDp { epsilon: 3.0 },
+            with_dp: 1,
+            epsilon: 3.0,
             plaintext_match_keys: false,
         }
     }
@@ -448,7 +350,9 @@ impl IpaQueryConfig {
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
         num_multi_bits: u32,
-        dp_params: DpParams,
+        with_dp: u32,
+        epsilon: f64,
+        // dp_params: DpParams,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -458,7 +362,9 @@ impl IpaQueryConfig {
                     .expect("attribution window must be a positive value > 0"),
             ),
             num_multi_bits,
-            dp_params,
+            with_dp,
+            epsilon,
+            // dp_params,
             plaintext_match_keys: false,
         }
     }
@@ -472,14 +378,18 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         num_multi_bits: u32,
-        dp_params: DpParams,
+        with_dp: u32,
+        epsilon: f64,
+        // dp_params: DpParams,
     ) -> Self {
         Self {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds: None,
             num_multi_bits,
-            dp_params,
+            with_dp,
+            epsilon,
+            // dp_params,
             plaintext_match_keys: false,
         }
     }

@@ -7,7 +7,7 @@ use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::{DpParams, IpaQueryConfig},
-    protocol::ipa_prf::OPRFIPAInputRow,
+    protocol::{dp::NoiseParams, ipa_prf::OPRFIPAInputRow},
     secret_sharing::{
         replicated::{
             malicious::ExtendableField, semi_honest, semi_honest::AdditiveShare as Replicated,
@@ -201,7 +201,13 @@ pub async fn test_oprf_ipa<F>(
     };
 
     let aws = config.attribution_window_seconds;
-    let dp_params = config.dp_params;
+    let dp_params: DpParams = match config.with_dp {
+        0 => DpParams::NoDp,
+        _ => DpParams::WithDp {
+            epsilon: config.epsilon,
+        },
+    };
+    // let dp_params = config.dp_params;
     let result: Vec<_> = if config.per_user_credit_cap == 256 {
         // Note that many parameters are different in this case, not just the credit cap.
         // This config is needed for collect_steps coverage.
@@ -255,24 +261,22 @@ pub async fn test_oprf_ipa<F>(
     //TODO(richaj): To be removed once the function supports non power of 2 breakdowns
     let _ = result.split_off(expected_results.len());
 
-    match config.dp_params {
+    match dp_params {
         DpParams::NoDp => {
             assert_eq!(result, expected_results);
         }
         DpParams::WithDp { epsilon } => {
             let per_user_credit_cap_f64 = f64::from(config.per_user_credit_cap);
-            //TODO(bmcase): make a more concise way to query the mean and standard deviation
-            // giving it the query config
-            let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(
+            let noise_params = NoiseParams {
                 epsilon,
-                0.5,
-                1e-6,
-                1.0,
-                1.0,
-                per_user_credit_cap_f64,
-                per_user_credit_cap_f64,
-                per_user_credit_cap_f64,
-            );
+                delta: 1e-6,
+                ell_1_sensitivity: per_user_credit_cap_f64,
+                ell_2_sensitivity: per_user_credit_cap_f64,
+                ell_infty_sensitivity: per_user_credit_cap_f64,
+                ..Default::default()
+            };
+
+            let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(&noise_params);
             let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
             let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
             for (index, sample) in result.iter().enumerate() {

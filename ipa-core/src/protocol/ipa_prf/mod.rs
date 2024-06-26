@@ -386,7 +386,7 @@ pub mod tests {
             U128Conversions,
         },
         helpers::query::DpParams,
-        protocol::ipa_prf::oprf_ipa,
+        protocol::{dp::NoiseParams, ipa_prf::oprf_ipa},
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
@@ -446,7 +446,7 @@ pub mod tests {
             const SS_BITS: usize = 5;
             let world = TestWorld::default();
             let expected: Vec<u32> = vec![0, 2, 5, 0, 0, 0, 0, 0];
-            let epsilon = 3.1;
+            let epsilon = 10.0;
             let dp_params = DpParams::WithDp { epsilon };
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
 
@@ -467,16 +467,15 @@ pub mod tests {
                 .await
                 .reconstruct();
             result.truncate(expected.len());
-            let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(
+
+            let noise_params = NoiseParams {
                 epsilon,
-                0.5,
-                1e-6,
-                1.0,
-                1.0,
-                per_user_credit_cap,
-                per_user_credit_cap,
-                per_user_credit_cap,
-            );
+                ell_1_sensitivity: per_user_credit_cap,
+                ell_2_sensitivity: per_user_credit_cap,
+                ell_infty_sensitivity: per_user_credit_cap,
+                ..Default::default()
+            };
+            let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(&noise_params);
             let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
             let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
             println!(
