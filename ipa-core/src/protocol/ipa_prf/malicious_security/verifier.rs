@@ -99,19 +99,22 @@ pub fn compute_final_sum_share<F: PrimeField, const λ: usize, const P: usize>(z
 ///
 /// The function uses streams since stream offers a chunk method.
 fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
-    u_or_v_iterator: J,
+    u_or_v: J,
     lagrange_table: &'a LagrangeTable<F, λ, 1>,
 ) -> impl Iterator<Item = F> + 'a
 where
     J: Iterator<Item = F> + 'a,
 {
-    u_or_v_iterator
+    u_or_v
         .chunk_array::<λ>()
         .map(|x| lagrange_table.eval(&x)[0])
 }
 
+/// This function recursively compresses the `u_or_v` values.
+/// The recursion factor (or compression) of the first recursion is `λ_FIRST`
+/// The recursion factor of all following recursions is `λ`.
 pub fn recursively_compute_final_check<F: PrimeField, J, const λ_FIRST: usize, const λ: usize>(
-    u_or_v_iterator: J,
+    u_or_v: J,
     challenges: &[F],
     p_or_q_0: F,
 ) -> F
@@ -132,10 +135,8 @@ where
 
     // generate & evaluate recursive streams
     // to compute last array
-    let mut iterator: Box<dyn Iterator<Item = F>> = Box::new(recurse_u_or_v::<_, _, λ_FIRST>(
-        u_or_v_iterator,
-        &table_first,
-    ));
+    let mut iterator: Box<dyn Iterator<Item = F>> =
+        Box::new(recurse_u_or_v::<_, _, λ_FIRST>(u_or_v, &table_first));
     // all following recursion except last one
     for lagrange_table in tables.iter().take(recursions_after_first - 1) {
         iterator = Box::new(recurse_u_or_v::<_, _, λ>(iterator, lagrange_table));

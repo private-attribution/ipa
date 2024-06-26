@@ -20,8 +20,9 @@ pub struct ArrayChunk<I, const L: usize> {
 impl<F: PrimeField, I: Iterator<Item = F>> ArrayChunkIterator for I {}
 
 #[allow(clippy::while_let_on_iterator)]
-impl<F: PrimeField, I, const L: usize> Iterator for ArrayChunk<I, L>
+impl<F, I, const L: usize> Iterator for ArrayChunk<I, L>
 where
+    F: PrimeField,
     I: Iterator<Item = F>,
 {
     type Item = [I::Item; L];
