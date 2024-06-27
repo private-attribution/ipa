@@ -634,7 +634,6 @@ macro_rules! boolean_array_impl {
                     }
                 }
 
-
                 #[test]
                 fn set_boolean_array() {
                     let mut rng = thread_rng();

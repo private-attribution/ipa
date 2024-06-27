@@ -8,6 +8,7 @@ pub enum ProtocolStep {
     #[step(child = crate::protocol::ipa_prf::step::IpaPrfStep)]
     IpaPrf,
     Multiply,
+    PrimeFieldAddition,
     #[cfg(any(test, feature = "test-fixture"))]
     #[step(count = 10, child = crate::test_fixture::step::TestExecutionStep)]
     Test(usize),

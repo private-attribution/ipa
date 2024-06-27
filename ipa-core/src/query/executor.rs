@@ -20,7 +20,9 @@ use shuttle::future as tokio;
 use typenum::Unsigned;
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-use crate::{ff::Fp32BitPrime, query::runner::execute_test_multiply};
+use crate::{
+    ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add_in_prime_field,
+};
 use crate::{
     ff::{boolean_array::BA16, FieldType, Serializable},
     helpers::{
@@ -28,7 +30,7 @@ use crate::{
         query::{QueryConfig, QueryType},
         BodyStream, Gateway,
     },
-    hpke::{KeyPair, KeyRegistry},
+    hpke::PrivateKeyRegistry,
     protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, Gate},
     query::{
         runner::{OprfIpaQuery, QueryResult},
@@ -60,9 +62,9 @@ where
 
 /// Needless pass by value because IPA v3 does not make use of key registry yet.
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
-pub fn execute(
+pub fn execute<R: PrivateKeyRegistry>(
     config: QueryConfig,
-    key_registry: Arc<KeyRegistry<KeyPair>>,
+    key_registry: Arc<R>,
     gateway: Gateway,
     input: BodyStream,
 ) -> RunningQuery {
@@ -81,6 +83,22 @@ pub fn execute(
                 Box::pin(execute_test_multiply::<Fp32BitPrime>(prss, gateway, input))
             })
         }
+        #[cfg(any(test, feature = "weak-field"))]
+        (QueryType::TestAddInPrimeField, FieldType::Fp31) => {
+            do_query(config, gateway, input, |prss, gateway, _config, input| {
+                Box::pin(test_add_in_prime_field::<crate::ff::Fp31>(
+                    prss, gateway, input,
+                ))
+            })
+        }
+        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        (QueryType::TestAddInPrimeField, FieldType::Fp32BitPrime) => {
+            do_query(config, gateway, input, |prss, gateway, _config, input| {
+                Box::pin(test_add_in_prime_field::<Fp32BitPrime>(
+                    prss, gateway, input,
+                ))
+            })
+        }
         // TODO(953): This is really using BA32, not Fp32bitPrime. The `FieldType` mechanism needs
         // to be reworked.
         (QueryType::OprfIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
@@ -90,7 +108,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<BA16>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<BA16, R>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -105,7 +123,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<BA16>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<BA16, R>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )

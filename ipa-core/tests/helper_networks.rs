@@ -6,18 +6,28 @@ use common::{
     spawn_helpers, tempdir::TempDir, test_ipa, test_multiply, test_network, CommandExt,
     UnwrapStatusExt, HELPER_BIN,
 };
-use ipa_core::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
+use ipa_core::{
+    cli::CliPaths,
+    helpers::{query::QueryType, HelperIdentity},
+    test_fixture::ipa::IpaSecurityModel,
+};
 
 #[test]
 #[cfg(all(test, web_test))]
-fn http_network() {
-    test_network(false);
+fn http_network_multiply() {
+    test_network(false, QueryType::TestMultiply);
 }
 
 #[test]
 #[cfg(all(test, web_test))]
-fn https_network() {
-    test_network(true);
+fn https_network_multiply() {
+    test_network(true, QueryType::TestMultiply);
+}
+
+#[test]
+#[cfg(all(test, web_test))]
+fn http_network_add() {
+    test_network(false, QueryType::TestAddInPrimeField);
 }
 
 #[test]
