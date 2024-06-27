@@ -214,31 +214,29 @@ impl BatchToVerify {
     }
 
     /// This function computes and outputs the final `p_r_right_prover * q_r_right_prover` value.
-    async fn p_and_q_r_check<C, U, V>(
+    async fn p_and_q_r_check<C>(
         &self,
         ctx: &C,
         challenges_for_left_prover: &[Fp61BitPrime],
         challenges_for_right_prover: &[Fp61BitPrime],
-        u_from_right_prover: U, // Prover P_i and verifier P_{i-1} both compute `u` and `p(x)`
-        v_from_left_prover: V,  // Prover P_i and verifier P_{i+1} both compute `v` and `q(x)`
+        u_from_right_prover: Vec<Fp61BitPrime>, // Prover P_i and verifier P_{i-1} both compute `u` and `p(x)`
+        v_from_left_prover: Vec<Fp61BitPrime>, // Prover P_i and verifier P_{i+1} both compute `v` and `q(x)`
     ) -> Result<Fp61BitPrime, Error>
     where
         C: Context,
-        U: Iterator<Item = Fp61BitPrime> + Send,
-        V: Iterator<Item = Fp61BitPrime> + Send,
     {
         const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
 
         // compute p_r
-        let p_r_right_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
-            u_from_right_prover.into_iter(),
+        let p_r_right_prover = recursively_compute_final_check::<_, LRF, SRF>(
+            u_from_right_prover,
             challenges_for_right_prover,
             self.p_mask_from_right_prover,
         );
         // compute q_r
-        let q_r_left_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
-            v_from_left_prover.into_iter(),
+        let q_r_left_prover = recursively_compute_final_check::<_, LRF, SRF>(
+            v_from_left_prover,
             challenges_for_left_prover,
             self.q_mask_from_left_prover,
         );
@@ -261,17 +259,15 @@ impl BatchToVerify {
     }
 
     /// This function verifies a `BatchToVerify`.
-    pub async fn verify<C, U, V>(
+    pub async fn verify<C>(
         &self,
         ctx: &C,
         sum_of_uv_right: Fp61BitPrime,
-        u_from_right_prover: U,
-        v_from_left_prover: V,
+        u_from_right_prover: Vec<Fp61BitPrime>,
+        v_from_left_prover: Vec<Fp61BitPrime>,
     ) -> Result<(), Error>
     where
         C: Context,
-        U: Iterator<Item = Fp61BitPrime> + Send,
-        V: Iterator<Item = Fp61BitPrime> + Send,
     {
         const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
@@ -788,8 +784,8 @@ pub mod test {
                                 &ctx,
                                 &challenges_for_left_prover,
                                 &challenges_for_right_prover,
-                                vec_u_from_right_prover.into_iter(),
-                                vec_v_from_left_prover.into_iter(),
+                                vec_u_from_right_prover,
+                                vec_v_from_left_prover,
                             )
                             .await
                             .unwrap();
@@ -877,8 +873,8 @@ pub mod test {
                         .verify(
                             &v_ctx,
                             sum_of_uv_right,
-                            vec_u_from_right_prover.into_iter(),
-                            vec_v_from_left_prover.into_iter(),
+                            vec_u_from_right_prover,
+                            vec_v_from_left_prover,
                         )
                         .await
                         .unwrap();

@@ -1,11 +1,13 @@
-use std::iter::{self};
+use std::{
+    cmp::min,
+    iter::{self},
+};
 
 use crate::{
     ff::PrimeField,
     protocol::ipa_prf::malicious_security::lagrange::{
         CanonicalLagrangeDenominator, LagrangeTable,
     },
-    utils::arraychunks::ArrayChunkIterator,
 };
 
 /// This function computes the shares that sum to zero from the zero-knowledge proofs.
@@ -95,32 +97,38 @@ pub fn compute_final_sum_share<F: PrimeField, const λ: usize, const P: usize>(z
     (1..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
 }
 
-/// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
+/// This function compresses the input by evaluating the Lagrange table using $lambda$ input values
+/// and packing the results at the beginning of the input vector. For example:
+/// [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] with $lambda$ = 4 and P(0..3) = 10, P(4, 7) = 11, P(8, 9) = 12
+/// will result in input to be set to [10, 11, 12].
 ///
-/// The function uses streams since stream offers a chunk method.
-fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
-    u_or_v: J,
-    lagrange_table: &'a LagrangeTable<F, λ, 1>,
-) -> impl Iterator<Item = F> + 'a
-where
-    J: Iterator<Item = F> + 'a,
-{
-    u_or_v
-        .chunk_array::<λ>()
-        .map(|x| lagrange_table.eval(&x)[0])
+/// The new length of the input is returned, so the input size can be adjusted accordingly.
+fn compress<const λ: usize, F: PrimeField>(
+    input: &mut [F],
+    lagrange_table: &LagrangeTable<F, λ, 1>,
+) -> usize {
+    let mut write = 0;
+    for start in (0..input.len()).step_by(λ) {
+        let end = min(start + λ, input.len());
+        let chunk = &input[start..end];
+
+        // pad with zeroes if the length of the last chunk is less
+        // than λ.
+        let mut table_input = [F::ZERO; λ];
+        table_input[..chunk.len()].copy_from_slice(chunk);
+
+        input[write] = lagrange_table.eval(table_input)[0];
+        write += 1;
+    }
+
+    write
 }
 
-/// This function recursively compresses the `u_or_v` values.
-/// The recursion factor (or compression) of the first recursion is `λ_FIRST`
-/// The recursion factor of all following recursions is `λ`.
-pub fn recursively_compute_final_check<F: PrimeField, J, const λ_FIRST: usize, const λ: usize>(
-    u_or_v: J,
+pub fn recursively_compute_final_check<F: PrimeField, const λ_FIRST: usize, const λ: usize>(
+    mut u_or_v: Vec<F>,
     challenges: &[F],
     p_or_q_0: F,
-) -> F
-where
-    J: Iterator<Item = F>,
-{
+) -> F {
     let recursions_after_first = challenges.len() - 1;
 
     // compute Lagrange tables
@@ -133,18 +141,17 @@ where
         .map(|r| LagrangeTable::<F, λ, 1>::new(&denominator_p_or_q, r))
         .collect::<Vec<_>>();
 
-    // generate & evaluate recursive streams
-    // to compute last array
-    let mut iterator: Box<dyn Iterator<Item = F>> =
-        Box::new(recurse_u_or_v::<_, _, λ_FIRST>(u_or_v, &table_first));
-    // all following recursion except last one
-    for lagrange_table in tables.iter().take(recursions_after_first - 1) {
-        iterator = Box::new(recurse_u_or_v::<_, _, λ>(iterator, lagrange_table));
+    for i in 0..recursions_after_first {
+        let last_written = if i == 0 {
+            compress::<λ_FIRST, _>(&mut u_or_v, &table_first)
+        } else {
+            compress::<λ, _>(&mut u_or_v, &tables[i - 1])
+        };
+        u_or_v.truncate(last_written);
     }
-    let last_u_or_v_values = iterator.collect::<Vec<F>>();
-    // make sure there at at most λ last u or v values
-    // In the protocol, the prover is expected to continue recursively compressing the
-    // u and v vectors until it has length strictly less than λ.
+
+    let last_u_or_v_values = u_or_v;
+
     assert!(
         last_u_or_v_values.len() < λ,
         "Too many u or v values in last recursion"
@@ -166,16 +173,31 @@ where
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
-        ff::{Fp31, U128Conversions},
+        ff::{Fp31, PrimeField, U128Conversions},
         protocol::ipa_prf::malicious_security::{
             lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
             verifier::{
-                compute_g_differences, compute_sum_share, interpolate_at_r, recurse_u_or_v,
+                compute_g_differences, compute_sum_share, interpolate_at_r,
                 recursively_compute_final_check,
             },
         },
         secret_sharing::SharedValue,
     };
+
+    /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
+    fn recurse_u_or_v<F: PrimeField, const λ: usize>(
+        u_or_v: &[F],
+        lagrange_table: &LagrangeTable<F, λ, 1>,
+    ) -> Vec<F> {
+        u_or_v
+            .chunks(λ)
+            .map(|x| {
+                let mut points = [F::ZERO; λ];
+                points[..x.len()].copy_from_slice(x);
+                lagrange_table.eval(&points)[0]
+            })
+            .collect()
+    }
 
     fn to_field(a: &[u128]) -> Vec<Fp31> {
         a.iter()
@@ -293,12 +315,10 @@ mod test {
         let tables: [LagrangeTable<Fp31, 4, 1>; 3] = CHALLENGES
             .map(|r| LagrangeTable::new(&denominator_p_or_q, &Fp31::try_from(r).unwrap()));
 
-        let u_or_v_2 = recurse_u_or_v::<_, _, 4>(to_field(&U_1).into_iter(), &tables[0])
-            .collect::<Vec<Fp31>>();
+        let u_or_v_2 = recurse_u_or_v::<_, 4>(&to_field(&U_1), &tables[0]);
         assert_eq!(u_or_v_2, to_field(&U_2));
 
-        let u_or_v_3 =
-            recurse_u_or_v::<_, _, 4>(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
+        let u_or_v_3 = recurse_u_or_v::<_, 4>(&u_or_v_2, &tables[1]);
 
         assert_eq!(u_or_v_3, to_field(&U_3[..2]));
 
@@ -309,13 +329,12 @@ mod test {
             u_or_v_3[0], // move first element to the end
         ];
 
-        let p_final =
-            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
+        let p_final = recurse_u_or_v::<_, 4>(&u_or_v_3_masked, &tables[2]);
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_P_FINAL);
 
-        let p_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
-            to_field(&U_1).into_iter(),
+        let p_final_another_way = recursively_compute_final_check::<Fp31, 4, 4>(
+            to_field(&U_1),
             &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
@@ -381,10 +400,10 @@ mod test {
         // uv values in input format
         let v_1 = to_field(&V_1);
 
-        let u_or_v_2 = recurse_u_or_v(v_1.into_iter(), &tables[0]).collect::<Vec<_>>();
+        let u_or_v_2 = recurse_u_or_v(&v_1, &tables[0]);
         assert_eq!(u_or_v_2, to_field(&V_2));
 
-        let u_or_v_3 = recurse_u_or_v(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
+        let u_or_v_3 = recurse_u_or_v(&u_or_v_2, &tables[1]);
 
         assert_eq!(u_or_v_3, to_field(&V_3[..2]));
 
@@ -396,16 +415,15 @@ mod test {
         ];
 
         // final iteration
-        let p_final =
-            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
+        let p_final = recurse_u_or_v::<_, 4>(&u_or_v_3_masked, &tables[2]);
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_Q_FINAL);
 
         // uv values in input format
         let v_1 = to_field(&V_1);
 
-        let q_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
-            v_1.into_iter(),
+        let q_final_another_way = recursively_compute_final_check::<Fp31, 4, 4>(
+            v_1,
             &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
