@@ -106,3 +106,9 @@ check "IPA benchmark" \
 
 check "Arithmetic circuit benchmark" \
     cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
+
+if [ -z "$EXEC_SLOW_TESTS" ]
+then
+  check "Slow tests" \
+      cargo test --release --test "*" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+fi

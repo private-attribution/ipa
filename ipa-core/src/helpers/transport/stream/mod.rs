@@ -4,17 +4,21 @@ mod box_body;
 mod collection;
 mod input;
 
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 #[cfg(feature = "web-app")]
 pub use axum_body::WrappedAxumBodyStream;
 pub use box_body::WrappedBoxBodyStream;
 use bytes::Bytes;
 pub use collection::{StreamCollection, StreamKey};
-use futures::Stream;
+use futures::{stream::iter, Stream};
+use futures_util::StreamExt;
 pub use input::{LengthDelimitedStream, RecordsStream, SingleRecordStream};
 
-use crate::error::BoxError;
+use crate::{const_assert, error::BoxError};
 
 pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
     /// Collects the entire stream into a vec; only intended for use in tests
@@ -42,6 +46,144 @@ pub type BoxBytesStream = Pin<Box<dyn BytesStream>>;
 //  * Avoiding an extra level of boxing in the production configuration using axum, since
 //    the axum body stream type is already a `Pin<Box<dyn HttpBody>>`.
 #[cfg(feature = "in-memory-infra")]
-pub type BodyStream = WrappedBoxBodyStream;
+type BodyStreamInner = WrappedBoxBodyStream;
 #[cfg(feature = "real-world-infra")]
-pub type BodyStream = WrappedAxumBodyStream;
+type BodyStreamInner = WrappedAxumBodyStream;
+
+/// Wrapper around [`BodyStreamInner`] that enforces checks relevant to both in-memory and
+/// real-world implementations.
+pub struct BodyStream {
+    inner: BodyStreamInner,
+}
+
+impl BodyStream {
+    pub fn new(bytes: Bytes) -> Self {
+        let stream = iter(bytes.split().into_iter().map(Ok::<_, BoxError>));
+        Self::from_bytes_stream(stream)
+    }
+
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            inner: BodyStreamInner::empty(),
+        }
+    }
+
+    pub fn from_bytes_stream(stream: impl BytesStream + 'static) -> Self {
+        Self {
+            inner: BodyStreamInner::from_bytes_stream(stream),
+        }
+    }
+}
+
+impl Stream for BodyStream {
+    type Item = Result<Bytes, BoxError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let next = self.inner.poll_next_unpin(cx);
+        if let Poll::Ready(Some(Ok(v))) = &next {
+            debug_assert!(
+                v.len() <= MAX_HTTP_CHUNK_SIZE,
+                "Chunk size {} is greater than maximum allowed {MAX_HTTP_CHUNK_SIZE} bytes",
+                v.len()
+            );
+        };
+
+        next
+    }
+}
+
+impl From<Vec<u8>> for BodyStream {
+    fn from(value: Vec<u8>) -> Self {
+        Self::new(Bytes::from(value))
+    }
+}
+
+#[cfg(feature = "web-app")]
+#[async_trait::async_trait]
+impl<S> axum::extract::FromRequest<S> for BodyStream
+where
+    S: Send + Sync,
+{
+    type Rejection = crate::net::Error;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self {
+            inner: BodyStreamInner::from_request(req, state).await?,
+        })
+    }
+}
+
+/// The size is chosen somewhat arbitrary - feel free to change it, but don't go above 2Gb as
+/// that will cause Hyper's HTTP2 to fail.
+const MAX_HTTP_CHUNK_SIZE: usize = 1024 * 1024; // 1MB
+const_assert!(MAX_HTTP_CHUNK_SIZE > 0);
+
+/// Trait for objects that can be split into multiple parts.
+///
+/// This trait is used to split the body of an HTTP request into multiple parts
+/// when the request body is too large to fit in memory. This can happen if the
+/// request body is being streamed from a file or other large source.
+trait Split {
+    type Dest;
+
+    fn split(self) -> Vec<Self::Dest>;
+}
+
+impl Split for Bytes {
+    type Dest = Self;
+
+    fn split(self) -> Vec<Self::Dest> {
+        tracing::trace!(
+            "Will split '{sz}' bytes buffer into {chunks} chunks of size {MAX_HTTP_CHUNK_SIZE}",
+            sz = self.len(),
+            chunks = self.len() / MAX_HTTP_CHUNK_SIZE,
+        );
+
+        let mut segments = Vec::with_capacity(self.len() / MAX_HTTP_CHUNK_SIZE);
+        let mut segment = self;
+        while segment.len() > MAX_HTTP_CHUNK_SIZE {
+            segments.push(segment.split_to(MAX_HTTP_CHUNK_SIZE));
+        }
+        segments.push(segment);
+
+        segments
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use bytes::Bytes;
+    use futures::{future, stream, stream::TryStreamExt};
+
+    use crate::{
+        helpers::{transport::stream::MAX_HTTP_CHUNK_SIZE, BodyStream},
+        test_executor::run,
+    };
+
+    #[test]
+    fn chunks_the_input() {
+        run(|| async {
+            let data = vec![0_u8; 2 * MAX_HTTP_CHUNK_SIZE + 1];
+            let stream = BodyStream::new(data.into());
+            let chunks = stream.try_collect::<Vec<_>>().await.unwrap();
+
+            assert_eq!(3, chunks.len());
+            assert_eq!(MAX_HTTP_CHUNK_SIZE, chunks[0].len());
+            assert_eq!(MAX_HTTP_CHUNK_SIZE, chunks[1].len());
+            assert_eq!(1, chunks[2].len());
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Chunk size 1048577 is greater than maximum allowed 1048576 bytes")]
+    fn rejects_large_chunks() {
+        run(|| async {
+            let data = vec![0_u8; MAX_HTTP_CHUNK_SIZE + 1];
+            let stream =
+                BodyStream::from_bytes_stream(stream::once(future::ready(Ok(Bytes::from(data)))));
+
+            stream.try_collect::<Vec<_>>().await.unwrap()
+        });
+    }
+}

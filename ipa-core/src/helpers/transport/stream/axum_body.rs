@@ -7,9 +7,8 @@ use axum::body::{Body, BodyDataStream};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use pin_project::pin_project;
-use tokio_stream::wrappers::ReceiverStream;
 
-use crate::error::BoxError;
+use crate::{error::BoxError, helpers::BytesStream};
 
 /// This struct is a simple wrapper so that both in-memory-infra and real-world-infra have a
 /// unified interface for streams consumed by transport layer.
@@ -25,6 +24,10 @@ impl WrappedAxumBodyStream {
     pub fn empty() -> Self {
         Self::new(Body::empty())
     }
+
+    pub fn from_bytes_stream<S: BytesStream + 'static>(stream: S) -> Self {
+        Self::new(axum::body::Body::from_stream(stream))
+    }
 }
 
 impl Stream for WrappedAxumBodyStream {
@@ -36,22 +39,6 @@ impl Stream for WrappedAxumBodyStream {
     }
 }
 
-// Note that it is possible (although unlikely) that `from_body` panics.
-#[cfg(any(test, feature = "test-fixture"))]
-impl<Buf: Into<bytes::Bytes>> From<Buf> for WrappedAxumBodyStream {
-    fn from(buf: Buf) -> Self {
-        Self::new(Body::from(buf.into()))
-    }
-}
-
-impl WrappedAxumBodyStream {
-    #[must_use]
-    pub fn from_receiver_stream(receiver: Box<ReceiverStream<Result<Bytes, BoxError>>>) -> Self {
-        Self::new(Body::from_stream(receiver))
-    }
-}
-
-#[cfg(feature = "real-world-infra")]
 #[async_trait::async_trait]
 impl<S> axum::extract::FromRequest<S> for WrappedAxumBodyStream
 where
