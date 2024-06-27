@@ -55,7 +55,6 @@ impl Default for TestConfig {
 fn get_dummy_matchkey_encryption_info(matchkey_encryption: bool) -> Option<HpkeServerConfig> {
     if matchkey_encryption {
         Some(HpkeServerConfig::Inline {
-            public_key: TEST_HPKE_PUBLIC_KEY.to_owned(),
             private_key: TEST_HPKE_PRIVATE_KEY.to_owned(),
         })
     } else {

@@ -9,7 +9,7 @@ use crate::{
         ApiError, BodyStream, HandlerBox, HandlerRef, HelperIdentity, HelperResponse,
         MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport,
     },
-    hpke::{KeyPair, KeyRegistry},
+    hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
     query::{NewQueryError, QueryProcessor, QueryStatus},
     sync::Arc,
@@ -39,11 +39,11 @@ struct Inner {
 impl Setup {
     #[must_use]
     pub fn new() -> (Self, HandlerRef) {
-        Self::with_key_registry(KeyRegistry::empty())
+        Self::with_key_registry(KeyRegistry::<PrivateKeyOnly>::empty())
     }
 
     #[must_use]
-    pub fn with_key_registry(key_registry: KeyRegistry<KeyPair>) -> (Self, HandlerRef) {
+    pub fn with_key_registry(key_registry: KeyRegistry<PrivateKeyOnly>) -> (Self, HandlerRef) {
         let query_processor = QueryProcessor::new(key_registry);
         let handler = HandlerBox::empty();
         let this = Self {
