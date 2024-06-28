@@ -13,8 +13,8 @@ use crate::{
 /// 1. Double the input precision and repeat the most significant bit in the extra bits (Sign extension)
 /// 2. Repeatedly multiply x with each digits of y, shift the result 1 digit up each time
 /// 3. Add up the partial products using integer_add
-/// y is assumed to be a positive number
-/// x is assumed to be in two's complement and can be either signed or unsigned
+/// x is assumed to be a positive number
+/// y is assumed to be in two's complement and can be either signed or unsigned
 #[allow(dead_code)]
 pub async fn integer_mul<C, S, const N: usize>(
     ctx: C,
@@ -29,27 +29,32 @@ where
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let new_len = x.len() + y.len();
-    let mut y = y.clone();
-    y.resize(new_len, AdditiveShare::ZERO);
     let mut x = x.clone();
-    x.resize(new_len, x[x.len() - 1].clone());
+    x.resize(new_len, AdditiveShare::ZERO);
+    let mut y = y.clone();
+    y.resize(new_len, y[y.len() - 1].clone());
 
     let mut result = BitDecomposed::with_capacity(new_len);
-    for (i, xb) in x.into_iter().enumerate() {
+    for (i, yb) in y.into_iter().enumerate() {
         let mut t = BitDecomposed::with_capacity(new_len);
         t.resize(i, AdditiveShare::ZERO);
-        let ctx_for_bit_of_x = ctx.narrow(&S::from(i));
-        for (j, yb) in y.iter().take(new_len - i).enumerate() {
-            let ctx_for_x_times_y_combo = ctx_for_bit_of_x.narrow(&S::from(j));
+        // TODO fix the context with proper steps
+        let ctx_for_bit_of_y = ctx.narrow(&S::from(i));
+        for (j, xb) in x.iter().take(new_len - i).enumerate() {
+            let ctx_for_x_times_y_combo = ctx_for_bit_of_y.narrow(&S::from(j));
 
-            let m = xb.multiply(yb, ctx_for_x_times_y_combo, record_id).await?;
+            let m = yb.multiply(xb, ctx_for_x_times_y_combo, record_id).await?;
             t.push(m);
         }
+
+        // TODO : Optimisation - make this run in paralel:
+        // - calculate all the partial products store it in a matrix
+        // - sum it all up in paralel
         if i == 0 {
             result = t;
         } else {
             let (new_result, _) = integer_add::<_, S, N>(
-                ctx_for_bit_of_x.narrow("add_partial_products"),
+                ctx_for_bit_of_y.narrow("add_partial_products"),
                 record_id,
                 &t,
                 &result,
@@ -127,8 +132,8 @@ mod test {
                         let result = integer_mul::<_, DefaultBitStep, 256>(
                             ctx.set_total_records(1),
                             RecordId::FIRST,
-                            &vectorized_y_inputs,
                             &vectorized_x_inputs,
+                            &vectorized_y_inputs,
                         )
                         .await
                         .unwrap();
