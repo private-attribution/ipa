@@ -7,7 +7,7 @@ use futures_util::{stream, StreamExt};
 use crate::{
     error::{Error, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::TotalRecords,
+    helpers::{query::DpParams, TotalRecords},
     protocol::{
         boolean::step::SixteenBitStep,
         context::Context,
@@ -21,6 +21,36 @@ use crate::{
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
 };
+
+/// Struct to hold noise parameters, contains internal values not received from the client
+pub struct NoiseParams {
+    pub epsilon: f64,
+    pub delta: f64,
+    pub per_user_credit_cap: f64,
+    pub success_prob: f64,
+    pub dimensions: f64,
+    pub quantization_scale: f64,
+    pub ell_1_sensitivity: f64,
+    pub ell_2_sensitivity: f64,
+    pub ell_infty_sensitivity: f64,
+}
+
+impl Default for NoiseParams {
+    fn default() -> Self {
+        Self {
+            epsilon: 5.0,
+            delta: 1e-6,
+            per_user_credit_cap: 1.0,
+            success_prob: 0.5,
+            dimensions: 1.0,
+            quantization_scale: 1.0,
+            ell_1_sensitivity: 1.0,
+            ell_2_sensitivity: 1.0,
+            ell_infty_sensitivity: 1.0,
+        }
+    }
+}
+
 /// # Panics
 /// Will panic if there are not enough bits in the outputs size for the noise gen sum. We can't have the noise sum saturate
 /// as that would be insecure noise.
@@ -45,7 +75,7 @@ where
     // add an assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
     assert!(
         num_bernoulli.ilog2() < OV::BITS,
-        "not enough bits in output size for noise gen sum"
+        "not enough bits in output size for noise gen sum; num_bernoulli = {num_bernoulli}"
     );
     let bits = 1;
     let mut vector_input_to_agg: Vec<_> = vec![];
@@ -65,7 +95,7 @@ where
 /// and the vector of values to have noise added to.
 /// It calls `gen_binomial_noise` to create the noise in MPC and applies it
 /// # Panics
-/// asserts that `num_histogram_bins` matches what we are using for vectorization, B.
+/// asserts in `gen_binomial_noise` may panic
 /// # Errors
 /// Result error case could come from transpose
 pub async fn apply_dp_noise<C, const B: usize, OV>(
@@ -98,9 +128,59 @@ where
     )
     .await
     .unwrap();
+
     // Step 5 Transpose output representation
     Ok(Vec::transposed_from(&histogram_noised)?)
 }
+
+// dp_for_aggregation is currently where the DP parameters epsilon, delta
+// are introduced and then from those the parameters of the noise distribution to generate are
+// calculated for use in aggregating histograms.  The DP parameters query_epsilon and
+// per_user_credit_cap come as inputs to the query with per_user_sensitivity_cap = 2^{SS_BITS}
+/// # Errors
+/// will propogate errors from `apply_dp_noise`
+/// # Panics
+/// may panic from asserts down in  `gen_binomial_noise`
+/// may panic if running with DP noise but epsilon is not in the range (0,10].
+pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
+    ctx: C,
+    histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
+    dp_params: DpParams,
+) -> Result<Vec<Replicated<OV>>, Error>
+where
+    C: Context,
+    Boolean: Vectorizable<B> + FieldSimd<B>,
+    BitDecomposed<Replicated<Boolean, B>>: FromPrss<usize>,
+    OV: BooleanArray + U128Conversions,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
+    Vec<Replicated<OV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+{
+    match dp_params {
+        DpParams::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
+        DpParams::WithDp { epsilon } => {
+            assert!(epsilon > 0.0 && epsilon <= 20.0);
+            let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
+            let noise_params = NoiseParams {
+                epsilon,
+                per_user_credit_cap,
+                ell_1_sensitivity: per_user_credit_cap,
+                ell_2_sensitivity: per_user_credit_cap,
+                ell_infty_sensitivity: per_user_credit_cap,
+                ..Default::default()
+            };
+
+            let num_bernoulli = find_smallest_num_bernoulli(&noise_params);
+            let noisy_histogram =
+                apply_dp_noise::<C, B, OV>(ctx, histogram_bin_values, num_bernoulli)
+                    .await
+                    .unwrap();
+
+            Ok(noisy_histogram)
+        }
+    }
+}
+
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559
 // which lets us determine the minimum necessary num_bernoulli for a given epsilon, delta
 // and other parameters
@@ -134,75 +214,61 @@ fn d_p(success_prob: f64) -> f64 {
 /// equation (7)
 #[allow(clippy::too_many_arguments)]
 #[allow(dead_code)]
-fn epsilon_constraint(
-    num_bernoulli: u32,
-    success_prob: f64,
-    delta: f64,
-    quantization_scale: f64,
-    dimensions: f64,
-    ell_1_sensitivity: f64,
-    ell_2_sensitivity: f64,
-    ell_infty_sensitivity: f64,
-) -> f64 {
+fn epsilon_constraint(num_bernoulli: u32, noise_params: &NoiseParams) -> f64 {
     let num_bernoulli_f64 = f64::from(num_bernoulli);
-    let first_term_num = ell_2_sensitivity * (2.0 * (1.25 / delta).ln()).sqrt();
-    let first_term_den =
-        quantization_scale * (num_bernoulli_f64 * success_prob * (1.0 - success_prob)).sqrt();
-    let second_term_num = ell_2_sensitivity * c_p(success_prob) * ((10.0 / delta).ln()).sqrt()
-        + ell_1_sensitivity * b_p(success_prob);
-    let second_term_den = quantization_scale
+    let first_term_num =
+        noise_params.ell_2_sensitivity * (2.0 * (1.25 / noise_params.delta).ln()).sqrt();
+    let first_term_den = noise_params.quantization_scale
+        * (num_bernoulli_f64 * noise_params.success_prob * (1.0 - noise_params.success_prob))
+            .sqrt();
+    let second_term_num = noise_params.ell_2_sensitivity
+        * c_p(noise_params.success_prob)
+        * ((10.0 / noise_params.delta).ln()).sqrt()
+        + noise_params.ell_1_sensitivity * b_p(noise_params.success_prob);
+    let second_term_den = noise_params.quantization_scale
         * num_bernoulli_f64
-        * success_prob
-        * (1.0 - success_prob)
-        * (1.0 - delta / 10.0);
-    let third_term_num = (2.0 / 3.0) * ell_infty_sensitivity * (1.25 / delta).ln()
-        + ell_infty_sensitivity
-            * d_p(success_prob)
-            * (20.0 * dimensions / delta).ln()
-            * (10.0 / delta).ln();
-    let third_term_den =
-        quantization_scale * num_bernoulli_f64 * success_prob * (1.0 - success_prob);
+        * noise_params.success_prob
+        * (1.0 - noise_params.success_prob)
+        * (1.0 - noise_params.delta / 10.0);
+    let third_term_num =
+        (2.0 / 3.0) * noise_params.ell_infty_sensitivity * (1.25 / noise_params.delta).ln()
+            + noise_params.ell_infty_sensitivity
+                * d_p(noise_params.success_prob)
+                * (20.0 * noise_params.dimensions / noise_params.delta).ln()
+                * (10.0 / noise_params.delta).ln();
+    let third_term_den = noise_params.quantization_scale
+        * num_bernoulli_f64
+        * noise_params.success_prob
+        * (1.0 - noise_params.success_prob);
     first_term_num / first_term_den
         + second_term_num / second_term_den
         + third_term_num / third_term_den
 }
 /// constraint from delta in Thm 1
 #[allow(dead_code)]
-fn delta_constraint(
-    num_bernoulli: u32,
-    success_prob: f64,
-    dimensions: f64,
-    quantization_scale: f64,
-    delta: f64,
-    ell_infty_sensitivity: f64,
-) -> bool {
-    let lhs = f64::from(num_bernoulli) * success_prob * (1.0 - success_prob);
-    let rhs = (23.0 * (10.0 * dimensions / delta).ln())
-        .max(2.0 * ell_infty_sensitivity / quantization_scale);
+fn delta_constraint(num_bernoulli: u32, noise_params: &NoiseParams) -> bool {
+    let lhs =
+        f64::from(num_bernoulli) * noise_params.success_prob * (1.0 - noise_params.success_prob);
+    let rhs = (23.0 * (10.0 * noise_params.dimensions / noise_params.delta).ln())
+        .max(2.0 * noise_params.ell_infty_sensitivity / noise_params.quantization_scale);
     lhs >= rhs
 }
 /// error of mechanism in Thm 1
 #[allow(dead_code)]
-fn error(num_bernoulli: u32, success_prob: f64, dimensions: f64, quantization_scale: f64) -> f64 {
-    dimensions
-        * quantization_scale.powi(2)
+fn error(num_bernoulli: u32, noise_params: &NoiseParams) -> f64 {
+    noise_params.dimensions
+        * noise_params.quantization_scale.powi(2)
         * f64::from(num_bernoulli)
-        * success_prob
-        * (1.0 - success_prob)
+        * noise_params.success_prob
+        * (1.0 - noise_params.success_prob)
 }
 /// for fixed p (and other params), find smallest `num_bernoulli` such that `epsilon < desired_epsilon`
+/// # Panics
+/// will panic if can't find smallest `num_bernoulli` less than 10M.
 #[allow(clippy::too_many_arguments)]
 #[allow(dead_code)]
-fn find_smallest_num_bernoulli(
-    desired_epsilon: f64,
-    success_prob: f64,
-    delta: f64,
-    dimensions: f64,
-    quantization_scale: f64,
-    ell_1_sensitivity: f64,
-    ell_2_sensitivity: f64,
-    ell_infty_sensitivity: f64,
-) -> u32 {
+#[must_use]
+pub fn find_smallest_num_bernoulli(noise_params: &NoiseParams) -> u32 {
     let mut index = 0; // candidate to be smallest `num_beroulli`
     let mut lower: u32 = 1;
     let mut higher: u32 = 10_000_000;
@@ -211,24 +277,8 @@ fn find_smallest_num_bernoulli(
     // https://medium.com/@berkkantkoc/a-handy-binary-search-template-that-will-save-you-6b36b7b06b8b
     while lower <= higher {
         let mid: u32 = (higher - lower) / 2 + lower;
-        if delta_constraint(
-            mid,
-            success_prob,
-            dimensions,
-            quantization_scale,
-            delta,
-            ell_infty_sensitivity,
-        ) && desired_epsilon
-            >= epsilon_constraint(
-                mid,
-                success_prob,
-                delta,
-                quantization_scale,
-                dimensions,
-                ell_1_sensitivity,
-                ell_2_sensitivity,
-                ell_infty_sensitivity,
-            )
+        if delta_constraint(mid, noise_params)
+            && noise_params.epsilon >= epsilon_constraint(mid, noise_params)
         {
             index = mid;
             higher = mid - 1;
@@ -245,99 +295,59 @@ mod test {
         ff::{boolean::Boolean, boolean_array::BA16, U128Conversions},
         protocol::dp::{
             apply_dp_noise, delta_constraint, epsilon_constraint, error,
-            find_smallest_num_bernoulli, gen_binomial_noise,
+            find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
         },
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+
     #[test]
     fn test_epsilon_simple_aggregation_case() {
-        let delta = 1e-6;
-        let dimensions = 1.0;
-        let quantization_scale = 1.0;
-        let success_prob = 0.5;
-        let ell_1_sensitivity = 1.0;
-        let ell_2_sensitivity = 1.0;
-        let ell_infty_sensitivity = 1.0;
+        let noise_params = NoiseParams {
+            delta: 1e-6,
+            dimensions: 1.0,
+            quantization_scale: 1.0,
+            success_prob: 0.5,
+            ell_1_sensitivity: 1.0,
+            ell_2_sensitivity: 1.0,
+            ell_infty_sensitivity: 1.0,
+            ..Default::default()
+        };
         let num_bernoulli = 2000;
-        assert!(delta_constraint(
-            num_bernoulli,
-            success_prob,
-            dimensions,
-            quantization_scale,
-            delta,
-            ell_infty_sensitivity
-        ));
-        let eps = epsilon_constraint(
-            num_bernoulli,
-            success_prob,
-            delta,
-            quantization_scale,
-            dimensions,
-            ell_1_sensitivity,
-            ell_2_sensitivity,
-            ell_infty_sensitivity,
-        );
+        assert!(delta_constraint(num_bernoulli, &noise_params));
+        let eps = epsilon_constraint(num_bernoulli, &noise_params);
         assert!(eps > 0.6375 && eps < 0.6376, "eps = {eps}");
     }
     #[test]
     fn test_num_bernoulli_simple_aggregation_case() {
         // test with success_prob = 1/2
-        let mut success_prob = 0.5;
-        let desired_epsilon = 1.0;
-        let delta = 1e-6;
-        let dimensions = 1.0;
-        let quantization_scale = 1.0;
-        let ell_1_sensitivity = 1.0;
-        let ell_2_sensitivity = 1.0;
-        let ell_infty_sensitivity = 1.0;
-        let mut smallest_num_bernoulli = find_smallest_num_bernoulli(
-            desired_epsilon,
-            success_prob,
-            delta,
-            dimensions,
-            quantization_scale,
-            ell_1_sensitivity,
-            ell_2_sensitivity,
-            ell_infty_sensitivity,
-        );
-        let err = error(
-            smallest_num_bernoulli,
-            success_prob,
-            dimensions,
-            quantization_scale,
-        );
+        let mut noise_params = NoiseParams {
+            success_prob: 0.5,
+            epsilon: 1.0,
+            delta: 1e-6,
+            dimensions: 1.0,
+            quantization_scale: 1.0,
+            ell_1_sensitivity: 1.0,
+            ell_2_sensitivity: 1.0,
+            ell_infty_sensitivity: 1.0,
+            ..Default::default()
+        };
+
+        let mut smallest_num_bernoulli = find_smallest_num_bernoulli(&noise_params);
+        let err = error(smallest_num_bernoulli, &noise_params);
         assert_eq!(smallest_num_bernoulli, 1483_u32);
         assert!(err <= 370.75 && err > 370.7);
 
         // test with success_prob = 1/4
-        success_prob = 0.25;
-        smallest_num_bernoulli = find_smallest_num_bernoulli(
-            desired_epsilon,
-            success_prob,
-            delta,
-            dimensions,
-            quantization_scale,
-            ell_1_sensitivity,
-            ell_2_sensitivity,
-            ell_infty_sensitivity,
-        );
+        noise_params.success_prob = 0.25;
+        smallest_num_bernoulli = find_smallest_num_bernoulli(&noise_params);
         assert_eq!(smallest_num_bernoulli, 1978_u32);
 
         // test with success_prob = 3/4
-        success_prob = 0.75;
-        smallest_num_bernoulli = find_smallest_num_bernoulli(
-            desired_epsilon,
-            success_prob,
-            delta,
-            dimensions,
-            quantization_scale,
-            ell_1_sensitivity,
-            ell_2_sensitivity,
-            ell_infty_sensitivity,
-        );
+        noise_params.success_prob = 0.75;
+        smallest_num_bernoulli = find_smallest_num_bernoulli(&noise_params);
         assert_eq!(smallest_num_bernoulli, 1978_u32);
     }
     // Tests for apply_dp_noise
@@ -390,14 +400,14 @@ mod test {
             values.map(|v| Boolean::from((v >> i) & 1 == 1))
         })
     }
-    // Tests for gen_bernoulli_noise
+    // Tests for gen_binomial_noise
     #[tokio::test]
-    pub async fn test_16_breakdowns() {
+    pub async fn gen_binomial_noise_16_breakdowns() {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 16;
         let num_bernoulli: u32 = 10000;
         let world = TestWorld::default();
-        let result = world
+        let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
@@ -410,8 +420,7 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_reconstructed: Vec<OutputValue> = result.reconstruct();
         let result_u32: Vec<u32> = result_reconstructed
             .iter()
             .map(|&v| u32::try_from(v.as_u128()).unwrap())
@@ -428,12 +437,12 @@ mod test {
         println!("result as u32 {result_u32:?}");
     }
     #[tokio::test]
-    pub async fn test_32_breakdowns() {
+    pub async fn gen_binomial_noise_32_breakdowns() {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 32;
         let num_bernoulli: u32 = 2000;
         let world = TestWorld::default();
-        let result = world
+        let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
@@ -446,8 +455,7 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_reconstructed: Vec<OutputValue> = result.reconstruct();
         let result_u32: Vec<u32> = result_reconstructed
             .iter()
             .map(|&v| u32::try_from(v.as_u128()).unwrap())
@@ -464,12 +472,12 @@ mod test {
         println!("result as u32 {result_u32:?}");
     }
     #[tokio::test]
-    pub async fn test_256_breakdowns() {
+    pub async fn gen_binomial_noise_256_breakdowns() {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 256;
         let num_bernoulli: u32 = 1000;
         let world = TestWorld::default();
-        let result = world
+        let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
@@ -482,8 +490,7 @@ mod test {
             })
             .await
             .map(Result::unwrap);
-        let result_type_confirm: [Vec<Replicated<OutputValue>>; 3] = result;
-        let result_reconstructed: Vec<OutputValue> = result_type_confirm.reconstruct();
+        let result_reconstructed: Vec<OutputValue> = result.reconstruct();
         let result_u32: Vec<u32> = result_reconstructed
             .iter()
             .map(|&v| u32::try_from(v.as_u128()).unwrap())

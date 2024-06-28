@@ -1,9 +1,10 @@
 use std::{
     fmt::{Debug, Display, Formatter},
-    num::NonZeroU32,
+    num::{NonZeroU32, ParseFloatError},
+    str::FromStr,
 };
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     ff::FieldType,
@@ -198,7 +199,8 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
@@ -226,8 +228,77 @@ impl AsRef<str> for QueryType {
         }
     }
 }
+#[cfg(test)]
+impl PartialEq for IpaQueryConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.per_user_credit_cap == other.per_user_credit_cap
+            && self.max_breakdown_key == other.max_breakdown_key
+            && self.attribution_window_seconds == other.attribution_window_seconds
+            && self.num_multi_bits == other.num_multi_bits
+            && self.with_dp == other.with_dp
+            && self.epsilon == other.epsilon
+            && self.plaintext_match_keys == other.plaintext_match_keys
+    }
+}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum DpParams {
+    NoDp,
+    WithDp { epsilon: f64 },
+}
+
+impl FromStr for DpParams {
+    type Err = ParseFloatError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "NoDp" {
+            Ok(DpParams::NoDp)
+        } else {
+            let parts: Vec<&str> = s.splitn(2, '=').collect();
+            if parts.len() == 2 && parts[0] == "WithDp" {
+                match parts[1].parse::<f64>() {
+                    Ok(epsilon) => Ok(DpParams::WithDp { epsilon }),
+                    Err(e) => Err(e),
+                }
+            } else {
+                Err(s.parse::<f64>().unwrap_err())
+            }
+        }
+    }
+}
+
+impl Display for DpParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DpParams::NoDp => write!(f, "NoDp"),
+            DpParams::WithDp { epsilon } => write!(f, "WithDp={epsilon}"),
+        }
+    }
+}
+
+impl Serialize for DpParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for DpParams {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        <DpParams as FromStr>::from_str(s)
+            .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
+    }
+}
+
+#[cfg(test)]
+impl Eq for DpParams {}
+
+#[cfg(test)]
+impl Eq for IpaQueryConfig {}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]
@@ -238,6 +309,10 @@ pub struct IpaQueryConfig {
     pub attribution_window_seconds: Option<NonZeroU32>,
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
+    #[arg(short = 'd', long, default_value = "1")]
+    pub with_dp: u32,
+    #[arg(short = 'e', long, default_value = "1.0")]
+    pub epsilon: f64,
 
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
     /// shares from input reports directly. Setting this to true also activates an alternate
@@ -255,6 +330,8 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
+            with_dp: 1,
+            epsilon: 3.0,
             plaintext_match_keys: false,
         }
     }
@@ -269,6 +346,8 @@ impl IpaQueryConfig {
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
         num_multi_bits: u32,
+        with_dp: u32,
+        epsilon: f64,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -278,6 +357,9 @@ impl IpaQueryConfig {
                     .expect("attribution window must be a positive value > 0"),
             ),
             num_multi_bits,
+            with_dp,
+            epsilon,
+            // dp_params,
             plaintext_match_keys: false,
         }
     }
@@ -291,12 +373,16 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         num_multi_bits: u32,
+        with_dp: u32,
+        epsilon: f64,
     ) -> Self {
         Self {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds: None,
             num_multi_bits,
+            with_dp,
+            epsilon,
             plaintext_match_keys: false,
         }
     }
