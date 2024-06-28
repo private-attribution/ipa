@@ -10,7 +10,7 @@ use crate::{
         Direction, TotalRecords,
     },
     protocol::{
-        context::{step::DZKPValidationStep as Step, Context},
+        context::{step::ZeroKnowledgeProofValidateStep as Step, Context},
         ipa_prf::{
             malicious_security::{
                 prover::{LargeProofGenerator, SmallProofGenerator},

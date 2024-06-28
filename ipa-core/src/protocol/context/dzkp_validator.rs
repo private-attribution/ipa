@@ -14,7 +14,7 @@ use crate::{
             dzkp_field::{DZKPBaseField, UVTupleBlock},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
-            step::DZKPValidationStep as Step,
+            step::ZeroKnowledgeProofValidateStep as Step,
             Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
         },
         ipa_prf::validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
