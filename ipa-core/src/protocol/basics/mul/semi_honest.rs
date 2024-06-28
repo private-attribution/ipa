@@ -73,24 +73,24 @@ where
 {
     let role = ctx.role();
 
-    // Compute the value (d_i) we want to send to the right helper (i+1).
-    let right_d =
-        a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - prss_left;
+    // Compute the value z_i we want to send to the left helper, i.e. (i-1).
+    let z_left = a.left_arr().clone() * b.left_arr()
+        + a.left_arr().clone() * b.right_arr()
+        + a.right_arr().clone() * b.left_arr()
+        + prss_left
+        - prss_right;
 
-    ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
-        .send(record_id, &right_d)
+    ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Left))
+        .send(record_id, &z_left)
         .await?;
 
-    let rhs = a.right_arr().clone() * b.right_arr() + right_d + prss_right;
-
-    // Sleep until helper on the left sends us their (d_i-1) value.
-    let left_d: <F as Vectorizable<N>>::Array = ctx
-        .recv_channel(role.peer(Direction::Left))
+    // Sleep until helper on the left sends us their (z_i+1) value.
+    let z_right: <F as Vectorizable<N>>::Array = ctx
+        .recv_channel(role.peer(Direction::Right))
         .receive(record_id)
         .await?;
-    let lhs = a.left_arr().clone() * b.left_arr() + left_d + prss_left;
 
-    Ok(Replicated::new_arr(lhs, rhs))
+    Ok(Replicated::new_arr(z_left, z_right))
 }
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.

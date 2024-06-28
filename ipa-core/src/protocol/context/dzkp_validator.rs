@@ -998,9 +998,9 @@ mod tests {
         // vector for unchecked elements
         // i.e. these are used to fill the segments of the verifier and prover that are not part
         // of this povers proof
-        let vec_z_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
         let vec_x_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
         let vec_y_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_z_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
         let vec_prss_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
         let vec_z_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
 
@@ -1114,6 +1114,7 @@ mod tests {
             );
 
             // check correctness of batch
+            assert_batch(&batch_prover, &batch_left, &batch_right);
             assert_batch_convert(&batch_prover, &batch_left, &batch_right);
         }
     }
@@ -1134,6 +1135,29 @@ mod tests {
             .for_each(|((prover, verifier_left), verifier_right)| {
                 assert_eq!(prover.0, verifier_left);
                 assert_eq!(prover.1, verifier_right);
+            });
+    }
+
+    fn assert_batch(batch_prover: &Batch, batch_left: &Batch, batch_right: &Batch) {
+        batch_prover
+            .inner
+            .values()
+            .flat_map(|x| x.vec.iter())
+            .zip(batch_left.inner.values().flat_map(|x| x.vec.iter()))
+            .zip(batch_right.inner.values().flat_map(|x| x.vec.iter()))
+            .for_each(|((prover, verifier_left), verifier_right)| {
+                assert_eq!(prover.x_left, verifier_left.x_right, "x_left");
+                assert_eq!(prover.x_right, verifier_right.x_left, "x_right");
+                assert_eq!(prover.y_left, verifier_left.y_right, "y_left");
+                assert_eq!(prover.y_right, verifier_right.y_left, "y_right");
+                assert_eq!(prover.prss_left, verifier_left.prss_right, "prss_left");
+                assert_eq!(prover.prss_right, verifier_right.prss_left, "x_right");
+                let z_left = prover.x_left & prover.y_left
+                    ^ prover.x_right & prover.y_left
+                    ^ prover.x_left & prover.y_right
+                    ^ prover.prss_left
+                    ^ prover.prss_right;
+                assert_eq!(verifier_left.z_right, z_left, "z_left");
             });
     }
 
@@ -1167,12 +1191,15 @@ mod tests {
             .await;
 
         // H1
+        assert_batch(&h1_batch, &h3_batch, &h2_batch);
         assert_batch_convert(&h1_batch, &h3_batch, &h2_batch);
 
         // H2
+        assert_batch(&h2_batch, &h1_batch, &h3_batch);
         assert_batch_convert(&h2_batch, &h1_batch, &h3_batch);
 
         // H3
+        assert_batch(&h3_batch, &h2_batch, &h1_batch);
         assert_batch_convert(&h3_batch, &h2_batch, &h1_batch);
     }
 

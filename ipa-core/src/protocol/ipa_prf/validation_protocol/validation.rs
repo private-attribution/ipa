@@ -269,13 +269,6 @@ impl BatchToVerify {
 
         let (_, diff_right_from_other_verifier) = try_join(send_future, receive_future).await?;
 
-        debug_assert_eq!(
-            (0..length)
-                .map(|i| diff_right[i] + diff_right_from_other_verifier[i])
-                .collect::<Vec<Fp61BitPrime>>(),
-            vec![Fp61BitPrime::ZERO; length]
-        );
-
         // compare recombined dif to zero
         for i in 0..length {
             if diff_right[i] + diff_right_from_other_verifier[i] != Fp61BitPrime::ZERO {
