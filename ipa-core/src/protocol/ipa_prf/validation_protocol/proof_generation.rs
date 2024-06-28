@@ -41,6 +41,8 @@ impl FromIterator<Fp61BitPrime> for ProofBatch {
 
 impl ProofBatch {
     /// This function returns the length in field elements.
+    #[allow(clippy::len_without_is_empty)]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.proofs.len() * SmallProofGenerator::PROOF_LENGTH + LargeProofGenerator::PROOF_LENGTH
     }
@@ -60,6 +62,10 @@ impl ProofBatch {
     /// These values will be needed at verification time.
     /// The function outputs `my_proofs_left_shares`, `shares_of_proofs_from_prover_left`,
     /// `p_mask_from_right_prover`, `q_mask_from_left_prover`
+    ///
+    /// ## Panics
+    /// Panics when the function fails to set the masks without overwritting `u` and `v` values.
+    /// This only happens when there is an issue in the recursion.
     pub fn generate<C, I>(ctx: &C, uv_tuple_inputs: I) -> (Self, Self, Fp61BitPrime, Fp61BitPrime)
     where
         C: Context,
@@ -72,7 +78,7 @@ impl ProofBatch {
         const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
 
         // set up record counter
-        let mut record_counter = RecordId::from(0);
+        let mut record_counter = RecordId::FIRST;
 
         // precomputation for first proof
         let first_denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, LRF>::new();
@@ -147,6 +153,9 @@ impl ProofBatch {
     }
 
     /// This function sends a `Proof` to the party on the left
+    ///
+    /// ## Errors
+    /// Propagates error from sending values over the network channel.
     pub async fn send_to_left<C>(&self, ctx: &C) -> Result<(), Error>
     where
         C: Context,
@@ -171,6 +180,9 @@ impl ProofBatch {
     }
 
     /// This function receives a `Proof` from the party on the right.
+    ///
+    /// ## Errors
+    /// Propagates errors from receiving values over the network channel.
     pub async fn receive_from_right<C>(ctx: &C, length: usize) -> Result<Self, Error>
     where
         C: Context,
@@ -197,7 +209,7 @@ impl ProofBatch {
     /// which consists of arrays of size `BLOCK_SIZE`
     /// into an iterator over arrays of size `LargeProofGenerator::RECURSION_FACTOR`.
     ///
-    /// ## Panic
+    /// ## Panics
     /// Panics when `unwrap` panics, i.e. `try_from` fails to convert a slice to an array.
     pub fn polynomials_from_inputs<I>(
         inputs: I,

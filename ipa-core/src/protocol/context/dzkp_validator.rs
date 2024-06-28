@@ -17,7 +17,7 @@ use crate::{
             step::DZKPValidationStep as Step,
             Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
         },
-        ipa_prf::validation_protocol::validation::BatchToVerify,
+        ipa_prf::validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
         Gate, RecordId,
     },
     seq_join::{seq_join, SeqJoin},
@@ -110,7 +110,6 @@ impl MultiplicationInputsBlock {
 
     /// `convert_values_from_right_prover` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the left.
-    #[cfg(all(test, unit_test))]
     fn convert_values_from_right_prover<DF: DZKPBaseField>(&self) -> Vec<DF> {
         DF::convert_value_from_right_prover(
             &self.x_right,
@@ -122,7 +121,6 @@ impl MultiplicationInputsBlock {
 
     /// `convert_values_from_left_prover` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the right.
-    #[cfg(all(test, unit_test))]
     fn convert_values_from_left_prover<DF: DZKPBaseField>(&self) -> Vec<DF> {
         DF::convert_value_from_left_prover(&self.x_left, &self.y_left, &self.prss_left)
     }
@@ -416,7 +414,6 @@ impl MultiplicationInputsBatch {
 
     /// `get_field_values_from_right_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
     /// values used by the verifier of the DZKPs on the left side of the prover, i.e. the `u` values.
-    #[cfg(all(test, unit_test))]
     fn get_field_values_from_right_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = DF> + '_ {
@@ -427,7 +424,6 @@ impl MultiplicationInputsBatch {
 
     /// `get_field_values_from_left_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
     /// values used by the verifier of the DZKPs on the right side of the prover, i.e. the `v` values.
-    #[cfg(all(test, unit_test))]
     fn get_field_values_from_left_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = DF> + '_ {
@@ -504,7 +500,6 @@ impl Batch {
     /// `get_field_values_from_right_prover` converts a `Batch` into an iterator over field values
     /// which is used by the verifier of the DZKP on the left side of the prover.
     /// This produces the `u` values.
-    #[cfg(all(test, unit_test))]
     fn get_field_values_from_right_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = DF> + '_ {
@@ -516,7 +511,6 @@ impl Batch {
     /// `get_field_values_from_left_prover` converts a `Batch` into an iterator over field values
     /// which is used by the verifier of the DZKP on the right side of the prover.
     /// This produces the `v` values.
-    #[cfg(all(test, unit_test))]
     fn get_field_values_from_left_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = DF> + '_ {
@@ -669,15 +663,60 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     /// or when `usize` to `u128` conversion fails.
     async fn validate_chunk(&self, context_counter: usize) -> Result<(), Error> {
         assert!(context_counter <= 256);
-        // LOCK BEGIN
-        let mut batch = self.batch_ref.lock().unwrap();
-        if batch.is_empty() {
-            Ok(())
-        } else {
-            // set up context for this chunk
-            let chunk_ctx = self
-                .validate_ctx
-                .narrow(&Step::ValidationChunk(context_counter));
+
+        // set up context for this chunk
+        let chunk_ctx = self
+            .validate_ctx
+            .narrow(&Step::ValidationChunk(context_counter));
+        let proof_ctx = chunk_ctx.narrow(&Step::GenerateProof);
+
+        let (
+            my_batch_left_shares,
+            shares_of_batch_from_left_prover,
+            p_mask_from_right_prover,
+            q_mask_from_left_prover,
+        ) = {
+            // LOCK BEGIN
+            let batch = self.batch_ref.lock().unwrap();
+            if batch.is_empty() {
+                return Ok(());
+            }
+
+            // generate BatchToVerify
+            let (
+                my_batch_left_shares,
+                shares_of_batch_from_left_prover,
+                p_mask_from_right_prover,
+                q_mask_from_left_prover,
+            ) = ProofBatch::generate(&proof_ctx, batch.get_field_values_prover());
+
+            (
+                my_batch_left_shares,
+                shares_of_batch_from_left_prover,
+                p_mask_from_right_prover,
+                q_mask_from_left_prover,
+            )
+            // LOCK END
+        };
+
+        let chunk_batch = BatchToVerify::generate_batch_to_verify(
+            proof_ctx,
+            my_batch_left_shares,
+            shares_of_batch_from_left_prover,
+            p_mask_from_right_prover,
+            q_mask_from_left_prover,
+        )
+        .await;
+
+        // generate challenges
+        let (challenges_for_left_prover, challenges_for_right_prover) = chunk_batch
+            .generate_challenges(chunk_ctx.narrow(&Step::Challenge))
+            .await;
+
+        let (sum_of_uv, p_r_right_prover, q_r_left_prover) = {
+            // LOCK BEGIN
+            let mut batch = self.batch_ref.lock().unwrap();
+
             // get number of multiplications
             let m = batch.get_number_of_multiplications();
             debug_assert_eq!(
@@ -703,28 +742,31 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
                     .sum::<Fp61BitPrime>(),
                 "Number of multiplications counted correctly but do not sum up correctly"
             );
-            // generate BatchToVerify
-            let chunk_batch = BatchToVerify::generate_batch_to_verify(
-                chunk_ctx.narrow(&Step::GenerateProof),
-                batch.get_field_values_prover(),
-            )
-            .await;
 
-            // verify BatchToVerify
-            chunk_batch
-                .verify(
-                    chunk_ctx.narrow(&Step::VerifyProof),
-                    sum_of_uv,
-                    batch.get_field_values_from_right_prover(),
-                    batch.get_field_values_from_left_prover(),
-                )
-                .await?;
-
+            let (p_r_right_prover, q_r_left_prover) = chunk_batch.compute_p_and_q_r(
+                &challenges_for_left_prover,
+                &challenges_for_right_prover,
+                batch.get_field_values_from_right_prover(),
+                batch.get_field_values_from_left_prover(),
+            );
             // update which empties batch_list and increments offsets to next chunk
             batch.increment_record_ids();
-            Ok(())
-        }
-        // LOCK END
+
+            (sum_of_uv, p_r_right_prover, q_r_left_prover)
+            // LOCK END
+        };
+
+        // verify BatchToVerify, return result
+        chunk_batch
+            .verify(
+                chunk_ctx.narrow(&Step::VerifyProof),
+                sum_of_uv,
+                p_r_right_prover,
+                q_r_left_prover,
+                &challenges_for_left_prover,
+                &challenges_for_right_prover,
+            )
+            .await
     }
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified.
@@ -777,7 +819,7 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::Fp61BitPrime,
+        ff::{boolean::Boolean, Fp61BitPrime},
         protocol::{
             basics::SecureMul,
             context::{
@@ -788,7 +830,7 @@ mod tests {
             Gate, RecordId,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
-        test_fixture::{join3v, Reconstruct, TestWorld},
+        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 
     /// test for testing `validated_seq_join`
@@ -1093,6 +1135,45 @@ mod tests {
                 assert_eq!(prover.0, verifier_left);
                 assert_eq!(prover.1, verifier_right);
             });
+    }
+
+    #[tokio::test]
+    async fn simple_multiply_conversion() {
+        let world = TestWorld::default();
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
+
+        let [h1_batch, h2_batch, h3_batch] = world
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let validator = ctx.dzkp_validator(10);
+                let mctx = validator.context();
+                let _ = a
+                    .multiply(&b, mctx.set_total_records(1), RecordId::from(0))
+                    .await
+                    .unwrap();
+
+                // LOCK BEGIN
+                let mut batch = validator.batch_ref.lock().unwrap();
+
+                let output = batch.clone();
+
+                // cheat, i.e. prevent panic without verification
+                batch.increment_record_ids();
+
+                output
+            })
+            .await;
+
+        // H1
+        assert_batch_convert(&h1_batch, &h3_batch, &h2_batch);
+
+        // H2
+        assert_batch_convert(&h2_batch, &h1_batch, &h3_batch);
+
+        // H3
+        assert_batch_convert(&h3_batch, &h2_batch, &h1_batch);
     }
 
     #[test]

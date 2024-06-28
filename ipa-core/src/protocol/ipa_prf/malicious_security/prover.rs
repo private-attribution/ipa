@@ -2,9 +2,11 @@
 
 use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 
+#[cfg(all(test, unit_test))]
+use crate::ff::Fp31;
 use crate::{
     error::{Error, Error::DZKPMasks},
-    ff::{Fp31, Fp61BitPrime, PrimeField},
+    ff::{Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
         context::Context,
@@ -58,10 +60,6 @@ impl<F, const λ: usize> UVValues<F, λ>
 where
     F: PrimeField,
 {
-    pub fn is_empty(&self) -> bool {
-        self.length == 0
-    }
-
     /// This function returns the amount of field element tuples stored in `UVValues`.
     /// The amount corresponds to the amount of stored `u`
     /// as well as the amount of stored `v` values.
@@ -109,7 +107,9 @@ pub struct ProofGenerator<F: PrimeField, const λ: usize, const P: usize, const 
     phantom_data: PhantomData<F>,
 }
 
+#[cfg(all(test, unit_test))]
 pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
+
 pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
 pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
@@ -374,7 +374,7 @@ mod test {
     }
 
     #[test]
-    fn check_uv_length_and_is_empty() {
+    fn check_uv_length() {
         run(|| async move {
             const U_1: [u128; 27] = [
                 0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1, 15, 0, 0, 1, 15, 2,
@@ -401,8 +401,6 @@ mod test {
                     &lagrange_table,
                     uv_1.iter(),
                 );
-
-            assert!(!uv_values.is_empty());
 
             assert_eq!(7, uv_values.len());
         });
