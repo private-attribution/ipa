@@ -683,19 +683,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             }
 
             // generate BatchToVerify
-            let (
-                my_batch_left_shares,
-                shares_of_batch_from_left_prover,
-                p_mask_from_right_prover,
-                q_mask_from_left_prover,
-            ) = ProofBatch::generate(&proof_ctx, batch.get_field_values_prover());
-
-            (
-                my_batch_left_shares,
-                shares_of_batch_from_left_prover,
-                p_mask_from_right_prover,
-                q_mask_from_left_prover,
-            )
+            ProofBatch::generate(&proof_ctx, batch.get_field_values_prover())
             // LOCK END
         };
 
@@ -732,16 +720,6 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             );
             let sum_of_uv = Fp61BitPrime::truncate_from(u128::try_from(m).unwrap())
                 * Fp61BitPrime::MINUS_ONE_HALF;
-            debug_assert_eq!(
-                sum_of_uv,
-                batch
-                    .get_field_values_prover::<Fp61BitPrime>()
-                    .flat_map(|(u_array, v_array)| {
-                        u_array.into_iter().zip(v_array).map(|(u, v)| u * v)
-                    })
-                    .sum::<Fp61BitPrime>(),
-                "Number of multiplications counted correctly but do not sum up correctly"
-            );
 
             let (p_r_right_prover, q_r_left_prover) = chunk_batch.compute_p_and_q_r(
                 &challenges_for_left_prover,
