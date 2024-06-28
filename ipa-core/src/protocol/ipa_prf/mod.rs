@@ -52,12 +52,10 @@ pub mod oprf_padding;
 pub mod prf_eval;
 pub mod prf_sharding;
 
-#[cfg(all(test, unit_test))]
 mod malicious_security;
 mod quicksort;
 pub(crate) mod shuffle;
 pub(crate) mod step;
-#[cfg(all(test, unit_test))]
 pub mod validation_protocol;
 
 /// Match key type
