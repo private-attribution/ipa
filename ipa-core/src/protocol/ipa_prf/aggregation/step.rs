@@ -2,8 +2,13 @@ use ipa_step_derive::CompactStep;
 
 #[derive(CompactStep)]
 pub(crate) enum AggregationStep {
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
+    Shuffle,
+    RevealStep,
     #[step(child = BucketStep)]
     MoveToBucket,
+    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
+    Add,
     #[step(count = 32, child = AggregateValuesStep)]
     Aggregate(usize),
 }
