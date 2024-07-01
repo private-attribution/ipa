@@ -280,6 +280,12 @@ macro_rules! boolean_array_impl {
             #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name(pub(super) Store);
 
+            impl Default for $name {
+                fn default() -> Self {
+                    Self::ZERO
+                }
+            }
+
             impl Debug for $name {
                 fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                     f.write_str(stringify!($name))?;

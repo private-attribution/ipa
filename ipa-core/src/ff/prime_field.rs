@@ -231,6 +231,12 @@ macro_rules! field_impl {
             }
         }
 
+        impl Default for $field {
+            fn default() -> Self {
+                Self::ZERO
+            }
+        }
+
         impl Serializable for $field {
             type Size = <<Self as SharedValue>::Storage as Block>::Size;
             type DeserializationError = GreaterThanPrimeError<$store>;

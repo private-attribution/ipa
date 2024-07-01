@@ -147,6 +147,12 @@ macro_rules! bit_array_impl {
             #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name($store);
 
+            impl Default for $name {
+                fn default() -> Self {
+                    Self::ZERO
+                }
+            }
+
             impl SharedValue for $name {
                 type Storage = $store;
                 const BITS: u32 = $bits;

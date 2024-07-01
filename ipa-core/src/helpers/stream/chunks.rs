@@ -227,12 +227,11 @@ where
 // `Unpin`.  Requiring `D: Unpin` is easy, but requiring `F: Unpin` in turn requires a bunch of `C:
 // Unpin` bounds in protocols.
 #[pin_project]
-struct SliceChunkProcessor<'a, T, K, F, Fut, D, const N: usize>
+struct SliceChunkProcessor<'a, T, K, F, Fut, const N: usize>
 where
-    T: Clone + 'a,
+    T: Clone + Default + 'a,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
     Fut: Future<Output = Result<K, Error>> + 'a,
-    D: Fn() -> T,
 {
     slice: &'a [T],
 
@@ -245,16 +244,13 @@ where
     remainder_len: usize,
 
     process_fn: F,
-
-    pad_record_fn: D,
 }
 
-impl<'a, T, K, F, Fut, D, const N: usize> SliceChunkProcessor<'a, T, K, F, Fut, D, N>
+impl<'a, T, K, F, Fut, const N: usize> SliceChunkProcessor<'a, T, K, F, Fut, N>
 where
-    T: Clone,
+    T: Clone + Default,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
     Fut: Future<Output = Result<K, Error>> + 'a,
-    D: Fn() -> T,
 {
     fn next_chunk(self: Pin<&mut Self>) -> Option<ChunkFuture<Fut, K, N>> {
         let this = self.project();
@@ -274,7 +270,7 @@ where
             let remainder_len = mem::replace(this.remainder_len, 0);
             let mut last_chunk = Vec::with_capacity(N);
             last_chunk.extend_from_slice(&this.slice[N * idx..]);
-            last_chunk.resize_with(N, this.pad_record_fn);
+            last_chunk.resize_with(N, T::default);
             let last_chunk = Box::<[T; N]>::try_from(last_chunk).ok().unwrap();
             Some(ChunkFuture::new(
                 (*this.process_fn)(idx, ChunkData::Owned(last_chunk)),
@@ -286,12 +282,11 @@ where
     }
 }
 
-impl<'a, T, K, F, Fut, D, const N: usize> Stream for SliceChunkProcessor<'a, T, K, F, Fut, D, N>
+impl<'a, T, K, F, Fut, const N: usize> Stream for SliceChunkProcessor<'a, T, K, F, Fut, N>
 where
-    T: Clone,
+    T: Clone + Default,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
     Fut: Future<Output = Result<K, Error>> + 'a,
-    D: Fn() -> T,
 {
     type Item = ChunkFuture<Fut, K, N>;
 
@@ -300,24 +295,21 @@ where
     }
 }
 
-pub fn process_slice_by_chunks<'a, T, K, F, Fut, D, const N: usize>(
+pub fn process_slice_by_chunks<'a, T, K, F, Fut, const N: usize>(
     slice: &'a [T],
     process_fn: F,
-    pad_record_fn: D,
 ) -> impl Stream<Item = ChunkFuture<Fut, K, N>> + 'a
 where
-    T: Clone,
+    T: Clone + Default,
     K: 'a,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut + 'a,
     Fut: Future<Output = Result<K, Error>> + 'a,
-    D: Fn() -> T + 'a,
 {
     SliceChunkProcessor {
         slice,
         pos: 0,
         remainder_len: slice.len() % N,
         process_fn,
-        pad_record_fn,
     }
 }
 
@@ -371,64 +363,41 @@ impl<const N: usize, T> ChunkBuffer<N> for Vec<T> {
 
 /// Stream returned by `process_stream_by_chunks`.
 #[pin_project]
-struct StreamChunkProcessor<St, T, B, K, F, Fut, D, const N: usize>
+struct StreamChunkProcessor<St, T, B, K, F, Fut, const N: usize>
 where
     St: Stream<Item = Result<T, Error>> + Send,
     B: ChunkBuffer<N>,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
-    D: Fn() -> T,
 {
     #[pin]
     stream: St,
     buffer: B,
     process_fn: F,
-    pad_record_fn: Option<D>,
+    terminated: bool,
 
     /// Current input position, counted in chunks.
     pos: usize,
 }
 
-/// An `Option` verified to be `Some`, with an infallible `take()`.
-struct DefinitelySome<'a, T>(&'a mut Option<T>);
-
-impl<'a, T> TryFrom<&'a mut Option<T>> for DefinitelySome<'a, T> {
-    type Error = ();
-
-    fn try_from(value: &'a mut Option<T>) -> Result<Self, Self::Error> {
-        match value {
-            value @ Some(_) => Ok(DefinitelySome(value)),
-            None => Err(()),
-        }
-    }
-}
-
-impl<'a, T> DefinitelySome<'a, T> {
-    fn take(self) -> T {
-        self.0.take().unwrap()
-    }
-}
-
-impl<St, T, B, K, F, Fut, D, const N: usize> Stream
-    for StreamChunkProcessor<St, T, B, K, F, Fut, D, N>
+impl<St, T, B, K, F, Fut, const N: usize> Stream for StreamChunkProcessor<St, T, B, K, F, Fut, N>
 where
     St: Stream<Item = Result<T, Error>> + Send,
+    T: Default,
     B: ChunkBuffer<N, Item = T>,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
-    D: Fn() -> T,
 {
     type Item = MaybeChunkFuture<Fut, K, N>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.as_mut().project();
 
-        // pad_record_fn serves as our fuse -- it is taken out of the `Option` when we are finished.
-        // In the case where we terminate early due to an error, fusing the inner stream cannot
-        // serve this purpose.
-        let Ok(pad_record_fn) = DefinitelySome::try_from(this.pad_record_fn) else {
+        // We must implement our own fuse (rather than use `.fuse()` on the inner stream) for the
+        // case where we terminate early due to an error.
+        if *this.terminated {
             return Poll::Ready(None);
-        };
+        }
 
         let (chunk_data, chunk_type) = loop {
             match ready!(this.stream.as_mut().poll_next(cx)) {
@@ -439,20 +408,21 @@ where
                     }
                 }
                 Some(Err(e)) => {
-                    pad_record_fn.take();
+                    *this.terminated = true;
                     return Poll::Ready(Some(MaybeFuture::value(Err(e))));
                 }
                 None if this.buffer.len() != 0 => {
                     // Input stream ended, but we still have some items to process.
                     let remainder_len = this.buffer.len();
-                    this.buffer.resize_with(N, pad_record_fn.take());
+                    *this.terminated = true;
+                    this.buffer.resize_with(N, T::default);
                     break (this.buffer.take(), ChunkType::Partial(remainder_len));
                 }
                 None => {
                     // Input stream ended at a chunk boundary. Unlike the partial chunk case, we
-                    // return None, so we shouldn't be polled again regardless of pad_record_fn
-                    // signalling, but might as well make this a fused stream since it's easy.
-                    pad_record_fn.take();
+                    // return None, so we shouldn't be polled again, but might as well make this a
+                    // fused stream since it's easy.
+                    *this.terminated = true;
                     return Poll::Ready(None);
                 }
             }
@@ -466,17 +436,17 @@ where
     }
 }
 
-impl<St, T, B, K, F, Fut, D, const N: usize> FusedStream
-    for StreamChunkProcessor<St, T, B, K, F, Fut, D, N>
+impl<St, T, B, K, F, Fut, const N: usize> FusedStream
+    for StreamChunkProcessor<St, T, B, K, F, Fut, N>
 where
     St: Stream<Item = Result<T, Error>> + Send,
+    T: Default,
     B: ChunkBuffer<N, Item = T>,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
-    D: Fn() -> T,
 {
     fn is_terminated(&self) -> bool {
-        self.pad_record_fn.is_none()
+        self.terminated
     }
 }
 
@@ -485,24 +455,23 @@ where
 /// Processes `stream` by collecting chunks of `N` items into `buffer`, then calling `process_fn`
 /// for each chunk. If there is a partial chunk at the end of the stream, `pad_record_fn` is called
 /// repeatedly to fill out the last chunk.
-pub fn process_stream_by_chunks<St, T, B, K, F, Fut, D, const N: usize>(
+pub fn process_stream_by_chunks<St, T, B, K, F, Fut, const N: usize>(
     stream: St,
     buffer: B,
     process_fn: F,
-    pad_record_fn: D,
 ) -> impl FusedStream<Item = MaybeChunkFuture<Fut, K, N>>
 where
     St: Stream<Item = Result<T, Error>> + Send,
+    T: Default,
     B: ChunkBuffer<N, Item = T>,
     F: Fn(usize, B::Chunk) -> Fut,
     Fut: Future<Output = Result<K, Error>>,
-    D: Fn() -> T,
 {
     StreamChunkProcessor {
         stream,
         buffer,
         process_fn,
-        pad_record_fn: Some(pad_record_fn),
+        terminated: false,
         pos: 0,
     }
 }
@@ -635,11 +604,8 @@ mod tests {
     async fn process_slice_chunks() {
         let data = vec![1, 2, 3, 4];
 
-        let mut st = process_slice_by_chunks(
-            data.as_slice(),
-            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
-            || 0,
-        );
+        let mut st =
+            process_slice_by_chunks(data.as_slice(), |_, chunk| ready(Ok(chunk.map(Neg::neg))));
 
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-3, -4]);
@@ -649,11 +615,9 @@ mod tests {
 
     #[tokio::test]
     async fn process_slice_chunks_empty() {
-        let mut st = process_slice_by_chunks(
-            &[],
-            |_, chunk: ChunkData<i32, 2>| ready(Ok(chunk.map(Neg::neg))),
-            || 0,
-        );
+        let mut st = process_slice_by_chunks(&[], |_, chunk: ChunkData<i32, 2>| {
+            ready(Ok(chunk.map(Neg::neg)))
+        });
 
         assert!(st.next().await.is_none());
     }
@@ -662,18 +626,15 @@ mod tests {
     async fn process_slice_chunks_partial() {
         let data = vec![1, 2, 3];
 
-        let mut st = process_slice_by_chunks(
-            data.as_slice(),
-            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
-            || 7,
-        );
+        let mut st =
+            process_slice_by_chunks(data.as_slice(), |_, chunk| ready(Ok(chunk.map(Neg::neg))));
 
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
         assert_eq!(
             st.next().await.unwrap().await.unwrap(),
             Chunk {
                 chunk_type: ChunkType::Partial(1),
-                data: [-3, -7]
+                data: [-3, 0]
             },
         );
         assert!(st.next().await.is_none());
@@ -688,7 +649,6 @@ mod tests {
             stream::iter(data.into_iter().map(Ok)),
             Vec::new(),
             |_, chunk| ready(Ok(chunk.map(Neg::neg))),
-            || 0,
         );
 
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
@@ -699,12 +659,10 @@ mod tests {
 
     #[tokio::test]
     async fn process_stream_chunks_empty() {
-        let mut st = process_stream_by_chunks(
-            stream::empty(),
-            Vec::new(),
-            |_, chunk: Box<[i32; 2]>| ready(Ok(chunk.map(Neg::neg))),
-            || 0,
-        );
+        let mut st =
+            process_stream_by_chunks(stream::empty(), Vec::new(), |_, chunk: Box<[i32; 2]>| {
+                ready(Ok(chunk.map(Neg::neg)))
+            });
 
         assert!(!st.is_terminated());
         assert!(st.next().await.is_none());
@@ -719,7 +677,6 @@ mod tests {
             stream::iter(data.into_iter().map(Ok)),
             Vec::new(),
             |_, chunk| ready(Ok(chunk.map(Neg::neg))),
-            || 7,
         );
 
         assert!(!st.is_terminated());
@@ -729,7 +686,7 @@ mod tests {
             st.next().await.unwrap().await.unwrap(),
             Chunk {
                 chunk_type: ChunkType::Partial(1),
-                data: [-3, -7]
+                data: [-3, 0]
             },
         );
         assert!(st.is_terminated());
@@ -755,12 +712,9 @@ mod tests {
             .map(Ok),
         );
 
-        let mut st = process_stream_by_chunks(
-            source,
-            Vec::new(),
-            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
-            || 7,
-        );
+        let mut st = process_stream_by_chunks(source, Vec::new(), |_, chunk| {
+            ready(Ok(chunk.map(Neg::neg)))
+        });
 
         assert!(!st.is_terminated());
         let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
@@ -794,12 +748,9 @@ mod tests {
             .map(Ok),
         );
 
-        let mut st = process_stream_by_chunks(
-            source,
-            Vec::new(),
-            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
-            || 7,
-        );
+        let mut st = process_stream_by_chunks(source, Vec::new(), |_, chunk| {
+            ready(Ok(chunk.map(Neg::neg)))
+        });
 
         assert!(!st.is_terminated());
         let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
@@ -815,7 +766,7 @@ mod tests {
             &fut.await.unwrap(),
             &Chunk {
                 chunk_type: ChunkType::Partial(1),
-                data: [-2, -7]
+                data: [-2, 0]
             },
         );
 

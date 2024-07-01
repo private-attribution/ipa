@@ -41,6 +41,12 @@ impl Fp25519 {
     }
 }
 
+impl Default for Fp25519 {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 ///trait for secret sharing
 impl SharedValue for Fp25519 {
     type Storage = Scalar;
