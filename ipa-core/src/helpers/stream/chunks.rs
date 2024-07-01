@@ -781,6 +781,26 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn process_stream_chunks_error() {
+        let data = vec![Ok(1), Ok(2), Err(Error::Internal), Ok(4), Ok(5)];
+
+        let mut st = process_stream_by_chunks(stream::iter(data), Vec::new(), |_, chunk| {
+            ready(Ok(chunk.map(Neg::neg)))
+        });
+
+        assert!(!st.is_terminated());
+        assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
+        assert!(!st.is_terminated());
+        assert!(matches!(
+            st.next().await.unwrap().await.unwrap_err(),
+            Error::Internal,
+        ));
+        assert!(st.is_terminated());
+        assert!(st.next().await.is_none() && st.is_terminated());
+        assert!(st.next().await.is_none() && st.is_terminated());
+    }
+
     #[test]
     fn chunk_into_iter() {
         assert_eq!(
