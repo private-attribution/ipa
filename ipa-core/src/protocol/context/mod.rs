@@ -1,8 +1,6 @@
 pub mod dzkp_field;
-#[allow(dead_code)]
 pub mod dzkp_malicious;
 pub mod dzkp_semi_honest;
-#[allow(dead_code)]
 pub mod dzkp_validator;
 pub mod malicious;
 pub mod prss;

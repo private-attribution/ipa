@@ -644,8 +644,6 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
 
 /// `MaliciousDZKPValidator` corresponds to pub struct `Malicious` and implements the trait `DZKPValidator`
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
-#[allow(dead_code)]
-// dead code: validate_ctx is not used yet
 pub struct MaliciousDZKPValidator<'a> {
     batch_ref: Arc<Mutex<Batch>>,
     protocol_ctx: MaliciousDZKPUpgraded<'a>,
