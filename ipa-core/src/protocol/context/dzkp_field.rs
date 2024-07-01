@@ -13,7 +13,6 @@ pub type UVTupleBlock<F> = ([F; BLOCK_SIZE], [F; BLOCK_SIZE]);
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
-#[allow(dead_code)]
 pub trait DZKPCompatibleField<const N: usize = 1>: FieldSimd<N> {
     fn as_segment_entry(array: &<Self as Vectorizable<N>>::Array) -> SegmentEntry<'_>;
 }
