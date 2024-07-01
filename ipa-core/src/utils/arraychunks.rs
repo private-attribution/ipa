@@ -1,6 +1,5 @@
 use crate::ff::PrimeField;
 
-#[allow(dead_code)]
 pub trait ArrayChunkIterator: Iterator {
     /// This function returns an iterator that yields arrays of size `L`.
     /// When the amount of items in the iterator is not a multiple of `L`
@@ -19,7 +18,6 @@ pub struct ArrayChunk<I, const L: usize> {
 
 impl<F: PrimeField, I: Iterator<Item = F>> ArrayChunkIterator for I {}
 
-#[allow(clippy::while_let_on_iterator)]
 impl<F, I, const L: usize> Iterator for ArrayChunk<I, L>
 where
     F: PrimeField,
@@ -28,19 +26,15 @@ where
     type Item = [I::Item; L];
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut array = [F::ZERO; L];
-        let mut counter = 0usize;
-        while let Some(element) = self.iter.next() {
-            array[counter] = element;
-            counter += 1;
-            if counter == L {
-                break;
+        if let Some(v) = self.iter.next() {
+            let mut array = [F::ZERO; L];
+            array[0] = v;
+            for element in array.iter_mut().skip(1) {
+                *element = self.iter.next().unwrap_or(F::ZERO);
             }
-        }
-        if counter == 0 {
-            None
-        } else {
             Some(array)
+        } else {
+            None
         }
     }
 }
