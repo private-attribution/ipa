@@ -1,8 +1,4 @@
-use std::{
-    convert::Infallible,
-    iter::{self, repeat},
-    pin::Pin,
-};
+use std::{convert::Infallible, iter, pin::Pin};
 
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
@@ -77,14 +73,8 @@ where
 
     fn take(&mut self) -> Result<Self::Chunk, LengthError> {
         // Aggregation input transpose
-        let mut bk = BitDecomposed::new(
-            repeat(Replicated::<Boolean, N>::ZERO).take(usize::try_from(BK::BITS).unwrap()),
-        );
-        bk.transpose_from(&self.attributed_breakdown_key_bits)?;
-        let mut tv = BitDecomposed::new(
-            repeat(Replicated::<Boolean, N>::ZERO).take(usize::try_from(TV::BITS).unwrap()),
-        );
-        tv.transpose_from(&self.capped_attributed_trigger_value)?;
+        let bk = BitDecomposed::transposed_from(&self.attributed_breakdown_key_bits)?;
+        let tv = BitDecomposed::transposed_from(&self.capped_attributed_trigger_value)?;
         self.attributed_breakdown_key_bits = Vec::with_capacity(N);
         self.capped_attributed_trigger_value = Vec::with_capacity(N);
         Ok(AttributionOutputsChunk {
@@ -175,10 +165,6 @@ where
                 .instrument(tracing::debug_span!("move_to_bucket", chunk = idx))
                 .await
             }
-        },
-        || AttributionOutputs {
-            attributed_breakdown_key_bits: Replicated::ZERO,
-            capped_attributed_trigger_value: Replicated::ZERO,
         },
     );
 

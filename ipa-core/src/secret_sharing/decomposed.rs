@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BitDecomposed<S> {
     bits: Vec<S>,
 }

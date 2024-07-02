@@ -393,7 +393,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::{self, repeat_with};
+    use std::iter::repeat_with;
 
     use curve25519_dalek::Scalar;
     use futures::stream::TryStreamExt;
@@ -439,20 +439,16 @@ mod tests {
                 .semi_honest(records.into_iter(), |ctx, records| async move {
                     seq_join(
                         ctx.active_work(),
-                        process_slice_by_chunks(
-                            &records,
-                            |idx, chunk| {
-                                let ctx = ctx.clone();
-                                let mut match_keys = BitDecomposed::new(iter::empty());
-                                match_keys.transpose_from(&*chunk).unwrap_infallible();
-                                convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(
-                                    ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK),
-                                    RecordId::from(idx),
-                                    match_keys,
-                                )
-                            },
-                            || AdditiveShare::<BA64>::ZERO,
-                        ),
+                        process_slice_by_chunks(&records, |idx, chunk| {
+                            let ctx = ctx.clone();
+                            let match_keys =
+                                BitDecomposed::transposed_from(&*chunk).unwrap_infallible();
+                            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(
+                                ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK),
+                                RecordId::from(idx),
+                                match_keys,
+                            )
+                        }),
                     )
                     .try_collect::<Vec<_>>()
                     .await

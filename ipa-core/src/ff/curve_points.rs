@@ -30,6 +30,12 @@ impl Block for CompressedRistretto {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RP25519(CompressedRistretto);
 
+impl Default for RP25519 {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 /// Implementing trait for secret sharing
 impl SharedValue for RP25519 {
     type Storage = CompressedRistretto;

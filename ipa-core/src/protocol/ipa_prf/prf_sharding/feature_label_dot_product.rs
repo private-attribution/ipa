@@ -1,7 +1,4 @@
-use std::{
-    convert::Infallible,
-    iter::{self, zip},
-};
+use std::{convert::Infallible, iter::zip};
 
 use futures::stream;
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
@@ -110,10 +107,8 @@ impl InputsRequiredFromPrevRow {
             <Boolean as Vectorizable<B>>::Array::expand(&capped_label.left()),
             <Boolean as Vectorizable<B>>::Array::expand(&capped_label.right()),
         );
-        let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
-        bit_decomposed_output
-            .transpose_from(&input_row.feature_vector)
-            .unwrap_infallible();
+        let bit_decomposed_output =
+            BitDecomposed::transposed_from(&input_row.feature_vector).unwrap_infallible();
         let capped_attributed_feature_vector = bool_and_8_bit(
             ctx,
             record_id,
