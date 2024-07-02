@@ -232,7 +232,7 @@ impl Gateway {
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            active: 1024.try_into().unwrap(),
+            active: 32768.try_into().unwrap(),
             read_size: 2048.try_into().unwrap(),
             // In-memory tests are fast, so progress check intervals can be lower.
             // Real world scenarios currently over-report stalls because of inefficiencies inside
