@@ -463,6 +463,7 @@ macro_rules! bit_array_impl {
                     let zero = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     let mut one = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     *one.first_mut().unwrap() = true;
+                    assert_eq!($name::default(), $name::ZERO);
                     assert_eq!($name::ZERO.0, zero);
                     assert_eq!($name::ONE.0, one);
                     assert_eq!($name::truncate_from(1_u128).0, one);

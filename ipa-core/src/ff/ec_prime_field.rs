@@ -284,6 +284,11 @@ mod test {
 
     sc_hash_impl!(u32);
 
+    #[test]
+    fn zero() {
+        assert_eq!(Fp25519::default(), Fp25519::ZERO);
+    }
+
     ///test serialize and deserialize
     #[test]
     fn serde_25519() {

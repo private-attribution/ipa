@@ -309,6 +309,7 @@ macro_rules! field_impl {
 
             #[test]
             fn zero() {
+                assert_eq!($field::default(), $field::ZERO);
                 let prime = u128::from($field::PRIME);
                 assert_eq!(
                     $field::ZERO,
