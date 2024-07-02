@@ -266,6 +266,8 @@ where
     .await
 }
 
+/// This function computes the prf for the input match keys.
+
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
     ctx: C,
@@ -273,7 +275,7 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    <C as UpgradableContext>::DZKPValidator: Send + Sync,
+    <C as UpgradableContext>::DZKPValidator: Send + Sync + Clone,
     C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: BooleanArray,
     TV: BooleanArray,
@@ -282,6 +284,10 @@ where
         BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
+    // todo: set PROOF_CHUNK to 400 or something reasonable
+    // todo: task, fix too many records error when PROOF_CHUNK = 400
+    const PROOF_CHUNK: usize = 1;
+
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
     let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), Const::<PRF_CHUNK>))?;
@@ -292,18 +298,30 @@ where
 
     let prf_key = gen_prf_key(&eval_ctx);
 
+    // CONV_CHUNK * PROOF_CHUNK
+    let validator = &convert_ctx.dzkp_validator(PROOF_CHUNK * CONV_CHUNK);
+
     let curve_pts = seq_join(
         ctx.active_work(),
-        process_slice_by_chunks(input_rows, move |idx, records: ChunkData<_, CONV_CHUNK>| {
-            let record_id = RecordId::from(idx);
-            let convert_ctx = convert_ctx.clone();
-            let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
-                &|i| records[i].match_key.clone();
-            let match_keys =
-                BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
-                    .unwrap_infallible();
-            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(convert_ctx, record_id, match_keys)
-        }),
+        process_slice_by_chunks(
+            input_rows,
+            move |idx, records: ChunkData<_, { PROOF_CHUNK * CONV_CHUNK }>| {
+                let vec_match_keys = (0usize..PROOF_CHUNK)
+                    .map(|j| {
+                        let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
+                            &|i| records[CONV_CHUNK * j + i].match_key.clone();
+                        BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
+                            .unwrap_infallible()
+                    })
+                    .collect::<Vec<_>>();
+                convert_to_fp25519::<_, C, CONV_CHUNK, PRF_CHUNK>(
+                    validator.clone(),
+                    idx,
+                    RecordId::from(idx * PROOF_CHUNK * CONV_CHUNK),
+                    vec_match_keys,
+                )
+            },
+        ),
     )
     .map_ok(Chunk::unpack::<PRF_CHUNK>)
     .try_flatten_iters()
