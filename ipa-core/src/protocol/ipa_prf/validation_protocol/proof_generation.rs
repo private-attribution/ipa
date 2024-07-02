@@ -255,16 +255,10 @@ mod test {
                 validation::{test::simple_proof_check, BatchToVerify},
             },
         },
-        secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
+        secret_sharing::replicated::ReplicatedSecretSharing,
         test_executor::run,
         test_fixture::{Runner, TestWorld},
     };
-
-    impl Default for Fp61BitPrime {
-        fn default() -> Self {
-            Fp61BitPrime::ZERO
-        }
-    }
 
     #[test]
     fn generate_verifier_batch() {
