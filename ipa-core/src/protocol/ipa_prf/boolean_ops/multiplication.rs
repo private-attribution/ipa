@@ -10,7 +10,8 @@ use crate::{
 };
 
 /// This function multiplies x by y in these steps:
-/// 1. Double the input precision and repeat the most significant bit in the extra bits (Sign extension)
+/// 1. Double the input precision for y and repeat the most significant bit in the extra bits (Sign extension)
+///    X is assumed to be a positive number, so we will automatically pad with ZERO.
 /// 2. Repeatedly multiply x with each digits of y, shift the result 1 digit up each time
 /// 3. Add up the partial products using integer_add
 /// x is assumed to be a positive number
@@ -29,31 +30,28 @@ where
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let new_len = x.len() + y.len();
-    let mut x = x.clone();
-    x.resize(new_len, AdditiveShare::ZERO);
     let mut y = y.clone();
     y.resize(new_len, y[y.len() - 1].clone());
 
     let mut result = BitDecomposed::with_capacity(new_len);
     for (i, yb) in y.into_iter().enumerate() {
-        let mut t = BitDecomposed::with_capacity(new_len);
-        t.resize(i, AdditiveShare::ZERO);
-        // TODO fix the context with proper steps
         let ctx_for_bit_of_y = ctx.narrow(&S::from(i));
-        for (j, xb) in x.iter().take(new_len - i).enumerate() {
-            let ctx_for_x_times_y_combo = ctx_for_bit_of_y.narrow(&S::from(j));
+        let product_of_x_and_yb = ctx_for_bit_of_y
+            .parallel_join(x.iter().take(new_len - i).enumerate().map(|(j, xb)| {
+                let ctx_for_x_times_y_combo = ctx_for_bit_of_y.narrow(&S::from(j));
+                let yb = yb.clone();
+                async move { yb.multiply(xb, ctx_for_x_times_y_combo, record_id).await }
+            }))
+            .await?;
 
-            let m = yb.multiply(xb, ctx_for_x_times_y_combo, record_id).await?;
-            t.push(m);
-        }
-
-        // TODO : Optimisation - make this run in paralel:
-        // - calculate all the partial products store it in a matrix
-        // - sum it all up in paralel
+        let mut t = BitDecomposed::with_capacity(new_len);
+        // |x| * y(i) << i
+        t.resize(i, AdditiveShare::ZERO);
+        product_of_x_and_yb.into_iter().for_each(|b| t.push(b));
         if i == 0 {
             result = t;
         } else {
-            let (new_result, _) = integer_add::<_, S, N>(
+            let (new_result, carry) = integer_add::<_, S, N>(
                 ctx_for_bit_of_y.narrow("add_partial_products"),
                 record_id,
                 &t,
@@ -61,8 +59,11 @@ where
             )
             .await?;
             result = new_result;
+
+            if result.len() < new_len {
+                result.push(carry);
+            }
         }
-        assert_eq!(result.len(), new_len);
     }
 
     Ok(result)
@@ -149,15 +150,8 @@ mod test {
                 .zip(all_x_values.iter())
                 .zip(random_y_values.iter())
             {
-                let y_as_signed_number: i128 = as_i128(*y);
-                let x_as_unsigned_number: i128 = x.as_u128() as i128;
-                let expected: i128 = y_as_signed_number * x_as_unsigned_number;
-
-                assert_eq!(
-                    (x, y, y_as_signed_number, x_as_unsigned_number, expected),
-                    // (x, y, y_as_unsigned_number, x_as_signed_number, res.as_u128())
-                    (x, y, y_as_signed_number, x_as_unsigned_number, as_i128(*res))
-                );
+                let expected: i128 = as_i128(*y) * x.as_u128() as i128;
+                assert_eq!((x, y, expected), (x, y, as_i128(*res)));
             }
         });
     }
