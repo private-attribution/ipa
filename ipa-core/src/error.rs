@@ -72,8 +72,6 @@ pub enum Error {
     DecompressingInvalidCurvePoint(String),
     #[error(transparent)]
     LengthError(#[from] LengthError),
-    #[error(transparent)]
-    TryFromIntError(#[from] std::num::TryFromIntError),
     #[error("Current Context is unsafe, call validate to make it safe: {0}")]
     ContextUnsafe(String),
     #[error("DZKP Validation failed")]

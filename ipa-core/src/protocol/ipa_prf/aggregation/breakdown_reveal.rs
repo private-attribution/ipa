@@ -1,5 +1,3 @@
-use futures::{stream::Stream, TryStreamExt};
-
 use crate::{
     error::Error,
     ff::{
@@ -23,80 +21,134 @@ use crate::{
     sharding::NotSharded,
 };
 
-// Improved Aggregation a.k.a Aggregation revealing breakdown.
-//
-// The previous phase was attribution. The input to aggregation is a stream of
-// tuples of (attributed breakdown key, attributed trigger value) for each
-// record.
-// The output is a Histogram. BKs are assigned by the advertiser and sent in
-// the input of IPA. BK values are expected to be dense.
-// How breakdown keys are defined is out-of-scope.
-//
-// High level explanation of the protocol:
-// 1. TODO: Add fake attribution outputs.
-// 2. Shuffle.
-// 3. Reveal breakdown. Trigger values are not revelaed.
-// 4. Aggregation if trigger values secret shares.
-//
-// DP noise to histogram buckets will be added by the caller of this function.
-// This because adding noise is really unrelated to how things are added up.
-//
-// For aggregation, we pad TV with zeroes until size of HV and add them together.
-//
-// TODO: Use sharded shuffle.
-// TODO: Expanding bits only as needed.
-// TODO: seq_join (see quicksort). First reveal, create futures for the remainder.
-// TODO: Add vectorization + chunks. Change TotalRecords::Indeterminate. "Merge-sort".
-// TODO: Add sharding.
-pub async fn breakdown_reveal_aggregation<St, BK, TV, HV, const B: usize>(
+/// Improved Aggregation a.k.a Aggregation revealing breakdown.
+///
+/// Aggregation steps happen after attribution. The input to aggregation is a
+/// stream of tuples of (attributed breakdown key, attributed trigger value).
+/// The output of aggregation is a Histogram. Breakdown Keys and Trigger Values
+/// are assigned by the advertiser and sent in the input of IPA. Breakdown Keys
+///  values are expected to be dense. How breakdown keys and trigger values are
+///  defined is out-of-scope.
+///
+/// High level explanation of the protocol:
+///
+/// 1. Add fake attribution outputs.
+/// 2. Shuffle.
+/// 3. Reveal Breakdown Keys. By having shuffled and adding fake entries we
+/// protected the identities of individuals. Trigger values are not revealed.
+/// 4. Aggregation of Trigger Value by Breakdown Key (Think of group by).
+pub async fn breakdown_reveal_aggregation<BK, TV, HV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
-    contributions_stream: St,
+    atributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
 {
-    // TODO: Maybe move this to the function contract
-    let contribs: Vec<_> = contributions_stream.try_collect().await?;
+    let atributions = shuffle_attributions::<_, _, B>(&ctx, atributions).await?;
+    let grouped_tvs = reveal_breakdowns::<_, _, B>(&ctx, atributions).await?;
+    add_tvs_by_bk(&ctx, grouped_tvs).await
+}
+
+/// Shuffles attribution Breakdown key and Trigger Value secret shares. Input
+/// and output are the same type.
+///
+/// TODO: Use a more constrained BA type to contain BK and TV
+/// TODO: Sharded shuffle
+async fn shuffle_attributions<BK, TV, const B: usize>(
+    ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
+    contribs: Vec<SecretSharedAttributionOutputs<BK, TV>>,
+) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
+where
+    BK: BreakdownKey<B>,
+    TV: BooleanArray + U128Conversions,
+{
     let shuffle_ctx: UpgradedSemiHonestContext<'_, NotSharded, Boolean> =
         ctx.narrow(&AggregationStep::Shuffle);
-    let contribs = shuffle_attribution_outputs::<_, BK, TV, BA64>(shuffle_ctx, contribs).await?;
-    // at what level do we want to start the paralelization
-    let hv_size: usize = HV::BITS.try_into().unwrap();
-    let mut result = repeat_n(BitDecomposed::new(repeat_n(Replicated::ZERO, hv_size)), B)
-        .collect::<Vec<BitDecomposed<Replicated<Boolean>>>>();
-    // for loop will be replaced with vectorized
-    for (i, attribution_outputs) in contribs.into_iter().enumerate() {
+    shuffle_attribution_outputs::<_, BK, TV, BA64>(shuffle_ctx, contribs).await
+}
+
+/// Transforms the Breakdown key from a secret share into a revealed `usize`.
+/// The input are the Atrributions and the output is a list of lists of secret
+/// shared Trigger Values. Since Breakdown Keys are assumed to be dense the
+/// first list contains all the possible Breakdowns, the index in the list
+/// representing the Breakdown value. The second list groups all the Trigger
+/// Values for that particular Breakdown.
+///
+/// TODO: TotalRecords::Indeterminate
+/// TODO: Batch input into AGG vectorized and use `process_slice_by_chunks`
+/// and `seq_join`.
+#[tracing::instrument(name = "reveal_breakdowns", skip_all)]
+async fn reveal_breakdowns<BK, TV, const B: usize>(
+    ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
+    atributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
+) -> Result<Vec<Vec<Replicated<TV>>>, Error>
+where
+    BK: BreakdownKey<B>,
+    TV: BooleanArray + U128Conversions,
+{
+    let mut grouped_tvs: Vec<Vec<Replicated<TV>>> = vec![vec![]; B];
+    let reveal_ctx = ctx
+        .narrow(&AggregationStep::RevealStep)
+        .set_total_records(TotalRecords::Indeterminate);
+    for (i, ao) in atributions.into_iter().enumerate() {
         let record_id = RecordId::from(i);
-        let ao: SecretSharedAttributionOutputs<BK, TV> = attribution_outputs; // For Rust Analyzer
         let bk_share = ao.attributed_breakdown_key_bits;
-        let reveal_ctx = ctx
-            .narrow(&AggregationStep::RevealStep)
-            .set_total_records(TotalRecords::Indeterminate);
-        let revealed_bk: BK = BK::from_array(&bk_share.reveal(reveal_ctx, record_id).await?);
-        let pos = usize::try_from(revealed_bk.as_u128())?;
-        //tracing::info!("revealed_bk={pos}, tv={:?}", ao.capped_attributed_trigger_value);
-        let tv: BitDecomposed<Replicated<Boolean>> = ao.capped_attributed_trigger_value.to_bits();
-        let add_ctx = ctx
-            .narrow(&AggregationStep::Add)
-            .set_total_records(TotalRecords::Indeterminate);
-        let r =
-            integer_sat_add::<_, SixteenBitStep, 1>(add_ctx, record_id, &result[pos], &tv).await?;
-        result[pos] = r;
+        let revealed_bk: BK =
+            BK::from_array(&bk_share.reveal(reveal_ctx.clone(), record_id).await?);
+        let Ok(pos) = usize::try_from(revealed_bk.as_u128()) else {
+            return Err(Error::Internal);
+        };
+        grouped_tvs[pos].push(ao.capped_attributed_trigger_value);
     }
-    let resp: Vec<Replicated<HV>> = result
-        .into_iter()
-        .map(|b: BitDecomposed<Replicated<Boolean>>| b.collect_bits())
-        .collect();
-    Ok(resp)
+    Ok(grouped_tvs)
+}
+
+/// Uses `reveal_breakdown` results as input. This will cycle through each
+/// Breakdown, adding up all the Trigger Values. Returns the values for each
+/// Breakdown.
+///
+/// TODO: TotalRecords::Indeterminate
+/// TODO: Only expand bits as necessary. "Merge-sort" inspired.
+/// TODO: Sharding strategy.
+#[tracing::instrument(name = "add_tvs_by_bk", skip_all)]
+async fn add_tvs_by_bk<TV, HV>(
+    ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
+    grouped_tvs: Vec<Vec<Replicated<TV>>>,
+) -> Result<Vec<Replicated<HV>>, Error>
+where
+    TV: BooleanArray + U128Conversions,
+    HV: BooleanArray + U128Conversions,
+{
+    let add_ctx = ctx
+        .narrow(&AggregationStep::Add)
+        .set_total_records(TotalRecords::Indeterminate);
+    let hv_size: usize = HV::BITS.try_into().unwrap();
+    let mut sums_bits: Vec<Replicated<HV>> = vec![];
+    let mut i: usize = 0;
+    for bk in grouped_tvs {
+        let mut sum_bits = BitDecomposed::new(repeat_n(Replicated::ZERO, hv_size));
+        for tv in bk {
+            let tv_bits: BitDecomposed<Replicated<Boolean>> = tv.to_bits();
+            let record_id = RecordId::from(i);
+            sum_bits = integer_sat_add::<_, SixteenBitStep, 1>(
+                add_ctx.clone(),
+                record_id,
+                &sum_bits,
+                &tv_bits,
+            )
+            .await?;
+            i += 1;
+        }
+        let r: Replicated<HV> = sum_bits.collect_bits();
+        sums_bits.push(r);
+    }
+    Ok(sums_bits)
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
-    use futures::stream;
-
     use crate::{
         ff::{
             boolean_array::{BA16, BA3, BA5},
@@ -135,13 +187,14 @@ pub mod tests {
             ];
             let result: Vec<_> = world
                 .upgraded_semi_honest(inputs.clone().into_iter(), |ctx, input_rows| async move {
-                    let aos = input_rows.into_iter().map(|ti| {
-                        Ok(SecretSharedAttributionOutputs {
+                    let aos = input_rows
+                        .into_iter()
+                        .map(|ti| SecretSharedAttributionOutputs {
                             attributed_breakdown_key_bits: ti.0,
                             capped_attributed_trigger_value: ti.1,
                         })
-                    });
-                    breakdown_reveal_aggregation::<_, BA5, BA3, BA16, 32>(ctx, stream::iter(aos))
+                        .collect();
+                    breakdown_reveal_aggregation::<BA5, BA3, BA16, 32>(ctx, aos)
                         .await
                         .unwrap()
                 })

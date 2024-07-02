@@ -476,7 +476,12 @@ where
 
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
-    breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, stream::iter(flattened_user_results)).await
+
+    // If there was any error in attribution we stop the execution with an error
+    let try_contribs: Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error> =
+        flattened_user_results.into_iter().collect();
+    let contribs = try_contribs.expect("Errors found during attribution, stopping aggregation");
+    breakdown_reveal_aggregation::<_, _, HV, B>(ctx, contribs).await
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
@@ -880,12 +885,14 @@ pub mod tests {
         }
     }
 
+    #[cfg(all(test, any(unit_test, feature = "shuttle")))]
     #[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
     pub struct PreAggregationTestOutputInDecimal {
         pub attributed_breakdown_key: u128,
         pub capped_attributed_trigger_value: u128,
     }
 
+    #[cfg(all(test, any(unit_test, feature = "shuttle")))]
     impl<BK, TV, TS> IntoShares<PrfShardedIpaInputRow<BK, TV, TS>>
         for PreShardedAndSortedOPRFTestInput<BK, TV, TS>
     where
@@ -937,6 +944,7 @@ pub mod tests {
         }
     }
 
+    #[cfg(all(test, any(unit_test, feature = "shuttle")))]
     impl<BK, TV> Reconstruct<PreAggregationTestOutputInDecimal>
         for [&AttributionOutputs<Replicated<BK>, Replicated<TV>>; 3]
     where
