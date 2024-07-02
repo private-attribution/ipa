@@ -37,7 +37,8 @@ pub trait DZKPBaseField: PrimeField {
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the left of the prover.
     /// The verifier on the left uses its right shares, since they are consistent with the prover's left shares.
-    fn convert_verifier_left<'a>(
+    /// This produces the 'u' values.
+    fn convert_value_from_right_prover<'a>(
         x_right: &'a Array256Bit,
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
@@ -46,7 +47,8 @@ pub trait DZKPBaseField: PrimeField {
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the right of the prover.
     /// The verifier on the right uses its left shares, since they are consistent with the prover's right shares.
-    fn convert_verifier_right<'a>(
+    /// This produces the 'v' values
+    fn convert_value_from_left_prover<'a>(
         x_left: &'a Array256Bit,
         y_left: &'a Array256Bit,
         prss_left: &'a Array256Bit,
@@ -209,7 +211,7 @@ impl DZKPBaseField for Fp61BitPrime {
     // (a,c,e) = (x_right, y_right, x_right * y_right ⊕ z_right ⊕ prss_right)
     // here e is defined as in the paper (since the the verifier does not have access to b,d,f,
     // he cannot use the simplified formula for e)
-    fn convert_verifier_left<'a>(
+    fn convert_value_from_right_prover<'a>(
         x_right: &'a Array256Bit,
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
@@ -265,7 +267,7 @@ impl DZKPBaseField for Fp61BitPrime {
     //
     // where
     // (b,d,f) = (y_left, x_left, prss_left)
-    fn convert_verifier_right<'a>(
+    fn convert_value_from_left_prover<'a>(
         x_left: &'a Array256Bit,
         y_left: &'a Array256Bit,
         prss_left: &'a Array256Bit,
@@ -372,9 +374,9 @@ mod tests {
             Fp61BitPrime::convert_prover(&x_left, &x_right, &y_left, &y_right, &prss_right),
             // flip intputs right to left since it is checked against itself and not party on the left
             // z_right is set to match z_left
-            Fp61BitPrime::convert_verifier_left(&x_left, &y_left, &prss_left, &z_right),
+            Fp61BitPrime::convert_value_from_right_prover(&x_left, &y_left, &prss_left, &z_right),
             // flip intputs right to left since it is checked against itself and not party on the left
-            Fp61BitPrime::convert_verifier_right(&x_right, &y_right, &prss_right),
+            Fp61BitPrime::convert_value_from_left_prover(&x_right, &y_right, &prss_right),
         );
     }
     fn assert_convert<P, L, R>(prover: P, verifier_left: L, verifier_right: R)

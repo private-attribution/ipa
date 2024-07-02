@@ -46,15 +46,32 @@ where
     multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right).await
 }
 
-/// IKHC multiplication protocol
+/// This function runs the multiplication protocol
 /// for use with replicated secret sharing over some field F.
-/// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
-/// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
-/// their part, eventually producing 2/3 shares of the product and that is what this function
-/// returns.
+/// The multiplication follows the academic papers
+/// `https://eprint.iacr.org/2019/1390`,
+/// `https://eprint.iacr.org/2023/909.pdf`,
+/// which are compatible with distributed zero-knowledge proofs
+/// with the only difference that in the paper Helper `i` holds shares `x_{i}, x_{i-1}`
+/// whereas in our implementation he holds `x_{i}, x_{i+1}`
 ///
+/// The multiplication protocol works as follows, given the shares `x_1, x_2, x_3`, `y_1, y_2, y_3`
+/// such that `x = x_1 + x_2 + x_3`, `y = y_1 + y_2 + y_3`
+/// the strategy is to compute `xy` via
+/// `x * y = (x_1 + x_2 + x_3) * ( y_1 + y_2 + y_3) =`
+/// `  x_1 * y_1 + x_1 * y_2 + x_2 * y_1`
+/// `+ x_2 * y_2 + x_2 * y_3 + x_3 * y_2`
+/// `+ x_3 * y_3 + x_3 * y_1 + x_1 * y_3`
 ///
-/// The `zeros_at` argument indicates where there are known zeros in the inputs.
+/// Each helper has shares `(x_left, x_right)`, `(y_left, y_right)` and computes
+/// `z_left = x_left * y_left + x_left * y_right + x_right * y_left + PRSS_left - PRSS_right`
+/// and sends `z_left` to the helper on the left
+/// which treats it as `z_right`
+/// since it has been received from the right party from his perspective
+/// Therefor, each helper has shares `(z_left, z_right)`.
+///
+/// Since the `PRSS` masks `PRSS_left`, `PRSS_right` cancel each other out,
+/// we obtain `z_1 + z_2 + z_3 = x * y`.
 ///
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
@@ -73,24 +90,24 @@ where
 {
     let role = ctx.role();
 
-    // Compute the value (d_i) we want to send to the right helper (i+1).
-    let right_d =
-        a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - prss_left;
+    // Compute the value z_i we want to send to the left helper, i.e. (i-1).
+    let z_left = a.left_arr().clone() * b.left_arr()
+        + a.left_arr().clone() * b.right_arr()
+        + a.right_arr().clone() * b.left_arr()
+        + prss_left
+        - prss_right;
 
-    ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
-        .send(record_id, &right_d)
+    ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Left))
+        .send(record_id, &z_left)
         .await?;
 
-    let rhs = a.right_arr().clone() * b.right_arr() + right_d + prss_right;
-
-    // Sleep until helper on the left sends us their (d_i-1) value.
-    let left_d: <F as Vectorizable<N>>::Array = ctx
-        .recv_channel(role.peer(Direction::Left))
+    // Sleep until helper on the left sends us their (z_i+1) value.
+    let z_right: <F as Vectorizable<N>>::Array = ctx
+        .recv_channel(role.peer(Direction::Right))
         .receive(record_id)
         .await?;
-    let lhs = a.left_arr().clone() * b.left_arr() + left_d + prss_left;
 
-    Ok(Replicated::new_arr(lhs, rhs))
+    Ok(Replicated::new_arr(z_left, z_right))
 }
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
