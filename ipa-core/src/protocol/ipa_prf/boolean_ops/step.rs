@@ -33,7 +33,5 @@ pub(crate) enum Fp25519ConversionStep {
 #[derive(CompactStep)]
 pub(crate) enum MultiplicationStep {
     #[step(child = crate::protocol::boolean::step::SixteenBitStep)]
-    MultiplyBits,
-    #[step(child = crate::protocol::boolean::step::SixteenBitStep)]
     Add,
 }

@@ -53,8 +53,7 @@ where
             result = t;
         } else {
             // add up bits i.. with the product
-            let mut add_y = BitDecomposed::with_capacity(new_len);
-            result.iter().skip(i).for_each(|b| add_y.push(b.clone()));
+            let add_y = BitDecomposed::new(result.clone().into_iter().skip(i));
             let (add_result, carry) = integer_add::<_, S, N>(
                 ctx_for_bit_of_y.narrow::<Step>(&Step::Add),
                 record_id,
@@ -63,8 +62,7 @@ where
             )
             .await?;
 
-            result.truncate(i); // replace the bits on i.. with the one we add up
-            add_result.iter().for_each(|b| result.push(b.clone()));
+            result = BitDecomposed::new(result.into_iter().take(i).chain(add_result.into_iter()));
             if result.len() < new_len {
                 // if carry bit is more than max length, we let it overflow
                 result.push(carry);
