@@ -280,6 +280,12 @@ macro_rules! boolean_array_impl {
             #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name(pub(super) Store);
 
+            impl Default for $name {
+                fn default() -> Self {
+                    Self::ZERO
+                }
+            }
+
             impl Debug for $name {
                 fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                     f.write_str(stringify!($name))?;
@@ -567,7 +573,7 @@ macro_rules! boolean_array_impl {
                     proptest,
                 };
                 use rand::{thread_rng, Rng};
-                use bitvec::bits;
+                use bitvec::{bits, bitarr};
 
                 use super::*;
 
@@ -582,6 +588,13 @@ macro_rules! boolean_array_impl {
                         <[u8; $name::STORE_LEN]>::arbitrary_with(args)
                             .prop_map(|arr| $name(Store::from(arr)))
                     }
+                }
+
+                #[test]
+                pub fn zero() {
+                    let zero = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
+                    assert_eq!($name::ZERO.0, zero);
+                    assert_eq!($name::default(), $name::ZERO);
                 }
 
                 proptest! {
