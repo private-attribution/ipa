@@ -1,10 +1,11 @@
-use crate::protocol::basics::mul::SecureMul;
+use ipa_step::StepNarrow;
+
 use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        boolean::NBitStep, context::Context,
-        ipa_prf::boolean_ops::addition_sequential::integer_add, BooleanProtocols, RecordId,
+        basics::mul::SecureMul, boolean::NBitStep, context::Context,
+        ipa_prf::boolean_ops::addition_sequential::integer_add, BooleanProtocols, Gate, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
@@ -13,7 +14,7 @@ use crate::{
 /// 1. Double the input precision for y and repeat the most significant bit in the extra bits (Sign extension)
 ///    X is assumed to be a positive number, so we will automatically pad with ZERO.
 /// 2. Repeatedly multiply x with each digits of y, shift the result 1 digit up each time
-/// 3. Add up the partial products using integer_add
+/// 3. Add up the partial products using `integer_add`
 /// x is assumed to be a positive number
 /// y is assumed to be in two's complement and can be either signed or unsigned
 #[allow(dead_code)]
@@ -28,6 +29,7 @@ where
     S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Gate: StepNarrow<S>,
 {
     let new_len = x.len() + y.len();
     let mut y = y.clone();
@@ -52,7 +54,7 @@ where
             result = t;
         } else {
             let (new_result, carry) = integer_add::<_, S, N>(
-                ctx_for_bit_of_y.narrow("add_partial_products"),
+                ctx_for_bit_of_y.narrow(&S::from(i)),
                 record_id,
                 &t,
                 &result,
@@ -150,7 +152,8 @@ mod test {
                 .zip(all_x_values.iter())
                 .zip(random_y_values.iter())
             {
-                let expected: i128 = as_i128(*y) * x.as_u128() as i128;
+                #[allow(clippy::cast_possible_wrap)] // we assume x is always positive
+                let expected: i128 = as_i128(*y) * (x.as_u128() as i128);
                 assert_eq!((x, y, expected), (x, y, as_i128(*res)));
             }
         });
