@@ -31,6 +31,8 @@ where
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Gate: StepNarrow<S>,
 {
+    use super::step::MultiplicationStep as Step;
+
     let new_len = x.len() + y.len();
     let mut y = y.clone();
     y.resize(new_len, y[y.len() - 1].clone());
@@ -52,9 +54,9 @@ where
         } else {
             // add up bits i.. with the product
             let mut add_y = BitDecomposed::with_capacity(new_len);
-            result.iter().skip(i).for_each(|b| { add_y.push(b.clone()) });
+            result.iter().skip(i).for_each(|b| add_y.push(b.clone()));
             let (add_result, carry) = integer_add::<_, S, N>(
-                ctx_for_bit_of_y.narrow(&S::from(i)),
+                ctx_for_bit_of_y.narrow::<Step>(&Step::Add),
                 record_id,
                 &t,
                 &add_y,
@@ -62,8 +64,9 @@ where
             .await?;
 
             result.truncate(i); // replace the bits on i.. with the one we add up
-            add_result.iter().for_each(|b| { result.push(b.clone()) });
-            if result.len() < new_len { // if carry bit is more than max length, we let it overflow
+            add_result.iter().for_each(|b| result.push(b.clone()));
+            if result.len() < new_len {
+                // if carry bit is more than max length, we let it overflow
                 result.push(carry);
             }
         }

@@ -29,3 +29,11 @@ pub(crate) enum Fp25519ConversionStep {
     #[step(count = 256)]
     RevealY(usize),
 }
+
+#[derive(CompactStep)]
+pub(crate) enum MultiplicationStep {
+    #[step(child = crate::protocol::boolean::step::SixteenBitStep)]
+    MultiplyBits,
+    #[step(child = crate::protocol::boolean::step::SixteenBitStep)]
+    Add,
+}
