@@ -267,7 +267,6 @@ where
 }
 
 /// This function computes the prf for the input match keys.
-
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
     ctx: C,
@@ -286,6 +285,13 @@ where
 {
     // todo: set PROOF_CHUNK to 400 or something reasonable
     // todo: task, fix too many records error when PROOF_CHUNK = 400
+    // we expect 2*256 = 512 gates in total for two additions per conversion
+    // the vectorization factor is NC
+    // the length of input_shares is the amount of converted shares
+    // the total amount of multiplications is therefore NC*512*input_shares.len()
+    // make sure proof does not get too big,
+    // i.e. less that NC*input_shares.len()<120k
+    // (such that there are less than 50m multiplications)
     const PROOF_CHUNK: usize = 1;
 
     let conv_records =
@@ -298,7 +304,6 @@ where
 
     let prf_key = gen_prf_key(&eval_ctx);
 
-    // CONV_CHUNK * PROOF_CHUNK
     let validator = &convert_ctx.dzkp_validator(PROOF_CHUNK * CONV_CHUNK);
 
     let curve_pts = seq_join(
@@ -317,7 +322,7 @@ where
                 convert_to_fp25519::<_, C, CONV_CHUNK, PRF_CHUNK>(
                     validator.clone(),
                     idx,
-                    RecordId::from(idx * PROOF_CHUNK * CONV_CHUNK),
+                    idx * PROOF_CHUNK..idx * PROOF_CHUNK + CONV_CHUNK,
                     vec_match_keys,
                 )
             },

@@ -1,4 +1,8 @@
-use std::{convert::Infallible, iter::zip, ops::Neg};
+use std::{
+    convert::Infallible,
+    iter::zip,
+    ops::{Neg, Range},
+};
 
 use crate::{
     error::{Error, UnwrapInfallible},
@@ -97,23 +101,23 @@ use crate::{
 /// # Panics
 /// If values processed by this function is smaller than 256 bits.
 /// If vectorization is too large, i.e. `NC>=100k`.
-pub async fn convert_to_fp25519<V, B, const NC: usize, const NP: usize>(
+pub async fn convert_to_fp25519<V, C, const NC: usize, const NP: usize>(
     dzkp_validator: V,
     ctx_counter: usize,
-    first_record_id: RecordId,
+    record_id_range: Range<usize>,
     input_shares: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>,
 ) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
 where
-    V: DZKPValidator<B>,
-    B: UpgradableContext,
+    V: DZKPValidator<C>,
+    C: UpgradableContext,
     Fp25519: Vectorizable<NP>,
     Boolean: FieldSimd<NC>,
     BitDecomposed<AdditiveShare<Boolean, NC>>: FromPrss<usize>,
-    AdditiveShare<Boolean, NC>: BooleanProtocols<<B as UpgradableContext>::DZKPUpgradedContext, NC>,
+    AdditiveShare<Boolean, NC>: BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, NC>,
     Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, NC>>>,
     Vec<BA256>:
         for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<NC>>::Array; 256], Error = Infallible>,
-    <B as UpgradableContext>::DZKPValidator: Send + Sync,
+    <C as UpgradableContext>::DZKPValidator: Send + Sync,
 {
     // `BITS` is the number of bits in the memory representation of Fp25519 field elements. It does
     // not vary with vectorization. Where the type `BA256` appears literally in the source of this
@@ -130,14 +134,6 @@ where
     // Ensure that the probability of leaking information is less than 1/(2^128).
     debug_assert!(input_shares.first().iter().count() < (BITS - 128));
 
-    // we expect 2*256 = 512 gates in total for two additions per conversion
-    // the vectorization factor is NC
-    // the length of input_shares is the amount of converted shares
-    // the total amount of multiplications is therefore NC*512*input_shares.len()
-    // make sure proof does not get too big,
-    // i.e. less that NC*input_shares.len()<120k
-    // (such that there are less than 50m multiplications)
-    assert!(NC * input_shares.len() < 120_000);
     // get context
     let m_ctx = dzkp_validator.context();
     // generate sub contexts
@@ -153,11 +149,10 @@ where
     let mut vec_sh_s =
         Vec::<BitDecomposed<AdditiveShare<Boolean, NC>>>::with_capacity(input_shares.len());
 
-    for (i, x) in input_shares.iter().enumerate() {
-        let record_id_x = first_record_id + i;
+    for (record_id, x) in record_id_range.clone().zip(input_shares) {
         // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
         // the two highest bits are set to 0 to allow carries for two additions
-        let (sh_r, sh_s) = gen_sh_r_and_sh_s::<_, BITS, NC>(ctx_gen, record_id_x);
+        let (sh_r, sh_s) = gen_sh_r_and_sh_s::<_, BITS, NC>(ctx_gen, RecordId::from(record_id));
 
         // addition r+s might cause carry,
         // this is no problem since we have set bit 254 of sh_r and sh_s to 0
@@ -165,7 +160,7 @@ where
             let (mut rs_with_higherorderbits, _) =
                 integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
                     ctx_masks.clone(),
-                    record_id_x,
+                    RecordId::from(record_id),
                     &sh_r,
                     &sh_s,
                 )
@@ -181,16 +176,14 @@ where
 
         // addition x+rs, where rs=r+s might cause carry
         // this is not a problem since bit 255 of rs is set to 0
-        vec_sh_y.push(
-            integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-                ctx_mask_x.clone(),
-                record_id_x,
-                &sh_rs,
-                x,
-            )
-            .await?
-            .0,
-        );
+        let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
+            ctx_mask_x.clone(),
+            RecordId::from(record_id),
+            &sh_rs,
+            &x,
+        )
+        .await?;
+        vec_sh_y.push(sh_y);
         vec_sh_s.push(sh_s);
         vec_sh_r.push(sh_r);
     }
@@ -199,17 +192,18 @@ where
     dzkp_validator.validate_chunk(ctx_counter).await?;
 
     // output vec
-    // non vectorized Fp25519 shares
+    // NP-vectorized Fp25519 shares
     let mut results = Vec::<AdditiveShare<Fp25519, NP>>::with_capacity(NC * vec_sh_y.len());
 
-    for (i, ((sh_y, sh_r), sh_s)) in vec_sh_y.into_iter().zip(vec_sh_r).zip(vec_sh_s).enumerate() {
-        let record_id_x = first_record_id + i;
+    for (((record_id, sh_y), sh_r), sh_s) in
+        record_id_range.zip(vec_sh_y).zip(vec_sh_r).zip(vec_sh_s)
+    {
         // this leaks information, but with negligible probability
         let mut y = (m_ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
         for i in 0..BITS {
             let y_bit = partial_reveal(
                 m_ctx.narrow(&Step::RevealY(i)),
-                record_id_x,
+                RecordId::from(record_id),
                 Role::H3,
                 sh_y.get(i).unwrap(),
             )
@@ -232,7 +226,7 @@ where
             .ok()
             .expect("sh_s was constructed with the correct number of bits");
 
-        results.extend(output_shares::<_, NC, NP>(&m_ctx, &sh_r, &sh_s, y)?);
+        output_shares::<_, NC, NP>(&m_ctx, &mut results, &sh_r, &sh_s, y)?;
     }
     Ok(results)
 }
@@ -311,10 +305,11 @@ where
 /// NP records.
 fn output_shares<C, const NC: usize, const NP: usize>(
     ctx: &C,
+    results: &mut Vec<AdditiveShare<Fp25519, NP>>,
     sh_r: &[AdditiveShare<BA256>],
     sh_s: &[AdditiveShare<BA256>],
     y: Option<Vec<BA256>>,
-) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
+) -> Result<(), Error>
 where
     C: Context,
     Fp25519: Vectorizable<NP>,
@@ -361,14 +356,13 @@ where
             .unzip(),
     };
 
-    let mut results = Vec::with_capacity(NC / NP);
     for (left, right) in zip(left, right) {
         results.push(AdditiveShare::<Fp25519, NP>::new_arr(
             <Fp25519 as Vectorizable<NP>>::Array::try_from(left)?,
             <Fp25519 as Vectorizable<NP>>::Array::try_from(right)?,
         ));
     }
-    Ok(results)
+    Ok(())
 }
 
 /// inserts smaller array in the larger array starting from location offset
@@ -479,7 +473,7 @@ mod tests {
                             convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
                                 validator.clone(),
                                 idx,
-                                RecordId::from(idx),
+                                idx..idx + (COUNT + CONV_CHUNK - 1) / CONV_CHUNK,
                                 vec![match_keys],
                             )
                         }),
