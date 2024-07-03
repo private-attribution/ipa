@@ -46,23 +46,24 @@ where
             }))
             .await?;
 
-        let mut t = BitDecomposed::with_capacity(new_len);
-        // |x| * y(i) << i
-        t.resize(i, AdditiveShare::ZERO);
-        product_of_x_and_yb.into_iter().for_each(|b| t.push(b));
+        let t = BitDecomposed::try_from(product_of_x_and_yb).unwrap();
         if i == 0 {
             result = t;
         } else {
-            let (new_result, carry) = integer_add::<_, S, N>(
+            // add up bits i.. with the product
+            let mut add_y = BitDecomposed::with_capacity(new_len);
+            result.iter().skip(i).for_each(|b| { add_y.push(b.clone()) });
+            let (add_result, carry) = integer_add::<_, S, N>(
                 ctx_for_bit_of_y.narrow(&S::from(i)),
                 record_id,
                 &t,
-                &result,
+                &add_y,
             )
             .await?;
-            result = new_result;
 
-            if result.len() < new_len {
+            result.truncate(i); // replace the bits on i.. with the one we add up
+            add_result.iter().for_each(|b| { result.push(b.clone()) });
+            if result.len() < new_len { // if carry bit is more than max length, we let it overflow
                 result.push(carry);
             }
         }
@@ -152,8 +153,7 @@ mod test {
                 .zip(all_x_values.iter())
                 .zip(random_y_values.iter())
             {
-                #[allow(clippy::cast_possible_wrap)] // we assume x is always positive
-                let expected: i128 = as_i128(*y) * (x.as_u128() as i128);
+                let expected: i128 = as_i128(*y) * i128::try_from(x.as_u128()).unwrap();
                 assert_eq!((x, y, expected), (x, y, as_i128(*res)));
             }
         });
