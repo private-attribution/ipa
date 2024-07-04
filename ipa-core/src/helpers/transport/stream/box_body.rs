@@ -11,10 +11,6 @@ use crate::helpers::{transport::stream::BoxBytesStream, BytesStream};
 pub struct WrappedBoxBodyStream(BoxBytesStream);
 
 impl WrappedBoxBodyStream {
-    /// Wrap an axum body stream, returning an instance of `crate::helpers::BodyStream`.
-    /// If the given byte chunk exceeds [`super::MAX_HTTP_CHUNK_SIZE`],
-    /// it will be split into multiple parts, each not exceeding that size.
-    /// See #ipa/1141
     #[must_use]
     pub fn new(bytes: bytes::Bytes) -> Self {
         let stream = futures::stream::once(futures::future::ready(Ok(bytes)));

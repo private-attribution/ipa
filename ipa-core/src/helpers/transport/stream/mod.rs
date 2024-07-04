@@ -57,6 +57,10 @@ pub struct BodyStream {
 }
 
 impl BodyStream {
+    /// Wrap a [`Bytes`] object, returning an instance of `crate::helpers::BodyStream`.
+    /// If the given byte chunk exceeds [`super::MAX_HTTP_CHUNK_SIZE`],
+    /// it will be split into multiple parts, each not exceeding that size.
+    /// See #ipa/1141
     pub fn new(bytes: Bytes) -> Self {
         let stream = iter(bytes.split().into_iter().map(Ok::<_, BoxError>));
         Self::from_bytes_stream(stream)
@@ -83,8 +87,8 @@ impl Stream for BodyStream {
         let next = self.inner.poll_next_unpin(cx);
         if let Poll::Ready(Some(Ok(v))) = &next {
             debug_assert!(
-                v.len() <= MAX_HTTP_CHUNK_SIZE,
-                "Chunk size {} is greater than maximum allowed {MAX_HTTP_CHUNK_SIZE} bytes",
+                v.len() <= MAX_HTTP_CHUNK_SIZE_BYTES,
+                "Chunk size {} is greater than maximum allowed {MAX_HTTP_CHUNK_SIZE_BYTES} bytes",
                 v.len()
             );
         };
@@ -116,8 +120,8 @@ where
 
 /// The size is chosen somewhat arbitrary - feel free to change it, but don't go above 2Gb as
 /// that will cause Hyper's HTTP2 to fail.
-const MAX_HTTP_CHUNK_SIZE: usize = 1024 * 1024; // 1MB
-const_assert!(MAX_HTTP_CHUNK_SIZE > 0);
+const MAX_HTTP_CHUNK_SIZE_BYTES: usize = 1024 * 1024; // 1MB
+const_assert!(MAX_HTTP_CHUNK_SIZE_BYTES > 0 && MAX_HTTP_CHUNK_SIZE_BYTES < (1 << 31) - 1);
 
 /// Trait for objects that can be split into multiple parts.
 ///
@@ -127,23 +131,23 @@ const_assert!(MAX_HTTP_CHUNK_SIZE > 0);
 trait Split {
     type Dest;
 
-    fn split(self) -> Vec<Self::Dest>;
+    fn split(self) -> Self::Dest;
 }
 
 impl Split for Bytes {
-    type Dest = Self;
+    type Dest = Vec<Self>;
 
-    fn split(self) -> Vec<Self::Dest> {
+    fn split(self) -> Self::Dest {
         tracing::trace!(
-            "Will split '{sz}' bytes buffer into {chunks} chunks of size {MAX_HTTP_CHUNK_SIZE}",
+            "Will split '{sz}' bytes buffer into {chunks} chunks of size {MAX_HTTP_CHUNK_SIZE_BYTES}",
             sz = self.len(),
-            chunks = self.len() / MAX_HTTP_CHUNK_SIZE,
+            chunks = self.len() / MAX_HTTP_CHUNK_SIZE_BYTES,
         );
 
-        let mut segments = Vec::with_capacity(self.len() / MAX_HTTP_CHUNK_SIZE);
+        let mut segments = Vec::with_capacity(self.len() / MAX_HTTP_CHUNK_SIZE_BYTES);
         let mut segment = self;
-        while segment.len() > MAX_HTTP_CHUNK_SIZE {
-            segments.push(segment.split_to(MAX_HTTP_CHUNK_SIZE));
+        while segment.len() > MAX_HTTP_CHUNK_SIZE_BYTES {
+            segments.push(segment.split_to(MAX_HTTP_CHUNK_SIZE_BYTES));
         }
         segments.push(segment);
 
@@ -157,20 +161,20 @@ mod tests {
     use futures::{future, stream, stream::TryStreamExt};
 
     use crate::{
-        helpers::{transport::stream::MAX_HTTP_CHUNK_SIZE, BodyStream},
+        helpers::{transport::stream::MAX_HTTP_CHUNK_SIZE_BYTES, BodyStream},
         test_executor::run,
     };
 
     #[test]
     fn chunks_the_input() {
         run(|| async {
-            let data = vec![0_u8; 2 * MAX_HTTP_CHUNK_SIZE + 1];
+            let data = vec![0_u8; 2 * MAX_HTTP_CHUNK_SIZE_BYTES + 1];
             let stream = BodyStream::new(data.into());
             let chunks = stream.try_collect::<Vec<_>>().await.unwrap();
 
             assert_eq!(3, chunks.len());
-            assert_eq!(MAX_HTTP_CHUNK_SIZE, chunks[0].len());
-            assert_eq!(MAX_HTTP_CHUNK_SIZE, chunks[1].len());
+            assert_eq!(MAX_HTTP_CHUNK_SIZE_BYTES, chunks[0].len());
+            assert_eq!(MAX_HTTP_CHUNK_SIZE_BYTES, chunks[1].len());
             assert_eq!(1, chunks[2].len());
         });
     }
@@ -179,7 +183,7 @@ mod tests {
     #[should_panic(expected = "Chunk size 1048577 is greater than maximum allowed 1048576 bytes")]
     fn rejects_large_chunks() {
         run(|| async {
-            let data = vec![0_u8; MAX_HTTP_CHUNK_SIZE + 1];
+            let data = vec![0_u8; MAX_HTTP_CHUNK_SIZE_BYTES + 1];
             let stream =
                 BodyStream::from_bytes_stream(stream::once(future::ready(Ok(Bytes::from(data)))));
 
