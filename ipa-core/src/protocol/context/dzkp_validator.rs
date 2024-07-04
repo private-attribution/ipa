@@ -1,4 +1,4 @@
-use std::{cmp, collections::HashMap, fmt::Debug};
+use std::{cmp, collections::HashMap, fmt::Debug, num::NonZeroUsize};
 
 use async_trait::async_trait;
 use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
@@ -20,7 +20,7 @@ use crate::{
         ipa_prf::validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
         Gate, RecordId,
     },
-    seq_join::{seq_join, SeqJoin},
+    seq_join::seq_join,
     sharding::ShardBinding,
     sync::{Arc, Mutex, Weak},
     telemetry::metrics::DZKP_BATCH_INCREMENTS,
@@ -594,6 +594,7 @@ pub trait DZKPValidator<B: UpgradableContext> {
     fn validated_seq_join<'st, S, F, O>(
         &'st self,
         chunk_size: usize,
+        active: NonZeroUsize,
         source: S,
     ) -> impl Stream<Item = Result<O, Error>> + 'st
     where
@@ -603,7 +604,7 @@ pub trait DZKPValidator<B: UpgradableContext> {
     {
         // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
         // but there is some overhead
-        seq_join::<'st, S, F, O>(self.context().active_work(), source)
+        seq_join::<'st, S, F, O>(active, source)
             .chunks(chunk_size)
             .enumerate()
             .then(move |(context_counter, chunk)| {
@@ -806,6 +807,7 @@ mod tests {
             Gate, RecordId,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+        seq_join::SeqJoin,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 
@@ -848,6 +850,7 @@ mod tests {
                 let m_results = v
                     .validated_seq_join(
                         chunk_size,
+                        m_ctx.active_work(),
                         iter(
                             zip(
                                 repeat(m_ctx.set_total_records(count - 1)).enumerate(),
@@ -885,6 +888,7 @@ mod tests {
                 let m_results = v
                     .validated_seq_join(
                         chunk_size,
+                        m_ctx.active_work(),
                         iter(
                             zip(
                                 repeat(m_ctx.set_total_records(count - 1)).enumerate(),
