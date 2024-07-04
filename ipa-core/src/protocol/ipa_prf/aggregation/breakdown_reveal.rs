@@ -1,3 +1,6 @@
+use futures::stream;
+use futures_util::{StreamExt, TryStreamExt};
+
 use crate::{
     error::Error,
     ff::{
@@ -18,6 +21,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed},
+    seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
 };
 
@@ -76,13 +80,12 @@ where
 /// representing the Breakdown value. The second list groups all the Trigger
 /// Values for that particular Breakdown.
 ///
-/// TODO: TotalRecords::Indeterminate
 /// TODO: Batch input into AGG vectorized and use `process_slice_by_chunks`
 /// and `seq_join`.
 #[tracing::instrument(name = "reveal_breakdowns", skip_all)]
 async fn reveal_breakdowns<BK, TV, const B: usize>(
     ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
-    atributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
+    attributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<Vec<Vec<Replicated<TV>>>, Error>
 where
     BK: BreakdownKey<B>,
@@ -92,7 +95,8 @@ where
     let reveal_ctx = ctx
         .narrow(&AggregationStep::RevealStep)
         .set_total_records(TotalRecords::Indeterminate);
-    for (i, ao) in atributions.into_iter().enumerate() {
+    //.set_total_records(TotalRecords::specified(attributions.len())?);
+    for (i, ao) in attributions.into_iter().enumerate() {
         let record_id = RecordId::from(i);
         let bk_share = ao.attributed_breakdown_key_bits;
         let revealed_bk: BK =
@@ -109,7 +113,6 @@ where
 /// Breakdown, adding up all the Trigger Values. Returns the values for each
 /// Breakdown.
 ///
-/// TODO: TotalRecords::Indeterminate
 /// TODO: Only expand bits as necessary. "Merge-sort" inspired.
 /// TODO: Sharding strategy.
 #[tracing::instrument(name = "add_tvs_by_bk", skip_all)]
@@ -121,30 +124,43 @@ where
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
 {
-    let add_ctx = ctx
-        .narrow(&AggregationStep::Add)
-        .set_total_records(TotalRecords::Indeterminate);
+    let mut acc: usize = 0;
+    let work = stream::iter(grouped_tvs).enumerate().map(|(i, tvs)| {
+        let len = tvs.len();
+        let add_ctx = ctx
+            .narrow(&AggregationStep::AddTriggerValues(i))
+            .set_total_records(TotalRecords::Indeterminate);
+        //.set_total_records(TotalRecords::specified(len).unwrap());
+        let r = add_tvs::<TV, HV>(add_ctx, tvs);
+        acc += len;
+        r
+    });
+    let r: Vec<Replicated<HV>> = seq_join(ctx.active_work(), work)
+        .try_collect()
+        .await
+        .unwrap();
+    Ok(r)
+}
+
+async fn add_tvs<TV, HV>(
+    ctx: UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
+    tvs: Vec<Replicated<TV>>,
+) -> Result<Replicated<HV>, Error>
+where
+    TV: BooleanArray + U128Conversions,
+    HV: BooleanArray + U128Conversions,
+{
     let hv_size: usize = HV::BITS.try_into().unwrap();
-    let mut sums_bits: Vec<Replicated<HV>> = vec![];
-    let mut i: usize = 0;
-    for bk in grouped_tvs {
-        let mut sum_bits = BitDecomposed::new(repeat_n(Replicated::ZERO, hv_size));
-        for tv in bk {
-            let tv_bits: BitDecomposed<Replicated<Boolean>> = tv.to_bits();
-            let record_id = RecordId::from(i);
-            sum_bits = integer_sat_add::<_, SixteenBitStep, 1>(
-                add_ctx.clone(),
-                record_id,
-                &sum_bits,
-                &tv_bits,
-            )
-            .await?;
-            i += 1;
-        }
-        let r: Replicated<HV> = sum_bits.collect_bits();
-        sums_bits.push(r);
+    let mut sum_bits = BitDecomposed::new(repeat_n(Replicated::ZERO, hv_size));
+    for (i, tv) in tvs.into_iter().enumerate() {
+        let tv_bits: BitDecomposed<Replicated<Boolean>> = tv.to_bits();
+        let record_id = RecordId::from(i);
+        // do unsaturared until saturated
+        sum_bits =
+            integer_sat_add::<_, SixteenBitStep, 1>(ctx.clone(), record_id, &sum_bits, &tv_bits)
+                .await?;
     }
-    Ok(sums_bits)
+    Ok(sum_bits.collect_bits())
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
@@ -201,7 +217,6 @@ pub mod tests {
                 .await
                 .reconstruct();
             let result = result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>();
-            tracing::info!("result={:?}", result);
             assert_eq!(32, result.len());
             assert_eq!(result[0], 0);
             assert_eq!(result[1], 3);

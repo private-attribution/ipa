@@ -7,8 +7,10 @@ pub(crate) enum AggregationStep {
     RevealStep,
     #[step(child = BucketStep)]
     MoveToBucket,
-    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
-    Add,
+    /// the number of steps must be kept in sync with `MAX_BREAKDOWNS` defined
+    /// [here](https://tinyurl.com/mwnbbnj6)
+    #[step(count = 512, child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
+    AddTriggerValues(usize),
     #[step(count = 32, child = AggregateValuesStep)]
     Aggregate(usize),
 }
