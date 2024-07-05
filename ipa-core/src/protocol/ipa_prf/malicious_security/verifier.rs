@@ -14,9 +14,9 @@ use crate::{
 pub fn compute_g_differences<
     F,
     const P: usize,
-    const λ: usize,
+    const L: usize,
     const P_FIRST: usize,
-    const λ_FIRST: usize,
+    const L_FIRST: usize,
 >(
     first_zkp: &[F; P_FIRST],
     zkps: &Vec<[F; P]>,
@@ -49,14 +49,14 @@ where
         .collect::<Vec<_>>();
 
     // compute g_sum)
-    let g_sums = iter::once(compute_sum_share::<F, λ_FIRST, P_FIRST>(first_zkp))
+    let g_sums = iter::once(compute_sum_share::<F, L_FIRST, P_FIRST>(first_zkp))
         .chain(
             zkps.iter()
                 .take(zkps.len() - 1)
-                .map(compute_sum_share::<F, λ, P>),
+                .map(compute_sum_share::<F, L, P>),
         )
         // in the final proof, skip the random weights
-        .chain(iter::once(compute_final_sum_share::<F, λ, P>(
+        .chain(iter::once(compute_final_sum_share::<F, L, P>(
             zkps.last().unwrap(),
         )))
         // append spot for final sum
@@ -85,35 +85,35 @@ pub fn interpolate_at_r<F: PrimeField, const P: usize>(
     lagrange_table_g.eval(zkp)[0]
 }
 
-/// This function computes the sum of the first λ elements of the zero-knowledge proof
-pub fn compute_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P]) -> F {
-    (0..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
+/// This function computes the sum of the first L elements of the zero-knowledge proof
+pub fn compute_sum_share<F: PrimeField, const L: usize, const P: usize>(zkp: &[F; P]) -> F {
+    (0..L).fold(F::ZERO, |acc, i| acc + zkp[i])
 }
 
 /// In the final proof, skip the random weights when computing the sum
-pub fn compute_final_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P]) -> F {
-    (1..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
+pub fn compute_final_sum_share<F: PrimeField, const L: usize, const P: usize>(zkp: &[F; P]) -> F {
+    (1..L).fold(F::ZERO, |acc, i| acc + zkp[i])
 }
 
 /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
 ///
 /// The function uses streams since stream offers a chunk method.
-fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
+fn recurse_u_or_v<'a, F: PrimeField, J, const L: usize>(
     u_or_v: J,
-    lagrange_table: &'a LagrangeTable<F, λ, 1>,
+    lagrange_table: &'a LagrangeTable<F, L, 1>,
 ) -> impl Iterator<Item = F> + 'a
 where
     J: Iterator<Item = F> + 'a,
 {
     u_or_v
-        .chunk_array::<λ>()
+        .chunk_array::<L>()
         .map(|x| lagrange_table.eval(&x)[0])
 }
 
 /// This function recursively compresses the `u_or_v` values.
-/// The recursion factor (or compression) of the first recursion is `λ_FIRST`
-/// The recursion factor of all following recursions is `λ`.
-pub fn recursively_compute_final_check<F: PrimeField, J, const λ_FIRST: usize, const λ: usize>(
+/// The recursion factor (or compression) of the first recursion is `L_FIRST`
+/// The recursion factor of all following recursions is `L`.
+pub fn recursively_compute_final_check<F: PrimeField, J, const L_FIRST: usize, const L: usize>(
     u_or_v: J,
     challenges: &[F],
     p_or_q_0: F,
@@ -124,37 +124,37 @@ where
     let recursions_after_first = challenges.len() - 1;
 
     // compute Lagrange tables
-    let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, λ_FIRST>::new();
+    let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, L_FIRST>::new();
     let table_first =
-        LagrangeTable::<F, λ_FIRST, 1>::new(&denominator_p_or_q_first, &challenges[0]);
-    let denominator_p_or_q = CanonicalLagrangeDenominator::<F, λ>::new();
+        LagrangeTable::<F, L_FIRST, 1>::new(&denominator_p_or_q_first, &challenges[0]);
+    let denominator_p_or_q = CanonicalLagrangeDenominator::<F, L>::new();
     let tables = challenges[1..]
         .iter()
-        .map(|r| LagrangeTable::<F, λ, 1>::new(&denominator_p_or_q, r))
+        .map(|r| LagrangeTable::<F, L, 1>::new(&denominator_p_or_q, r))
         .collect::<Vec<_>>();
 
     // generate & evaluate recursive streams
     // to compute last array
     let mut iterator: Box<dyn Iterator<Item = F>> =
-        Box::new(recurse_u_or_v::<_, _, λ_FIRST>(u_or_v, &table_first));
+        Box::new(recurse_u_or_v::<_, _, L_FIRST>(u_or_v, &table_first));
     // all following recursion except last one
     for lagrange_table in tables.iter().take(recursions_after_first - 1) {
-        iterator = Box::new(recurse_u_or_v::<_, _, λ>(iterator, lagrange_table));
+        iterator = Box::new(recurse_u_or_v::<_, _, L>(iterator, lagrange_table));
     }
     let last_u_or_v_values = iterator.collect::<Vec<F>>();
-    // make sure there at at most λ last u or v values
+    // make sure there at at most L last u or v values
     // In the protocol, the prover is expected to continue recursively compressing the
-    // u and v vectors until it has length strictly less than λ.
+    // u and v vectors until it has length strictly less than L.
     assert!(
-        last_u_or_v_values.len() < λ,
+        last_u_or_v_values.len() < L,
         "Too many u or v values in last recursion"
     );
 
-    let mut last_array = [F::ZERO; λ];
+    let mut last_array = [F::ZERO; L];
 
     // array needs to be consistent with what the prover does
     // i.e. set first u or v value to the end
-    last_array[λ - 1] = last_u_or_v_values[0];
+    last_array[L - 1] = last_u_or_v_values[0];
     last_array[0] = p_or_q_0;
 
     last_array[1..last_u_or_v_values.len()].copy_from_slice(&last_u_or_v_values[1..]);
