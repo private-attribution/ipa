@@ -12,6 +12,8 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
+use super::multiplication::integer_mul;
+
 async fn a_times_b_and_not_b<C, const N: usize>(
     ctx: &C,
     record_id: RecordId,
@@ -157,6 +159,97 @@ where
         sign_bit_not,
     ]))
 }
+
+// Sigmoid(
+//     Sum(i = 1..N, neuron(i) in last layer activation times edge weight connecting that neuron to this)
+//   )
+//
+
+// for i in 0..M-1 // For going through all layers
+// for j in 0..N-1 // Current layer
+// for k in 0..N-1 // For previous layer
+// neuron(i*N + j) += neuron((i-1)*N + k) * edge_weight(neuron((i)*N + j), neuron((i-1)*N + k))
+
+// M neurons wide, L layers tall
+pub async fn neural_network<C, const L: usize, const M: usize, const N: usize>(
+    ctx: C,
+    first_layer: &[BitDecomposed<AdditiveShare<Boolean, N>>; M],
+    edge_weights: &[&[&[BitDecomposed<AdditiveShare<Boolean, M>>; M]; M]; L],
+) -> Result<[BitDecomposed<AdditiveShare<Boolean, N>>; M], Error>
+where
+    C: Context,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    Boolean: FieldSimd<M>,
+    AdditiveShare<Boolean, M>: BooleanProtocols<C, M>,
+    Boolean: FieldSimd<L>,
+    AdditiveShare<Boolean, L>: BooleanProtocols<C, L>,
+{    
+    Err(Error::Unsupported("still not implemented".to_owned()))
+    let mut last_layer = first_layer;
+    // for each layer we get M*M vector of edge_weights
+    (0..L).map(|k| {
+        let mut this_layer : [BitDecomposed<AdditiveShare<Boolean, N>>; M];
+        (0..M).map(|j| {
+            let this_neuron = 0;
+            (0..M).map(|i| {
+                // this_neuron += mult(edge_weights(j,i), last_layer(i))
+                let this_neuron = integer_mul(
+                                        ctx.set_total_records(M),
+                                        RecordId::from(j),
+                                        &edge_weights[k][j][i],
+                                        &last_layer[i],
+                                    )
+                                    .await
+                                    .unwrap();
+                // TODO truncate this neuron to -256 to +256
+                //this_layer[j] = sigmoid(this_neuron)
+                this_layer[j] = sigmoid::<_, N>(
+                                    ctx.set_total_records(N),
+                                    RecordId::from(j),
+                                    this_neuron,
+                                )
+                                .await
+                                .unwrap();
+            }).collect::<_>()
+        }).collect::<_>();
+        last_layer = &this_layer;        
+    }).collect::<_>();
+    Ok(last_layer)
+}
+
+//     let last_layer = first_layer;
+//     // for each layer we get M*M vector of edge_weights
+//     for k in 0..L {
+//         let this_layer : [BitDecomposed<AdditiveShare<Boolean, 256>>; M];
+//         for j in 0..M {
+//             let this_neuron = 0;
+//             for i in 0..M {
+//                 // this_neuron += mult(edge_weights(j,i), last_layer(i))
+//                 let result = integer_mul(
+//                     ctx.set_total_records(M),
+//                     RecordId::from(j),
+//                     &get_edge_weights_at(k,j,i),
+//                     &last_layer[i],
+//                 )
+//                 .await
+//                 .unwrap();
+
+//             }
+//             // truncate this neuron to -256 to +256
+
+//             //this_layer[j] = sigmoid(this_neuron)
+//             let result = sigmoid::<_, N>(
+//                 ctx.set_total_records(N),
+//                 RecordId::from(j),
+//                 &BitDecomposed::transposed_from(this_neuron).unwrap(),
+//             )
+//             .await
+//             .unwrap();
+
+//         }
+//         last_layer = this_layer;
+//     }
 
 #[cfg(all(test, unit_test))]
 mod test {
