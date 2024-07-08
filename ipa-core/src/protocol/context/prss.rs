@@ -94,8 +94,8 @@ impl<Z: ArrayLength> Iterator for InstrumentedChunksIter<'_, IndexedSharedRandom
     type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let l = self.left.next_chunk();
-        let r = self.right.next_chunk();
+        let l = self.left.next()?;
+        let r = self.right.next()?;
 
         let step = self.instrumented.step.as_ref().to_string();
         // TODO: what we really want here is a gauge indicating the maximum index used to generate

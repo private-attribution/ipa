@@ -178,8 +178,8 @@ impl<'a, Z: ArrayLength> Iterator for ChunksIter<'a, Z> {
     type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let l = self.left.next_chunk();
-        let r = self.right.next_chunk();
+        let l = self.left.next()?;
+        let r = self.right.next()?;
         Some((l, r))
     }
 }
@@ -194,21 +194,19 @@ pub struct ChunkIter<'a, Z: ArrayLength> {
 impl<'a, Z: ArrayLength> Iterator for ChunkIter<'a, Z> {
     type Item = GenericArray<u128, Z>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(self.next_chunk())
-    }
-}
-
-impl<'a, Z: ArrayLength> ChunkIter<'a, Z> {
+    /// Rustc 1.79 and below does not inline this call without an explicit hint, and it hurts
+    /// performance - see ipa/1187.
     #[inline]
-    pub fn next_chunk(&mut self) -> GenericArray<u128, Z> {
+    fn next(&mut self) -> Option<Self::Item> {
         let chunk =
             GenericArray::generate(|i| self.inner.generate(self.index.offset(self.offset + i)));
 
         self.offset += Z::USIZE;
-        chunk
+        Some(chunk)
     }
+}
 
+impl<'a, Z: ArrayLength> ChunkIter<'a, Z> {
     pub fn new<I: Into<PrssIndex>>(
         prss: &'a IndexedSharedRandomness,
         index: I,
