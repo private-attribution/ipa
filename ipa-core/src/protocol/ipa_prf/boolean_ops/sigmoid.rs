@@ -185,17 +185,16 @@ where
     Boolean: FieldSimd<L>,
     AdditiveShare<Boolean, L>: BooleanProtocols<C, L>,
 {    
-    Err(Error::Unsupported("still not implemented".to_owned()))
+    // Err(Error::Unsupported("still not implemented".to_owned()))
     let mut last_layer = first_layer;
     // for each layer we get M*M vector of edge_weights
-    (0..L).map(|k| {
-        let mut this_layer : [BitDecomposed<AdditiveShare<Boolean, N>>; M];
-        (0..M).map(|j| {
+    (0..L).map(|k| { // for each layer
+        (0..M).map(|j| { // this can be parallelised - each neuron on a layer
             let this_neuron = 0;
             (0..M).map(|i| {
                 // this_neuron += mult(edge_weights(j,i), last_layer(i))
                 let this_neuron = integer_mul(
-                                        ctx.set_total_records(M),
+                                        ctx.set_total_records(1),
                                         RecordId::from(j),
                                         &edge_weights[k][j][i],
                                         &last_layer[i],
@@ -205,7 +204,7 @@ where
                 // TODO truncate this neuron to -256 to +256
                 //this_layer[j] = sigmoid(this_neuron)
                 this_layer[j] = sigmoid::<_, N>(
-                                    ctx.set_total_records(N),
+                                    ctx.set_total_records(1),
                                     RecordId::from(j),
                                     this_neuron,
                                 )
@@ -215,7 +214,7 @@ where
         }).collect::<_>();
         last_layer = &this_layer;        
     }).collect::<_>();
-    Ok(last_layer)
+    Ok(last_layer.clone())
 }
 
 //     let last_layer = first_layer;
