@@ -61,12 +61,12 @@ where
 ///
 /// Its use is tailored to malicious security requirements where the random challenge point `r`
 /// must be uniformly drawn from the field `F`, with the constraint that it does NOT appear
-/// in the set {0, 1, ..., λ-1}.
+/// in the set {0, 1, ..., L-1}.
 /// In the paper [`ZKP_PROOF`] this is shown on step (2.f) of protocol C.2.1
-/// on page 21 where it says: "The parties call `F_{coin}` to receive a random `r ∈ F_{p} \ [λ]`"
+/// on page 21 where it says: "The parties call `F_{coin}` to receive a random `r ∈ F_{p} \ [L]`"
 /// When using Fiat-Shamir to generate the random challenge point, we simply constrain
 /// the conversion from SHA-derived-entropy to field element to only generate valid values,
-/// rather than use rejection sampling. The range [0, λ) is provided through `exclude_to` parameter.
+/// rather than use rejection sampling. The range [0, L) is provided through `exclude_to` parameter.
 ///
 /// [`ZKP_PROOF`]: https://eprint.iacr.org/2023/909.pdf
 /// # Panics
