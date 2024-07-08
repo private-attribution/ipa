@@ -221,7 +221,7 @@ pub trait SharedRandomness {
         T::from_random(
             self.generate_chunks_one_side(index, direction)
                 .next()
-                .unwrap_or_else(|| panic!("Can generate randomness for index {index:?}")),
+                .unwrap_or_else(|| panic!("Can't generate randomness for index {index:?}")),
         )
     }
 
