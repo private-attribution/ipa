@@ -222,6 +222,8 @@ impl<'a, Z: ArrayLength> Iterator for ChunksIter<'a, Z> {
 /// An implementation of `RngCore` that uses the same underlying `Generator`.
 /// For use in place of `PrssSpace` where indexing cannot be used, such as
 /// in APIs that expect `Rng`.
+///
+/// There is a limit of 4B unique values that can be obtained from this.
 pub struct SequentialSharedRandomness {
     generator: Generator,
     counter: PrssIndex,
