@@ -1,5 +1,12 @@
-use super::{multiplication::integer_mul};
-use futures::{stream, StreamExt};
+use std::{
+    iter::{repeat, zip},
+    ops::Not,
+};
+
+use futures::{
+    future::{try_join, try_join4, try_join5},
+    stream, StreamExt,
+};
 
 use crate::{
     error::Error,
@@ -7,7 +14,7 @@ use crate::{
     protocol::{
         basics::mul::SecureMul,
         boolean::{
-            step::{ThirtyTwoBitStep},
+            step::{ThirtyTwoBitStep, TwoHundredFiftySixBitOpStep},
             NBitStep,
         },
         context::Context,
@@ -16,11 +23,8 @@ use crate::{
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
-use futures::future::{try_join, try_join4, try_join5};
-use std::{
-    iter::{repeat, zip},
-    ops::Not,
-};
+
+use super::multiplication::integer_mul;
 
 async fn a_times_b_and_not_b<C, const N: usize>(
     ctx: &C,
@@ -186,16 +190,17 @@ where
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     I: IntoIterator<Item = BitDecomposed<AdditiveShare<Boolean, N>>>,
 {
+    let c = ctx.narrow("activation_times_edge_weight");
     let edge_activations = ctx
         .parallel_join(
             zip(edge_weights, repeat(last_layer_neurons))
                 .enumerate()
                 .map(|(i, (edge_weight, last_layer_neurons))| {
-                    let ctx = ctx.narrow("activation_times_edge_weight");
+                    let per_neuron_ctx = c.narrow(&TwoHundredFiftySixBitOpStep::from(i));
                     async move {
                         integer_mul::<_, S, N>(
-                            ctx,
-                            RecordId::from(i),
+                            per_neuron_ctx,
+                            RecordId::FIRST,
                             &edge_weight,
                             &last_layer_neurons,
                         )
@@ -223,8 +228,9 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::{num::TryFromIntError, iter::repeat};
+    use std::{iter::repeat, num::TryFromIntError};
 
+    use super::one_layer;
     use crate::{
         ff::{boolean_array::BA8, U128Conversions},
         protocol::{
@@ -235,8 +241,6 @@ mod test {
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-
-    use super::one_layer;
 
     fn piecewise_linear_sigmoid_approximation(x: i128) -> Result<u128, TryFromIntError> {
         Ok(match x {
@@ -312,11 +316,10 @@ mod test {
         run(|| async move {
             let world = TestWorld::default();
 
-            let edge_weights = (0..256)
-                .map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
+            let edge_weights = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
 
             let prev_neurons = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
-            let result = world
+            let result: Vec<BA8> = world
                 .upgraded_semi_honest(
                     (edge_weights, prev_neurons),
                     |ctx, (edge_weights, prev_neurons)| async move {
@@ -330,10 +333,13 @@ mod test {
                         .await
                         .unwrap();
 
-                        // Vec::transposed_from(&result).unwrap()
+                        Vec::transposed_from(&result).unwrap()
                     },
                 )
-                .await;
+                .await
+                .reconstruct();
+
+            println!("output of this layer: {:?}", result);
         });
     }
 }
