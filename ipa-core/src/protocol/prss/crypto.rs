@@ -277,7 +277,7 @@ impl Generator {
     /// Generate the value at the given index.
     /// This uses the MMO^{\pi} function described in <https://eprint.iacr.org/2019/074>.
     #[must_use]
-    pub(crate) fn generate<I: Into<PrssIndex128>>(&self, index: I) -> u128 {
+    pub(super) fn generate<I: Into<PrssIndex128>>(&self, index: I) -> u128 {
         let index = index.into();
         #[cfg(debug_assertions)]
         self.used.use_index(index).unwrap();
