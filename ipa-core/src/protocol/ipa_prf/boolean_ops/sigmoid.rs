@@ -174,22 +174,23 @@ where
 //
 
 // edge_weights[0] holds all the edge weights from all the neurons from the previous layer to neuron[0] in the current layer
-pub async fn one_layer<C, S, const N: usize>(
+pub async fn one_layer<C, S, I, const N: usize>(
     ctx: C,
     last_layer_neurons: &BitDecomposed<AdditiveShare<Boolean, N>>,
-    edge_weights: &[BitDecomposed<AdditiveShare<Boolean, N>>; N],
+    edge_weights: I,
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
     S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
+    I: IntoIterator<Item = BitDecomposed<AdditiveShare<Boolean, N>>>,
 {
     let edge_activations = ctx
         .parallel_join(
-            zip(edge_weights.iter(), repeat(last_layer_neurons))
+            zip(edge_weights, repeat(last_layer_neurons))
                 .enumerate()
-                .map(|(i, (edge_weight, neuron))| {
+                .map(|(i, (edge_weight, last_layer_neurons))| {
                     let ctx = ctx.narrow("activation_times_edge_weight");
                     async move {
                         integer_mul::<_, S, N>(
@@ -202,12 +203,12 @@ where
                     }
                 }),
         )
-        .await;
+        .await?;
 
     // now add the last N elements in 1 BitDecomposed
     let aggregated_edge_weights = aggregate_values::<_, BA16, N>(
         ctx.narrow("aggregated_edge_weights"),
-        stream::iter(edge_activations).boxed(),
+        Box::pin(stream::iter(edge_activations.into_iter()).map(Ok)),
         N,
     )
     .await?;
@@ -311,19 +312,20 @@ mod test {
         run(|| async move {
             let world = TestWorld::default();
 
-            let edge_weights = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
+            let edge_weights = (0..256)
+                .map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
+
             let prev_neurons = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
             let result = world
                 .upgraded_semi_honest(
                     (edge_weights, prev_neurons),
                     |ctx, (edge_weights, prev_neurons)| async move {
-                        let edge_weights1 = BitDecomposed::transposed_from(&edge_weights).unwrap();
+                        let edge_weights = BitDecomposed::transposed_from(&edge_weights).unwrap();
                         let prev_neurons = BitDecomposed::transposed_from(&prev_neurons).unwrap();
-                        let edge_weights = repeat(edge_weights1).take(256).collect::<Vec<_>>();
-                        let result = one_layer::<_, DefaultBitStep, 256>(
+                        let result = one_layer::<_, DefaultBitStep, _, 256>(
                             ctx.set_total_records(1),
                             &prev_neurons,
-                            edge_weights.as_slice(),
+                            repeat(edge_weights).take(256),
                         )
                         .await
                         .unwrap();
