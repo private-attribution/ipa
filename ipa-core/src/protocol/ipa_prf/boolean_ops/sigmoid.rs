@@ -1,4 +1,4 @@
-use std::{iter::repeat, ops::Not};
+use std::{iter::{repeat, zip}, ops::Not};
 
 use futures::future::{try_join, try_join4, try_join5};
 
@@ -6,13 +6,12 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        basics::mul::SecureMul, boolean::step::ThirtyTwoBitStep, context::Context,
+        basics::mul::SecureMul, boolean::{step::{ThirtyTwoBitStep, TwoHundredFiftySixBitOpStep}, NBitStep}, context::Context,
         BooleanProtocols, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
-
-use super::multiplication::integer_mul;
+use super::{multiplication::integer_mul, addition_sequential::integer_add};
 
 async fn a_times_b_and_not_b<C, const N: usize>(
     ctx: &C,
@@ -170,85 +169,71 @@ where
 // for k in 0..N-1 // For previous layer
 // neuron(i*N + j) += neuron((i-1)*N + k) * edge_weight(neuron((i)*N + j), neuron((i-1)*N + k))
 
-// M neurons wide, L layers tall
-pub async fn neural_network<C, const L: usize, const M: usize, const N: usize>(
+// M' neurons wide and here M is M'/N, L layers tall
+pub async fn neural_network<C, S, const M: usize, const N: usize, const MTimesN: usize>(
     ctx: C,
-    first_layer: &[BitDecomposed<AdditiveShare<Boolean, N>>; M],
-    edge_weights: &[&[&[BitDecomposed<AdditiveShare<Boolean, M>>; M]; M]; L],
-) -> Result<[BitDecomposed<AdditiveShare<Boolean, N>>; M], Error>
+    last_layer_neurons: &[BitDecomposed<AdditiveShare<Boolean, N>>; M],
+    edge_weights: &[BitDecomposed<AdditiveShare<Boolean, N>>; M],
+)  -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
+    S: NBitStep,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Boolean: FieldSimd<M>,
     AdditiveShare<Boolean, M>: BooleanProtocols<C, M>,
-    Boolean: FieldSimd<L>,
-    AdditiveShare<Boolean, L>: BooleanProtocols<C, L>,
 {    
-    // Err(Error::Unsupported("still not implemented".to_owned()))
-    let mut last_layer = first_layer;
+    // use super::step::MultiplicationStep as Step;
     // for each layer we get M*M vector of edge_weights
-    (0..L).map(|k| { // for each layer
-        (0..M).map(|j| { // this can be parallelised - each neuron on a layer
-            let this_neuron = 0;
-            (0..M).map(|i| {
-                // this_neuron += mult(edge_weights(j,i), last_layer(i))
-                let this_neuron = integer_mul(
-                                        ctx.set_total_records(1),
-                                        RecordId::from(j),
-                                        &edge_weights[k][j][i],
-                                        &last_layer[i],
-                                    )
-                                    .await
-                                    .unwrap();
-                // TODO truncate this neuron to -256 to +256
-                //this_layer[j] = sigmoid(this_neuron)
-                this_layer[j] = sigmoid::<_, N>(
-                                    ctx.set_total_records(1),
-                                    RecordId::from(j),
-                                    this_neuron,
-                                )
-                                .await
-                                .unwrap();
-            }).collect::<_>()
-        }).collect::<_>();
-        last_layer = &this_layer;        
-    }).collect::<_>();
-    Ok(last_layer.clone())
+    let mut mults = ctx.parallel_join(zip(edge_weights.iter(), last_layer_neurons).enumerate().map(|(i, (edge_weight, neuron))| {
+        let ctx = ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(i));       
+    async move {
+        integer_mul::<_, S, N>(
+            ctx,
+            RecordId::FIRST,
+            &edge_weight,
+            &neuron,
+        )
+        .await
+        }
+    })).await?;
+    
+    let mut num = 0;
+    while mults.len() > 1 {
+        // Add each of the mults amongst themselves
+        for (a, b) in mults.iter().tuples() {
+        let (add_result, _) = integer_add::<_, S, N>(
+            ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(M+num)),      
+            RecordId::from(num),
+            &a,
+            &b,
+        )
+        .await?;
+        mults.push(add_result);
+        num += 1;
+        }
+       
+    }
+    // now add the last N elements in 1 BitDecomposed
+    let mut one_cell = mults[0];
+    while one_cell.len() > 1 {
+        let (left, right) = one_cell.split_at((one_cell.len()/2).try_into().unwrap());
+        (one_cell, _) = integer_add::<_, S, N>(
+            ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(M+num)),
+            RecordId::FIRST,
+            &left,
+            &right,
+        )
+        .await?;
+        num += 1;
+    }
+    sigmoid::<_, N>(
+    ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(M+num)),
+            RecordId::FIRST,
+            &one_cell,
+        )
+        .await
 }
-
-//     let last_layer = first_layer;
-//     // for each layer we get M*M vector of edge_weights
-//     for k in 0..L {
-//         let this_layer : [BitDecomposed<AdditiveShare<Boolean, 256>>; M];
-//         for j in 0..M {
-//             let this_neuron = 0;
-//             for i in 0..M {
-//                 // this_neuron += mult(edge_weights(j,i), last_layer(i))
-//                 let result = integer_mul(
-//                     ctx.set_total_records(M),
-//                     RecordId::from(j),
-//                     &get_edge_weights_at(k,j,i),
-//                     &last_layer[i],
-//                 )
-//                 .await
-//                 .unwrap();
-
-//             }
-//             // truncate this neuron to -256 to +256
-
-//             //this_layer[j] = sigmoid(this_neuron)
-//             let result = sigmoid::<_, N>(
-//                 ctx.set_total_records(N),
-//                 RecordId::from(j),
-//                 &BitDecomposed::transposed_from(this_neuron).unwrap(),
-//             )
-//             .await
-//             .unwrap();
-
-//         }
-//         last_layer = this_layer;
-//     }
 
 #[cfg(all(test, unit_test))]
 mod test {
@@ -256,11 +241,13 @@ mod test {
 
     use crate::{
         ff::{boolean_array::BA8, U128Conversions},
-        protocol::{context::Context, ipa_prf::boolean_ops::sigmoid::sigmoid, RecordId},
-        secret_sharing::{BitDecomposed, SharedValue, TransposeFrom},
+        protocol::{context::Context, ipa_prf::boolean_ops::sigmoid::sigmoid, RecordId, boolean::step::DefaultBitStep},
+        secret_sharing::{BitDecomposed, SharedValue, TransposeFrom, replicated::semi_honest::AdditiveShare},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+
+    use super::neural_network;
 
     fn piecewise_linear_sigmoid_approximation(x: i128) -> Result<u128, TryFromIntError> {
         Ok(match x {
@@ -327,6 +314,35 @@ mod test {
                 let delta_from_exact = f64::abs(exact_sigmoid - y_f64);
                 assert!(delta_from_exact < 0.0197_f64, "At x={x_f64} the delta from an exact sigmoid is {delta_from_exact}. Exact value: {exact_sigmoid}, approximate value: {y_f64}");
             }
+        });
+    }
+
+    #[test]
+    #[allow(clippy::cast_precision_loss)]
+    fn semi_honest_neural_network() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let edge_weights = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
+            let prev_neurons = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
+            let result = world
+                .upgraded_semi_honest((edge_weights, prev_neurons), |ctx, (edge_weights, prev_neurons)| async move {
+                    let edge_weights1 = BitDecomposed::transposed_from(&edge_weights).unwrap();
+                    let prev_neurons1 = BitDecomposed::transposed_from(&prev_neurons).unwrap();
+                    let edge_weights = [edge_weights1.clone(), edge_weights1.clone(), edge_weights1.clone(), edge_weights1.clone(), edge_weights1.clone(), edge_weights1.clone(), edge_weights1.clone(), edge_weights1];
+                    let prev_neurons = [prev_neurons1.clone(), prev_neurons1.clone(), prev_neurons1.clone(), prev_neurons1.clone(), prev_neurons1.clone(), prev_neurons1.clone(), prev_neurons1.clone(), prev_neurons1];
+                    let result = neural_network::<_, DefaultBitStep, 8, 256, 2048>(
+                        ctx.set_total_records(1),
+                        &prev_neurons,
+                        &edge_weights
+                    )
+                    .await
+                    .unwrap();
+
+                    // Vec::transposed_from(&result).unwrap()
+                })
+                .await;
+            
         });
     }
 }
