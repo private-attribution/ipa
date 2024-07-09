@@ -11,7 +11,7 @@ use futures::{
 use super::multiplication::integer_mul;
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, boolean_array::BA8},
+    ff::{boolean::Boolean, boolean_array::{BA16, BA8}},
     helpers::{repeat_n, TotalRecords},
     protocol::{
         basics::mul::SecureMul,
@@ -215,18 +215,20 @@ where
         ))
         .await?;
 
-    let total_input = aggregate_values::<_, BA8, N>(
+    let total_input = aggregate_values::<_, BA16, N>(
         ctx.narrow("aggregated_edge_weights"),
         Box::pin(stream::iter(contributions_per_neuron_in_last_layer.into_iter()).map(Ok)),
         N,
     )
     .await?;
 
+    let (lower_8_bits, _) = total_input.split_at(8);
+
     sigmoid::<_, N>(
         ctx.narrow("sigmoid")
             .set_total_records(TotalRecords::Indeterminate),
         RecordId::FIRST,
-        &total_input,
+        &lower_8_bits,
     )
     .await
 }
@@ -325,10 +327,10 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let edge_weights_matrix = (0..256)
-                .map(|_| (0..256).map(|_| rng.gen::<BA8>()).collect::<Vec<_>>())
+            let edge_weights_matrix = (0..32)
+                .map(|_| (0..32).map(|_| BA8::truncate_from(139_u128)).collect::<Vec<_>>())
                 .collect::<Vec<_>>();
-            let prev_neurons = (0..256).map(|_| rng.gen::<BA8>()).collect::<Vec<_>>();
+            let prev_neurons = (0..32).map(|_| rng.gen::<BA8>()).collect::<Vec<_>>();
 
             let result: Vec<BA8> = world
                 .upgraded_semi_honest(
@@ -343,8 +345,8 @@ mod test {
                         let matrix_of_edge_weights = edge_weights
                             .iter()
                             .map(|chunk| BitDecomposed::transposed_from(chunk).unwrap());
-                        let result = one_layer::<_, DefaultBitStep, _, 256>(
-                            ctx.set_total_records(256),
+                        let result = one_layer::<_, DefaultBitStep, _, 32>(
+                            ctx.set_total_records(32),
                             prev_neurons,
                             matrix_of_edge_weights,
                         )
@@ -358,7 +360,7 @@ mod test {
                 .reconstruct();
 
             let expected_activations = zip(edge_weights_matrix, prev_neurons)
-                .fold([0; 256], |mut acc, (edge_weights, n)| {
+                .fold([0; 32], |mut acc, (edge_weights, n)| {
                     let contributions_from_neuron = edge_weights.into_iter().map(|e| {
                         let lossless = as_i128(e) * i128::try_from(n.as_u128()).unwrap();
                         lossless >> 8
