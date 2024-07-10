@@ -11,7 +11,10 @@ use futures::{
 use super::multiplication::integer_mul;
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, boolean_array::{BA16, BA8}},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA16, BA8},
+    },
     helpers::{repeat_n, TotalRecords},
     protocol::{
         basics::mul::SecureMul,
@@ -328,7 +331,14 @@ mod test {
             let mut rng = thread_rng();
 
             let edge_weights_matrix = (0..32)
-                .map(|_| (0..32).map(|_| BA8::truncate_from(139_u128)).collect::<Vec<_>>())
+                .map(|i| {
+                    (0..32).map(|j| {
+                        // offset is in the range [-32, 32)
+                        let offset = (3 * i + 5 * j) % 64 - 32;
+                        let modulo = (256 + offset) % 256;
+                        BA8::truncate_from(modulo as u128)
+                    }).collect::<Vec<_>>()
+                })
                 .collect::<Vec<_>>();
             let prev_neurons = (0..32).map(|_| rng.gen::<BA8>()).collect::<Vec<_>>();
 
