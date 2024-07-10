@@ -747,7 +747,7 @@ pub mod test {
     proptest! {
         #[test]
         fn prss_index_128_conversions(index in 0..u32::MAX, offset in 0..PrssIndex128::MAX_OFFSET) {
-            assert_8_byte_index_is_valid(index ,usize::try_from(offset).unwrap());
+            assert_8_byte_index_is_valid(index, usize::try_from(offset).unwrap());
         }
     }
 }
