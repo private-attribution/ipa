@@ -212,8 +212,8 @@ mod tests {
                     Reshare,
                 },
                 context::{
-                    Context, SemiHonestContext, UpgradableContext, UpgradedContext,
-                    UpgradedMaliciousContext, Validator,
+                    Context, SemiHonestContext, SpecialAccessToUpgradedContext, UpgradableContext,
+                    UpgradedContext, UpgradedMaliciousContext, Validator,
                 },
                 prss::SharedRandomness,
                 RecordId,
@@ -221,12 +221,16 @@ mod tests {
             rand::{thread_rng, Rng},
             secret_sharing::{
                 replicated::{
-                    malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+                    malicious::{
+                        AdditiveShare as MaliciousReplicated, ExtendableField,
+                        ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                    },
                     semi_honest::AdditiveShare as Replicated,
                     ReplicatedSecretSharing,
                 },
                 SharedValue,
             },
+            test_executor::run,
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -398,6 +402,84 @@ mod tests {
                         .await;
                 }
             }
+        }
+
+        #[test]
+        fn malicious_reshare_broken() {
+            run(|| async {
+                let input = Fp32BitPrime::ONE;
+                let world = TestWorld::default();
+
+                let sharings = world
+                    .malicious(input, |ctx, share| async move {
+                        let role = ctx.role();
+                        let v = ctx.validator();
+                        let m_ctx = v.context();
+                        let m_share = m_ctx.upgrade(share).await.unwrap();
+                        let m_ctx = m_ctx.set_total_records(1);
+
+                        let validation_result = match role {
+                            Role::H1 => {
+                                let random_constant_ctx = m_ctx.narrow(&RandomnessForValidation);
+
+                                // lets follow the reshare protocol to get validator to the right state
+                                let rx = m_share
+                                    .rx()
+                                    .reshare(m_ctx.narrow(&ReshareRx), RecordId::FIRST, Role::H1)
+                                    .await
+                                    .unwrap();
+                                let x = m_share
+                                    .x()
+                                    .access_without_downgrade()
+                                    .reshare(m_ctx, RecordId::FIRST, Role::H1)
+                                    .await
+                                    .unwrap();
+
+                                // cool. (x, rx) is the values that are consistent with other helpers
+                                // now lets launch an additive attack
+                                let expected_share = &MaliciousReplicated::new(x, rx.clone());
+                                // we set u and v values correctly
+                                random_constant_ctx
+                                    .accumulate_macs(RecordId::FIRST, expected_share);
+                                // and we run the validation protocol with other helpers and set our share
+                                // to x + 2
+                                let manipulated_share = MaliciousReplicated::new(
+                                    expected_share.x().access_without_downgrade()
+                                        + Replicated::new(Fp32BitPrime::ONE, Fp32BitPrime::ONE),
+                                    rx,
+                                );
+                                v.validate(manipulated_share).await
+
+                                // here is what happened here. This helper never reveals the values
+                                // set for its own share. It goes unchecked, so it can manipulate u and
+                                // v values however it wants.
+                            }
+                            // honest helpers reshare their value towards H1
+                            Role::H2 | Role::H3 => {
+                                v.validate(
+                                    m_share
+                                        .reshare(m_ctx, RecordId::FIRST, Role::H1)
+                                        .await
+                                        .unwrap(),
+                                )
+                                .await
+                            }
+                        };
+
+                        // All three helpers will say that validation check passed
+                        validation_result.unwrap()
+                    })
+                    .await;
+
+                // but sharings are broken due to an additive attack
+                println!("sharings: {sharings:?}");
+                // H1 shares must be inconsistent at this point
+                assert_eq!(sharings[0].right() - Fp32BitPrime::ONE, sharings[1].left());
+                assert_eq!(sharings[0].left() - Fp32BitPrime::ONE, sharings[2].right());
+
+                // H2 and H3 shares are consistent with each other
+                assert_eq!(sharings[1].right(), sharings[2].left());
+            });
         }
     }
 }
