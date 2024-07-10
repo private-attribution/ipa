@@ -423,19 +423,11 @@ mod tests {
                                 let random_constant_ctx = m_ctx.narrow(&RandomnessForValidation);
 
                                 // lets follow the reshare protocol to get validator to the right state
-                                let rx = m_share
-                                    .rx()
-                                    .reshare(m_ctx.narrow(&ReshareRx), RecordId::FIRST, Role::H1)
-                                    .await
-                                    .unwrap();
-                                let x = m_share
-                                    .x()
-                                    .access_without_downgrade()
-                                    .reshare(m_ctx, RecordId::FIRST, Role::H1)
-                                    .await
-                                    .unwrap();
+                                let x = m_ctx.prss().generate(RecordId::FIRST);
+                                let rx: Replicated<_> =
+                                    m_ctx.narrow(&ReshareRx).prss().generate(RecordId::FIRST);
 
-                                // cool. (x, rx) is the values that are consistent with other helpers
+                                // cool. (x, rx) is the values that will pass the validation check.
                                 // now lets launch an additive attack
                                 let expected_share = &MaliciousReplicated::new(x, rx.clone());
                                 // we set u and v values correctly
