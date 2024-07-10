@@ -58,7 +58,7 @@ where
     let aggregation_input = Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
     let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> =
-        aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli as usize).await;
+        aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli as usize, false).await;
     noise_vector
 }
 /// `apply_dp_noise` takes the noise distribution parameters (`num_bernoulli` and in the future `quantization_scale`)

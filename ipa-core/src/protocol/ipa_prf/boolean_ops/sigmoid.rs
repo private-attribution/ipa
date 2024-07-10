@@ -11,10 +11,7 @@ use futures::{
 use super::multiplication::integer_mul;
 use crate::{
     error::{Error, LengthError},
-    ff::{
-        boolean::Boolean,
-        boolean_array::{BA16, BA8},
-    },
+    ff::{boolean::Boolean, boolean_array::BA8},
     helpers::{repeat_n, TotalRecords},
     protocol::{
         basics::mul::SecureMul,
@@ -218,20 +215,19 @@ where
         ))
         .await?;
 
-    let total_input = aggregate_values::<_, BA16, N>(
+    let total_input = aggregate_values::<_, BA8, N>(
         ctx.narrow("aggregated_edge_weights"),
         Box::pin(stream::iter(contributions_per_neuron_in_last_layer.into_iter()).map(Ok)),
         N,
+        true,
     )
     .await?;
-
-    let (lower_8_bits, _) = total_input.split_at(8);
 
     sigmoid::<_, N>(
         ctx.narrow("sigmoid")
             .set_total_records(TotalRecords::Indeterminate),
         RecordId::FIRST,
-        &lower_8_bits,
+        &total_input,
     )
     .await
 }
@@ -332,12 +328,14 @@ mod test {
 
             let edge_weights_matrix = (0..32)
                 .map(|i| {
-                    (0..32).map(|j| {
-                        // offset is in the range [-32, 32)
-                        let offset = (3 * i + 5 * j) % 64 - 32;
-                        let modulo = (256 + offset) % 256;
-                        BA8::truncate_from(modulo as u128)
-                    }).collect::<Vec<_>>()
+                    (0..32)
+                        .map(|j| {
+                            // offset is in the range [-16, 16)
+                            let offset = (3 * i + 5 * j) % 32 - 16;
+                            let modulo = (256 + offset) % 256;
+                            BA8::truncate_from(modulo as u128)
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
             let prev_neurons = (0..32).map(|_| rng.gen::<BA8>()).collect::<Vec<_>>();
