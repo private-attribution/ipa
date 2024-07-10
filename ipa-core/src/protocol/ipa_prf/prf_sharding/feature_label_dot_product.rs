@@ -1,7 +1,4 @@
-use std::{
-    convert::Infallible,
-    iter::{self, zip},
-};
+use std::{convert::Infallible, iter::zip};
 
 use futures::stream;
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
@@ -9,7 +6,7 @@ use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, boolean_array::BooleanArray, Expand, Field, U128Conversions},
-    helpers::{repeat_n, stream::TryFlattenItersExt},
+    helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
         boolean::{and::bool_and_8_bit, or::or},
@@ -110,10 +107,8 @@ impl InputsRequiredFromPrevRow {
             <Boolean as Vectorizable<B>>::Array::expand(&capped_label.left()),
             <Boolean as Vectorizable<B>>::Array::expand(&capped_label.right()),
         );
-        let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
-        bit_decomposed_output
-            .transpose_from(&input_row.feature_vector)
-            .unwrap_infallible();
+        let bit_decomposed_output =
+            BitDecomposed::transposed_from(&input_row.feature_vector).unwrap_infallible();
         let capped_attributed_feature_vector = bool_and_8_bit(
             ctx,
             record_id,
@@ -129,7 +124,7 @@ impl InputsRequiredFromPrevRow {
     }
 }
 
-fn set_up_contexts<C>(root_ctx: &C, users_having_n_records: &[usize]) -> Vec<C>
+fn set_up_contexts<C>(root_ctx: &C, users_having_n_records: &[usize]) -> Result<Vec<C>, Error>
 where
     C: Context,
 {
@@ -139,13 +134,14 @@ where
         if row_number == 0 {
             // no multiplications needed for each user's row 0. No context needed
         } else {
+            let total_records = TotalRecords::specified(*num_users_having_that_row_number)?;
             let ctx_for_row_number = root_ctx
                 .narrow(&UserNthRowStep::from(row_number))
-                .set_total_records(*num_users_having_that_row_number);
+                .set_total_records(total_records);
             context_per_row_depth.push(ctx_for_row_number);
         }
     }
-    context_per_row_depth
+    Ok(context_per_row_depth)
 }
 
 ///
@@ -235,7 +231,7 @@ where
     // There will be 1 output for users with at least 2 rows.
     // So we just use the number of users having at least 2 rows.
     let num_outputs = users_having_n_records[1];
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, users_having_n_records);
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, users_having_n_records)?;
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);

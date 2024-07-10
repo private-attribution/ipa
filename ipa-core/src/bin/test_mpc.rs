@@ -5,11 +5,14 @@ use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        playbook::{make_clients, secure_mul, validate, InputSource},
+        playbook::{make_clients, secure_add, secure_mul, validate, InputSource},
         Verbosity,
     },
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions},
-    helpers::query::{QueryConfig, QueryType::TestMultiply},
+    helpers::query::{
+        QueryConfig,
+        QueryType::{TestAddInPrimeField, TestMultiply},
+    },
     net::MpcHelperClient,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
 };
@@ -53,12 +56,21 @@ pub struct CommandInput {
 
     #[arg(value_enum, long, default_value_t = FieldType::Fp32BitPrime, help = "Convert the input into the given field before sending to helpers")]
     field: FieldType,
+
+    #[arg(
+        long,
+        conflicts_with = "input_file",
+        help = "Instead of taking input from a file, generate the given number of field values for input"
+    )]
+    generate: Option<u64>,
 }
 
 impl From<&CommandInput> for InputSource {
     fn from(source: &CommandInput) -> Self {
         if let Some(ref file_name) = source.input_file {
             InputSource::from_file(file_name)
+        } else if let Some(count) = source.generate {
+            InputSource::from_generator(count)
         } else {
             InputSource::from_stdin()
         }
@@ -69,15 +81,10 @@ impl From<&CommandInput> for InputSource {
 enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
-}
-
-#[derive(Debug, clap::Args)]
-struct GenInputArgs {
-    /// Maximum records per user
-    #[clap(long)]
-    max_per_user: u32,
-    /// number of breakdowns
-    breakdowns: u32,
+    /// Execute end-to-end simple addition circuit that uses prime fields.
+    /// All helpers add their shares locally and set the resulting share to be the
+    /// sum. No communication is required to run the circuit.
+    AddInPrimeField,
 }
 
 #[tokio::main]
@@ -94,6 +101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (clients, _) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
         TestAction::Multiply => multiply(&args, &clients).await,
+        TestAction::AddInPrimeField => add(&args, &clients).await,
     };
 
     Ok(())
@@ -120,5 +128,34 @@ async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
     match args.input.field {
         FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients).await,
         FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(args, helper_clients).await,
+    };
+}
+
+async fn add_in_field<F>(args: &Args, helper_clients: &[MpcHelperClient; 3])
+where
+    F: Field + U128Conversions + IntoShares<AdditiveShare<F>>,
+    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength,
+{
+    let input = InputSource::from(&args.input);
+    // compute the sum as we are iterating through the input. That avoid cloning the iterator
+    let mut expected = F::ZERO;
+    let input_rows = input.known_size_iter().map(F::truncate_from).map(|v| {
+        expected += v;
+        v
+    });
+    let query_config =
+        QueryConfig::new(TestAddInPrimeField, args.input.field, input_rows.len()).unwrap();
+
+    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
+    let actual = secure_add(input_rows, helper_clients, query_id).await;
+
+    validate(&vec![expected], &vec![actual]);
+}
+
+async fn add(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
+    match args.input.field {
+        FieldType::Fp31 => add_in_field::<Fp31>(args, helper_clients).await,
+        FieldType::Fp32BitPrime => add_in_field::<Fp32BitPrime>(args, helper_clients).await,
     };
 }

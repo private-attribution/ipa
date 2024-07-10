@@ -231,6 +231,12 @@ macro_rules! field_impl {
             }
         }
 
+        impl Default for $field {
+            fn default() -> Self {
+                Self::ZERO
+            }
+        }
+
         impl Serializable for $field {
             type Size = <<Self as SharedValue>::Storage as Block>::Size;
             type DeserializationError = GreaterThanPrimeError<$store>;
@@ -303,6 +309,7 @@ macro_rules! field_impl {
 
             #[test]
             fn zero() {
+                assert_eq!($field::default(), $field::ZERO);
                 let prime = u128::from($field::PRIME);
                 assert_eq!(
                     $field::ZERO,

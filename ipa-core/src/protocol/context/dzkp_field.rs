@@ -10,12 +10,9 @@ use crate::{
 pub const BLOCK_SIZE: usize = 32;
 // UVTupleBlock is a block of interleaved U and V values
 pub type UVTupleBlock<F> = ([F; BLOCK_SIZE], [F; BLOCK_SIZE]);
-// UVSingleBlock is either a block of U or a block of V values
-pub type UVSingleBlock<F> = [F; BLOCK_SIZE];
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
-#[allow(dead_code)]
 pub trait DZKPCompatibleField<const N: usize = 1>: FieldSimd<N> {
     fn as_segment_entry(array: &<Self as Vectorizable<N>>::Array) -> SegmentEntry<'_>;
 }
@@ -39,20 +36,22 @@ pub trait DZKPBaseField: PrimeField {
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the left of the prover.
     /// The verifier on the left uses its right shares, since they are consistent with the prover's left shares.
-    fn convert_verifier_left<'a>(
+    /// This produces the 'u' values.
+    fn convert_value_from_right_prover<'a>(
         x_right: &'a Array256Bit,
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
         z_right: &'a Array256Bit,
-    ) -> Vec<UVSingleBlock<Self>>;
+    ) -> Vec<Self>;
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the right of the prover.
     /// The verifier on the right uses its left shares, since they are consistent with the prover's right shares.
-    fn convert_verifier_right<'a>(
+    /// This produces the 'v' values
+    fn convert_value_from_left_prover<'a>(
         x_left: &'a Array256Bit,
         y_left: &'a Array256Bit,
         prss_left: &'a Array256Bit,
-    ) -> Vec<UVSingleBlock<Self>>;
+    ) -> Vec<Self>;
 }
 
 impl<const P: usize> FromIterator<Fp61BitPrime> for [Fp61BitPrime; P] {
@@ -211,12 +210,12 @@ impl DZKPBaseField for Fp61BitPrime {
     // (a,c,e) = (x_right, y_right, x_right * y_right ⊕ z_right ⊕ prss_right)
     // here e is defined as in the paper (since the the verifier does not have access to b,d,f,
     // he cannot use the simplified formula for e)
-    fn convert_verifier_left<'a>(
+    fn convert_value_from_right_prover<'a>(
         x_right: &'a Array256Bit,
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
         z_right: &'a Array256Bit,
-    ) -> Vec<UVSingleBlock<Self>> {
+    ) -> Vec<Self> {
         // precompute ac = a & c = x_right & y_right
         let ac = *x_right & y_right;
         // e = ac ⊕ zright ⊕ prssright
@@ -228,7 +227,7 @@ impl DZKPBaseField for Fp61BitPrime {
             .zip(y_right.data.iter())
             .zip(ac.data.iter())
             .zip(e.data.iter())
-            .map(|(((a, c), ac), e)| {
+            .flat_map(|(((a, c), ac), e)| {
                 // g polynomial
                 a.view_bits::<Lsb0>()
                     .iter()
@@ -249,9 +248,8 @@ impl DZKPBaseField for Fp61BitPrime {
                             Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e,
                         ]
                     })
-                    .collect::<[Fp61BitPrime; BLOCK_SIZE]>()
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<Fp61BitPrime>>()
     }
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
@@ -268,11 +266,11 @@ impl DZKPBaseField for Fp61BitPrime {
     //
     // where
     // (b,d,f) = (y_left, x_left, prss_left)
-    fn convert_verifier_right<'a>(
+    fn convert_value_from_left_prover<'a>(
         x_left: &'a Array256Bit,
         y_left: &'a Array256Bit,
         prss_left: &'a Array256Bit,
-    ) -> Vec<UVSingleBlock<Self>> {
+    ) -> Vec<Self> {
         // precompute bd = b & d = y_left & x_left
         let bd = *y_left & x_left;
         y_left
@@ -281,7 +279,7 @@ impl DZKPBaseField for Fp61BitPrime {
             .zip(x_left.data.iter())
             .zip(prss_left.data.iter())
             .zip(bd.data.iter())
-            .map(|(((b, d), f), bd)| {
+            .flat_map(|(((b, d), f), bd)| {
                 // h polynomial
                 b.view_bits::<Lsb0>()
                     .iter()
@@ -302,9 +300,8 @@ impl DZKPBaseField for Fp61BitPrime {
                             one_minus_two_f,
                         ]
                     })
-                    .collect::<[Fp61BitPrime; BLOCK_SIZE]>()
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<Fp61BitPrime>>()
     }
 }
 
@@ -316,7 +313,7 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp61BitPrime, U128Conversions},
-        protocol::context::dzkp_field::{DZKPBaseField, UVSingleBlock, UVTupleBlock},
+        protocol::context::dzkp_field::{DZKPBaseField, UVTupleBlock, BLOCK_SIZE},
         secret_sharing::SharedValue,
     };
 
@@ -376,21 +373,29 @@ mod tests {
             Fp61BitPrime::convert_prover(&x_left, &x_right, &y_left, &y_right, &prss_right),
             // flip intputs right to left since it is checked against itself and not party on the left
             // z_right is set to match z_left
-            Fp61BitPrime::convert_verifier_left(&x_left, &y_left, &prss_left, &z_right),
+            Fp61BitPrime::convert_value_from_right_prover(&x_left, &y_left, &prss_left, &z_right),
             // flip intputs right to left since it is checked against itself and not party on the left
-            Fp61BitPrime::convert_verifier_right(&x_right, &y_right, &prss_right),
+            Fp61BitPrime::convert_value_from_left_prover(&x_right, &y_right, &prss_right),
         );
     }
     fn assert_convert<P, L, R>(prover: P, verifier_left: L, verifier_right: R)
     where
         P: IntoIterator<Item = UVTupleBlock<Fp61BitPrime>>,
-        L: IntoIterator<Item = UVSingleBlock<Fp61BitPrime>>,
-        R: IntoIterator<Item = UVSingleBlock<Fp61BitPrime>>,
+        L: IntoIterator<Item = Fp61BitPrime>,
+        R: IntoIterator<Item = Fp61BitPrime>,
     {
         prover
             .into_iter()
-            .zip(verifier_left)
-            .zip(verifier_right)
+            .zip(
+                verifier_left
+                    .into_iter()
+                    .collect::<Vec<[Fp61BitPrime; BLOCK_SIZE]>>(),
+            )
+            .zip(
+                verifier_right
+                    .into_iter()
+                    .collect::<Vec<[Fp61BitPrime; BLOCK_SIZE]>>(),
+            )
             .for_each(|((prover, verifier_left), verifier_right)| {
                 assert_eq!(prover.0, verifier_left);
                 assert_eq!(prover.1, verifier_right);

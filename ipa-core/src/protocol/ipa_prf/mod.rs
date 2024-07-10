@@ -1,13 +1,8 @@
-use std::{
-    convert::Infallible,
-    iter::{self, zip},
-    num::NonZeroU32,
-    ops::Add,
-};
+use std::{convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
 
 use futures::{stream, StreamExt, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{Unsigned, U18};
+use typenum::{Const, Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
@@ -18,7 +13,10 @@ use crate::{
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
     },
-    helpers::stream::{process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
+    helpers::{
+        stream::{div_round_up, process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
+        TotalRecords,
+    },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
         context::{
@@ -49,12 +47,10 @@ pub mod oprf_padding;
 pub mod prf_eval;
 pub mod prf_sharding;
 
-#[cfg(all(test, unit_test))]
 mod malicious_security;
 mod quicksort;
 pub(crate) mod shuffle;
 pub(crate) mod step;
-#[cfg(all(test, unit_test))]
 pub mod validation_protocol;
 
 /// Match key type
@@ -93,7 +89,7 @@ pub const SORT_CHUNK: usize = 256;
 
 use step::IpaPrfStep as Step;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
     pub match_key: Replicated<MatchKey>,
@@ -239,12 +235,19 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
+    if input_rows.is_empty() {
+        return Ok(vec![Replicated::ZERO; B]);
+    }
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
     let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
     let (histogram, ranges) = histograms_ranges_sortkeys(&mut prfd_inputs);
+    if histogram.len() == 1 {
+        // No user has more than one record.
+        return Ok(vec![Replicated::ZERO; B]);
+    }
     quicksort_ranges_by_key_insecure(
         ctx.narrow(&Step::SortByTimestamp),
         &mut prfd_inputs,
@@ -270,46 +273,37 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
+    <C as UpgradableContext>::DZKPValidator: Send + Sync,
     C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
-    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<C, CONV_CHUNK>,
+    Replicated<Boolean, CONV_CHUNK>:
+        BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
+    let conv_records =
+        TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
+    let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), Const::<PRF_CHUNK>))?;
     let convert_ctx = ctx
         .narrow(&Step::ConvertFp25519)
-        .set_total_records((input_rows.len() + CONV_CHUNK - 1) / CONV_CHUNK);
-    let eval_ctx = ctx
-        .narrow(&Step::EvalPrf)
-        .set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);
+        .set_total_records(conv_records);
+    let eval_ctx = ctx.narrow(&Step::EvalPrf).set_total_records(eval_records);
 
     let prf_key = gen_prf_key(&eval_ctx);
 
     let curve_pts = seq_join(
         ctx.active_work(),
-        process_slice_by_chunks(
-            input_rows,
-            move |idx, records: ChunkData<_, CONV_CHUNK>| {
-                let record_id = RecordId::from(idx);
-                let convert_ctx = convert_ctx.clone();
-                let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
-                    &|i| records[i].match_key.clone();
-                let mut match_keys: BitDecomposed<Replicated<Boolean, 256>> =
-                    BitDecomposed::new(iter::empty());
-                match_keys
-                    .transpose_from(input_match_keys)
+        process_slice_by_chunks(input_rows, move |idx, records: ChunkData<_, CONV_CHUNK>| {
+            let record_id = RecordId::from(idx);
+            let convert_ctx = convert_ctx.clone();
+            let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
+                &|i| records[i].match_key.clone();
+            let match_keys =
+                BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
                     .unwrap_infallible();
-                convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(convert_ctx, record_id, match_keys)
-            },
-            || OPRFIPAInputRow {
-                match_key: Replicated::<MatchKey>::ZERO,
-                is_trigger: Replicated::<Boolean>::ZERO,
-                breakdown_key: Replicated::<BK>::ZERO,
-                trigger_value: Replicated::<TV>::ZERO,
-                timestamp: Replicated::<TS>::ZERO,
-            },
-        ),
+            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(convert_ctx, record_id, match_keys)
+        }),
     )
     .map_ok(Chunk::unpack::<PRF_CHUNK>)
     .try_flatten_iters()
@@ -392,6 +386,59 @@ pub mod tests {
                 test_input(10, 12345, true, 0, 5),
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
+            ];
+
+            let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+
+    #[test]
+    fn semi_honest_empty() {
+        const EXPECTED: &[u128] = &[0, 0, 0, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::default();
+
+            let records: Vec<TestRawDataRecord> = vec![];
+
+            let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+
+    #[test]
+    fn semi_honest_degenerate() {
+        const EXPECTED: &[u128] = &[0, 0, 0, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::default();
+
+            let records: Vec<TestRawDataRecord> = vec![
+                test_input(0, 12345, false, 1, 0),
+                test_input(0, 68362, false, 1, 0),
             ];
 
             let mut result: Vec<_> = world

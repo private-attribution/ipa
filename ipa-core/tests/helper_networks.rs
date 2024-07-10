@@ -8,16 +8,38 @@ use common::{
 };
 use ipa_core::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
 
+use crate::common::{AddInPrimeField, Multiply};
+
 #[test]
 #[cfg(all(test, web_test))]
-fn http_network() {
-    test_network(false);
+fn http_network_multiply() {
+    test_network::<Multiply>(false);
 }
 
 #[test]
 #[cfg(all(test, web_test))]
-fn https_network() {
-    test_network(true);
+fn https_network_multiply() {
+    test_network::<Multiply>(true);
+}
+
+#[test]
+#[cfg(all(test, web_test))]
+fn http_network_add() {
+    test_network::<AddInPrimeField<10>>(false);
+}
+
+/// This reproduces the faulty behaviour described in #ipa/1141 and should fail
+/// if the fix is not in place.
+#[test]
+#[cfg(all(test, web_test))]
+fn http_network_large_input() {
+    if std::env::var("EXEC_SLOW_TESTS").is_err() {
+        return;
+    }
+
+    // 2^31 / (2*sizeof(Fp32BitPrime)) - to exceed the limit for a single chunk on HTTP
+    const N: u32 = 268_435_456;
+    test_network::<AddInPrimeField<N>>(false);
 }
 
 #[test]

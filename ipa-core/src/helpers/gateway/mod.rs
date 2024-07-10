@@ -69,7 +69,18 @@ pub struct State {
 pub struct GatewayConfig {
     /// The number of items that can be active at the one time.
     /// This is used to determine the size of sending and receiving buffers.
-    active: NonZeroUsize,
+    pub active: NonZeroUsize,
+
+    /// Number of bytes packed and sent together in one batch down to the network layer. This
+    /// shouldn't be too small to keep the network throughput, but setting it large enough may
+    /// increase latency due to TCP/HTTP active window adjusting.
+    /// A rule of thumb is that this should get as close to network packet size as possible.
+    ///
+    /// This will be set for all channels and because they send records of different side, the actual
+    /// payload may not be exactly this, but it will be the closest multiple of record size to this
+    /// number. For instance, having 14 bytes records and batch size of 4096 will result in
+    /// 4088 bytes being sent in a batch.
+    pub read_size: NonZeroUsize,
 
     /// Time to wait before checking gateway progress. If no progress has been made between
     /// checks, the gateway is considered to be stalled and will create a report with outstanding
@@ -139,7 +150,7 @@ impl Gateway {
         let channel = self.inner.mpc_senders.get::<M, _>(
             channel_id,
             transport,
-            self.config.active_work(),
+            self.config,
             self.query_id,
             total_records,
         );
@@ -163,7 +174,7 @@ impl Gateway {
         let channel = self.inner.shard_senders.get::<M, _>(
             channel_id,
             transport,
-            self.config.active_work(),
+            self.config,
             self.query_id,
             total_records,
         );
@@ -220,23 +231,13 @@ impl Gateway {
 
 impl Default for GatewayConfig {
     fn default() -> Self {
-        Self::new(1024)
-    }
-}
-
-impl GatewayConfig {
-    /// Generate a new configuration with the given active limit.
-    ///
-    /// ## Panics
-    /// If `active` is 0.
-    #[must_use]
-    pub fn new(active: usize) -> Self {
-        // In-memory tests are fast, so progress check intervals can be lower.
-        // Real world scenarios currently over-report stalls because of inefficiencies inside
-        // infrastructure and actual networking issues. This checks is only valuable to report
-        // bugs, so keeping it large enough to avoid false positives.
         Self {
-            active: NonZeroUsize::new(active).unwrap(),
+            active: 32768.try_into().unwrap(),
+            read_size: 2048.try_into().unwrap(),
+            // In-memory tests are fast, so progress check intervals can be lower.
+            // Real world scenarios currently over-report stalls because of inefficiencies inside
+            // infrastructure and actual networking issues. This check is only valuable to report
+            // bugs, so keeping it large enough to avoid false positives.
             #[cfg(feature = "stall-detection")]
             progress_check_interval: std::time::Duration::from_secs(if cfg!(test) {
                 5
@@ -245,7 +246,9 @@ impl GatewayConfig {
             }),
         }
     }
+}
 
+impl GatewayConfig {
     /// The configured amount of active work.
     #[must_use]
     pub fn active_work(&self) -> NonZeroUsize {
@@ -290,7 +293,10 @@ mod tests {
         }
 
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::new(2),
+            gateway_config: GatewayConfig {
+                active: 2.try_into().unwrap(),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -316,7 +322,10 @@ mod tests {
     #[tokio::test]
     pub async fn handles_reordering() {
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::new(2),
+            gateway_config: GatewayConfig {
+                active: 2.try_into().unwrap(),
+                ..Default::default()
+            },
             ..TestWorldConfig::default()
         };
         let world = Box::leak(Box::new(TestWorld::new_with(config)));

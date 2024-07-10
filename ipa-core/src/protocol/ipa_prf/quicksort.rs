@@ -1,12 +1,16 @@
-use std::{convert::Infallible, iter, mem, ops::Range};
+use std::{convert::Infallible, mem, ops::Range};
 
 use bitvec::prelude::{BitVec, Lsb0};
 use futures::stream::{self, repeat, StreamExt, TryStreamExt};
+use typenum::Const;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, boolean_array::BooleanArray, Expand},
-    helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
+    helpers::{
+        stream::{div_round_up, process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
+        TotalRecords,
+    },
     protocol::{
         basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
@@ -84,10 +88,8 @@ where
             }
         };
 
-        let mut a_t = BitDecomposed::new(iter::empty());
-        a_t.transpose_from(&*a).unwrap_infallible();
-        let mut b_t = BitDecomposed::new(iter::empty());
-        b_t.transpose_from(&*b).unwrap_infallible();
+        let a_t = BitDecomposed::transposed_from(&*a).unwrap_infallible();
+        let b_t = BitDecomposed::transposed_from(&*b).unwrap_infallible();
         Ok((a_t, b_t))
     }
 }
@@ -114,7 +116,7 @@ where
 /// Will propagate errors from transport and a few typecasts
 ///
 /// # Panics
-/// If you provide any invalid ranges, such as 0..0
+/// If any of the input ranges are empty
 pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
@@ -134,7 +136,14 @@ where
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
 {
-    assert!(!ranges_to_sort.iter().any(Range::is_empty));
+    // Panic on any empty ranges in the input. Check if all the input ranges have length 1;
+    // if so, there's nothing to do.
+    if ranges_to_sort.iter().fold(true, |trivial, range| {
+        assert!(!range.is_empty());
+        trivial && range.len() == 1
+    }) {
+        return Ok(());
+    }
 
     let desc = <Boolean as Vectorizable<SORT_CHUNK>>::Array::expand(&Boolean::from(desc));
     let mut ranges_for_next_pass = Vec::with_capacity(ranges_to_sort.len() * 2);
@@ -152,9 +161,15 @@ where
             .sum::<usize>()
             - ranges_to_sort.len();
 
+        // num_comparisons_needed can only be zero if all of the ranges have length 1. We handled
+        // this explicitly for the input; for subsequent passes, we shouldn't be generating trivial
+        // ranges.
+        let total_records =
+            TotalRecords::specified(div_round_up(num_comparisons_needed, Const::<SORT_CHUNK>))
+                .expect("num_comparisons_needed should not be zero");
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
-            .set_total_records((num_comparisons_needed + SORT_CHUNK - 1) / SORT_CHUNK);
+            .set_total_records(total_records);
         let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
         let rvl_ctx = c.narrow(&QuicksortPassStep::Reveal);
 
@@ -175,7 +190,7 @@ where
         );
         let comp: BitVec<usize, Lsb0> = seq_join(
             ctx.active_work(),
-            process_stream_by_chunks::<_, _, _, _, _, _, _, SORT_CHUNK>(
+            process_stream_by_chunks::<_, _, _, _, _, _, SORT_CHUNK>(
                 compare_index_pairs,
                 (Vec::new(), Vec::new()),
                 move |idx, (pivot, k)| {
@@ -195,7 +210,6 @@ where
                         Ok::<_, Error>(revealed_comp + !desc)
                     }
                 },
-                || (AdditiveShare::<K>::ZERO, AdditiveShare::<K>::ZERO),
             ),
         )
         .try_flatten_iters()
@@ -219,7 +233,7 @@ where
             list.swap(i - 1, pivot_index);
 
             // mark which ranges need to be sorted in the next pass
-            if i > pivot_index + 1 {
+            if i > pivot_index + 2 {
                 ranges_for_next_pass.push(pivot_index..(i - 1));
             }
             if i + 1 < range.end {
@@ -306,6 +320,35 @@ pub mod tests {
                     expected
                 );
             }
+        });
+    }
+
+    #[test]
+    fn test_quicksort_insecure_semi_honest_trivial() {
+        run(|| async move {
+            let expected: Vec<u128> = vec![1, 2];
+            let records: Vec<TestSortKey> =
+                expected.iter().copied().map(BA32::truncate_from).collect();
+
+            // compute mpc sort
+            let result: Vec<_> = TestWorld::default()
+                .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                    quicksort_ranges_by_key_insecure(ctx, &mut r, false, |x| x, vec![0..1, 1..2])
+                        .await
+                        .unwrap();
+                    r
+                })
+                .await
+                .reconstruct();
+
+            assert_eq!(
+                // convert into more readable format
+                result
+                    .into_iter()
+                    .map(|x| x.as_u128())
+                    .collect::<Vec<u128>>(),
+                expected
+            );
         });
     }
 

@@ -184,7 +184,22 @@ pub fn test_multiply(config_dir: &Path, https: bool) {
     test_mpc.wait().unwrap_status();
 }
 
-pub fn test_network(https: bool) {
+pub fn test_add_in_prime_field(config_dir: &Path, https: bool, count: u32) {
+    let mut command = Command::new(TEST_MPC_BIN);
+    command
+        .args(["--network".into(), config_dir.join("network.toml")])
+        .args(["--wait", "2"])
+        .args(["--generate", &count.to_string()]);
+    if !https {
+        command.arg("--disable-https");
+    }
+    command.silent().arg("add-in-prime-field");
+
+    let test_mpc = command.spawn().unwrap().terminate_on_drop();
+    test_mpc.wait().unwrap_status();
+}
+
+pub fn test_network<T: NetworkTest>(https: bool) {
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
@@ -192,7 +207,7 @@ pub fn test_network(https: bool) {
     let sockets = test_setup(path);
     let _helpers = spawn_helpers(path, &sockets, https);
 
-    test_multiply(path, https);
+    T::execute(path, https);
 }
 
 pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
@@ -275,4 +290,24 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         "Number of breakdowns does not match the expected",
     );
     assert_eq!(INPUT_SIZE, usize::from(output.input_size));
+}
+
+pub trait NetworkTest {
+    fn execute(config_path: &Path, https: bool);
+}
+
+pub struct Multiply;
+
+impl NetworkTest for Multiply {
+    fn execute(config_path: &Path, https: bool) {
+        test_multiply(config_path, https)
+    }
+}
+
+pub struct AddInPrimeField<const N: u32>;
+
+impl<const N: u32> NetworkTest for AddInPrimeField<N> {
+    fn execute(config_path: &Path, https: bool) {
+        test_add_in_prime_field(config_path, https, N)
+    }
 }

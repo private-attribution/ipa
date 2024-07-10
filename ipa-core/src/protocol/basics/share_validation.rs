@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     helpers::{
         hashing::{compute_hash, Hash},
-        Direction,
+        Direction, TotalRecords,
     },
     protocol::{context::Context, RecordId},
     secret_sharing::SharedValue,
@@ -38,7 +38,7 @@ where
     let hash_left = compute_hash(input_left);
 
     // set up context
-    let ctx_new = &(ctx.set_total_records(1usize));
+    let ctx_new = &(ctx.set_total_records(TotalRecords::ONE));
     // set up channels
     let send_channel = ctx_new.send_channel::<Hash>(ctx.role().peer(Direction::Right));
     let receive_channel = ctx_new.recv_channel::<Hash>(ctx.role().peer(Direction::Left));

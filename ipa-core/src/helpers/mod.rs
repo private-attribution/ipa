@@ -68,11 +68,12 @@ pub use transport::{
     make_owned_handler, query, routing, ApiError, BodyStream, BytesStream, HandlerBox, HandlerRef,
     HelperResponse, Identity as TransportIdentity, LengthDelimitedStream, LogErrors, NoQueryId,
     NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RecordsStream, RequestHandler,
-    RouteParams, StepBinding, StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
+    RouteParams, SingleRecordStream, StepBinding, StreamCollection, StreamKey, Transport,
+    WrappedBoxBodyStream,
 };
 #[cfg(feature = "in-memory-infra")]
 pub use transport::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
-use typenum::{Unsigned, U8};
+use typenum::{Const, ToUInt, Unsigned, U8};
 use x25519_dalek::PublicKey;
 
 use crate::{
@@ -482,7 +483,7 @@ impl Serializable for PublicKey {
 
 impl MpcMessage for PublicKey {}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TotalRecords {
     Unspecified,
     Specified(NonZeroUsize),
@@ -509,6 +510,20 @@ impl Display for TotalRecords {
 }
 
 impl TotalRecords {
+    pub const ONE: Self = match NonZeroUsize::new(1) {
+        Some(value) => TotalRecords::Specified(value),
+        None => unreachable!(),
+    };
+
+    /// ## Errors
+    /// If `value` is zero. Only non-zero counts are supported.
+    pub fn specified(value: usize) -> Result<Self, ZeroRecordsError> {
+        match NonZeroUsize::try_from(value) {
+            Ok(value) => Ok(TotalRecords::Specified(value)),
+            Err(_) => Err(ZeroRecordsError),
+        }
+    }
+
     #[must_use]
     pub fn is_specified(&self) -> bool {
         !matches!(self, &TotalRecords::Unspecified)
@@ -553,12 +568,34 @@ impl TotalRecords {
     }
 }
 
+#[derive(Debug)]
+pub struct ZeroRecordsError;
+
+// This one is convenient for tests, but we don't want the panic in production code.
+// For production code, use `TotalRecords::specified`.
+#[cfg(test)]
 impl From<usize> for TotalRecords {
     fn from(value: usize) -> Self {
-        match NonZeroUsize::new(value) {
-            Some(v) => TotalRecords::Specified(v),
-            None => TotalRecords::Unspecified,
-        }
+        TotalRecords::specified(value).unwrap()
+    }
+}
+
+impl From<NonZeroUsize> for TotalRecords {
+    fn from(value: NonZeroUsize) -> Self {
+        TotalRecords::Specified(value)
+    }
+}
+
+impl<const N: usize> From<Const<N>> for TotalRecords
+where
+    Const<N>: ToUInt,
+    <Const<N> as ToUInt>::Output: Unsigned + typenum::NonZero,
+{
+    fn from(_value: Const<N>) -> Self {
+        let Some(value) = NonZeroUsize::new(<Const<N> as ToUInt>::Output::to_usize()) else {
+            unreachable!("NonZero typenum cannot be zero");
+        };
+        TotalRecords::Specified(value)
     }
 }
 
@@ -595,6 +632,26 @@ impl<T: Clone> ExactSizeIterator for RepeatN<T> {}
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "TotalRecords needs a specific value for overwriting")]
+    fn total_records_overwrite_unspecified() {
+        let _ = TotalRecords::Specified(NonZeroUsize::new(1).unwrap())
+            .overwrite(TotalRecords::Unspecified);
+    }
+
+    #[test]
+    #[should_panic(expected = "ZeroRecordsError")]
+    fn total_records_overwrite_zero() {
+        let _ = TotalRecords::Unspecified.overwrite(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "TotalRecords bad transition")]
+    fn total_records_overwrite_bad_transition() {
+        let _ = TotalRecords::Indeterminate
+            .overwrite(TotalRecords::Specified(NonZeroUsize::new(1).unwrap()));
+    }
 
     mod role_tests {
         use super::*;
@@ -740,7 +797,10 @@ mod concurrency_tests {
                 shuttle::future::block_on(async {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
-                        gateway_config: GatewayConfig::new(input.len()),
+                        gateway_config: GatewayConfig {
+                            active: input.len().try_into().unwrap(),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     };
                     let world = TestWorld::new_with(config);
@@ -795,7 +855,10 @@ mod concurrency_tests {
                 shuttle::future::block_on(async {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
-                        gateway_config: GatewayConfig::new(input.len()),
+                        gateway_config: GatewayConfig {
+                            active: input.len().try_into().unwrap(),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     };
                     let world = TestWorld::new_with(config);

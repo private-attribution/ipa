@@ -1,8 +1,6 @@
 pub mod dzkp_field;
-#[allow(dead_code)]
 pub mod dzkp_malicious;
 pub mod dzkp_semi_honest;
-#[allow(dead_code)]
 pub mod dzkp_validator;
 pub mod malicious;
 pub mod prss;
@@ -420,7 +418,8 @@ where
     // because it is not known in advance how many records each peer receives. We could've set
     // the channel capacity to be indeterminate, but it could be less efficient in using our most
     // precious resource - network.
-    let ctx = ctx.set_total_records(std::cmp::max(1, input_len));
+    let ctx =
+        ctx.set_total_records(TotalRecords::specified(input_len).unwrap_or(TotalRecords::ONE));
     let my_shard = ctx.shard_id();
 
     // Open communication channels to all shards on this helper and keep track of records sent

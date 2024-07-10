@@ -147,6 +147,30 @@ jobs:
 
       - name: Run compact gate tests
         run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+  slow:
+    name: Slow tests
+    env:
+      EXEC_SLOW_TESTS: 1
+      RUSTFLAGS: -C target-cpu=native
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: End-to-end tests
+        run: cargo test --release --test "*" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
   sanitize:
