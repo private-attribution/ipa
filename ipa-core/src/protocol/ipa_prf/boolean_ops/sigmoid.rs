@@ -160,14 +160,12 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::{iter, num::TryFromIntError};
+    use std::num::TryFromIntError;
 
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA8, U128Conversions},
+        ff::{boolean_array::BA8, U128Conversions},
         protocol::{context::Context, ipa_prf::boolean_ops::sigmoid::sigmoid, RecordId},
-        secret_sharing::{
-            replicated::semi_honest::AdditiveShare, BitDecomposed, SharedValue, TransposeFrom,
-        },
+        secret_sharing::{BitDecomposed, SharedValue, TransposeFrom},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -209,9 +207,7 @@ mod test {
 
             let result: Vec<BA8> = world
                 .upgraded_semi_honest(all_x_values, |ctx, all_x_values| async move {
-                    let mut vectorized_inputs: BitDecomposed<AdditiveShare<Boolean, 256>> =
-                        BitDecomposed::new(iter::empty());
-                    let _ = vectorized_inputs.transpose_from(&all_x_values);
+                    let vectorized_inputs = BitDecomposed::transposed_from(&all_x_values).unwrap();
 
                     let result = sigmoid::<_, 256>(
                         ctx.set_total_records(1),

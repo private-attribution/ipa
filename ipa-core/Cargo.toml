@@ -200,6 +200,12 @@ harness = false
 required-features = ["enable-benches"]
 
 [[bench]]
+name = "criterion_prss"
+path = "benches/ct/prss.rs"
+harness = false
+required-features = ["enable-benches"]
+
+[[bench]]
 name = "iai_arithmetic"
 path = "benches/iai/arithmetic_circuit.rs"
 harness = false

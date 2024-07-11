@@ -49,4 +49,6 @@ pub enum DeadCodeStep {
     NoiseGen,
     #[step(child = crate::protocol::dp::step::DPStep)]
     ApplyNoise,
+    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
+    Multiplication,
 }

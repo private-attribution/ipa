@@ -1,10 +1,10 @@
-#![allow(non_upper_case_globals)]
-
 use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 
+#[cfg(all(test, unit_test))]
+use crate::ff::Fp31;
 use crate::{
     error::{Error, Error::DZKPMasks},
-    ff::{Fp31, Fp61BitPrime, PrimeField},
+    ff::{Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
         context::Context,
@@ -16,37 +16,37 @@ use crate::{
 
 /// This struct stores intermediate `uv` values.
 /// The storage format is compatible with further processing
-/// via a `ProofGenerator` with parameters `λ` and `F`.
+/// via a `ProofGenerator` with parameters `L` and `F`.
 #[derive(PartialEq, Debug)]
-pub struct UVValues<F, const λ: usize>
+pub struct UVValues<F, const L: usize>
 where
     F: PrimeField,
 {
-    uv_chunks: Vec<([F; λ], [F; λ])>,
+    uv_chunks: Vec<([F; L], [F; L])>,
     length: usize,
 }
 
-impl<F, const λ: usize> FromIterator<(F, F)> for UVValues<F, λ>
+impl<F, const L: usize> FromIterator<(F, F)> for UVValues<F, L>
 where
     F: PrimeField,
 {
     fn from_iter<T: IntoIterator<Item = (F, F)>>(iter: T) -> Self {
-        let mut uv_chunks = Vec::<([F; λ], [F; λ])>::new();
+        let mut uv_chunks = Vec::<([F; L], [F; L])>::new();
 
         let mut length = 0;
-        let mut new_u_chunk = [F::ZERO; λ];
-        let mut new_v_chunk = [F::ZERO; λ];
+        let mut new_u_chunk = [F::ZERO; L];
+        let mut new_v_chunk = [F::ZERO; L];
         for (u, v) in iter {
-            new_u_chunk[length % λ] = u;
-            new_v_chunk[length % λ] = v;
-            if (length + 1) % λ == 0 {
+            new_u_chunk[length % L] = u;
+            new_v_chunk[length % L] = v;
+            if (length + 1) % L == 0 {
                 uv_chunks.push((new_u_chunk, new_v_chunk));
-                new_u_chunk = [F::ZERO; λ];
-                new_v_chunk = [F::ZERO; λ];
+                new_u_chunk = [F::ZERO; L];
+                new_v_chunk = [F::ZERO; L];
             }
             length += 1;
         }
-        if length % λ != 0 {
+        if length % L != 0 {
             uv_chunks.push((new_u_chunk, new_v_chunk));
         }
 
@@ -54,14 +54,10 @@ where
     }
 }
 
-impl<F, const λ: usize> UVValues<F, λ>
+impl<F, const L: usize> UVValues<F, L>
 where
     F: PrimeField,
 {
-    pub fn is_empty(&self) -> bool {
-        self.length == 0
-    }
-
     /// This function returns the amount of field element tuples stored in `UVValues`.
     /// The amount corresponds to the amount of stored `u`
     /// as well as the amount of stored `v` values.
@@ -71,7 +67,7 @@ where
 
     /// This function returns a tuple
     /// which consists of an array of `u` values and an array of `v` values.
-    pub fn iter(&self) -> impl Iterator<Item = &([F; λ], [F; λ])> + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = &([F; L], [F; L])> + Clone {
         self.uv_chunks.iter()
     }
 
@@ -82,7 +78,7 @@ where
     /// ## Errors
     /// Errors when the length is too long such that masks cannot be set safely.
     pub fn set_masks(&mut self, my_p_mask: F, my_q_mask: F) -> Result<(), Error> {
-        if self.len() >= λ {
+        if self.len() >= L {
             return Err(DZKPMasks);
         }
         // compute final uv values
@@ -102,35 +98,41 @@ where
 /// and provides several functions to generate zero knowledge proofs.
 ///
 /// The purpose of the constants is the following:
-/// `λ`: Recursion factor of the proof.
-/// `P`: Length of the proof, i.e. `2*λ-1`.
-/// `M`: Dimension of the Lagrange table, i.e. `λ`.
-pub struct ProofGenerator<F: PrimeField, const λ: usize, const P: usize, const M: usize> {
+/// `L`: Recursion factor of the proof.
+/// `P`: Length of the proof, i.e. `2*L-1`.
+/// `M`: Dimension of the Lagrange table, i.e. `L`.
+pub struct ProofGenerator<F: PrimeField, const L: usize, const P: usize, const M: usize> {
     phantom_data: PhantomData<F>,
 }
 
+#[cfg(all(test, unit_test))]
 pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
+
+// Compression Factor is L
+// P, Proof size is 2*L - 1
+// M, the number of interpolated points is L - 1
+// The reason we need these is that Rust doesn't support basic math operations on const generics
 pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
 pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
-impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenerator<F, λ, P, M> {
+impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerator<F, L, P, M> {
     // define constants such that they can be used externally
     // when using the pub types defined above
-    pub const RECURSION_FACTOR: usize = λ;
+    pub const RECURSION_FACTOR: usize = L;
     pub const PROOF_LENGTH: usize = P;
     pub const LAGRANGE_LENGTH: usize = M;
 
     ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
     /// `https://eprint.iacr.org/2023/909.pdf`
-    pub fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, λ, M>) -> [F; P]
+    pub fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
     where
         J: Iterator<Item = B>,
-        B: Borrow<([F; λ], [F; λ])>,
+        B: Borrow<([F; L], [F; L])>,
     {
         let mut proof = [F::ZERO; P];
         for uv_polynomial in uv_iterator {
-            for (i, proof_part) in proof.iter_mut().enumerate().take(λ) {
+            for (i, proof_part) in proof.iter_mut().enumerate().take(L) {
                 *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
             }
             let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
@@ -139,7 +141,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
             for (i, (x, y)) in
                 zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
             {
-                proof[λ + i] += x * y;
+                proof[L + i] += x * y;
             }
         }
         proof
@@ -152,16 +154,16 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     ) -> UVValues<F, N>
     where
         J: Iterator<Item = B>,
-        B: Borrow<([F; λ], [F; λ])>,
+        B: Borrow<([F; L], [F; L])>,
     {
         let r: F = hash_to_field(
             &compute_hash(proof_left),
             &compute_hash(proof_right),
-            λ.try_into().unwrap(),
+            L.try_into().unwrap(),
         );
 
-        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
-        let lagrange_table_r = LagrangeTable::<F, λ, 1>::new(&denominator, &r);
+        let denominator = CanonicalLagrangeDenominator::<F, L>::new();
+        let lagrange_table_r = LagrangeTable::<F, L, 1>::new(&denominator, &r);
 
         // iter and interpolate at x coordinate r
         uv_iterator
@@ -186,6 +188,7 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
         // use PRSS
         for i in 0..P {
             let (left, right) = ctx.prss().generate_fields::<F, RecordId>(*record_counter);
+
             *record_counter += 1;
 
             out_left[i] = left;
@@ -213,13 +216,13 @@ impl<F: PrimeField, const λ: usize, const P: usize, const M: usize> ProofGenera
     pub fn gen_artefacts_from_recursive_step<C, J, B, const N: usize>(
         ctx: &C,
         record_counter: &mut RecordId,
-        lagrange_table: &LagrangeTable<F, λ, M>,
+        lagrange_table: &LagrangeTable<F, L, M>,
         uv_iterator: J,
     ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
         J: Iterator<Item = B> + Clone,
-        B: Borrow<([F; λ], [F; λ])>,
+        B: Borrow<([F; L], [F; L])>,
     {
         // generate next proof
         // from iterator
@@ -374,7 +377,7 @@ mod test {
     }
 
     #[test]
-    fn check_uv_length_and_is_empty() {
+    fn check_uv_length() {
         run(|| async move {
             const U_1: [u128; 27] = [
                 0, 30, 0, 16, 0, 1, 0, 15, 0, 0, 0, 16, 0, 30, 0, 16, 29, 1, 1, 15, 0, 0, 1, 15, 2,
@@ -401,8 +404,6 @@ mod test {
                     &lagrange_table,
                     uv_1.iter(),
                 );
-
-            assert!(!uv_values.is_empty());
 
             assert_eq!(7, uv_values.len());
         });

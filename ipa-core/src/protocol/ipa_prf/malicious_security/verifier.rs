@@ -1,16 +1,11 @@
-use std::{
-    iter::{self, repeat},
-    pin::Pin,
-};
-
-use futures::Stream;
-use futures_util::StreamExt;
+use std::iter::{self};
 
 use crate::{
     ff::PrimeField,
     protocol::ipa_prf::malicious_security::lagrange::{
         CanonicalLagrangeDenominator, LagrangeTable,
     },
+    utils::arraychunks::ArrayChunkIterator,
 };
 
 /// This function computes the shares that sum to zero from the zero-knowledge proofs.
@@ -19,9 +14,9 @@ use crate::{
 pub fn compute_g_differences<
     F,
     const P: usize,
-    const λ: usize,
+    const L: usize,
     const P_FIRST: usize,
-    const λ_FIRST: usize,
+    const L_FIRST: usize,
 >(
     first_zkp: &[F; P_FIRST],
     zkps: &Vec<[F; P]>,
@@ -54,14 +49,14 @@ where
         .collect::<Vec<_>>();
 
     // compute g_sum)
-    let g_sums = iter::once(compute_sum_share::<F, λ_FIRST, P_FIRST>(first_zkp))
+    let g_sums = iter::once(compute_sum_share::<F, L_FIRST, P_FIRST>(first_zkp))
         .chain(
             zkps.iter()
                 .take(zkps.len() - 1)
-                .map(compute_sum_share::<F, λ, P>),
+                .map(compute_sum_share::<F, L, P>),
         )
         // in the final proof, skip the random weights
-        .chain(iter::once(compute_final_sum_share::<F, λ, P>(
+        .chain(iter::once(compute_final_sum_share::<F, L, P>(
             zkps.last().unwrap(),
         )))
         // append spot for final sum
@@ -90,82 +85,76 @@ pub fn interpolate_at_r<F: PrimeField, const P: usize>(
     lagrange_table_g.eval(zkp)[0]
 }
 
-/// This function computes the sum of the first λ elements of the zero-knowledge proof
-pub fn compute_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P]) -> F {
-    (0..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
+/// This function computes the sum of the first L elements of the zero-knowledge proof
+pub fn compute_sum_share<F: PrimeField, const L: usize, const P: usize>(zkp: &[F; P]) -> F {
+    (0..L).fold(F::ZERO, |acc, i| acc + zkp[i])
 }
 
 /// In the final proof, skip the random weights when computing the sum
-pub fn compute_final_sum_share<F: PrimeField, const λ: usize, const P: usize>(zkp: &[F; P]) -> F {
-    (1..λ).fold(F::ZERO, |acc, i| acc + zkp[i])
+pub fn compute_final_sum_share<F: PrimeField, const L: usize, const P: usize>(zkp: &[F; P]) -> F {
+    (1..L).fold(F::ZERO, |acc, i| acc + zkp[i])
 }
 
 /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
 ///
 /// The function uses streams since stream offers a chunk method.
-fn recurse_u_or_v<'a, F: PrimeField, J, const λ: usize>(
-    u_or_v_stream: J,
-    lagrange_table: &'a LagrangeTable<F, λ, 1>,
-) -> impl Stream<Item = F> + 'a
+fn recurse_u_or_v<'a, F: PrimeField, J, const L: usize>(
+    u_or_v: J,
+    lagrange_table: &'a LagrangeTable<F, L, 1>,
+) -> impl Iterator<Item = F> + 'a
 where
-    J: Stream<Item = F> + 'a,
+    J: Iterator<Item = F> + 'a,
 {
-    u_or_v_stream.chunks(λ).map(|mut x| {
-        if x.len() < λ {
-            x.extend(repeat(F::ZERO).take(λ - x.len()));
-        }
-        lagrange_table.eval(&x)[0]
-    })
+    u_or_v
+        .chunk_array::<L>()
+        .map(|x| lagrange_table.eval(&x)[0])
 }
 
-pub async fn recursively_compute_final_check<
-    F: PrimeField,
-    J,
-    const λ_FIRST: usize,
-    const λ: usize,
->(
-    u_or_v_stream: J,
+/// This function recursively compresses the `u_or_v` values.
+/// The recursion factor (or compression) of the first recursion is `L_FIRST`
+/// The recursion factor of all following recursions is `L`.
+pub fn recursively_compute_final_check<F: PrimeField, J, const L_FIRST: usize, const L: usize>(
+    u_or_v: J,
     challenges: &[F],
     p_or_q_0: F,
 ) -> F
 where
-    J: Stream<Item = F> + Unpin + Send,
+    J: Iterator<Item = F>,
 {
     let recursions_after_first = challenges.len() - 1;
 
     // compute Lagrange tables
-    let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, λ_FIRST>::new();
+    let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, L_FIRST>::new();
     let table_first =
-        LagrangeTable::<F, λ_FIRST, 1>::new(&denominator_p_or_q_first, &challenges[0]);
-    let denominator_p_or_q = CanonicalLagrangeDenominator::<F, λ>::new();
+        LagrangeTable::<F, L_FIRST, 1>::new(&denominator_p_or_q_first, &challenges[0]);
+    let denominator_p_or_q = CanonicalLagrangeDenominator::<F, L>::new();
     let tables = challenges[1..]
         .iter()
-        .map(|r| LagrangeTable::<F, λ, 1>::new(&denominator_p_or_q, r))
+        .map(|r| LagrangeTable::<F, L, 1>::new(&denominator_p_or_q, r))
         .collect::<Vec<_>>();
 
     // generate & evaluate recursive streams
     // to compute last array
-    let mut stream: Pin<Box<dyn Stream<Item = F> + Send>> = Box::pin(
-        recurse_u_or_v::<_, _, λ_FIRST>(u_or_v_stream, &table_first),
-    );
+    let mut iterator: Box<dyn Iterator<Item = F>> =
+        Box::new(recurse_u_or_v::<_, _, L_FIRST>(u_or_v, &table_first));
     // all following recursion except last one
     for lagrange_table in tables.iter().take(recursions_after_first - 1) {
-        stream = Box::pin(recurse_u_or_v::<_, _, λ>(stream, lagrange_table));
+        iterator = Box::new(recurse_u_or_v::<_, _, L>(iterator, lagrange_table));
     }
-    let last_u_or_v_values = stream.collect::<Vec<F>>().await;
-    // make sure there at at most λ last u or v values
+    let last_u_or_v_values = iterator.collect::<Vec<F>>();
+    // make sure there at at most L last u or v values
     // In the protocol, the prover is expected to continue recursively compressing the
-    // u and v vectors until it has length strictly less than λ.
+    // u and v vectors until it has length strictly less than L.
     assert!(
-        last_u_or_v_values.len() < λ,
+        last_u_or_v_values.len() < L,
         "Too many u or v values in last recursion"
     );
 
-    let mut last_array = [F::ZERO; λ];
+    let mut last_array = [F::ZERO; L];
 
     // array needs to be consistent with what the prover does
     // i.e. set first u or v value to the end
-    last_array[λ - 1] = last_u_or_v_values[0];
+    last_array[L - 1] = last_u_or_v_values[0];
     last_array[0] = p_or_q_0;
 
     last_array[1..last_u_or_v_values.len()].copy_from_slice(&last_u_or_v_values[1..]);
@@ -176,8 +165,6 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use futures_util::{stream, StreamExt};
-
     use crate::{
         ff::{Fp31, U128Conversions},
         protocol::ipa_prf::malicious_security::{
@@ -306,14 +293,12 @@ mod test {
         let tables: [LagrangeTable<Fp31, 4, 1>; 3] = CHALLENGES
             .map(|r| LagrangeTable::new(&denominator_p_or_q, &Fp31::try_from(r).unwrap()));
 
-        let u_or_v_2 = recurse_u_or_v::<_, _, 4>(stream::iter(to_field(&U_1)), &tables[0])
-            .collect::<Vec<Fp31>>()
-            .await;
+        let u_or_v_2 = recurse_u_or_v::<_, _, 4>(to_field(&U_1).into_iter(), &tables[0])
+            .collect::<Vec<Fp31>>();
         assert_eq!(u_or_v_2, to_field(&U_2));
 
-        let u_or_v_3 = recurse_u_or_v::<_, _, 4>(stream::iter(u_or_v_2), &tables[1])
-            .collect::<Vec<_>>()
-            .await;
+        let u_or_v_3 =
+            recurse_u_or_v::<_, _, 4>(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
 
         assert_eq!(u_or_v_3, to_field(&U_3[..2]));
 
@@ -324,21 +309,19 @@ mod test {
             u_or_v_3[0], // move first element to the end
         ];
 
-        let p_final = recurse_u_or_v::<_, _, 4>(stream::iter(u_or_v_3_masked), &tables[2])
-            .collect::<Vec<_>>()
-            .await;
+        let p_final =
+            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_P_FINAL);
 
         let p_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
-            stream::iter(to_field(&U_1)),
+            to_field(&U_1).into_iter(),
             &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
                 .collect::<Vec<_>>(),
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
-        )
-        .await;
+        );
 
         assert_eq!(p_final_another_way.as_u128(), EXPECTED_P_FINAL);
     }
@@ -398,14 +381,10 @@ mod test {
         // uv values in input format
         let v_1 = to_field(&V_1);
 
-        let u_or_v_2 = recurse_u_or_v(stream::iter(v_1), &tables[0])
-            .collect::<Vec<_>>()
-            .await;
+        let u_or_v_2 = recurse_u_or_v(v_1.into_iter(), &tables[0]).collect::<Vec<_>>();
         assert_eq!(u_or_v_2, to_field(&V_2));
 
-        let u_or_v_3 = recurse_u_or_v(stream::iter(u_or_v_2.into_iter()), &tables[1])
-            .collect::<Vec<_>>()
-            .await;
+        let u_or_v_3 = recurse_u_or_v(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
 
         assert_eq!(u_or_v_3, to_field(&V_3[..2]));
 
@@ -417,9 +396,8 @@ mod test {
         ];
 
         // final iteration
-        let p_final = recurse_u_or_v::<_, _, 4>(stream::iter(u_or_v_3_masked), &tables[2])
-            .collect::<Vec<_>>()
-            .await;
+        let p_final =
+            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_Q_FINAL);
 
@@ -427,14 +405,13 @@ mod test {
         let v_1 = to_field(&V_1);
 
         let q_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
-            stream::iter(v_1),
+            v_1.into_iter(),
             &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
                 .collect::<Vec<_>>(),
             Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
-        )
-        .await;
+        );
 
         assert_eq!(q_final_another_way.as_u128(), EXPECTED_Q_FINAL);
     }

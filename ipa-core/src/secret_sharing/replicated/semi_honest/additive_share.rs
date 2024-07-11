@@ -45,9 +45,9 @@ impl<V: SharedValue + Vectorizable<N> + Debug, const N: usize> Debug for Additiv
     }
 }
 
-impl<V: SharedValue> Default for AdditiveShare<V> {
+impl<V: SharedValue + Vectorizable<N>, const N: usize> Default for AdditiveShare<V, N> {
     fn default() -> Self {
-        AdditiveShare::new(V::ZERO, V::ZERO)
+        Self::ZERO
     }
 }
 

@@ -1,4 +1,4 @@
-use std::{convert::Infallible, iter, mem, ops::Range};
+use std::{convert::Infallible, mem, ops::Range};
 
 use bitvec::prelude::{BitVec, Lsb0};
 use futures::stream::{self, repeat, StreamExt, TryStreamExt};
@@ -88,10 +88,8 @@ where
             }
         };
 
-        let mut a_t = BitDecomposed::new(iter::empty());
-        a_t.transpose_from(&*a).unwrap_infallible();
-        let mut b_t = BitDecomposed::new(iter::empty());
-        b_t.transpose_from(&*b).unwrap_infallible();
+        let a_t = BitDecomposed::transposed_from(&*a).unwrap_infallible();
+        let b_t = BitDecomposed::transposed_from(&*b).unwrap_infallible();
         Ok((a_t, b_t))
     }
 }
@@ -192,7 +190,7 @@ where
         );
         let comp: BitVec<usize, Lsb0> = seq_join(
             ctx.active_work(),
-            process_stream_by_chunks::<_, _, _, _, _, _, _, SORT_CHUNK>(
+            process_stream_by_chunks::<_, _, _, _, _, _, SORT_CHUNK>(
                 compare_index_pairs,
                 (Vec::new(), Vec::new()),
                 move |idx, (pivot, k)| {
@@ -212,7 +210,6 @@ where
                         Ok::<_, Error>(revealed_comp + !desc)
                     }
                 },
-                || (AdditiveShare::<K>::ZERO, AdditiveShare::<K>::ZERO),
             ),
         )
         .try_flatten_iters()

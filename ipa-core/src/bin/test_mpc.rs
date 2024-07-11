@@ -84,7 +84,7 @@ enum TestAction {
     /// Execute end-to-end simple addition circuit that uses prime fields.
     /// All helpers add their shares locally and set the resulting share to be the
     /// sum. No communication is required to run the circuit.
-    Add,
+    AddInPrimeField,
 }
 
 #[tokio::main]
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (clients, _) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
         TestAction::Multiply => multiply(&args, &clients).await,
-        TestAction::Add => add(&args, &clients).await,
+        TestAction::AddInPrimeField => add(&args, &clients).await,
     };
 
     Ok(())

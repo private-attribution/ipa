@@ -41,6 +41,12 @@ impl Fp25519 {
     }
 }
 
+impl Default for Fp25519 {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 ///trait for secret sharing
 impl SharedValue for Fp25519 {
     type Storage = Scalar;
@@ -277,6 +283,11 @@ mod test {
     };
 
     sc_hash_impl!(u32);
+
+    #[test]
+    fn zero() {
+        assert_eq!(Fp25519::default(), Fp25519::ZERO);
+    }
 
     ///test serialize and deserialize
     #[test]

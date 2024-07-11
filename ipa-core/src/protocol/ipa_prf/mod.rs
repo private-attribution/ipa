@@ -1,9 +1,4 @@
-use std::{
-    convert::Infallible,
-    iter::{self, zip},
-    num::NonZeroU32,
-    ops::Add,
-};
+use std::{convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
 
 use futures::{stream, StreamExt, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
@@ -52,12 +47,10 @@ pub mod oprf_padding;
 pub mod prf_eval;
 pub mod prf_sharding;
 
-#[cfg(all(test, unit_test))]
 mod malicious_security;
 mod quicksort;
 pub(crate) mod shuffle;
 pub(crate) mod step;
-#[cfg(all(test, unit_test))]
 pub mod validation_protocol;
 
 /// Match key type
@@ -101,7 +94,7 @@ use crate::{
     protocol::{context::Validator, dp::dp_for_histogram},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
     pub match_key: Replicated<MatchKey>,
@@ -316,28 +309,16 @@ where
 
     let curve_pts = seq_join(
         ctx.active_work(),
-        process_slice_by_chunks(
-            input_rows,
-            move |idx, records: ChunkData<_, CONV_CHUNK>| {
-                let record_id = RecordId::from(idx);
-                let convert_ctx = convert_ctx.clone();
-                let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
-                    &|i| records[i].match_key.clone();
-                let mut match_keys: BitDecomposed<Replicated<Boolean, 256>> =
-                    BitDecomposed::new(iter::empty());
-                match_keys
-                    .transpose_from(input_match_keys)
+        process_slice_by_chunks(input_rows, move |idx, records: ChunkData<_, CONV_CHUNK>| {
+            let record_id = RecordId::from(idx);
+            let convert_ctx = convert_ctx.clone();
+            let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
+                &|i| records[i].match_key.clone();
+            let match_keys =
+                BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
                     .unwrap_infallible();
-                convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(convert_ctx, record_id, match_keys)
-            },
-            || OPRFIPAInputRow {
-                match_key: Replicated::<MatchKey>::ZERO,
-                is_trigger: Replicated::<Boolean>::ZERO,
-                breakdown_key: Replicated::<BK>::ZERO,
-                trigger_value: Replicated::<TV>::ZERO,
-                timestamp: Replicated::<TS>::ZERO,
-            },
-        ),
+            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(convert_ctx, record_id, match_keys)
+        }),
     )
     .map_ok(Chunk::unpack::<PRF_CHUNK>)
     .try_flatten_iters()
