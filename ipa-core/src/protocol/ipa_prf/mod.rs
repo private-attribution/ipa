@@ -278,7 +278,9 @@ where
     )
     .await?;
 
-    let dp_validator = ctx.narrow(&Step::DP).validator::<Boolean>();
+    let dp_validator = ctx
+        .narrow(&Step::DifferentialPrivacy)
+        .validator::<Boolean>();
     let dp_ctx: UpgradedSemiHonestContext<_, _> = dp_validator.context();
 
     let noisy_histogram =

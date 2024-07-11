@@ -278,6 +278,17 @@ pub async fn test_oprf_ipa<F>(
             let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(&noise_params);
             let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
             let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+
+            assert_eq!(result.len(), expected_results.len());
+            // would like to use the simpler version below but clippy and compiler disagree on
+            // importing zip and abs
+            // for (&sample, &expected) in zip(result.iter(), expected_results.iter()) {
+            //     assert!(
+            //         abs(f64::from(sample) - mean - f64::from(expected)) < 5.0 * standard_deviation,
+            //         "DP result was not within 5 standard deviations from what was expected"
+            //     );
+            // }
+
             for (index, sample) in result.iter().enumerate() {
                 assert!(
                     f64::from(*sample) - mean

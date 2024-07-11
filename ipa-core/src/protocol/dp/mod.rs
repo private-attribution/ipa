@@ -22,7 +22,15 @@ use crate::{
     },
 };
 
+/// For documentation on the Binomial DP noise generation in MPC see
+/// [draft-case-ppm-binomial-dp-latest](https://private-attribution.github.io/i-d/draft-case-ppm-binomial-dp.html)
+///
 /// Struct to hold noise parameters, contains internal values not received from the client
+///
+/// `epsilon` and `delta` are the privacy parameters for approximate DP.  `epsilon` will
+/// generally be in the range `[0.01, 10]` and we default to `5.0`. `delta` will generally be
+/// in the range `[1e-6, 1e-10]` and we default to `1e-6`
+///
 pub struct NoiseParams {
     pub epsilon: f64,
     pub delta: f64,
@@ -48,6 +56,65 @@ impl Default for NoiseParams {
             ell_2_sensitivity: 1.0,
             ell_infty_sensitivity: 1.0,
         }
+    }
+}
+const MAX_PROBABILITY: f64 = 1.0;
+const MAX_EPSILON: f64 = 20.0;
+
+impl NoiseParams {
+    /// # Errors
+    /// Will return an error if you try to construct a `NoiseParams` struct with
+    /// `success_prob` not in the range [0,1]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        epsilon: f64,
+        delta: f64,
+        per_user_credit_cap: f64,
+        success_prob: f64,
+        dimensions: f64,
+        quantization_scale: f64,
+        ell_1_sensitivity: f64,
+        ell_2_sensitivity: f64,
+        ell_infty_sensitivity: f64,
+    ) -> Result<NoiseParams, String> {
+        if epsilon <= 0.0 {
+            return Err("epsilon must be < 0.0".to_string());
+        }
+        if delta <= 0.0 {
+            return Err("delta must be > 0.0".to_string());
+        }
+        if per_user_credit_cap <= 0.0 {
+            return Err("per_user_credit_cap must be > 0.0".to_string());
+        }
+        if !(0.0..=MAX_PROBABILITY).contains(&success_prob) {
+            return Err("success_prob must be between 0 and 1".to_string());
+        }
+        if dimensions <= 0.0 {
+            return Err("dimensions must be > 0.0".to_string());
+        }
+        if quantization_scale <= 0.0 {
+            return Err("quantization_scale must be > 0.0".to_string());
+        }
+        if ell_1_sensitivity <= 0.0 {
+            return Err("ell_1_sensitivity must be > 0.0".to_string());
+        }
+        if ell_2_sensitivity <= 0.0 {
+            return Err("ell_2_sensitivity must be > 0.0".to_string());
+        }
+        if ell_infty_sensitivity <= 0.0 {
+            return Err("ell_infty_sensitivity must be > 0.0".to_string());
+        }
+        Ok(NoiseParams {
+            epsilon,
+            delta,
+            per_user_credit_cap,
+            success_prob,
+            dimensions,
+            quantization_scale,
+            ell_1_sensitivity,
+            ell_2_sensitivity,
+            ell_infty_sensitivity,
+        })
     }
 }
 
@@ -141,7 +208,8 @@ where
 /// will propogate errors from `apply_dp_noise`
 /// # Panics
 /// may panic from asserts down in  `gen_binomial_noise`
-/// may panic if running with DP noise but epsilon is not in the range (0,10].
+/// may panic if running with DP noise but epsilon is not in the range (0,`MAX_EPSILON`); we allow very large
+/// epsilons to make the noise gen circuit small enough for concurency testing to be possible.
 pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
     ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
@@ -159,7 +227,10 @@ where
     match dp_params {
         DpParams::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
         DpParams::WithDp { epsilon } => {
-            assert!(epsilon > 0.0 && epsilon <= 20.0);
+            assert!(
+                epsilon > 0.0 && epsilon <= MAX_EPSILON,
+                "Epsilon must be between 0 and {MAX_EPSILON}"
+            );
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
             let noise_params = NoiseParams {
                 epsilon,

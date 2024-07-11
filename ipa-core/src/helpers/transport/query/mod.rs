@@ -1,10 +1,9 @@
 use std::{
     fmt::{Debug, Display, Formatter},
-    num::{NonZeroU32, ParseFloatError},
-    str::FromStr,
+    num::NonZeroU32,
 };
 
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
     ff::FieldType,
@@ -228,68 +227,11 @@ impl AsRef<str> for QueryType {
         }
     }
 }
-#[cfg(test)]
-impl PartialEq for IpaQueryConfig {
-    fn eq(&self, other: &Self) -> bool {
-        self.per_user_credit_cap == other.per_user_credit_cap
-            && self.max_breakdown_key == other.max_breakdown_key
-            && self.attribution_window_seconds == other.attribution_window_seconds
-            && self.num_multi_bits == other.num_multi_bits
-            && self.with_dp == other.with_dp
-            && self.epsilon == other.epsilon
-            && self.plaintext_match_keys == other.plaintext_match_keys
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DpParams {
     NoDp,
     WithDp { epsilon: f64 },
-}
-
-impl FromStr for DpParams {
-    type Err = ParseFloatError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "NoDp" {
-            Ok(DpParams::NoDp)
-        } else {
-            let parts: Vec<&str> = s.splitn(2, '=').collect();
-            if parts.len() == 2 && parts[0] == "WithDp" {
-                match parts[1].parse::<f64>() {
-                    Ok(epsilon) => Ok(DpParams::WithDp { epsilon }),
-                    Err(e) => Err(e),
-                }
-            } else {
-                Err(s.parse::<f64>().unwrap_err())
-            }
-        }
-    }
-}
-
-impl Display for DpParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DpParams::NoDp => write!(f, "NoDp"),
-            DpParams::WithDp { epsilon } => write!(f, "WithDp={epsilon}"),
-        }
-    }
-}
-
-impl Serialize for DpParams {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for DpParams {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s: &str = Deserialize::deserialize(deserializer)?;
-        <DpParams as FromStr>::from_str(s)
-            .map_err(|e| de::Error::custom(format!("failed to deserialize DpParams object: {e}")))
-    }
 }
 
 #[cfg(test)]
@@ -298,7 +240,7 @@ impl Eq for DpParams {}
 #[cfg(test)]
 impl Eq for IpaQueryConfig {}
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]

@@ -164,7 +164,6 @@ async fn run(args: Args) -> Result<(), Error> {
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
     let _protocol_time = Instant::now();
-    println!("about to run test_oprf_ipa");
     test_oprf_ipa::<BenchField>(&world, raw_data, &expected_results, args.config()).await;
     tracing::info!(
         "{m:?} IPA for {q} records took {t:?}",

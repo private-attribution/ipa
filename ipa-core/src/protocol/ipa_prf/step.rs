@@ -13,8 +13,8 @@ pub(crate) enum IpaPrfStep {
     SortByTimestamp,
     #[step(child = crate::protocol::ipa_prf::prf_sharding::step::AttributionStep)]
     Attribution,
-    #[step(child = crate::protocol::dp::step::DPStep)]
-    DP,
+    #[step(child = crate::protocol::dp::step::DPStep, name = "dp")]
+    DifferentialPrivacy,
 }
 
 #[derive(CompactStep)]
