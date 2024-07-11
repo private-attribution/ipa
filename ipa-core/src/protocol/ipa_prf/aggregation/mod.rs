@@ -212,9 +212,6 @@ where
 /// Aggregation is vectorized over histogram buckets, so bit 0 for every histogram bucket is stored
 /// contiguously, followed by bit 1 for each histogram bucket, etc.
 pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>>, Error>;
-// this is like the state passed down in a reduce function (fold)
-// unvectorized this would be HV
-// This is vectorized by buckets.
 
 /// Aggregate output contributions
 ///

@@ -10,7 +10,7 @@ use crate::{
     },
     helpers::{repeat_n, TotalRecords},
     protocol::{
-        basics::Reveal,
+        basics::reveal,
         boolean::step::SixteenBitStep,
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
@@ -80,8 +80,7 @@ where
 /// representing the Breakdown value. The second list groups all the Trigger
 /// Values for that particular Breakdown.
 ///
-/// TODO: Batch input into AGG vectorized and use `process_slice_by_chunks`
-/// and `seq_join`.
+/// TODO: Vectorize
 #[tracing::instrument(name = "reveal_breakdowns", skip_all)]
 async fn reveal_breakdowns<BK, TV, const B: usize>(
     ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
@@ -91,20 +90,29 @@ where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
 {
-    let mut grouped_tvs: Vec<Vec<Replicated<TV>>> = vec![vec![]; B];
     let reveal_ctx = ctx
         .narrow(&AggregationStep::RevealStep)
-        .set_total_records(TotalRecords::Indeterminate);
-    //.set_total_records(TotalRecords::specified(attributions.len())?);
-    for (i, ao) in attributions.into_iter().enumerate() {
+        .set_total_records(TotalRecords::specified(attributions.len())?);
+
+    let reveal_work = stream::iter(attributions).enumerate().map(|(i, ao)| {
         let record_id = RecordId::from(i);
-        let bk_share = ao.attributed_breakdown_key_bits;
-        let revealed_bk: BK =
-            BK::from_array(&bk_share.reveal(reveal_ctx.clone(), record_id).await?);
-        let Ok(pos) = usize::try_from(revealed_bk.as_u128()) else {
-            return Err(Error::Internal);
-        };
-        grouped_tvs[pos].push(ao.capped_attributed_trigger_value);
+        let reveal_ctx = reveal_ctx.clone();
+        async move {
+            let revealed_bk =
+                reveal(reveal_ctx, record_id, &ao.attributed_breakdown_key_bits).await?;
+            let revealed_bk: BK = BK::from_array(&revealed_bk);
+            let Ok(bk) = usize::try_from(revealed_bk.as_u128()) else {
+                return Err(Error::Internal);
+            };
+            Ok::<(usize, Replicated<TV>), Error>((bk, ao.capped_attributed_trigger_value))
+        }
+    });
+    let mut grouped_tvs: Vec<Vec<Replicated<TV>>> = vec![vec![]; B];
+    let tvs: Vec<(usize, Replicated<TV>)> = seq_join(reveal_ctx.active_work(), reveal_work)
+        .try_collect()
+        .await?;
+    for (bk, tv) in tvs {
+        grouped_tvs[bk].push(tv);
     }
     Ok(grouped_tvs)
 }
@@ -142,6 +150,10 @@ where
     Ok(r)
 }
 
+/// `HV` is the output value type, which is called `HV` (histogram value) in the attribution
+/// protocol. If the aggregated contributions for a bucket overflow the `HV` type, this
+/// implementation saturates at the maximum value the type can represent. It is recommended
+/// that clients select a query configuration that avoids the possibility of overflow.
 async fn add_tvs<TV, HV>(
     ctx: UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
     tvs: Vec<Replicated<TV>>,
