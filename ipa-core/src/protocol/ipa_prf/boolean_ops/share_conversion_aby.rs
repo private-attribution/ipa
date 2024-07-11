@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    const_assert,
     error::{Error, UnwrapInfallible},
     ff::{
         boolean::Boolean,
@@ -17,15 +18,16 @@ use crate::{
         basics::{partial_reveal, BooleanProtocols},
         boolean::step::TwoHundredFiftySixBitOpStep,
         context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
-        ipa_prf::boolean_ops::{
-            addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
+        ipa_prf::{
+            boolean_ops::{addition_sequential::integer_add, step::Fp25519ConversionStep as Step},
+            MatchKey,
         },
         prss::{FromPrss, SharedRandomness},
         RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, SharedValueArray, TransposeFrom, Vectorizable,
+        BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
 };
 
@@ -131,8 +133,20 @@ where
         "conversion chunk should be a multiple of PRF chunk"
     );
 
+    assert!(input_shares.len() <= record_id_range.len());
+
+    let Some(first_input) = input_shares.first() else {
+        return Ok(vec![]);
+    };
+
     // Ensure that the probability of leaking information is less than 1/(2^128).
-    debug_assert!(input_shares.first().iter().count() < (BITS - 128));
+    // If we make match key size configurable at runtime, then we need to revisit
+    // whether a debug assertion is appropriate here.
+    const_assert!(
+        MatchKey::BITS == 64,
+        "Match key size should be known at compile time"
+    );
+    debug_assert!(first_input.iter().count() < (BITS - 128));
 
     // get context
     let m_ctx = dzkp_validator.context();
@@ -193,7 +207,8 @@ where
 
     // output vec
     // NP-vectorized Fp25519 shares
-    let mut results = Vec::<AdditiveShare<Fp25519, NP>>::with_capacity(NC * vec_sh_y.len());
+    let results_len = NC * vec_sh_y.len() / NP;
+    let mut results = Vec::<AdditiveShare<Fp25519, NP>>::with_capacity(results_len);
 
     for (((record_id, sh_y), sh_r), sh_s) in
         record_id_range.zip(vec_sh_y).zip(vec_sh_r).zip(vec_sh_s)
@@ -228,6 +243,8 @@ where
 
         output_shares::<_, NC, NP>(&m_ctx, &mut results, &sh_r, &sh_s, y)?;
     }
+
+    assert_eq!(results.len(), results_len);
     Ok(results)
 }
 
@@ -418,7 +435,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::repeat_with;
+    use std::iter::{self, repeat_with};
 
     use curve25519_dalek::Scalar;
     use futures::stream::TryStreamExt;
@@ -429,7 +446,7 @@ mod tests {
     use super::*;
     use crate::{
         ff::{boolean_array::BA64, Serializable},
-        helpers::stream::process_slice_by_chunks,
+        helpers::{repeat_n, stream::process_slice_by_chunks},
         protocol::ipa_prf::{CONV_CHUNK, PRF_CHUNK},
         rand::thread_rng,
         secret_sharing::SharedValue,
@@ -439,7 +456,7 @@ mod tests {
     };
 
     #[test]
-    fn test_semi_honest_convert_into_fp25519() {
+    fn test_semi_honest_convert_to_fp25519() {
         run(|| async move {
             const COUNT: usize = CONV_CHUNK + 1;
 
@@ -495,6 +512,55 @@ mod tests {
                 result.extend([s0, s1, s2].reconstruct_arr().into_iter());
             }
             assert_eq!(result, expected);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "< (BITS - 128)")]
+    fn convert_to_fp25519_rejects_large_match_keys() {
+        run(|| async move {
+            TestWorld::default()
+                .semi_honest(iter::empty::<BA256>(), |ctx, _records| async move {
+                    let c_ctx = ctx.set_total_records(1);
+                    let validator = &c_ctx.dzkp_validator(1);
+                    let match_keys = BitDecomposed::new(repeat_n(
+                        AdditiveShare::<Boolean, CONV_CHUNK>::ZERO,
+                        128,
+                    ));
+                    convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
+                        validator.clone(),
+                        0,
+                        0..1,
+                        vec![match_keys],
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+        });
+    }
+
+    #[test]
+    fn convert_to_fp25519_empty() {
+        run(|| async move {
+            let [res0, res1, res2] = TestWorld::default()
+                .semi_honest(iter::empty::<BA256>(), |ctx, _records| async move {
+                    let c_ctx = ctx.set_total_records(1);
+                    let validator = &c_ctx.dzkp_validator(1);
+                    convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
+                        validator.clone(),
+                        0,
+                        0..1,
+                        vec![],
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await;
+
+            assert_eq!(res0.len(), 0);
+            assert_eq!(res1.len(), 0);
+            assert_eq!(res2.len(), 0);
         });
     }
 
