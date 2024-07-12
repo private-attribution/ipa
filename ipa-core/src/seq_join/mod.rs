@@ -5,7 +5,7 @@ use futures::{
     Future, Stream, TryStreamExt,
 };
 
-use crate::helpers::stream::ExactSizeStream;
+use crate::helpers::stream::{div_round_up, ExactSizeStream};
 
 #[cfg(not(feature = "multi-threading"))]
 mod local;
@@ -126,6 +126,31 @@ pub trait SeqJoin {
 
     /// The amount of active work that is concurrently permitted.
     fn active_work(&self) -> NonZeroUsize;
+
+    /// Return the active work when operating on a chunk of `chunk_size`.
+    ///
+    /// Computed as `min(chunk_size, self.active_work())`.
+    ///
+    /// ## Panics
+    /// If `chunk_size` is zero.
+    fn active_work_per_chunk(&self, chunk_size: usize) -> NonZeroUsize {
+        let active_work = self.active_work();
+        if active_work.get() < chunk_size {
+            active_work
+        } else {
+            NonZeroUsize::new(chunk_size).unwrap()
+        }
+    }
+
+    /// Return the number of active chunks when operating on chunks of `chunk_size`.
+    ///
+    /// Computed as `ceil(self.active_work() / chunk_size)`.
+    ///
+    /// ## Panics
+    /// If `chunk_size` is zero.
+    fn active_chunks(&self, chunk_size: usize) -> NonZeroUsize {
+        NonZeroUsize::new(div_round_up(self.active_work().get(), chunk_size)).unwrap()
+    }
 }
 
 type SeqTryJoinAll<'st, I, F> =

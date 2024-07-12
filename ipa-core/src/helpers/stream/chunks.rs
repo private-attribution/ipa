@@ -11,7 +11,6 @@ use std::{
 
 use futures::{stream::FusedStream, Stream, TryStream};
 use pin_project::pin_project;
-use typenum::{Const, ToUInt, Unsigned};
 
 use crate::{
     error::{Error, LengthError},
@@ -550,13 +549,7 @@ where
 }
 
 #[must_use]
-#[allow(clippy::needless_pass_by_value)] // divisor argument is zero-size anyways
-pub fn div_round_up<const DIVISOR: usize>(dividend: usize, _divisor: Const<DIVISOR>) -> usize
-where
-    Const<DIVISOR>: ToUInt,
-    <Const<DIVISOR> as ToUInt>::Output: Unsigned + typenum::NonZero,
-{
-    let divisor = <Const<DIVISOR> as ToUInt>::Output::to_usize();
+pub fn div_round_up(dividend: usize, divisor: usize) -> usize {
     (dividend + divisor - 1) / divisor
 }
 

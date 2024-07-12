@@ -2,7 +2,7 @@ use std::{convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
 
 use futures::{stream, StreamExt, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{Const, Unsigned, U18};
+use typenum::{Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
@@ -266,6 +266,12 @@ where
     .await
 }
 
+// We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
+// is CONV_CHUNK. Let `len` equal the number of converted shares. The total amount of
+// multiplications is CONV_CHUNK*512*len. We want CONV_CHUNK*512*len ≈ 50M, or len ≈ 381, for a
+// reasonably-sized proof.
+const CONV_PROOF_CHUNK: usize = 400;
+
 /// This function computes the prf for the input match keys.
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
@@ -283,20 +289,8 @@ where
         BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
-    // todo: set PROOF_CHUNK to 400 or something reasonable
-    // todo: task, fix too many records error when PROOF_CHUNK = 400
-    // we expect 2*256 = 512 gates in total for two additions per conversion
-    // the vectorization factor is NC
-    // the length of input_shares is the amount of converted shares
-    // the total amount of multiplications is therefore NC*512*input_shares.len()
-    // make sure proof does not get too big,
-    // i.e. less that NC*input_shares.len()<120k
-    // (such that there are less than 50m multiplications)
-    const PROOF_CHUNK: usize = 400;
-
-    let conv_records =
-        TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
-    let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), Const::<PRF_CHUNK>))?;
+    let conv_records = TotalRecords::specified(div_round_up(input_rows.len(), CONV_CHUNK))?;
+    let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), PRF_CHUNK))?;
     let convert_ctx = ctx
         .narrow(&Step::ConvertFp25519)
         .set_total_records(conv_records);
@@ -304,7 +298,7 @@ where
 
     let prf_key = gen_prf_key(&eval_ctx);
 
-    let validator = &convert_ctx.dzkp_validator(PROOF_CHUNK * CONV_CHUNK);
+    let validator = &convert_ctx.dzkp_validator(CONV_PROOF_CHUNK * CONV_CHUNK);
 
     let match_key_vector_chunks = input_rows.chunks(CONV_CHUNK).map(|records| {
         Chunk::try_from(records)
@@ -323,23 +317,23 @@ where
 
     // Boxing the stream avoids rustc #100013 errors. It should not really be necessary.
     let curve_pt_chunks = stream::iter(match_key_vector_chunks)
-        .chunks(PROOF_CHUNK)
+        .chunks(CONV_PROOF_CHUNK)
         .boxed()
         .enumerate()
         .map(|(idx, match_key_proof_chunk)| {
-            Chunk::pack::<_, { PROOF_CHUNK * CONV_CHUNK }>(match_key_proof_chunk).then(
+            Chunk::pack::<_, { CONV_PROOF_CHUNK * CONV_CHUNK }>(match_key_proof_chunk).then(
                 |match_keys| {
                     convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
                         validator.clone(),
                         idx,
-                        idx * PROOF_CHUNK..(idx + 1) * PROOF_CHUNK,
+                        idx * CONV_PROOF_CHUNK..(idx + 1) * CONV_PROOF_CHUNK,
                         match_keys,
                     )
                 },
             )
         });
 
-    let curve_pts = seq_join(ctx.active_work(), curve_pt_chunks)
+    let curve_pts = seq_join(ctx.active_chunks(CONV_PROOF_CHUNK), curve_pt_chunks)
         .map_ok(Chunk::unpack::<PRF_CHUNK>)
         .try_flatten_iters()
         .try_collect::<Vec<_>>()

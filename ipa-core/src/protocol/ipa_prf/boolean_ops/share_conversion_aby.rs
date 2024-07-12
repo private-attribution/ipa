@@ -22,7 +22,7 @@ use crate::{
         context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
         ipa_prf::{
             boolean_ops::{addition_sequential::integer_add, step::Fp25519ConversionStep as Step},
-            MatchKey,
+            MatchKey, CONV_PROOF_CHUNK,
         },
         prss::{FromPrss, SharedRandomness},
         RecordId,
@@ -169,7 +169,7 @@ where
     let vec_sh_s: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>;
 
     (vec_sh_y, (vec_sh_r, vec_sh_s)) = seq_join(
-        m_ctx.active_work(),
+        m_ctx.active_work_per_chunk(CONV_PROOF_CHUNK),
         stream::iter(record_id_range.clone().zip(input_shares)).map(|(record_id, x)| async move {
             // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
             // the two highest bits are set to 0 to allow carries for two additions
@@ -215,7 +215,7 @@ where
     dzkp_validator.validate_chunk(ctx_counter).await?;
 
     seq_join(
-        m_ctx.active_work(),
+        m_ctx.active_work_per_chunk(CONV_PROOF_CHUNK),
         stream::iter(
             record_id_range
                 .zip(vec_sh_y)
