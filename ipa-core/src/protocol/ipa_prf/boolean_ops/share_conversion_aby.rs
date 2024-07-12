@@ -4,6 +4,8 @@ use std::{
     ops::{Neg, Range},
 };
 
+use futures::{stream, StreamExt, TryStreamExt};
+
 use crate::{
     const_assert,
     error::{Error, UnwrapInfallible},
@@ -13,7 +15,7 @@ use crate::{
         ec_prime_field::Fp25519,
         ArrayAccess,
     },
-    helpers::Role,
+    helpers::{stream::TryFlattenItersExt, Role},
     protocol::{
         basics::{partial_reveal, BooleanProtocols},
         boolean::step::TwoHundredFiftySixBitOpStep,
@@ -29,6 +31,7 @@ use crate::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
+    seq_join::{seq_join, SeqJoin},
 };
 
 /// share conversion
@@ -161,96 +164,103 @@ where
     let ctx_mask_x = &m_ctx.narrow(&Step::IntegerAddMaskToX);
 
     // vector of intermediate results
-    let mut vec_sh_y =
-        Vec::<BitDecomposed<AdditiveShare<Boolean, NC>>>::with_capacity(input_shares.len());
-    let mut vec_sh_r =
-        Vec::<BitDecomposed<AdditiveShare<Boolean, NC>>>::with_capacity(input_shares.len());
-    let mut vec_sh_s =
-        Vec::<BitDecomposed<AdditiveShare<Boolean, NC>>>::with_capacity(input_shares.len());
+    let vec_sh_y: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>;
+    let vec_sh_r: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>;
+    let vec_sh_s: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>;
 
-    for (record_id, x) in record_id_range.clone().zip(input_shares) {
-        // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
-        // the two highest bits are set to 0 to allow carries for two additions
-        let (sh_r, sh_s) = gen_sh_r_and_sh_s::<_, BITS, NC>(ctx_gen, RecordId::from(record_id));
+    (vec_sh_y, (vec_sh_r, vec_sh_s)) = seq_join(
+        m_ctx.active_work(),
+        stream::iter(record_id_range.clone().zip(input_shares)).map(|(record_id, x)| async move {
+            // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
+            // the two highest bits are set to 0 to allow carries for two additions
+            let (sh_r, sh_s) = gen_sh_r_and_sh_s::<_, BITS, NC>(ctx_gen, RecordId::from(record_id));
 
-        // addition r+s might cause carry,
-        // this is no problem since we have set bit 254 of sh_r and sh_s to 0
-        let sh_rs = {
-            let (mut rs_with_higherorderbits, _) =
-                integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-                    ctx_masks.clone(),
-                    RecordId::from(record_id),
-                    &sh_r,
-                    &sh_s,
-                )
-                .await?;
+            // addition r+s might cause carry,
+            // this is no problem since we have set bit 254 of sh_r and sh_s to 0
+            let sh_rs = {
+                let (mut rs_with_higherorderbits, _) =
+                    integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
+                        ctx_masks.clone(),
+                        RecordId::from(record_id),
+                        &sh_r,
+                        &sh_s,
+                    )
+                    .await?;
 
-            // PRSS/Multiply masks added random highest order bit,
-            // remove them to not cause overflow in second addition (which is mod 256):
-            rs_with_higherorderbits[BITS - 1] = AdditiveShare::<Boolean, NC>::ZERO;
+                // PRSS/Multiply masks added random highest order bit,
+                // remove them to not cause overflow in second addition (which is mod 256):
+                rs_with_higherorderbits[BITS - 1] = AdditiveShare::<Boolean, NC>::ZERO;
 
-            // return rs
-            rs_with_higherorderbits
-        };
+                // return rs
+                rs_with_higherorderbits
+            };
 
-        // addition x+rs, where rs=r+s might cause carry
-        // this is not a problem since bit 255 of rs is set to 0
-        let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-            ctx_mask_x.clone(),
-            RecordId::from(record_id),
-            &sh_rs,
-            &x,
-        )
-        .await?;
-        vec_sh_y.push(sh_y);
-        vec_sh_s.push(sh_s);
-        vec_sh_r.push(sh_r);
-    }
+            // addition x+rs, where rs=r+s might cause carry
+            // this is not a problem since bit 255 of rs is set to 0
+            let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
+                ctx_mask_x.clone(),
+                RecordId::from(record_id),
+                &sh_rs,
+                &x,
+            )
+            .await?;
+
+            Ok::<_, Error>((sh_y, (sh_r, sh_s)))
+        }),
+    )
+    .try_collect()
+    .await?;
 
     // validate before reveal
     dzkp_validator.validate_chunk(ctx_counter).await?;
 
-    // output vec
-    // NP-vectorized Fp25519 shares
-    let results_len = NC * vec_sh_y.len() / NP;
-    let mut results = Vec::<AdditiveShare<Fp25519, NP>>::with_capacity(results_len);
+    seq_join(
+        m_ctx.active_work(),
+        stream::iter(
+            record_id_range
+                .zip(vec_sh_y)
+                .zip(vec_sh_r)
+                .zip(vec_sh_s)
+                .map(|(((record_id, sh_y), sh_r), sh_s)| {
+                    let m_ctx = m_ctx.clone();
+                    async move {
+                        // this leaks information, but with negligible probability
+                        let mut y = (m_ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
+                        for i in 0..BITS {
+                            let y_bit = partial_reveal(
+                                m_ctx.narrow(&Step::RevealY(i)),
+                                RecordId::from(record_id),
+                                Role::H3,
+                                sh_y.get(i).unwrap(),
+                            )
+                            .await?;
+                            match (&mut y, y_bit) {
+                                (Some(y), Some(y_bit)) => y.push(y_bit),
+                                (None, None) => (),
+                                _ => unreachable!("inconsistent partial_reveal behavior"),
+                            }
+                        }
 
-    for (((record_id, sh_y), sh_r), sh_s) in
-        record_id_range.zip(vec_sh_y).zip(vec_sh_r).zip(vec_sh_s)
-    {
-        // this leaks information, but with negligible probability
-        let mut y = (m_ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
-        for i in 0..BITS {
-            let y_bit = partial_reveal(
-                m_ctx.narrow(&Step::RevealY(i)),
-                RecordId::from(record_id),
-                Role::H3,
-                sh_y.get(i).unwrap(),
-            )
-            .await?;
-            match (&mut y, y_bit) {
-                (Some(y), Some(y_bit)) => y.push(y_bit),
-                (None, None) => (),
-                _ => unreachable!("inconsistent partial_reveal behavior"),
-            }
-        }
+                        let y = y.map(|y| {
+                            Vec::<BA256>::transposed_from(y.as_slice().try_into().unwrap())
+                                .unwrap_infallible()
+                        });
 
-        let y = y.map(|y| {
-            Vec::<BA256>::transposed_from(y.as_slice().try_into().unwrap()).unwrap_infallible()
-        });
+                        let sh_r = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_r)
+                            .ok()
+                            .expect("sh_r was constructed with the correct number of bits");
+                        let sh_s = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_s)
+                            .ok()
+                            .expect("sh_s was constructed with the correct number of bits");
 
-        let sh_r = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_r)
-            .ok()
-            .expect("sh_r was constructed with the correct number of bits");
-        let sh_s = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_s)
-            .ok()
-            .expect("sh_s was constructed with the correct number of bits");
-
-        output_shares::<_, NC, NP>(&m_ctx, &mut results, &sh_r, &sh_s, y)?;
-    }
-
-    assert_eq!(results.len(), results_len);
-    Ok(results)
+                        output_shares::<_, NC, NP>(&m_ctx, &sh_r, &sh_s, y)
+                    }
+                }),
+        ),
+    )
+    .try_flatten_iters()
+    .try_collect()
+    .await
 }
 
 /// Generates `sh_r` and `sh_s` from PRSS randomness (`r`).
@@ -327,11 +337,10 @@ where
 /// NP records.
 fn output_shares<C, const NC: usize, const NP: usize>(
     ctx: &C,
-    results: &mut Vec<AdditiveShare<Fp25519, NP>>,
     sh_r: &[AdditiveShare<BA256>],
     sh_s: &[AdditiveShare<BA256>],
     y: Option<Vec<BA256>>,
-) -> Result<(), Error>
+) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
 where
     C: Context,
     Fp25519: Vectorizable<NP>,
@@ -378,13 +387,14 @@ where
             .unzip(),
     };
 
+    let mut results = Vec::with_capacity(NC / NP);
     for (left, right) in zip(left, right) {
         results.push(AdditiveShare::<Fp25519, NP>::new_arr(
             <Fp25519 as Vectorizable<NP>>::Array::try_from(left)?,
             <Fp25519 as Vectorizable<NP>>::Array::try_from(right)?,
         ));
     }
-    Ok(())
+    Ok(results)
 }
 
 /// inserts smaller array in the larger array starting from location offset
