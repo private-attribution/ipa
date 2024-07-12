@@ -133,15 +133,20 @@ where
         "conversion chunk should be a multiple of PRF chunk"
     );
 
-    assert!(input_shares.len() <= record_id_range.len());
+    assert!(
+        input_shares.len() <= record_id_range.len(),
+        "received {} inputs but only {} record IDs",
+        input_shares.len(),
+        record_id_range.len()
+    );
 
     let Some(first_input) = input_shares.first() else {
         return Ok(vec![]);
     };
 
-    // Ensure that the probability of leaking information is less than 1/(2^128).
-    // If we make match key size configurable at runtime, then we need to revisit
-    // whether a debug assertion is appropriate here.
+    // Ensure that the probability of leaking information is less than 1/(2^128). If we make match
+    // key size configurable at runtime, then the debug assertion needs to be changed to a runtime
+    // check.
     const_assert!(
         MatchKey::BITS == 64,
         "Match key size should be known at compile time"
