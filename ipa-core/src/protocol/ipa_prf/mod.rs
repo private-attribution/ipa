@@ -1,6 +1,6 @@
 use std::{convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
 
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
 use typenum::{Const, Unsigned, U18};
 
@@ -25,7 +25,7 @@ use crate::{
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
-            prf_eval::{eval_dy_prf, gen_prf_key},
+            prf_eval::eval_dy_prf,
             prf_sharding::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
@@ -290,8 +290,6 @@ where
         .set_total_records(conv_records);
     let eval_ctx = ctx.narrow(&Step::EvalPrf).set_total_records(eval_records);
 
-    let prf_key = gen_prf_key(&eval_ctx);
-
     let curve_pts = seq_join(
         ctx.active_work(),
         process_slice_by_chunks(input_rows, move |idx, records: ChunkData<_, CONV_CHUNK>| {
@@ -310,20 +308,10 @@ where
     .try_collect::<Vec<_>>()
     .await?;
 
-    let prf_of_match_keys = seq_join(
-        ctx.active_work(),
-        stream::iter(curve_pts).enumerate().map(|(i, curve_pts)| {
-            let record_id = RecordId::from(i);
-            let eval_ctx = eval_ctx.clone();
-            let prf_key = &prf_key;
-            curve_pts
-                .then(move |pts| eval_dy_prf::<_, PRF_CHUNK>(eval_ctx, record_id, prf_key, pts))
-        }),
-    )
-    .try_collect::<Vec<_>>()
-    .await?;
+    let prf_of_match_keys = eval_dy_prf(eval_ctx, curve_pts).await?;
+    assert_eq!(input_rows.len(), prf_of_match_keys.len());
 
-    Ok(zip(input_rows, prf_of_match_keys.into_iter().flatten())
+    Ok(zip(input_rows, prf_of_match_keys)
         .map(|(input, prf_of_match_key)| {
             let OPRFIPAInputRow {
                 match_key: _,
