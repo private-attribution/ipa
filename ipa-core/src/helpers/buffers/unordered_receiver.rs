@@ -271,7 +271,9 @@ where
             .enumerate()
             .filter_map(|(i, waker)| waker.as_ref().map(|_| i))
             .map(move |i| {
-                if i < start {
+                // We don't save a waker at `self.next`, so `start` is actually the last waker, and
+                // `start + 1` is the first.
+                if i <= start {
                     self.next + (self.wakers.len() - start + i)
                 } else {
                     self.next + (i - start)
