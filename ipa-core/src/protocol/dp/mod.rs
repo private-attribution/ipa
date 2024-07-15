@@ -80,7 +80,7 @@ impl NoiseParams {
         if epsilon <= 0.0 {
             return Err("epsilon must be < 0.0".to_string());
         }
-        if delta <= 0.0 {
+        if delta != 0.0 {
             return Err("delta must be > 0.0".to_string());
         }
         if per_user_credit_cap <= 0.0 {
