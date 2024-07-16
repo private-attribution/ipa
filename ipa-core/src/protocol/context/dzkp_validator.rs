@@ -1,4 +1,4 @@
-use std::{cmp, collections::HashMap, fmt::Debug};
+use std::{cmp, collections::BTreeMap, fmt::Debug};
 
 use async_trait::async_trait;
 use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
@@ -305,7 +305,11 @@ impl MultiplicationInputsBatch {
         // panics when record_id is out of bounds
         assert!(record_id >= self.first_record);
         assert!(
-            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
+            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record)),
+            "record_id out of range in insert_segment. record {record_id} is beyond \
+             segment of length {} starting at {}",
+            self.max_multiplications,
+            self.first_record,
         );
 
         // update last record
@@ -433,21 +437,21 @@ impl MultiplicationInputsBatch {
     }
 }
 
-/// `Batch` collects a batch of `MultiplicationInputsBatch` in a hashmap.
+/// `Batch` collects a batch of `MultiplicationInputsBatch` in an ordered map.
 /// The size of the batch is limited due to the memory costs and verifier specific constraints.
 ///
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
 #[derive(Clone, Debug)]
 struct Batch {
     max_multiplications_per_gate: usize,
-    inner: HashMap<Gate, MultiplicationInputsBatch>,
+    inner: BTreeMap<Gate, MultiplicationInputsBatch>,
 }
 
 impl Batch {
     fn new(max_multiplications_per_gate: usize) -> Self {
         Self {
             max_multiplications_per_gate,
-            inner: HashMap::<Gate, MultiplicationInputsBatch>::new(),
+            inner: BTreeMap::<Gate, MultiplicationInputsBatch>::new(),
         }
     }
 
@@ -477,7 +481,7 @@ impl Batch {
 
     /// This function should only be called by `validate`!
     ///
-    /// Updates all `MultiplicationInputsBatch` in hashmap by incrementing the record ids to next chunk
+    /// Updates all `MultiplicationInputsBatch` in map by incrementing the record ids to next chunk
     ///
     /// ## Panics
     /// Panics when `MultiplicationInputsBatch` panics, i.e. when `segment_size` is `None`
@@ -613,6 +617,7 @@ pub trait DZKPValidator<B: UpgradableContext> {
     }
 }
 
+#[derive(Clone)]
 pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
     context: SemiHonestDZKPUpgraded<'a, B>,
 }
@@ -644,6 +649,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
 
 /// `MaliciousDZKPValidator` corresponds to pub struct `Malicious` and implements the trait `DZKPValidator`
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
+#[derive(Clone)]
 pub struct MaliciousDZKPValidator<'a> {
     batch_ref: Arc<Mutex<Batch>>,
     protocol_ctx: MaliciousDZKPUpgraded<'a>,
@@ -767,7 +773,7 @@ impl<'a> MaliciousDZKPValidator<'a> {
         let dzkp_batch = DZKPBatch {
             inner: Arc::downgrade(&batch_list),
         };
-        let validate_ctx = ctx.narrow(&Step::DZKPValidate).base_context();
+        let validate_ctx = ctx.narrow(&Step::DZKPValidate).validator_context();
         let protocol_ctx = ctx.dzkp_upgrade(&Step::DZKPMaliciousProtocol, dzkp_batch);
         Self {
             batch_ref: batch_list,
@@ -785,10 +791,13 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::{repeat, zip};
+    use std::{
+        iter::{repeat, repeat_with, zip},
+        num::NonZeroUsize,
+    };
 
     use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
-    use futures::TryStreamExt;
+    use futures::{StreamExt, TryStreamExt};
     use futures_util::stream::iter;
     use proptest::{prop_compose, proptest, sample::select};
     use rand::{thread_rng, Rng};
@@ -806,8 +815,75 @@ mod tests {
             Gate, RecordId,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+        seq_join::seq_join,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
+
+    #[tokio::test]
+    async fn dzkp_malicious() {
+        const COUNT: usize = 32;
+        let mut rng = thread_rng();
+
+        let original_inputs = repeat_with(|| rng.gen())
+            .take(COUNT)
+            .collect::<Vec<Boolean>>();
+
+        let [res0, res1, res2] = TestWorld::default()
+            .malicious(
+                original_inputs.clone().into_iter(),
+                |ctx, input_shares| async move {
+                    let v = ctx.dzkp_validator(COUNT);
+                    let m_ctx = v
+                        .context()
+                        .narrow(&Step::DZKPMaliciousProtocol)
+                        .set_total_records(COUNT - 1);
+
+                    let m_results = seq_join(
+                        NonZeroUsize::new(COUNT).unwrap(),
+                        iter(
+                            zip(input_shares.clone(), input_shares.into_iter().skip(1))
+                                .enumerate()
+                                .map(|(i, (a_malicious, b_malicious))| {
+                                    let m_ctx = m_ctx.clone();
+                                    async move {
+                                        let tmp = a_malicious
+                                            .multiply(
+                                                &b_malicious,
+                                                m_ctx.narrow("a"),
+                                                RecordId::from(i),
+                                            )
+                                            .await
+                                            .unwrap();
+                                        // This multiplication is redundant with the previous, but
+                                        // means we test a circuit with more than one gate.
+                                        tmp.multiply(
+                                            &b_malicious,
+                                            m_ctx.narrow("b"),
+                                            RecordId::from(i),
+                                        )
+                                        .await
+                                        .unwrap()
+                                    }
+                                }),
+                        ),
+                    )
+                    .collect::<Vec<_>>()
+                    .await;
+                    v.validate().await.unwrap();
+                    m_ctx.is_verified().unwrap();
+                    v.is_verified().unwrap();
+                    Ok::<_, Error>(m_results)
+                },
+            )
+            .await
+            .map(Result::unwrap);
+
+        for i in 0..COUNT - 1 {
+            let expected = original_inputs[i] * original_inputs[i + 1];
+            let actual = [res0[i].clone(), res1[i].clone(), res2[i].clone()].reconstruct();
+            assert_eq!(expected, actual);
+        }
+    }
 
     /// test for testing `validated_seq_join`
     /// similar to `complex_circuit` in `validator.rs`

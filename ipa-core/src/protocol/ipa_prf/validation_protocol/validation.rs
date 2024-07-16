@@ -558,27 +558,27 @@ pub mod test {
     /// Prover `P_i` and verifier `P_{i-1}` both generate `v`
     ///
     /// outputs `(my_u_and_v, u_from_right_prover, v_from_left_prover)`
-    #[allow(clippy::type_complexity)]
     fn generate_u_v<C: Context>(
         ctx: &C,
+        len: usize,
     ) -> (
         Vec<UVTupleBlock<Fp61BitPrime>>,
+        Fp61BitPrime,
         Vec<Fp61BitPrime>,
         Vec<Fp61BitPrime>,
     ) {
-        const SIZE: usize = 100;
-
         // outputs
-        let mut vec_u_from_right_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * SIZE);
-        let mut vec_v_from_left_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * SIZE);
+        let mut vec_u_from_right_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * len);
+        let mut vec_v_from_left_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * len);
 
         let mut vec_my_u_and_v =
-            Vec::<([Fp61BitPrime; BLOCK_SIZE], [Fp61BitPrime; BLOCK_SIZE])>::with_capacity(SIZE);
+            Vec::<([Fp61BitPrime; BLOCK_SIZE], [Fp61BitPrime; BLOCK_SIZE])>::with_capacity(len);
+        let mut sum_of_uv = Fp61BitPrime::ZERO;
 
         // generate random u, v values using PRSS
         let mut counter = RecordId::FIRST;
 
-        for _ in 0..SIZE {
+        for _ in 0..len {
             let mut my_u_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
             let mut my_v_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
             for i in 0..BLOCK_SIZE {
@@ -588,6 +588,7 @@ pub mod test {
                 counter += 1;
                 my_u_array[i] = my_u;
                 my_v_array[i] = my_v;
+                sum_of_uv += my_u * my_v;
                 vec_u_from_right_prover.push(u_from_right_prover);
                 vec_v_from_left_prover.push(v_from_left_prover);
             }
@@ -596,6 +597,7 @@ pub mod test {
 
         (
             vec_my_u_and_v,
+            sum_of_uv,
             vec_u_from_right_prover,
             vec_v_from_left_prover,
         )
@@ -616,6 +618,8 @@ pub mod test {
     /// are indeed zero by recombining the shares (without sending them over the "network")
     #[test]
     fn check_batch_to_verify_consistency() {
+        const LEN: usize = 100;
+
         run(|| async move {
             let world = TestWorld::default();
 
@@ -623,7 +627,7 @@ pub mod test {
                 world
                     .semi_honest((), |ctx, ()| async move {
                         // generate u, v values
-                        let (vec_my_u_and_v, _, _) = generate_u_v(&ctx);
+                        let (vec_my_u_and_v, _, _, _) = generate_u_v(&ctx, LEN);
 
                         // generate and output VerifierBatch together with h value
                         let (
@@ -717,6 +721,8 @@ pub mod test {
     /// This test checks that `p_r*q_r` is consistent with the last proof
     #[test]
     fn p_times_q() {
+        const LEN: usize = 100;
+
         run(|| async move {
             let world = TestWorld::default();
 
@@ -724,8 +730,8 @@ pub mod test {
                 world
                     .semi_honest((), |ctx, ()| async move {
                         // generate u, v values
-                        let (vec_my_u_and_v, vec_u_from_right_prover, vec_v_from_left_prover) =
-                            generate_u_v(&ctx);
+                        let (vec_my_u_and_v, _, vec_u_from_right_prover, vec_v_from_left_prover) =
+                            generate_u_v(&ctx, LEN);
 
                         // generate and output VerifierBatch together with h value
                         let (
@@ -798,16 +804,19 @@ pub mod test {
     }
 
     /// This test checks that a `BatchToVerify` verifies
-    #[test]
-    fn verify_batch() {
-        run(|| async move {
+    fn verify_batch(len: usize) {
+        run(move || async move {
             let world = TestWorld::default();
 
             let _ = world
                 .semi_honest((), |ctx, ()| async move {
                     // generate u, v values
-                    let (vec_my_u_and_v, vec_u_from_right_prover, vec_v_from_left_prover) =
-                        generate_u_v(&ctx);
+                    let (
+                        vec_my_u_and_v,
+                        sum_of_uv,
+                        vec_u_from_right_prover,
+                        vec_v_from_left_prover,
+                    ) = generate_u_v(&ctx, len);
 
                     // generate and output VerifierBatch together with h value
                     let (
@@ -817,7 +826,7 @@ pub mod test {
                         q_mask_from_left_prover,
                     ) = ProofBatch::generate(
                         &ctx.narrow("generate_batch"),
-                        vec_my_u_and_v.clone().into_iter(),
+                        vec_my_u_and_v.into_iter(),
                     );
 
                     let batch_to_verify = BatchToVerify::generate_batch_to_verify(
@@ -828,17 +837,6 @@ pub mod test {
                         q_mask_from_left_prover,
                     )
                     .await;
-
-                    // compute sum
-                    let sum_of_uv = vec_my_u_and_v
-                        .iter()
-                        .flat_map(|(left_array, right_array)| {
-                            left_array
-                                .iter()
-                                .zip(right_array)
-                                .map(|(left, right)| *left * *right)
-                        })
-                        .sum::<Fp61BitPrime>();
 
                     // context for verification
                     let v_ctx = ctx.narrow("verify");
@@ -885,5 +883,17 @@ pub mod test {
                 })
                 .await;
         });
+    }
+
+    #[test]
+    fn verify_batches() {
+        verify_batch(100);
+
+        // Test a batch that exercises the case where `uv_values.len() == 1` but `did_set_masks =
+        // false` in `ProofBatch::generate`.
+        verify_batch(
+            LargeProofGenerator::RECURSION_FACTOR * SmallProofGenerator::RECURSION_FACTOR
+                / BLOCK_SIZE,
+        );
     }
 }
