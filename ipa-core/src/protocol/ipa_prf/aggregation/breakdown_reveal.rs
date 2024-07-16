@@ -1,6 +1,10 @@
-use futures::stream;
-use futures_util::{StreamExt, TryStreamExt};
+use std::{marker::PhantomData, mem};
 
+use futures::{future, stream, stream::iter as stream_iter};
+use futures_util::{StreamExt, TryStreamExt};
+use tracing::{info_span, Instrument};
+
+use super::step::AggregateValuesStep;
 use crate::{
     error::Error,
     ff::{
@@ -8,19 +12,23 @@ use crate::{
         boolean_array::{BooleanArray, BA64},
         ArrayAccess, U128Conversions,
     },
-    helpers::{repeat_n, TotalRecords},
+    helpers::TotalRecords,
     protocol::{
         basics::reveal,
         boolean::step::SixteenBitStep,
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
-            aggregation::step::AggregationStep, boolean_ops::addition_sequential::integer_sat_add,
-            prf_sharding::SecretSharedAttributionOutputs, shuffle::shuffle_attribution_outputs,
+            aggregation::step::AggregationStep,
+            boolean_ops::addition_sequential::{integer_add, integer_sat_add},
+            prf_sharding::SecretSharedAttributionOutputs,
+            shuffle::shuffle_attribution_outputs,
             BreakdownKey,
         },
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, Vectorizable,
+    },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
 };
@@ -51,8 +59,8 @@ where
     HV: BooleanArray + U128Conversions,
 {
     let atributions = shuffle_attributions::<_, _, B>(&ctx, atributions).await?;
-    let grouped_tvs = reveal_breakdowns::<_, _, B>(&ctx, atributions).await?;
-    add_tvs_by_bk(&ctx, grouped_tvs).await
+    let grouped_tvs = reveal_breakdowns::<HV, _, _, B>(&ctx, atributions).await?;
+    add_tvs_by_bk::<TV, HV, B>(&ctx, grouped_tvs).await
 }
 
 /// Shuffles attribution Breakdown key and Trigger Value secret shares. Input
@@ -61,7 +69,7 @@ where
 /// TODO: Use a more constrained BA type to contain BK and TV
 /// TODO: Sharded shuffle
 async fn shuffle_attributions<BK, TV, const B: usize>(
-    ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
+    parent_ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
     contribs: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
 where
@@ -69,7 +77,7 @@ where
     TV: BooleanArray + U128Conversions,
 {
     let shuffle_ctx: UpgradedSemiHonestContext<'_, NotSharded, Boolean> =
-        ctx.narrow(&AggregationStep::Shuffle);
+        parent_ctx.narrow(&AggregationStep::Shuffle);
     shuffle_attribution_outputs::<_, BK, TV, BA64>(shuffle_ctx, contribs).await
 }
 
@@ -81,16 +89,18 @@ where
 /// Values for that particular Breakdown.
 ///
 /// TODO: Vectorize
+/// TODO: Trace number of TVs
 #[tracing::instrument(name = "reveal_breakdowns", skip_all)]
-async fn reveal_breakdowns<BK, TV, const B: usize>(
-    ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
+async fn reveal_breakdowns<HV, BK, TV, const B: usize>(
+    parent_ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
     attributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
-) -> Result<Vec<Vec<Replicated<TV>>>, Error>
+) -> Result<GroupedTriggerValues<HV, B>, Error>
 where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
+    HV: BooleanArray,
 {
-    let reveal_ctx = ctx
+    let reveal_ctx = parent_ctx
         .narrow(&AggregationStep::RevealStep)
         .set_total_records(TotalRecords::specified(attributions.len())?);
 
@@ -107,72 +117,196 @@ where
             Ok::<(usize, Replicated<TV>), Error>((bk, ao.capped_attributed_trigger_value))
         }
     });
-    let mut grouped_tvs: Vec<Vec<Replicated<TV>>> = vec![vec![]; B];
+    let tv_size: usize = TV::BITS.try_into().unwrap();
+    let mut grouped_tvs = GroupedTriggerValues::<HV, B>::new(tv_size);
     let tvs: Vec<(usize, Replicated<TV>)> = seq_join(reveal_ctx.active_work(), reveal_work)
         .try_collect()
         .await?;
     for (bk, tv) in tvs {
-        grouped_tvs[bk].push(tv);
+        // Transpose 2
+        // [Replicated<Boolean>;2].transpose() -> Replicated<Boolean, N=2>
+        grouped_tvs.push(bk, tv.to_bits());
     }
     Ok(grouped_tvs)
 }
 
-/// Uses `reveal_breakdown` results as input. This will cycle through each
-/// Breakdown, adding up all the Trigger Values. Returns the values for each
-/// Breakdown.
-///
-/// TODO: Only expand bits as necessary. "Merge-sort" inspired.
-/// TODO: Sharding strategy.
-#[tracing::instrument(name = "add_tvs_by_bk", skip_all)]
-async fn add_tvs_by_bk<TV, HV>(
-    ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
-    grouped_tvs: Vec<Vec<Replicated<TV>>>,
-) -> Result<Vec<Replicated<HV>>, Error>
-where
-    TV: BooleanArray + U128Conversions,
-    HV: BooleanArray + U128Conversions,
-{
-    let mut acc: usize = 0;
-    let work = stream::iter(grouped_tvs).enumerate().map(|(i, tvs)| {
-        let len = tvs.len();
-        let add_ctx = ctx
-            .narrow(&AggregationStep::AddTriggerValues(i))
-            .set_total_records(TotalRecords::Indeterminate);
-        //.set_total_records(TotalRecords::specified(len).unwrap());
-        let r = add_tvs::<TV, HV>(add_ctx, tvs);
-        acc += len;
-        r
-    });
-    let r: Vec<Replicated<HV>> = seq_join(ctx.active_work(), work)
-        .try_collect()
-        .await
-        .unwrap();
-    Ok(r)
+type Operand = BitDecomposed<Replicated<Boolean>>;
+
+/// Helper type that hold all the Trigger Values, grouped by their Breakdown
+/// Key. Since the addition of 2 TVs returns a newly alloc TV and the number of
+/// BKs is small, there's not a lot of gain by doing operations in place in
+/// this structure.
+struct GroupedTriggerValues<HV, const B: usize> {
+    singles: [Option<Operand>; B],
+    pairs: Vec<Pair>,
+    size: usize,
+    phantom: PhantomData<HV>,
 }
 
-/// `HV` is the output value type, which is called `HV` (histogram value) in the attribution
-/// protocol. If the aggregated contributions for a bucket overflow the `HV` type, this
-/// implementation saturates at the maximum value the type can represent. It is recommended
-/// that clients select a query configuration that avoids the possibility of overflow.
-async fn add_tvs<TV, HV>(
-    ctx: UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
-    tvs: Vec<Replicated<TV>>,
-) -> Result<Replicated<HV>, Error>
+impl<HV, const B: usize> GroupedTriggerValues<HV, B>
 where
-    TV: BooleanArray + U128Conversions,
-    HV: BooleanArray + U128Conversions,
+    Boolean: Vectorizable<1>,
+    HV: BooleanArray,
 {
-    let hv_size: usize = HV::BITS.try_into().unwrap();
-    let mut sum_bits = BitDecomposed::new(repeat_n(Replicated::ZERO, hv_size));
-    for (i, tv) in tvs.into_iter().enumerate() {
-        let tv_bits: BitDecomposed<Replicated<Boolean>> = tv.to_bits();
-        let record_id = RecordId::from(i);
-        // do unsaturared until saturated
-        sum_bits =
-            integer_sat_add::<_, SixteenBitStep, 1>(ctx.clone(), record_id, &sum_bits, &tv_bits)
-                .await?;
+    fn new(size: usize) -> Self {
+        Self {
+            singles: std::array::from_fn(|_| None),
+            pairs: vec![],
+            size,
+            phantom: PhantomData,
+        }
     }
-    Ok(sum_bits.collect_bits())
+
+    fn push(&mut self, bk: usize, value: Operand) {
+        assert_eq!(self.size, value.len());
+        let op = self.singles[bk].take();
+        if let Some(existing_value) = op {
+            self.pairs.push(Pair {
+                left: existing_value,
+                right: value,
+                bk,
+            });
+            self.singles[bk] = None;
+        } else {
+            self.singles[bk] = Some(value);
+        }
+    }
+
+    fn expand(&mut self) -> bool {
+        let hv_size: usize = HV::BITS.try_into().unwrap();
+        if self.size >= hv_size {
+            return false;
+        }
+        self.size += 1;
+        for so in &mut self.singles {
+            if let Some(ref mut existing_s) = so.as_mut() {
+                existing_s.push(Replicated::ZERO);
+            }
+        }
+        true
+    }
+}
+
+struct Pair {
+    left: Operand,
+    right: Operand,
+    bk: usize,
+}
+
+/// We're adding two operands at a time which causes the "reduce" operation to
+/// consume log(N) steps, with N being the number of events. The worst case is
+/// all N entries in one BK.
+pub const MAX_DEPTH: usize = 64;
+
+/// Uses `reveal_breakdown` results as input which is all the Trigger Values
+/// (N total), grouped by their Breakdown Key:
+///
+/// | BK  |      AdditiveShare(TV)      |
+/// |-----|-----------------------------|
+/// |   0 | \[(2, 3), (0, 5)]                |
+/// |   1 | \[\]                          |
+/// |   2 | \[0\]                         |
+/// |   3 | \[(0, 2), (3, 5), (0, 7), (1, 2), 0\] |
+/// | ... |                             |
+/// | 255 | \[(3, 1), (0, 0)\]                |
+///
+/// This function operates on a loop (at most `log(N)` iterations), where on
+/// each step we add together the pairs under a breakdown key until there are
+/// no more pairs, meaning 0 or 1 value under each Breakdown Key. Following is
+/// what one step of the iteration renders from the example above:
+///
+/// | BK  | AdditiveShare(TV) |
+/// |-----|-----------------|
+/// |   0 | \[(5, 5\)]          |
+/// |   1 | \[\]              |
+/// |   2 | \[0\]             |
+/// |   3 | \[2, 8, 7, 3, 0\] |
+/// | ... |                 |
+/// | 255 | \[4, 0\]          |
+///
+/// Sharded version: Each shard simply operates on the Attribution Outputs it
+/// has and then there's a final aggregation across done by the leader. This
+/// approach is simple and doesn't need additional communication to distribute.
+///
+/// TODO: Vectorize. Take all SumPairs for the same size, chunk and add them.
+/// TODO: Being a stream of futures allows to start computations earlier, but
+/// need to keep track of the size of the resulting pair.
+#[tracing::instrument(name = "add_tvs_by_bk", skip_all)]
+async fn add_tvs_by_bk<TV, HV, const B: usize>(
+    parent_ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
+    mut grouped_tvs: GroupedTriggerValues<HV, B>,
+) -> Result<Vec<Replicated<HV>>, Error>
+where
+    TV: BooleanArray,
+    HV: BooleanArray,
+{
+    for d in 0..MAX_DEPTH {
+        let pairs = mem::take(&mut grouped_tvs.pairs);
+        // Exit condition
+        if pairs.is_empty() {
+            let mut r: Vec<Replicated<HV>> = vec![];
+            for s in grouped_tvs.singles {
+                if let Some(hv_bits) = s {
+                    r.push(hv_bits.collect_bits());
+                } else {
+                    r.push(Replicated::ZERO);
+                }
+            }
+            return Ok(r);
+        }
+
+        let can_expand = grouped_tvs.expand();
+
+        let add_ctx = parent_ctx
+            .narrow(&AggregationStep::Aggregate(d))
+            .set_total_records(TotalRecords::specified(pairs.len()).unwrap());
+
+        let work = pairs.iter().enumerate().map(|(i, p)| {
+            let record_id = RecordId::from(i);
+            let i_ctx = add_ctx.clone();
+            // This is the work that will be executed in the future by seq_join
+            // Returns a pair with the BK and the sum
+            async move {
+                if can_expand {
+                    let (mut sum, carry) = integer_add::<_, SixteenBitStep, 1>(
+                        i_ctx.narrow(&AggregateValuesStep::Add),
+                        record_id,
+                        &p.left,
+                        &p.right,
+                    )
+                    .await?;
+                    sum.push(carry);
+                    Ok::<_, Error>((p.bk, sum))
+                } else {
+                    Ok((
+                        p.bk,
+                        integer_sat_add::<_, SixteenBitStep, 1>(
+                            i_ctx.narrow(&AggregateValuesStep::SaturatingAdd),
+                            record_id,
+                            &p.left,
+                            &p.right,
+                        )
+                        .await?,
+                    ))
+                }
+            }
+        });
+        seq_join(add_ctx.active_work(), stream_iter(work))
+            .try_for_each(|(bk, r)| {
+                grouped_tvs.push(bk, r);
+                future::ok(())
+            })
+            .instrument(info_span!(
+                "add_tvs_reduce",
+                depth = d,
+                max_breakdowns = B,
+                pairs_len = pairs.len(),
+            ))
+            .await?;
+    }
+    // Should never come to this. Insted it should return from the exit
+    // condition in the for loop.
+    Err(Error::Internal)
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
