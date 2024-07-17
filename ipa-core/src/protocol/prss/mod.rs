@@ -10,6 +10,7 @@ pub(super) use internal::PrssIndex128;
 use x25519_dalek::PublicKey;
 
 use crate::{
+    helpers::Direction,
     protocol::{Gate, RecordId},
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
@@ -126,7 +127,7 @@ mod internal {
 /// PRSS indexes are used to ensure that distinct pseudo-randomness is generated for every value
 /// output by PRSS. It is often sufficient to use record IDs as PRSS indexes, and
 /// `impl From<RecordId> for PrssIndex` is provided for that purpose.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 pub struct PrssIndex(u32);
 
 impl From<u32> for PrssIndex {
@@ -180,42 +181,90 @@ pub struct IndexedSharedRandomness {
 }
 
 impl SharedRandomness for IndexedSharedRandomness {
-    type ChunksIter<'a, Z: ArrayLength> = ChunksIter<'a, Z>;
+    type ChunkIter<'a, Z: ArrayLength> = ChunkIter<'a, Z>;
 
+    fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> Self::ChunkIter<'_, Z> {
+        Self::ChunkIter::new(self, index, direction)
+    }
+
+    /// Override the generic implementation for performance reasons.
+    /// We need to hint the compiler that calls to `left.generate` and `right.generate` can be
+    /// interleaved. See [`ChunksIter`] documentation for more details
     fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,
         index: I,
-    ) -> Self::ChunksIter<'_, Z> {
+    ) -> impl Iterator<Item = (GenericArray<u128, Z>, GenericArray<u128, Z>)> {
+        let index = index.into();
         ChunksIter {
-            inner: self,
-            index: index.into(),
-            offset: 0,
-            phantom_data: PhantomData,
+            left: Self::ChunkIter::new(self, index, Direction::Left),
+            right: Self::ChunkIter::new(self, index, Direction::Right),
         }
     }
 }
 
-pub struct ChunksIter<'a, Z: ArrayLength> {
-    inner: &'a IndexedSharedRandomness,
-    index: PrssIndex,
-    offset: usize,
-    phantom_data: PhantomData<Z>,
+/// Specialized implementation for chunks that are generated using both left and right
+/// randomness. The functionality is the same as [`std::iter::zip`], but it does not use
+/// `Iterator` trait to call `left` and `right` next. It uses inlined method calls to
+/// allow rustc to interleave these calls and improve performance.
+///
+/// Comparing this implementation vs [`std::iter::zip`] showed that this one is
+/// 15% faster in benchmarks generating [`crate::ff::BA256`] values.
+struct ChunksIter<'a, Z: ArrayLength> {
+    left: ChunkIter<'a, Z>,
+    right: ChunkIter<'a, Z>,
 }
 
 impl<'a, Z: ArrayLength> Iterator for ChunksIter<'a, Z> {
     type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let l = GenericArray::generate(|i| {
-            self.inner.left.generate(self.index.offset(self.offset + i))
-        });
-        let r = GenericArray::generate(|i| {
-            self.inner
-                .right
-                .generate(self.index.offset(self.offset + i))
-        });
-        self.offset += Z::USIZE;
+        let l = self.left.next()?;
+        let r = self.right.next()?;
         Some((l, r))
+    }
+}
+
+pub struct ChunkIter<'a, Z: ArrayLength> {
+    inner: &'a Generator,
+    index: PrssIndex,
+    offset: usize,
+    phantom_data: PhantomData<Z>,
+}
+
+impl<'a, Z: ArrayLength> Iterator for ChunkIter<'a, Z> {
+    type Item = GenericArray<u128, Z>;
+
+    /// Rustc 1.79 and below does not inline this call without an explicit hint, and it hurts
+    /// performance - see ipa/1187.
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let chunk =
+            GenericArray::generate(|i| self.inner.generate(self.index.offset(self.offset + i)));
+
+        self.offset += Z::USIZE;
+        Some(chunk)
+    }
+}
+
+impl<'a, Z: ArrayLength> ChunkIter<'a, Z> {
+    pub fn new<I: Into<PrssIndex>>(
+        prss: &'a IndexedSharedRandomness,
+        index: I,
+        direction: Direction,
+    ) -> Self {
+        Self {
+            inner: match direction {
+                Direction::Left => &prss.left,
+                Direction::Right => &prss.right,
+            },
+            index: index.into(),
+            offset: 0,
+            phantom_data: PhantomData,
+        }
     }
 }
 

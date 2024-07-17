@@ -11,6 +11,7 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::{
     ff::Field,
+    helpers::Direction,
     protocol::prss::{PrssIndex, PrssIndex128},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -139,15 +140,25 @@ impl<T: FromRandom + SharedValue> FromPrss<usize> for AdditiveShare<T> {
 }
 
 pub trait SharedRandomness {
-    type ChunksIter<'a, Z: ArrayLength>: Iterator<
-        Item = (GenericArray<u128, Z>, GenericArray<u128, Z>),
-    >
+    type ChunkIter<'a, Z: ArrayLength>: Iterator<Item = GenericArray<u128, Z>>
     where
         Self: 'a;
 
     /// Return an iterator over chunks of generated randomness.
     ///
-    /// The iterator returns 2-tuples of `GenericArray<u128, Z>` chunks, one that is known to the
+    /// The iterator returns `GenericArray<u128, Z>` chunks known to the helper
+    /// specified in `direction` parameter.
+    ///
+    /// This functionality is intended for use generating large vectorized values.
+    #[must_use]
+    fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> Self::ChunkIter<'_, Z>;
+
+    /// Same as [`Self::generate_chunks_one_side`], but returns 2-tuples
+    /// of `GenericArray<u128, Z>` chunks, one that is known to the
     /// left helper and one that is known to the right helper.
     ///
     /// This functionality is intended for use generating large vectorized values.
@@ -155,7 +166,7 @@ pub trait SharedRandomness {
     fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,
         index: I,
-    ) -> Self::ChunksIter<'_, Z>;
+    ) -> impl Iterator<Item = (GenericArray<u128, Z>, GenericArray<u128, Z>)>;
 
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
@@ -191,6 +202,27 @@ pub trait SharedRandomness {
     #[must_use]
     fn generate<T: FromPrss, I: Into<PrssIndex>>(&self, index: I) -> T {
         T::from_prss(self, index)
+    }
+
+    /// Generate some value that can be sampled from PRSS shared with the helper
+    /// specified via `direction` argument. This may be convenient and more efficient,
+    /// in cases when only value shared with one helper is required.
+    ///
+    /// Functionally, it is equivalent to calling [`Self::generate`] and dropping either
+    /// left or the right variable. Performance-wise, this method should be preferred
+    /// to use because it will do 50% of the work compared to regular [`Self::generate`].
+    #[must_use]
+    fn generate_one_side<T: FromRandom, I: Into<PrssIndex>>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> T {
+        let index = index.into();
+        T::from_random(
+            self.generate_chunks_one_side(index, direction)
+                .next()
+                .unwrap_or_else(|| panic!("Can't generate randomness for index {index:?}")),
+        )
     }
 
     /// Generate something that implements the `FromPrss` trait, passing parameters.

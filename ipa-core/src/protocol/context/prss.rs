@@ -1,10 +1,10 @@
 //! Metric-aware PRSS decorators
 
-use generic_array::ArrayLength;
+use generic_array::{ArrayLength, GenericArray};
 use rand_core::{Error, RngCore};
 
 use crate::{
-    helpers::Role,
+    helpers::{Direction, Role},
     protocol::{
         prss::{IndexedSharedRandomness, PrssIndex, SequentialSharedRandomness, SharedRandomness},
         Gate,
@@ -35,29 +35,43 @@ impl<'a> InstrumentedIndexedSharedRandomness<'a> {
 }
 
 impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
-    type ChunksIter<'a, Z: ArrayLength> = InstrumentedChunksIter<
+    type ChunkIter<'a, Z: ArrayLength> = InstrumentedChunkIter<
         'a,
-        <IndexedSharedRandomness as SharedRandomness>::ChunksIter<'a, Z>,
+        <IndexedSharedRandomness as SharedRandomness>::ChunkIter<'a, Z>,
     >
     where Self: 'a;
+
+    fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> Self::ChunkIter<'_, Z> {
+        InstrumentedChunkIter {
+            instrumented: self,
+            inner: self.inner.generate_chunks_one_side(index, direction),
+        }
+    }
 
     fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,
         index: I,
-    ) -> Self::ChunksIter<'_, Z> {
+    ) -> impl Iterator<Item = (GenericArray<u128, Z>, GenericArray<u128, Z>)> {
+        let index = index.into();
+
         InstrumentedChunksIter {
             instrumented: self,
-            inner: self.inner.generate_chunks_iter(index),
+            left: self.inner.generate_chunks_one_side(index, Direction::Left),
+            right: self.inner.generate_chunks_one_side(index, Direction::Right),
         }
     }
 }
 
-pub struct InstrumentedChunksIter<'a, I: Iterator> {
+pub struct InstrumentedChunkIter<'a, I: Iterator> {
     instrumented: &'a InstrumentedIndexedSharedRandomness<'a>,
     inner: I,
 }
 
-impl<'a, I: Iterator> Iterator for InstrumentedChunksIter<'a, I> {
+impl<'a, I: Iterator> Iterator for InstrumentedChunkIter<'a, I> {
     type Item = <I as Iterator>::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -67,6 +81,29 @@ impl<'a, I: Iterator> Iterator for InstrumentedChunksIter<'a, I> {
         // handle gauges
         metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => step, ROLE => self.instrumented.role.as_static_str());
         self.inner.next()
+    }
+}
+
+struct InstrumentedChunksIter<'a, S: SharedRandomness + 'a, Z: ArrayLength> {
+    instrumented: &'a InstrumentedIndexedSharedRandomness<'a>,
+    left: S::ChunkIter<'a, Z>,
+    right: S::ChunkIter<'a, Z>,
+}
+
+impl<Z: ArrayLength> Iterator for InstrumentedChunksIter<'_, IndexedSharedRandomness, Z> {
+    type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let l = self.left.next()?;
+        let r = self.right.next()?;
+
+        let step = self.instrumented.step.as_ref().to_string();
+        // TODO: what we really want here is a gauge indicating the maximum index used to generate
+        // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to
+        // handle gauges
+        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => step, ROLE => self.instrumented.role.as_static_str());
+
+        Some((l, r))
     }
 }
 
