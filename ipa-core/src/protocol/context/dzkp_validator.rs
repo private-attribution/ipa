@@ -613,6 +613,7 @@ pub trait DZKPValidator<B: UpgradableContext> {
     }
 }
 
+#[derive(Clone)]
 pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
     context: SemiHonestDZKPUpgraded<'a, B>,
 }

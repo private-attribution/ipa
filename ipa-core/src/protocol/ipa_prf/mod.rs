@@ -2,7 +2,7 @@ use std::{convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
 
 use futures::{stream, StreamExt, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{Const, Unsigned, U18};
+use typenum::{Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
         Serializable, U128Conversions,
     },
     helpers::{
-        stream::{div_round_up, process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
+        stream::{div_round_up, Chunk, ChunkData, TryFlattenItersExt},
         TotalRecords,
     },
     protocol::{
@@ -266,6 +266,13 @@ where
     .await
 }
 
+// We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
+// is CONV_CHUNK. Let `len` equal the number of converted shares. The total amount of
+// multiplications is CONV_CHUNK*512*len. We want CONV_CHUNK*512*len ≈ 50M, or len ≈ 381, for a
+// reasonably-sized proof.
+const CONV_PROOF_CHUNK: usize = 400;
+
+/// This function computes the prf for the input match keys.
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
     ctx: C,
@@ -273,7 +280,7 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    <C as UpgradableContext>::DZKPValidator: Send + Sync,
+    <C as UpgradableContext>::DZKPValidator: Send + Sync + Clone,
     C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: BooleanArray,
     TV: BooleanArray,
@@ -282,9 +289,8 @@ where
         BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
-    let conv_records =
-        TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
-    let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), Const::<PRF_CHUNK>))?;
+    let conv_records = TotalRecords::specified(div_round_up(input_rows.len(), CONV_CHUNK))?;
+    let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), PRF_CHUNK))?;
     let convert_ctx = ctx
         .narrow(&Step::ConvertFp25519)
         .set_total_records(conv_records);
@@ -292,23 +298,46 @@ where
 
     let prf_key = gen_prf_key(&eval_ctx);
 
-    let curve_pts = seq_join(
-        ctx.active_work(),
-        process_slice_by_chunks(input_rows, move |idx, records: ChunkData<_, CONV_CHUNK>| {
-            let record_id = RecordId::from(idx);
-            let convert_ctx = convert_ctx.clone();
-            let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
-                &|i| records[i].match_key.clone();
-            let match_keys =
+    let validator = &convert_ctx.dzkp_validator(CONV_PROOF_CHUNK * CONV_CHUNK);
+
+    let match_key_vector_chunks = input_rows.chunks(CONV_CHUNK).map(|records| {
+        Chunk::try_from(records)
+            .expect("oversize value returned from slice::chunks")
+            .map(|records: ChunkData<_, CONV_CHUNK>| {
+                let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> = &|i| {
+                    records
+                        .get(i)
+                        .map(|record| record.match_key.clone())
+                        .unwrap_or_default()
+                };
                 BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
-                    .unwrap_infallible();
-            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(convert_ctx, record_id, match_keys)
-        }),
-    )
-    .map_ok(Chunk::unpack::<PRF_CHUNK>)
-    .try_flatten_iters()
-    .try_collect::<Vec<_>>()
-    .await?;
+                    .unwrap_infallible()
+            })
+    });
+
+    // Boxing the stream avoids rustc #100013 errors. It should not really be necessary.
+    let curve_pt_chunks = stream::iter(match_key_vector_chunks)
+        .chunks(CONV_PROOF_CHUNK)
+        .boxed()
+        .enumerate()
+        .map(|(idx, match_key_proof_chunk)| {
+            Chunk::pack::<_, { CONV_PROOF_CHUNK * CONV_CHUNK }>(match_key_proof_chunk).then(
+                |match_keys| {
+                    convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
+                        validator.clone(),
+                        idx,
+                        idx * CONV_PROOF_CHUNK..(idx + 1) * CONV_PROOF_CHUNK,
+                        match_keys,
+                    )
+                },
+            )
+        });
+
+    let curve_pts = seq_join(ctx.active_chunks(CONV_PROOF_CHUNK), curve_pt_chunks)
+        .map_ok(Chunk::unpack::<PRF_CHUNK>)
+        .try_flatten_iters()
+        .try_collect::<Vec<_>>()
+        .await?;
 
     let prf_of_match_keys = seq_join(
         ctx.active_work(),

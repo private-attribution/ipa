@@ -1,6 +1,13 @@
-use std::{convert::Infallible, iter::zip, ops::Neg};
+use std::{
+    convert::Infallible,
+    iter::zip,
+    ops::{Neg, Range},
+};
+
+use futures::{stream, StreamExt, TryStreamExt};
 
 use crate::{
+    const_assert,
     error::{Error, UnwrapInfallible},
     ff::{
         boolean::Boolean,
@@ -8,21 +15,23 @@ use crate::{
         ec_prime_field::Fp25519,
         ArrayAccess,
     },
-    helpers::Role,
+    helpers::{stream::TryFlattenItersExt, Role},
     protocol::{
         basics::{partial_reveal, BooleanProtocols},
         boolean::step::TwoHundredFiftySixBitOpStep,
         context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
-        ipa_prf::boolean_ops::{
-            addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
+        ipa_prf::{
+            boolean_ops::{addition_sequential::integer_add, step::Fp25519ConversionStep as Step},
+            MatchKey, CONV_PROOF_CHUNK,
         },
         prss::{FromPrss, SharedRandomness},
         RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, SharedValueArray, TransposeFrom, Vectorizable,
+        BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
+    seq_join::{seq_join, SeqJoin},
 };
 
 /// share conversion
@@ -97,12 +106,14 @@ use crate::{
 /// # Panics
 /// If values processed by this function is smaller than 256 bits.
 /// If vectorization is too large, i.e. `NC>=100k`.
-pub async fn convert_to_fp25519<C, const NC: usize, const NP: usize>(
-    ctx: C,
-    record_id: RecordId,
-    x: BitDecomposed<AdditiveShare<Boolean, NC>>,
+pub async fn convert_to_fp25519<V, C, const NC: usize, const NP: usize>(
+    dzkp_validator: V,
+    ctx_counter: usize,
+    record_id_range: Range<usize>,
+    input_shares: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>,
 ) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
 where
+    V: DZKPValidator<C>,
     C: UpgradableContext,
     Fp25519: Vectorizable<NP>,
     Boolean: FieldSimd<NC>,
@@ -125,85 +136,131 @@ where
         "conversion chunk should be a multiple of PRF chunk"
     );
 
-    // Ensure that the probability of leaking information is less than 1/(2^128).
-    debug_assert!(x.iter().count() < (BITS - 128));
+    assert!(
+        input_shares.len() <= record_id_range.len(),
+        "received {} inputs but only {} record IDs",
+        input_shares.len(),
+        record_id_range.len()
+    );
 
-    // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
-    // the two highest bits are set to 0 to allow carries for two additions
-    let (sh_r, sh_s) =
-        gen_sh_r_and_sh_s::<_, BITS, NC>(&ctx.narrow(&Step::GenerateSecretSharing), record_id);
-
-    // generate upgraded context
-    // we expect 2*256 = 512 gates in total for two additions
-    // the vectorization factor is NC
-    // the total amount of multiplications is therefore NC*512
-    // make sure proof does not get too big, i.e. less that 100k
-    // (such that there are less than 50m multiplications)
-    assert!(NC < 100_000);
-    let validator = ctx.dzkp_validator(NC);
-    let m_ctx = validator.context();
-
-    // addition r+s might cause carry,
-    // this is no problem since we have set bit 254 of sh_r and sh_s to 0
-    let sh_rs = {
-        let (mut rs_with_higherorderbits, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-            m_ctx.narrow(&Step::IntegerAddBetweenMasks),
-            record_id,
-            &sh_r,
-            &sh_s,
-        )
-        .await?;
-
-        // PRSS/Multiply masks added random highest order bit,
-        // remove them to not cause overflow in second addition (which is mod 256):
-        rs_with_higherorderbits[BITS - 1] = AdditiveShare::<Boolean, NC>::ZERO;
-
-        // return rs
-        rs_with_higherorderbits
+    let Some(first_input) = input_shares.first() else {
+        return Ok(vec![]);
     };
 
-    // addition x+rs, where rs=r+s might cause carry
-    // this is not a problem since bit 255 of rs is set to 0
-    let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-        m_ctx.narrow(&Step::IntegerAddMaskToX),
-        record_id,
-        &sh_rs,
-        &x,
+    // Ensure that the probability of leaking information is less than 1/(2^128). If we make match
+    // key size configurable at runtime, then the debug assertion needs to be changed to a runtime
+    // check.
+    const_assert!(
+        MatchKey::BITS == 64,
+        "Match key size should be known at compile time"
+    );
+    debug_assert!(first_input.iter().count() < (BITS - 128));
+
+    // get context
+    let m_ctx = dzkp_validator.context();
+    // generate sub contexts
+    let ctx_gen = &m_ctx.narrow(&Step::GenerateSecretSharing);
+    let ctx_masks = &m_ctx.narrow(&Step::IntegerAddBetweenMasks);
+    let ctx_mask_x = &m_ctx.narrow(&Step::IntegerAddMaskToX);
+
+    // vector of intermediate results
+    let vec_sh_y: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>;
+    let vec_sh_r: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>;
+    let vec_sh_s: Vec<BitDecomposed<AdditiveShare<Boolean, NC>>>;
+
+    (vec_sh_y, (vec_sh_r, vec_sh_s)) = seq_join(
+        m_ctx.active_work_per_chunk(CONV_PROOF_CHUNK),
+        stream::iter(record_id_range.clone().zip(input_shares)).map(|(record_id, x)| async move {
+            // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
+            // the two highest bits are set to 0 to allow carries for two additions
+            let (sh_r, sh_s) = gen_sh_r_and_sh_s::<_, BITS, NC>(ctx_gen, RecordId::from(record_id));
+
+            // addition r+s might cause carry,
+            // this is no problem since we have set bit 254 of sh_r and sh_s to 0
+            let sh_rs = {
+                let (mut rs_with_higherorderbits, _) =
+                    integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
+                        ctx_masks.clone(),
+                        RecordId::from(record_id),
+                        &sh_r,
+                        &sh_s,
+                    )
+                    .await?;
+
+                // PRSS/Multiply masks added random highest order bit,
+                // remove them to not cause overflow in second addition (which is mod 256):
+                rs_with_higherorderbits[BITS - 1] = AdditiveShare::<Boolean, NC>::ZERO;
+
+                // return rs
+                rs_with_higherorderbits
+            };
+
+            // addition x+rs, where rs=r+s might cause carry
+            // this is not a problem since bit 255 of rs is set to 0
+            let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
+                ctx_mask_x.clone(),
+                RecordId::from(record_id),
+                &sh_rs,
+                &x,
+            )
+            .await?;
+
+            Ok::<_, Error>((sh_y, (sh_r, sh_s)))
+        }),
     )
+    .try_collect()
     .await?;
 
     // validate before reveal
-    validator.validate().await?;
+    dzkp_validator.validate_chunk(ctx_counter).await?;
 
-    // this leaks information, but with negligible probability
-    let mut y = (m_ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
-    for i in 0..BITS {
-        let y_bit = partial_reveal(
-            m_ctx.narrow(&Step::RevealY(i)),
-            record_id,
-            Role::H3,
-            sh_y.get(i).unwrap(),
-        )
-        .await?;
-        match (&mut y, y_bit) {
-            (Some(y), Some(y_bit)) => y.push(y_bit),
-            (None, None) => (),
-            _ => unreachable!("inconsistent partial_reveal behavior"),
-        }
-    }
+    seq_join(
+        m_ctx.active_work_per_chunk(CONV_PROOF_CHUNK),
+        stream::iter(
+            record_id_range
+                .zip(vec_sh_y)
+                .zip(vec_sh_r)
+                .zip(vec_sh_s)
+                .map(|(((record_id, sh_y), sh_r), sh_s)| {
+                    let m_ctx = m_ctx.clone();
+                    async move {
+                        // this leaks information, but with negligible probability
+                        let mut y = (m_ctx.role() != Role::H3).then(|| Vec::with_capacity(NC));
+                        for i in 0..BITS {
+                            let y_bit = partial_reveal(
+                                m_ctx.narrow(&Step::RevealY(i)),
+                                RecordId::from(record_id),
+                                Role::H3,
+                                sh_y.get(i).unwrap(),
+                            )
+                            .await?;
+                            match (&mut y, y_bit) {
+                                (Some(y), Some(y_bit)) => y.push(y_bit),
+                                (None, None) => (),
+                                _ => unreachable!("inconsistent partial_reveal behavior"),
+                            }
+                        }
 
-    let y = y.map(|y| {
-        Vec::<BA256>::transposed_from(y.as_slice().try_into().unwrap()).unwrap_infallible()
-    });
+                        let y = y.map(|y| {
+                            Vec::<BA256>::transposed_from(y.as_slice().try_into().unwrap())
+                                .unwrap_infallible()
+                        });
 
-    let sh_r = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_r)
-        .ok()
-        .expect("sh_r was constructed with the correct number of bits");
-    let sh_s = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_s)
-        .ok()
-        .expect("sh_s was constructed with the correct number of bits");
+                        let sh_r = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_r)
+                            .ok()
+                            .expect("sh_r was constructed with the correct number of bits");
+                        let sh_s = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_s)
+                            .ok()
+                            .expect("sh_s was constructed with the correct number of bits");
 
-    output_shares::<_, NC, NP>(&m_ctx, &sh_r, &sh_s, y)
+                        output_shares::<_, NC, NP>(&m_ctx, &sh_r, &sh_s, y)
+                    }
+                }),
+        ),
+    )
+    .try_flatten_iters()
+    .try_collect()
+    .await
 }
 
 /// Generates `sh_r` and `sh_s` from PRSS randomness (`r`).
@@ -393,7 +450,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::repeat_with;
+    use std::iter::{self, repeat_with};
 
     use curve25519_dalek::Scalar;
     use futures::stream::TryStreamExt;
@@ -404,7 +461,7 @@ mod tests {
     use super::*;
     use crate::{
         ff::{boolean_array::BA64, Serializable},
-        helpers::stream::process_slice_by_chunks,
+        helpers::{repeat_n, stream::process_slice_by_chunks},
         protocol::ipa_prf::{CONV_CHUNK, PRF_CHUNK},
         rand::thread_rng,
         secret_sharing::SharedValue,
@@ -414,7 +471,7 @@ mod tests {
     };
 
     #[test]
-    fn test_semi_honest_convert_into_fp25519() {
+    fn test_semi_honest_convert_to_fp25519() {
         run(|| async move {
             const COUNT: usize = CONV_CHUNK + 1;
 
@@ -437,16 +494,19 @@ mod tests {
 
             let [res0, res1, res2] = world
                 .semi_honest(records.into_iter(), |ctx, records| async move {
+                    let c_ctx = ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
+                    let validator = &c_ctx.dzkp_validator((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
+                    let m_ctx = validator.context();
                     seq_join(
-                        ctx.active_work(),
+                        m_ctx.active_work(),
                         process_slice_by_chunks(&records, |idx, chunk| {
-                            let ctx = ctx.clone();
                             let match_keys =
                                 BitDecomposed::transposed_from(&*chunk).unwrap_infallible();
-                            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(
-                                ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK),
-                                RecordId::from(idx),
-                                match_keys,
+                            convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
+                                validator.clone(),
+                                idx,
+                                idx..idx + (COUNT + CONV_CHUNK - 1) / CONV_CHUNK,
+                                vec![match_keys],
                             )
                         }),
                     )
@@ -467,6 +527,55 @@ mod tests {
                 result.extend([s0, s1, s2].reconstruct_arr().into_iter());
             }
             assert_eq!(result, expected);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "< (BITS - 128)")]
+    fn convert_to_fp25519_rejects_large_match_keys() {
+        run(|| async move {
+            TestWorld::default()
+                .semi_honest(iter::empty::<BA256>(), |ctx, _records| async move {
+                    let c_ctx = ctx.set_total_records(1);
+                    let validator = &c_ctx.dzkp_validator(1);
+                    let match_keys = BitDecomposed::new(repeat_n(
+                        AdditiveShare::<Boolean, CONV_CHUNK>::ZERO,
+                        128,
+                    ));
+                    convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
+                        validator.clone(),
+                        0,
+                        0..1,
+                        vec![match_keys],
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+        });
+    }
+
+    #[test]
+    fn convert_to_fp25519_empty() {
+        run(|| async move {
+            let [res0, res1, res2] = TestWorld::default()
+                .semi_honest(iter::empty::<BA256>(), |ctx, _records| async move {
+                    let c_ctx = ctx.set_total_records(1);
+                    let validator = &c_ctx.dzkp_validator(1);
+                    convert_to_fp25519::<_, _, CONV_CHUNK, PRF_CHUNK>(
+                        validator.clone(),
+                        0,
+                        0..1,
+                        vec![],
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await;
+
+            assert_eq!(res0.len(), 0);
+            assert_eq!(res1.len(), 0);
+            assert_eq!(res2.len(), 0);
         });
     }
 

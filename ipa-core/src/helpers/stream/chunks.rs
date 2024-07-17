@@ -1,4 +1,5 @@
 use std::{
+    array::{self, TryFromSliceError},
     fmt::Display,
     future::Future,
     iter::Take,
@@ -10,7 +11,6 @@ use std::{
 
 use futures::{stream::FusedStream, Stream, TryStream};
 use pin_project::pin_project;
-use typenum::{Const, ToUInt, Unsigned};
 
 use crate::{
     error::{Error, LengthError},
@@ -119,19 +119,71 @@ impl Expected {
     }
 }
 
-impl<T, const N: usize> Chunk<Vec<T>, N> {
+impl<K, const N: usize> Chunk<K, N> {
+    /// Pack nested chunks
+    ///
+    /// This function can be used when converting between vectorization factors. This function will
+    /// convert an iterator containing up to M / N sub-chunks with data type `K` and size `N` into a
+    /// single chunk with data type `Vec<K>` and size `M`.
+    ///
+    /// # Panics
+    /// If the input contains a non-final partial chunk.
+    pub fn pack<I, const M: usize>(input: I) -> Chunk<Vec<K>, M>
+    where
+        I: IntoIterator<Item = Chunk<K, N>>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        debug_assert!(M % N == 0);
+        let mut out_len = 0;
+        let mut out_data = Vec::with_capacity(M / N);
+        let mut iter = input.into_iter();
+        while let Some(chunk) = iter.next() {
+            let Chunk {
+                chunk_type,
+                data: in_data,
+            } = chunk;
+            match chunk_type {
+                ChunkType::Full => {
+                    out_len += N;
+                    out_data.push(in_data);
+                }
+                ChunkType::Partial(in_len) if iter.len() == 0 => {
+                    out_len += in_len;
+                    out_data.push(in_data);
+                }
+                ChunkType::Partial(_) => {
+                    panic!(
+                        "expected partial chunk to be the last chunk, but {} chunks remain",
+                        iter.len()
+                    );
+                }
+            }
+        }
+        let chunk_type = if out_len == M {
+            ChunkType::Full
+        } else {
+            ChunkType::Partial(out_len)
+        };
+        Chunk {
+            chunk_type,
+            data: out_data,
+        }
+    }
+}
+
+impl<K, const N: usize> Chunk<Vec<K>, N> {
     /// Unpack nested chunks
     ///
     /// This function can be used when converting between vectorization factors. Before calling this function,
     /// the protocol code needs to convert (e.g. using `Chunk::map` or `Chunk::then`) the chunk data into a
-    /// vector of N / M sub-chunks with data type `T`. This function will then convert the `Chunk<Vec<T>, N>`
-    /// into a vector with type `Vec<Chunk<T, M>>` containing up to N / M chunks. Note that the result may
+    /// vector of N / M sub-chunks with data type `K`. This function will then convert the `Chunk<Vec<K>, N>`
+    /// into a vector with type `Vec<Chunk<K, M>>` containing up to N / M chunks. Note that the result may
     /// be shorter than N / M chunks, if the input was a partial chunk.
     ///
     /// # Panics
     /// If the data stream is not valid for the specified chunk and sub-chunk configuration.
     #[must_use]
-    pub fn unpack<const M: usize>(self) -> Vec<Chunk<T, M>> {
+    pub fn unpack<const M: usize>(self) -> Vec<Chunk<K, M>> {
         let Self { chunk_type, data } = self;
         debug_assert!(N % M == 0);
         let (mut len, expected) = if let ChunkType::Partial(len) = chunk_type {
@@ -164,6 +216,26 @@ impl<T, const N: usize> Chunk<Vec<T>, N> {
                 }
             })
             .collect()
+    }
+}
+
+impl<'a, T: Clone + Default, const N: usize> TryFrom<&'a [T]> for Chunk<ChunkData<'a, T, N>, N> {
+    type Error = TryFromSliceError;
+
+    fn try_from(value: &'a [T]) -> Result<Self, Self::Error> {
+        match <&'a [T; N]>::try_from(value) {
+            Ok(full) => Ok(Chunk {
+                chunk_type: ChunkType::Full,
+                data: ChunkData::Borrowed(full),
+            }),
+            Err(_) if value.len() < N => Ok(Chunk {
+                chunk_type: ChunkType::Partial(value.len()),
+                data: ChunkData::Owned(Box::new(array::from_fn(|i| {
+                    value.get(i).cloned().unwrap_or_default()
+                }))),
+            }),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -477,13 +549,7 @@ where
 }
 
 #[must_use]
-#[allow(clippy::needless_pass_by_value)] // divisor argument is zero-size anyways
-pub fn div_round_up<const DIVISOR: usize>(dividend: usize, _divisor: Const<DIVISOR>) -> usize
-where
-    Const<DIVISOR>: ToUInt,
-    <Const<DIVISOR> as ToUInt>::Output: Unsigned + typenum::NonZero,
-{
-    let divisor = <Const<DIVISOR> as ToUInt>::Output::to_usize();
+pub fn div_round_up(dividend: usize, divisor: usize) -> usize {
     (dividend + divisor - 1) / divisor
 }
 
@@ -815,6 +881,39 @@ mod tests {
                 .collect::<Vec<_>>(),
             [3],
         );
+    }
+
+    #[test]
+    fn chunk_pack() {
+        assert_eq!(
+            Chunk::pack::<_, 4>(vec![
+                Chunk::<_, 2>::new(ChunkType::Full, [1, 2]),
+                Chunk::<_, 2>::new(ChunkType::Full, [3, 4]),
+            ]),
+            Chunk::<_, 4>::new(ChunkType::Full, vec![[1, 2], [3, 4]]),
+        );
+
+        assert_eq!(
+            Chunk::pack::<_, 4>(vec![
+                Chunk::<_, 2>::new(ChunkType::Full, [1, 2]),
+                Chunk::<_, 2>::new(ChunkType::Partial(1), [3, -1]),
+            ]),
+            Chunk::<_, 4>::new(ChunkType::Partial(3), vec![[1, 2], [3, -1]]),
+        );
+
+        assert_eq!(
+            Chunk::pack::<_, 4>(vec![Chunk::<_, 2>::new(ChunkType::Partial(1), [5, -1]),]),
+            Chunk::<_, 4>::new(ChunkType::Partial(1), vec![[5, -1]]),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "expected partial chunk to be the last chunk, but 1 chunks remain")]
+    fn chunk_pack_invalid() {
+        let _ = Chunk::pack::<_, 4>(vec![
+            Chunk::<_, 2>::new(ChunkType::Partial(1), [1, 2]),
+            Chunk::<_, 2>::new(ChunkType::Full, [3, 4]),
+        ]);
     }
 
     #[test]

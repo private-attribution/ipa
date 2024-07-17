@@ -2,7 +2,6 @@ use std::{convert::Infallible, mem, ops::Range};
 
 use bitvec::prelude::{BitVec, Lsb0};
 use futures::stream::{self, repeat, StreamExt, TryStreamExt};
-use typenum::Const;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
@@ -165,7 +164,7 @@ where
         // this explicitly for the input; for subsequent passes, we shouldn't be generating trivial
         // ranges.
         let total_records =
-            TotalRecords::specified(div_round_up(num_comparisons_needed, Const::<SORT_CHUNK>))
+            TotalRecords::specified(div_round_up(num_comparisons_needed, SORT_CHUNK))
                 .expect("num_comparisons_needed should not be zero");
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
