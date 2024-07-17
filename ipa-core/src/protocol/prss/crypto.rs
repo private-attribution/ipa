@@ -11,7 +11,7 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::{
     ff::Field,
-    protocol::prss::PrssIndex,
+    protocol::prss::{PrssIndex, PrssIndex128},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -259,21 +259,30 @@ impl GeneratorFactory {
         self.kdf.expand(context, &mut k).unwrap();
         Generator {
             cipher: Aes256::new(&k),
+            #[cfg(debug_assertions)]
+            used: UsedSet::new(context.to_vec()),
         }
     }
 }
 
 /// The basic generator.  This generates values based on an arbitrary index.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Generator {
     cipher: Aes256,
+    #[cfg(debug_assertions)]
+    used: UsedSet,
 }
 
 impl Generator {
     /// Generate the value at the given index.
     /// This uses the MMO^{\pi} function described in <https://eprint.iacr.org/2019/074>.
     #[must_use]
-    pub fn generate(&self, index: u128) -> u128 {
+    pub(super) fn generate<I: Into<PrssIndex128>>(&self, index: I) -> u128 {
+        let index = index.into();
+        #[cfg(debug_assertions)]
+        self.used.use_index(index).unwrap();
+        let index = u128::from(index);
+
         let mut buf = index.to_le_bytes();
         self.cipher
             .encrypt_block(aes::cipher::generic_array::GenericArray::from_mut_slice(
@@ -281,5 +290,63 @@ impl Generator {
             ));
 
         u128::from_le_bytes(buf) ^ index
+    }
+}
+
+/// Keeps track of all indices used to generate shared randomness inside [`Generator`].
+/// Any two indices provided to [`Generator::generate`] must be unique. This essentially
+/// enforces there is always unique IV used per generator.
+#[cfg(debug_assertions)]
+#[derive(Default, Debug)]
+struct UsedSet {
+    key: String,
+    used: crate::sync::Mutex<std::collections::HashSet<PrssIndex128>>,
+}
+
+#[cfg(debug_assertions)]
+impl UsedSet {
+    pub fn new(key: Vec<u8>) -> Self {
+        use std::collections::HashSet;
+
+        use crate::sync::Mutex;
+
+        Self {
+            key: String::from_utf8(key).unwrap_or_else(|e| {
+                panic!("PRSS key is not a valid UTF8 string: {}", e.utf8_error())
+            }),
+            used: Mutex::new(HashSet::default()),
+        }
+    }
+
+    pub fn use_index(&self, index: PrssIndex128) -> Result<(), String> {
+        if self.used.lock().unwrap().insert(index) {
+            Ok(())
+        } else {
+            Err(format!(
+                "Generated randomness for index '{index}' twice using the same key '{}'",
+                self.key
+            ))
+        }
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use rand::thread_rng;
+
+    use crate::protocol::prss::KeyExchange;
+
+    #[test]
+    #[should_panic(
+        expected = "Generated randomness for index '0:0' twice using the same key 'foo'"
+    )]
+    fn rejects_the_same_index() {
+        let other_gen = KeyExchange::new(&mut thread_rng());
+        let gen = KeyExchange::new(&mut thread_rng())
+            .key_exchange(&other_gen.public_key())
+            .generator("foo".as_bytes());
+
+        let _ = gen.generate(0);
+        let _ = gen.generate(0);
     }
 }
