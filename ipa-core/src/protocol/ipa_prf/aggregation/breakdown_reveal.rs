@@ -1,6 +1,9 @@
 use std::{marker::PhantomData, mem};
 
-use futures::{future, stream, stream::iter as stream_iter};
+use futures::{
+    future,
+    stream::{self, iter as stream_iter},
+};
 use futures_util::{StreamExt, TryStreamExt};
 use tracing::{info_span, Instrument};
 
@@ -35,20 +38,19 @@ use crate::{
 
 /// Improved Aggregation a.k.a Aggregation revealing breakdown.
 ///
-/// Aggregation steps happen after attribution. The input to aggregation is a
-/// stream of tuples of (attributed breakdown key, attributed trigger value).
-/// The output of aggregation is a Histogram. Breakdown Keys and Trigger Values
-/// are assigned by the advertiser and sent in the input of IPA. Breakdown Keys
-///  values are expected to be dense. How breakdown keys and trigger values are
-///  defined is out-of-scope.
+/// Aggregation steps happen after attribution. the input for Aggregation is a
+/// list of tuples containing Trigger Values (TV) and their corresponding
+/// Breakdown Keys (BK), which were attributed in the previous step of IPA. The
+/// output of Aggregation is a histogram, where each “bin” or "bucket" is a BK
+/// and the value is the addition of all the TVs for it, hence the name
+/// Aggregation. This can be thought as a SQL GROUP BY operation.
 ///
-/// High level explanation of the protocol:
-///
-/// 1. Add fake attribution outputs.
-/// 2. Shuffle.
-/// 3. Reveal Breakdown Keys. By having shuffled and adding fake entries we
-/// protected the identities of individuals. Trigger values are not revealed.
-/// 4. Aggregation of Trigger Value by Breakdown Key (Think of group by).
+/// The protocol involves four main steps:
+/// 1. Add fake attribution outputs (DP noise). Not implemented.
+/// 2. Shuffle the data to protect privacy (see [`shuffle_attributions`]).
+/// 3. Reveal breakdown keys. This is the key difference to the previous
+/// Aggregation (see [`reveal_breakdowns`]).
+/// 4. Aggregate TVs by BKs (see [`add_tvs_by_bk`]).
 pub async fn breakdown_reveal_aggregation<BK, TV, HV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
     atributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
@@ -66,7 +68,7 @@ where
 /// Shuffles attribution Breakdown key and Trigger Value secret shares. Input
 /// and output are the same type.
 ///
-/// TODO: Use a more constrained BA type to contain BK and TV
+/// TODO: Use a smaller BA type to contain BK and TV
 /// TODO: Sharded shuffle
 async fn shuffle_attributions<BK, TV, const B: usize>(
     parent_ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
@@ -89,8 +91,12 @@ where
 /// Values for that particular Breakdown.
 ///
 /// TODO: Vectorize
-/// TODO: Trace number of TVs
-#[tracing::instrument(name = "reveal_breakdowns", skip_all)]
+/// ```rust, ignore
+/// [Replicated<Boolean>;2].transpose() -> Replicated<Boolean, N=2>
+/// ```
+#[tracing::instrument(name = "reveal_breakdowns", skip_all, fields(
+    total = attributions.len(),
+))]
 async fn reveal_breakdowns<HV, BK, TV, const B: usize>(
     parent_ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
     attributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
@@ -123,19 +129,23 @@ where
         .try_collect()
         .await?;
     for (bk, tv) in tvs {
-        // Transpose 2
-        // [Replicated<Boolean>;2].transpose() -> Replicated<Boolean, N=2>
         grouped_tvs.push(bk, tv.to_bits());
     }
     Ok(grouped_tvs)
 }
 
+/// Shorthand for TVs
 type Operand = BitDecomposed<Replicated<Boolean>>;
 
 /// Helper type that hold all the Trigger Values, grouped by their Breakdown
-/// Key. Since the addition of 2 TVs returns a newly alloc TV and the number of
-/// BKs is small, there's not a lot of gain by doing operations in place in
-/// this structure.
+/// Key. They can either be in the singles array or as pairs.
+///
+/// The most important functionality of this struct is
+/// [`GroupedTriggerValues::push`].
+///
+/// Since the addition of 2 TVs returns a newly alloc TV and the number of
+/// BKs is small, there's not a lot of gain by doing operations in place with
+/// references in this structure.
 struct GroupedTriggerValues<HV, const B: usize> {
     singles: [Option<Operand>; B],
     pairs: Vec<Pair>,
@@ -157,6 +167,13 @@ where
         }
     }
 
+    /// The method first  validates that the incoming Operand is the correct
+    /// size. If not, this indicates a programming error, hence this is an
+    /// assertion (the assertion should never happen unless there's a bug).
+    ///
+    /// Push checks the `singles[bk]` entry, if there's `None` then we add
+    /// `Some(tv)`. Otherwise if there was a value already, we take it (leaving
+    /// `None` in its place) and add a new `Pair`.
     fn push(&mut self, bk: usize, value: Operand) {
         assert_eq!(self.size, value.len());
         let op = self.singles[bk].take();
@@ -172,6 +189,14 @@ where
         }
     }
 
+    /// Returns whether the Operands size is bellow the size of the Histogram
+    /// Value. This is useful to know where we want to do normal additions
+    /// (with a carry) or saturated additions once we have reached the size of
+    /// HV.
+    ///
+    /// Besides that, if the size is bellow, it will grow all the contained
+    /// singles by one Zero and increase the size by one. Size makes sure that
+    /// only Operands with the correct size are pushed in.
     fn expand(&mut self) -> bool {
         let hv_size: usize = HV::BITS.try_into().unwrap();
         if self.size >= hv_size {
@@ -187,6 +212,8 @@ where
     }
 }
 
+/// Contains the 2 operands for the sum and the BK under which those 2 values
+/// are situated.
 struct Pair {
     left: Operand,
     right: Operand,
@@ -195,7 +222,7 @@ struct Pair {
 
 /// We're adding two operands at a time which causes the "reduce" operation to
 /// consume log(N) steps, with N being the number of events. The worst case is
-/// all N entries in one BK.
+/// BK * log (N / BK) but since BK is a small constant we just use lon(N).
 pub const MAX_DEPTH: usize = 64;
 
 /// Uses `reveal_breakdown` results as input which is all the Trigger Values
@@ -223,6 +250,24 @@ pub const MAX_DEPTH: usize = 64;
 /// |   3 | \[2, 8, 7, 3, 0\] |
 /// | ... |                 |
 /// | 255 | \[4, 0\]          |
+///
+/// The following pseudocode illustrates what this function does:
+///
+/// ```rust,ignore
+/// add_tvs_by_bks(gtv: GroupedTriggerValues) {
+///     loop {
+/// 	    pairs = take(gtv.pairs) // pairs are moved out, leaving gtv.pairs empty
+/// 	    if pairs.empty() {
+/// 	    	// we're done
+/// 	    	return gtv.singles
+///     	}
+///     	for p in pairs {
+///     		sum = add(p.left, p.right)
+///     		gtv.push(p.bk, sum)
+///     	}
+///     }
+/// }
+/// ```
 ///
 /// Sharded version: Each shard simply operates on the Attribution Outputs it
 /// has and then there's a final aggregation across done by the leader. This
@@ -311,9 +356,11 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
+    use rand::{seq::SliceRandom, Rng};
+
     use crate::{
         ff::{
-            boolean_array::{BA16, BA3, BA5},
+            boolean_array::{BA3, BA5, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::{
@@ -324,7 +371,8 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    fn input_row(bk: u128, tv: u128) -> AttributionOutputsTestInput<BA5, BA3> {
+    fn input_row(bk: usize, tv: u128) -> AttributionOutputsTestInput<BA5, BA3> {
+        let bk: u128 = bk.try_into().unwrap();
         AttributionOutputsTestInput {
             bk: BA5::truncate_from(bk),
             tv: BA3::truncate_from(tv),
@@ -335,20 +383,25 @@ pub mod tests {
     fn semi_honest_happy_path() {
         run(|| async {
             let world = TestWorld::default();
-            let inputs = vec![
-                input_row(10, 2),
-                input_row(10, 1),
-                input_row(11, 4),
-                input_row(3, 5),
-                input_row(3, 2),
-                input_row(1, 3),
-                input_row(22, 5),
-                input_row(3, 1),
-                input_row(4, 3),
-                input_row(10, 2),
-            ];
+            let mut rng = rand::thread_rng();
+            let mut expectation = Vec::new();
+            for _ in 0..32 {
+                expectation.push(rng.gen_range(0u128..256));
+            }
+            let expectation = expectation; // no more mutability for safety
+            let mut inputs = Vec::new();
+            for (bk, expected_hv) in expectation.iter().enumerate() {
+                let mut remainder = *expected_hv;
+                while remainder > 7 {
+                    let tv = rng.gen_range(0u128..8);
+                    remainder -= tv;
+                    inputs.push(input_row(bk, tv));
+                }
+                inputs.push(input_row(bk, remainder));
+            }
+            inputs.shuffle(&mut rng);
             let result: Vec<_> = world
-                .upgraded_semi_honest(inputs.clone().into_iter(), |ctx, input_rows| async move {
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
                     let aos = input_rows
                         .into_iter()
                         .map(|ti| SecretSharedAttributionOutputs {
@@ -356,7 +409,7 @@ pub mod tests {
                             capped_attributed_trigger_value: ti.1,
                         })
                         .collect();
-                    breakdown_reveal_aggregation::<BA5, BA3, BA16, 32>(ctx, aos)
+                    breakdown_reveal_aggregation::<BA5, BA3, BA8, 32>(ctx, aos)
                         .await
                         .unwrap()
                 })
@@ -364,13 +417,7 @@ pub mod tests {
                 .reconstruct();
             let result = result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>();
             assert_eq!(32, result.len());
-            assert_eq!(result[0], 0);
-            assert_eq!(result[1], 3);
-            assert_eq!(result[3], 8);
-            assert_eq!(result[4], 3);
-            assert_eq!(result[10], 5);
-            assert_eq!(result[11], 4);
-            assert_eq!(result[22], 5);
+            assert_eq!(result, expectation);
         });
     }
 }

@@ -1,28 +1,26 @@
 use std::{
-    convert::Infallible,
     iter::{self, repeat},
     pin::Pin,
 };
 
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
 
 use crate::{
-    error::{Error, LengthError, UnwrapInfallible},
+    error::{Error, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{
-        stream::{process_stream_by_chunks, ChunkBuffer, FixedLength, TryFlattenItersExt},
+        stream::{ChunkBuffer, FixedLength},
         TotalRecords,
     },
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
+        basics::BooleanProtocols,
         boolean::{step::SixteenBitStep, NBitStep},
         context::Context,
         ipa_prf::{
             aggregation::step::{AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
-            prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
-            BreakdownKey,
+            prf_sharding::AttributionOutputs,
         },
         RecordId,
     },
@@ -33,7 +31,6 @@ use crate::{
 };
 
 pub(crate) mod breakdown_reveal;
-mod bucket;
 pub(crate) mod step;
 
 type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
@@ -93,118 +90,6 @@ where
             capped_attributed_trigger_value: tv,
         })
     }
-}
-
-// Aggregation
-//
-// The input to aggregation is a stream of tuples of (attributed breakdown key, attributed trigger
-// value) for each record.
-//
-// The first stage of aggregation decodes the breakdown key to produce a vector of trigger value
-// to be added to each output bucket. At most one element of this vector can be non-zero,
-// corresponding to the breakdown key value. This stage is implemented by the
-// `move_single_value_to_bucket` function.
-//
-// The second stage of aggregation sums these vectors across all records, to produce the final
-// output histogram.
-//
-// The first stage of aggregation is vectorized over records, meaning that a chunk of N
-// records is collected, and the `move_single_value_to_bucket` function is called to
-// decode the breakdown keys for all of those records simultaneously.
-//
-// The second stage of aggregation is vectorized over histogram buckets, meaning that
-// the values in all `B` output buckets are added simultaneously.
-//
-// An intermediate transpose occurs between the two stages of aggregation, to convert from the
-// record-vectorized representation to the bucket-vectorized representation.
-//
-// The input to this transpose is `&[BitDecomposed<AdditiveShare<Boolean, {agg chunk}>>]`, indexed
-// by buckets, bits of trigger value, and contribution rows.
-//
-// The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
-// contribution rows, bits of trigger value, and buckets.
-#[tracing::instrument(name = "aggregate", skip_all, fields(streams = contributions_stream_len))]
-pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N: usize>(
-    ctx: C,
-    contributions_stream: St,
-    contributions_stream_len: usize,
-) -> Result<Vec<Replicated<HV>>, Error>
-where
-    C: Context,
-    St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
-    BK: BreakdownKey<B>,
-    TV: BooleanArray + U128Conversions,
-    HV: BooleanArray + U128Conversions,
-    Boolean: FieldSimd<N> + FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<C, B>,
-    Replicated<Boolean, N>: SecureMul<C>,
-    Replicated<BK>: BooleanArrayMul<C>,
-    Replicated<TV>: BooleanArrayMul<C>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-    Vec<BitDecomposed<Replicated<Boolean, B>>>:
-        for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
-    Vec<Replicated<HV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
-{
-    // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
-    // parallel (thus cannot reach a batch of records).
-    let bucket_ctx = ctx
-        .narrow(&Step::MoveToBucket)
-        .set_total_records(TotalRecords::Indeterminate);
-    // move each value to the correct bucket
-    let row_contribution_chunk_stream = process_stream_by_chunks(
-        contributions_stream,
-        AttributionOutputs {
-            attributed_breakdown_key_bits: vec![],
-            capped_attributed_trigger_value: vec![],
-        },
-        move |idx, chunk: AttributionOutputsChunk<N>| {
-            let record_id = RecordId::from(idx);
-            let ctx = bucket_ctx.clone();
-            async move {
-                bucket::move_single_value_to_bucket::<_, N>(
-                    ctx,
-                    record_id,
-                    chunk.attributed_breakdown_key_bits,
-                    chunk.capped_attributed_trigger_value,
-                    B,
-                    false,
-                )
-                .instrument(tracing::debug_span!("move_to_bucket", chunk = idx))
-                .await
-            }
-        },
-        || AttributionOutputs {
-            attributed_breakdown_key_bits: Replicated::ZERO,
-            capped_attributed_trigger_value: Replicated::ZERO,
-        },
-    );
-
-    let aggregation_input = Box::pin(
-        row_contribution_chunk_stream
-            // Rather than transpose out of record-vectorized form and then transpose again back
-            // into bucket-vectorized form, we use a special transpose (the "aggregation
-            // intermediate transpose") that combines the two steps.
-            //
-            // Since the bucket-vectorized representation is separable by records, we do the
-            // transpose within the `Chunk` wrapper using `Chunk::map`, and then invoke
-            // `Chunk::into_iter` via `try_flatten_iters` to produce an unchunked stream of
-            // records, vectorized by buckets.
-            .then(|fut| {
-                fut.map(|res| {
-                    res.map(|chunk| {
-                        chunk.map(|data| Vec::transposed_from(data.as_slice()).unwrap_infallible())
-                    })
-                })
-            })
-            .try_flatten_iters(),
-    );
-    let aggregated_result =
-        aggregate_values::<_, HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
-    Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
 /// A vector of histogram contributions for each output bucket.

@@ -299,13 +299,9 @@ where
     TV: BooleanArray + crate::secret_sharing::IntoShares<Replicated<TV>>,
 {
     fn share_with<R: rand::Rng>(self, rng: &mut R) -> [(Replicated<BK>, Replicated<TV>); 3] {
-        let bk_sh = self.bk.share_with(rng);
-        let tv_sh = self.tv.share_with(rng);
-        [
-            (bk_sh[0].clone(), tv_sh[0].clone()),
-            (bk_sh[1].clone(), tv_sh[1].clone()),
-            (bk_sh[2].clone(), tv_sh[2].clone()),
-        ]
+        let [bk_0, bk_1, bk_2] = self.bk.share_with(rng);
+        let [tv_0, tv_1, tv_2] = self.tv.share_with(rng);
+        [(bk_0, tv_0), (bk_1, tv_1), (bk_2, tv_2)]
     }
 }
 
