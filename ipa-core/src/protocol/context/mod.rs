@@ -17,6 +17,7 @@ use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 
 use async_trait::async_trait;
 pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
+pub use dzkp_semi_honest::DZKPUpgraded as DZKPUpgradedSemiHonestContext;
 use futures::{stream, Stream, StreamExt};
 use ipa_step::{Step, StepNarrow};
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};

@@ -256,7 +256,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
         let accumulator = MaliciousAccumulator::<F> {
             inner: Arc::downgrade(&u_and_w),
         };
-        let validate_ctx = ctx.narrow(&Step::Validate).base_context();
+        let validate_ctx = ctx.narrow(&Step::Validate).validator_context();
         let protocol_ctx = ctx.upgrade(&Step::MaliciousProtocol, accumulator, r_share.clone());
         Self {
             r_share,

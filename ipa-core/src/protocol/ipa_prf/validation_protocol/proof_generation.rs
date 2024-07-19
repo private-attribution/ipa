@@ -118,9 +118,18 @@ impl ProofBatch {
         let denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, SRF>::new();
         let lagrange_table = LagrangeTable::<Fp61BitPrime, SRF, SLL>::from(denominator);
 
+        // The last recursion can only include (λ - 1) u/v value pairs, because it needs to put the
+        // masks in the constant term. If we compress to `uv_values.len() == SRF`, then we need to
+        // do two more iterations: compressing SRF u/v values to 1 pair of (unmasked) u/v values,
+        // and then compressing that pair and the masks to the final u/v value.
+        //
+        // There is a test for this corner case in validation.rs.
+        let mut did_set_masks = false;
+
         // recursively generate proofs via SmallProofGenerator
-        while uv_values.len() > 1 {
+        while !did_set_masks {
             if uv_values.len() < SRF {
+                did_set_masks = true;
                 uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
             }
             let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =

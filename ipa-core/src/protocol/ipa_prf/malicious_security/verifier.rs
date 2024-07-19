@@ -96,8 +96,6 @@ pub fn compute_final_sum_share<F: PrimeField, const L: usize, const P: usize>(zk
 }
 
 /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
-///
-/// The function uses streams since stream offers a chunk method.
 fn recurse_u_or_v<'a, F: PrimeField, J, const L: usize>(
     u_or_v: J,
     lagrange_table: &'a LagrangeTable<F, L, 1>,
@@ -142,12 +140,13 @@ where
         iterator = Box::new(recurse_u_or_v::<_, _, L>(iterator, lagrange_table));
     }
     let last_u_or_v_values = iterator.collect::<Vec<F>>();
-    // make sure there at at most L last u or v values
-    // In the protocol, the prover is expected to continue recursively compressing the
-    // u and v vectors until it has length strictly less than L.
+    // Make sure there are less than L last u or v values. The prover is expected to continue
+    // recursively compressing the u and v vectors until they have length strictly less than L.
+    // The extra spot is needed for the p_0 / q_0 masks.
     assert!(
         last_u_or_v_values.len() < L,
-        "Too many u or v values in last recursion"
+        "Too many u or v values in last recursion. Got {}, max is L = {L}",
+        last_u_or_v_values.len(),
     );
 
     let mut last_array = [F::ZERO; L];
