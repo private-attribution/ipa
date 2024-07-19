@@ -438,6 +438,8 @@ impl MultiplicationInputsBatch {
 }
 
 /// `Batch` collects a batch of `MultiplicationInputsBatch` in an ordered map.
+/// Binary tree map gives the consistent ordering of multiplications per batch across
+/// all helpers, so it is important to preserve.
 /// The size of the batch is limited due to the memory costs and verifier specific constraints.
 ///
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
@@ -451,7 +453,7 @@ impl Batch {
     fn new(max_multiplications_per_gate: usize) -> Self {
         Self {
             max_multiplications_per_gate,
-            inner: BTreeMap::<Gate, MultiplicationInputsBatch>::new(),
+            inner: BTreeMap::<Gate, MultiplicationInputsBatch>::default(),
         }
     }
 
