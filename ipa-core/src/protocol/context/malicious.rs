@@ -91,8 +91,13 @@ impl<'a> Context<'a> {
         DZKPUpgraded::new(&self.inner, malicious_step, batch)
     }
 
-    pub(crate) fn base_context(self) -> Base<'a> {
-        self.inner
+    pub(crate) fn validator_context(self) -> Base<'a> {
+        // The DZKP validator uses communcation channels internally. We don't want any TotalRecords
+        // set by the protocol to apply to those channels.
+        Base {
+            total_records: TotalRecords::Unspecified,
+            ..self.inner
+        }
     }
 }
 

@@ -11,7 +11,8 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::{
     ff::Field,
-    protocol::prss::PrssIndex,
+    helpers::Direction,
+    protocol::prss::{PrssIndex, PrssIndex128},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -139,15 +140,25 @@ impl<T: FromRandom + SharedValue> FromPrss<usize> for AdditiveShare<T> {
 }
 
 pub trait SharedRandomness {
-    type ChunksIter<'a, Z: ArrayLength>: Iterator<
-        Item = (GenericArray<u128, Z>, GenericArray<u128, Z>),
-    >
+    type ChunkIter<'a, Z: ArrayLength>: Iterator<Item = GenericArray<u128, Z>>
     where
         Self: 'a;
 
     /// Return an iterator over chunks of generated randomness.
     ///
-    /// The iterator returns 2-tuples of `GenericArray<u128, Z>` chunks, one that is known to the
+    /// The iterator returns `GenericArray<u128, Z>` chunks known to the helper
+    /// specified in `direction` parameter.
+    ///
+    /// This functionality is intended for use generating large vectorized values.
+    #[must_use]
+    fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> Self::ChunkIter<'_, Z>;
+
+    /// Same as [`Self::generate_chunks_one_side`], but returns 2-tuples
+    /// of `GenericArray<u128, Z>` chunks, one that is known to the
     /// left helper and one that is known to the right helper.
     ///
     /// This functionality is intended for use generating large vectorized values.
@@ -155,7 +166,7 @@ pub trait SharedRandomness {
     fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,
         index: I,
-    ) -> Self::ChunksIter<'_, Z>;
+    ) -> impl Iterator<Item = (GenericArray<u128, Z>, GenericArray<u128, Z>)>;
 
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
@@ -191,6 +202,27 @@ pub trait SharedRandomness {
     #[must_use]
     fn generate<T: FromPrss, I: Into<PrssIndex>>(&self, index: I) -> T {
         T::from_prss(self, index)
+    }
+
+    /// Generate some value that can be sampled from PRSS shared with the helper
+    /// specified via `direction` argument. This may be convenient and more efficient,
+    /// in cases when only value shared with one helper is required.
+    ///
+    /// Functionally, it is equivalent to calling [`Self::generate`] and dropping either
+    /// left or the right variable. Performance-wise, this method should be preferred
+    /// to use because it will do 50% of the work compared to regular [`Self::generate`].
+    #[must_use]
+    fn generate_one_side<T: FromRandom, I: Into<PrssIndex>>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> T {
+        let index = index.into();
+        T::from_random(
+            self.generate_chunks_one_side(index, direction)
+                .next()
+                .unwrap_or_else(|| panic!("Can't generate randomness for index {index:?}")),
+        )
     }
 
     /// Generate something that implements the `FromPrss` trait, passing parameters.
@@ -259,21 +291,30 @@ impl GeneratorFactory {
         self.kdf.expand(context, &mut k).unwrap();
         Generator {
             cipher: Aes256::new(&k),
+            #[cfg(debug_assertions)]
+            used: UsedSet::new(context.to_vec()),
         }
     }
 }
 
 /// The basic generator.  This generates values based on an arbitrary index.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Generator {
     cipher: Aes256,
+    #[cfg(debug_assertions)]
+    used: UsedSet,
 }
 
 impl Generator {
     /// Generate the value at the given index.
     /// This uses the MMO^{\pi} function described in <https://eprint.iacr.org/2019/074>.
     #[must_use]
-    pub fn generate(&self, index: u128) -> u128 {
+    pub(super) fn generate<I: Into<PrssIndex128>>(&self, index: I) -> u128 {
+        let index = index.into();
+        #[cfg(debug_assertions)]
+        self.used.use_index(index).unwrap();
+        let index = u128::from(index);
+
         let mut buf = index.to_le_bytes();
         self.cipher
             .encrypt_block(aes::cipher::generic_array::GenericArray::from_mut_slice(
@@ -281,5 +322,63 @@ impl Generator {
             ));
 
         u128::from_le_bytes(buf) ^ index
+    }
+}
+
+/// Keeps track of all indices used to generate shared randomness inside [`Generator`].
+/// Any two indices provided to [`Generator::generate`] must be unique. This essentially
+/// enforces there is always unique IV used per generator.
+#[cfg(debug_assertions)]
+#[derive(Default, Debug)]
+struct UsedSet {
+    key: String,
+    used: crate::sync::Mutex<std::collections::HashSet<PrssIndex128>>,
+}
+
+#[cfg(debug_assertions)]
+impl UsedSet {
+    pub fn new(key: Vec<u8>) -> Self {
+        use std::collections::HashSet;
+
+        use crate::sync::Mutex;
+
+        Self {
+            key: String::from_utf8(key).unwrap_or_else(|e| {
+                panic!("PRSS key is not a valid UTF8 string: {}", e.utf8_error())
+            }),
+            used: Mutex::new(HashSet::default()),
+        }
+    }
+
+    pub fn use_index(&self, index: PrssIndex128) -> Result<(), String> {
+        if self.used.lock().unwrap().insert(index) {
+            Ok(())
+        } else {
+            Err(format!(
+                "Generated randomness for index '{index}' twice using the same key '{}'",
+                self.key
+            ))
+        }
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use rand::thread_rng;
+
+    use crate::protocol::prss::KeyExchange;
+
+    #[test]
+    #[should_panic(
+        expected = "Generated randomness for index '0:0' twice using the same key 'foo'"
+    )]
+    fn rejects_the_same_index() {
+        let other_gen = KeyExchange::new(&mut thread_rng());
+        let gen = KeyExchange::new(&mut thread_rng())
+            .key_exchange(&other_gen.public_key())
+            .generator("foo".as_bytes());
+
+        let _ = gen.generate(0);
+        let _ = gen.generate(0);
     }
 }

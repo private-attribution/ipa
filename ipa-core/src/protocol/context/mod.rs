@@ -17,6 +17,7 @@ use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 
 use async_trait::async_trait;
 pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
+pub use dzkp_semi_honest::DZKPUpgraded as DZKPUpgradedSemiHonestContext;
 use futures::{stream, Stream, StreamExt};
 use ipa_step::{Step, StepNarrow};
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
@@ -552,7 +553,7 @@ mod tests {
 
     use crate::{
         ff::{
-            boolean_array::{BA3, BA8},
+            boolean_array::{BA3, BA64, BA8},
             Field, Fp31, Serializable, U128Conversions,
         },
         helpers::{Direction, Role},
@@ -864,6 +865,29 @@ mod tests {
                 .collect::<Vec<_>>();
 
             assert_eq!(input, r);
+        });
+    }
+
+    #[test]
+    fn prss_one_side() {
+        run(|| async {
+            let input = ();
+            let world = TestWorld::default();
+
+            world
+                .semi_honest(input, |ctx, ()| async move {
+                    let left_value: BA64 = ctx
+                        .prss()
+                        .generate_one_side(RecordId::FIRST, Direction::Left);
+                    let right_value = ctx
+                        .prss()
+                        .generate_one_side(RecordId::FIRST, Direction::Right);
+
+                    Replicated::new(left_value, right_value)
+                })
+                .await
+                // reconstruct validates that sharings are valid
+                .reconstruct();
         });
     }
 }

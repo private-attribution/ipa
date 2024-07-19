@@ -21,7 +21,8 @@ use crate::{
     ff::{boolean::Boolean, ec_prime_field::Fp25519, PrimeField},
     protocol::{
         context::{
-            dzkp_semi_honest::DZKPUpgraded, Context, SemiHonestContext, UpgradedSemiHonestContext,
+            Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
+            SemiHonestContext, UpgradedSemiHonestContext,
         },
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
         prss::FromPrss,
@@ -95,9 +96,14 @@ impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Bool
 {
 }
 
-// This implementation also implements `BooleanProtocols` for `CONV_CHUNK`
+// These implementations also implement `BooleanProtocols` for `CONV_CHUNK`
 // since `CONV_CHUNK = AGG_CHUNK`
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgraded<'a, B>, AGG_CHUNK>
+impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, AGG_CHUNK>
+    for AdditiveShare<Boolean, AGG_CHUNK>
+{
+}
+
+impl<'a> BooleanProtocols<DZKPUpgradedMaliciousContext<'a>, AGG_CHUNK>
     for AdditiveShare<Boolean, AGG_CHUNK>
 {
 }
