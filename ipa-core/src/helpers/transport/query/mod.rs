@@ -246,13 +246,13 @@ impl AsRef<str> for QueryType {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum DpParams {
+pub enum DpMechanism {
     NoDp,
-    WithDp { epsilon: f64 },
+    Binomial { epsilon: f64 },
 }
 
 #[cfg(test)]
-impl Eq for DpParams {}
+impl Eq for DpMechanism {}
 
 #[cfg(test)]
 impl Eq for IpaQueryConfig {}

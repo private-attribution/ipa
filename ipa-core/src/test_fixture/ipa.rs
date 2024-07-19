@@ -6,7 +6,7 @@ use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 #[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{PrimeField, Serializable},
-    helpers::query::{DpParams, IpaQueryConfig},
+    helpers::query::{DpMechanism, IpaQueryConfig},
     protocol::{dp::NoiseParams, ipa_prf::OPRFIPAInputRow},
     secret_sharing::{
         replicated::{
@@ -201,9 +201,9 @@ pub async fn test_oprf_ipa<F>(
     };
 
     let aws = config.attribution_window_seconds;
-    let dp_params: DpParams = match config.with_dp {
-        0 => DpParams::NoDp,
-        _ => DpParams::WithDp {
+    let dp_params: DpMechanism = match config.with_dp {
+        0 => DpMechanism::NoDp,
+        _ => DpMechanism::Binomial {
             epsilon: config.epsilon,
         },
     };
@@ -261,10 +261,10 @@ pub async fn test_oprf_ipa<F>(
     let _ = result.split_off(expected_results.len());
 
     match dp_params {
-        DpParams::NoDp => {
+        DpMechanism::NoDp => {
             assert_eq!(result, expected_results);
         }
-        DpParams::WithDp { epsilon } => {
+        DpMechanism::Binomial { epsilon } => {
             let per_user_credit_cap_f64 = f64::from(config.per_user_credit_cap);
             let noise_params = NoiseParams {
                 epsilon,
@@ -274,10 +274,7 @@ pub async fn test_oprf_ipa<F>(
                 ell_infty_sensitivity: per_user_credit_cap_f64,
                 ..Default::default()
             };
-
-            let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(&noise_params);
-            let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
-            let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+            let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
 
             assert_eq!(result.len(), expected_results.len());
             // would like to use the simpler version below but clippy and compiler disagree on
@@ -292,9 +289,9 @@ pub async fn test_oprf_ipa<F>(
             for (index, sample) in result.iter().enumerate() {
                 assert!(
                     f64::from(*sample) - mean
-                        > f64::from(expected_results[index]) - 5.0 * standard_deviation
+                        > f64::from(expected_results[index]) - 5.0 * std
                         && f64::from(*sample) - mean
-                        < f64::from(expected_results[index]) + 5.0 * standard_deviation
+                        < f64::from(expected_results[index]) + 5.0 * std
                     , "DP result was more than 5 standard deviations of the noise from the expected result"
                 );
             }

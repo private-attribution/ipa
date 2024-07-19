@@ -7,7 +7,7 @@ use futures_util::{stream, StreamExt};
 use crate::{
     error::{Error, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::{query::DpParams, TotalRecords},
+    helpers::{query::DpMechanism, TotalRecords},
     protocol::{
         boolean::step::SixteenBitStep,
         context::Context,
@@ -213,7 +213,7 @@ where
 pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
     ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
-    dp_params: DpParams,
+    dp_params: DpMechanism,
 ) -> Result<Vec<Replicated<OV>>, Error>
 where
     C: Context,
@@ -225,8 +225,8 @@ where
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     match dp_params {
-        DpParams::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
-        DpParams::WithDp { epsilon } => {
+        DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
+        DpMechanism::Binomial { epsilon } => {
             assert!(
                 epsilon > 0.0 && epsilon <= MAX_EPSILON,
                 "Epsilon must be between 0 and {MAX_EPSILON}"
@@ -264,12 +264,10 @@ where
 //     N = num_bernoulli
 //     d = dimensions
 /// equation (17)
-#[allow(dead_code)]
 fn b_p(success_prob: f64) -> f64 {
     (2.0 / 3.0) * (success_prob.powi(2) + (1.0 - success_prob).powi(2)) + 1.0 - 2.0 * success_prob
 }
 /// equation (12)
-#[allow(dead_code)]
 fn c_p(success_prob: f64) -> f64 {
     2.0_f64.sqrt()
         * (3.0 * success_prob.powi(3)
@@ -278,13 +276,10 @@ fn c_p(success_prob: f64) -> f64 {
             + 2.0 * (1.0 - success_prob).powi(2))
 }
 /// equation (16)
-#[allow(dead_code)]
 fn d_p(success_prob: f64) -> f64 {
     (4.0 / 3.0) * (success_prob.powi(2) + (1.0 - success_prob).powi(2))
 }
 /// equation (7)
-#[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
 fn epsilon_constraint(num_bernoulli: u32, noise_params: &NoiseParams) -> f64 {
     let num_bernoulli_f64 = f64::from(num_bernoulli);
     let first_term_num =
@@ -316,7 +311,6 @@ fn epsilon_constraint(num_bernoulli: u32, noise_params: &NoiseParams) -> f64 {
         + third_term_num / third_term_den
 }
 /// constraint from delta in Thm 1
-#[allow(dead_code)]
 fn delta_constraint(num_bernoulli: u32, noise_params: &NoiseParams) -> bool {
     let lhs =
         f64::from(num_bernoulli) * noise_params.success_prob * (1.0 - noise_params.success_prob);
@@ -336,8 +330,6 @@ fn error(num_bernoulli: u32, noise_params: &NoiseParams) -> f64 {
 /// for fixed p (and other params), find smallest `num_bernoulli` such that `epsilon < desired_epsilon`
 /// # Panics
 /// will panic if can't find smallest `num_bernoulli` less than 10M.
-#[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
 #[must_use]
 pub fn find_smallest_num_bernoulli(noise_params: &NoiseParams) -> u32 {
     let mut index = 0; // candidate to be smallest `num_beroulli`
@@ -360,6 +352,17 @@ pub fn find_smallest_num_bernoulli(noise_params: &NoiseParams) -> u32 {
     assert!(index > 0, "smallest num_bernoulli not found");
     index
 }
+
+/// for a `NoiseParams` struct will return the mean and standard deviation
+/// of the noise
+#[must_use]
+pub fn noise_mean_std(noise_params: &NoiseParams) -> (f64, f64) {
+    let num_bernoulli = find_smallest_num_bernoulli(noise_params);
+    let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
+    let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+    (mean, standard_deviation)
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{

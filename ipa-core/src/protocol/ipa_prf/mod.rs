@@ -90,7 +90,7 @@ pub const SORT_CHUNK: usize = 256;
 use step::IpaPrfStep as Step;
 
 use crate::{
-    helpers::query::DpParams,
+    helpers::query::DpMechanism,
     protocol::{context::Validator, dp::dp_for_histogram},
 };
 
@@ -217,7 +217,7 @@ pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize
     ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
-    dp_params: DpParams,
+    dp_params: DpMechanism,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     BK: BreakdownKey<B>,
@@ -368,7 +368,7 @@ pub mod tests {
             boolean_array::{BA16, BA20, BA3, BA5, BA8},
             U128Conversions,
         },
-        helpers::query::DpParams,
+        helpers::query::DpMechanism,
         protocol::{dp::NoiseParams, ipa_prf::oprf_ipa},
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
@@ -404,7 +404,7 @@ pub mod tests {
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
             ];
-            let dp_params = DpParams::NoDp;
+            let dp_params = DpMechanism::NoDp;
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -430,7 +430,7 @@ pub mod tests {
             let world = TestWorld::default();
             let expected: Vec<u32> = vec![0, 2, 5, 0, 0, 0, 0, 0];
             let epsilon = 10.0;
-            let dp_params = DpParams::WithDp { epsilon };
+            let dp_params = DpMechanism::Binomial { epsilon };
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
 
             let records: Vec<TestRawDataRecord> = vec![
@@ -458,12 +458,8 @@ pub mod tests {
                 ell_infty_sensitivity: per_user_credit_cap,
                 ..Default::default()
             };
-            let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(&noise_params);
-            let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
-            let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
-            println!(
-                "In semi_honest_with_dp:  mean = {mean}, standard_deviation = {standard_deviation}"
-            );
+            let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
+            println!("In semi_honest_with_dp:  mean = {mean}, standard_deviation = {std}");
             let result_u32: Vec<u32> = result
                 .iter()
                 .map(|&v| u32::try_from(v.as_u128()).unwrap())
@@ -479,9 +475,9 @@ pub mod tests {
                 println!("actual = {actual_u128}, expected = {}", expected[index]);
                 assert!(
                     f64::from(*actual_u128) - mean
-                        > f64::from(expected[index]) - 5.0 * standard_deviation
+                        > f64::from(expected[index]) - 5.0 * std
                         && f64::from(*actual_u128) - mean
-                            < f64::from(expected[index]) + 5.0 * standard_deviation
+                            < f64::from(expected[index]) + 5.0 * std
                 , "DP result was more than 5 standard deviations of the noise from the expected result"
                 );
             }
@@ -496,7 +492,7 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<TestRawDataRecord> = vec![];
-            let dp_params = DpParams::NoDp;
+            let dp_params = DpMechanism::NoDp;
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -525,7 +521,7 @@ pub mod tests {
                 test_input(0, 12345, false, 1, 0),
                 test_input(0, 68362, false, 1, 0),
             ];
-            let dp_params = DpParams::NoDp;
+            let dp_params = DpMechanism::NoDp;
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -573,7 +569,7 @@ pub mod tests {
             ];
 
             records.shuffle(&mut thread_rng());
-            let dp_params = DpParams::NoDp;
+            let dp_params = DpMechanism::NoDp;
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None, dp_params)

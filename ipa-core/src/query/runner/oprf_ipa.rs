@@ -11,7 +11,7 @@ use crate::{
         Field, Serializable, U128Conversions,
     },
     helpers::{
-        query::{DpParams, IpaQueryConfig, QuerySize},
+        query::{DpMechanism, IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
     hpke::PrivateKeyRegistry,
@@ -113,9 +113,9 @@ where
         };
 
         let aws = config.attribution_window_seconds;
-        let dp_params: DpParams = match config.with_dp {
-            0 => DpParams::NoDp,
-            _ => DpParams::WithDp {
+        let dp_params: DpMechanism = match config.with_dp {
+            0 => DpMechanism::NoDp,
+            _ => DpMechanism::Binomial {
                 epsilon: config.epsilon,
             },
         };

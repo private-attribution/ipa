@@ -109,12 +109,9 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
             ..Default::default()
         };
 
-        let num_bernoulli = crate::protocol::dp::find_smallest_num_bernoulli(&noise_params);
-        let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
-        let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
-
-        let same = actual_expect_f64 - mean > next_expected_f64 - 10.0 * standard_deviation
-            && actual_expect_f64 - mean < next_expected_f64 + 10.0 * standard_deviation;
+        let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
+        let same = actual_expect_f64 - mean > next_expected_f64 - 10.0 * std
+            && actual_expect_f64 - mean < next_expected_f64 + 10.0 * std;
 
         let color = if same { Color::Green } else { Color::Red };
         table.add_row(vec![
