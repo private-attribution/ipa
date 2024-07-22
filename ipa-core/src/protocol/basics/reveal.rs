@@ -206,32 +206,21 @@ where
 mod tests {
     use std::iter::zip;
 
-    use futures::future::{join_all, try_join, try_join3};
+    use futures::future::join_all;
 
     use crate::{
         error::Error,
-        ff::{Field, Fp31, Fp32BitPrime},
-        helpers::{Direction, Role},
+        ff::{Field, Fp31, Fp32BitPrime, Serializable},
+        helpers::{in_memory_config::MaliciousHelper, Role},
         protocol::{
             basics::Reveal,
-            context::{
-                Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext, Validator,
-            },
+            context::{Context, UpgradableContext, UpgradedContext, Validator},
             RecordId,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::{
-            replicated::{
-                malicious::{
-                    AdditiveShare as MaliciousReplicated, ExtendableField,
-                    ThisCodeIsAuthorizedToDowngradeFromMalicious,
-                },
-                semi_honest::AdditiveShare,
-            },
-            IntoShares, SharedValue,
-        },
+        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares, SharedValue},
         test_executor::run,
-        test_fixture::{join3v, Runner, TestWorld},
+        test_fixture::{join3v, Runner, TestWorld, TestWorldConfig},
     };
 
     #[tokio::test]
@@ -395,100 +384,62 @@ mod tests {
     }
 
     #[test]
-    pub fn malicious_validation_fail() {
-        run(|| async {
-            let mut rng = thread_rng();
-            let world = TestWorld::default();
-            let sh_ctx = world.malicious_contexts();
-            let v = sh_ctx.map(UpgradableContext::validator);
-            let m_ctx = v.each_ref().map(|v| v.context().set_total_records(1));
-
-            let record_id = RecordId::from(0);
-            let input: Fp31 = rng.gen();
-
-            let m_shares = join3v(
-                zip(m_ctx.iter(), input.share_with(&mut rng))
-                    .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
-            )
-            .await;
-            let result = try_join3(
-                m_shares[0].reveal(m_ctx[0].clone(), record_id),
-                m_shares[1].reveal(m_ctx[1].clone(), record_id),
-                reveal_with_additive_attack(
-                    m_ctx[2].clone(),
-                    record_id,
-                    &m_shares[2],
-                    false,
-                    Fp31::ONE,
-                ),
-            )
-            .await;
-
-            assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
-        });
+    pub fn malicious_generic_validation_fail() {
+        let partial = false;
+        malicious_validation_fail(partial);
     }
 
     #[test]
     pub fn malicious_partial_validation_fail() {
-        run(|| async {
-            let mut rng = thread_rng();
-            let world = TestWorld::default();
-            let sh_ctx = world.malicious_contexts();
-            let v = sh_ctx.map(UpgradableContext::validator);
-            let m_ctx: [_; 3] = v.each_ref().map(|v| v.context().set_total_records(1));
-
-            let record_id = RecordId::from(0);
-            let input: Fp31 = rng.gen();
-
-            let m_shares = join3v(
-                zip(m_ctx.iter(), input.share_with(&mut rng))
-                    .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
-            )
-            .await;
-            let result = try_join3(
-                m_shares[0].partial_reveal(m_ctx[0].clone(), record_id, Role::H3),
-                m_shares[1].partial_reveal(m_ctx[1].clone(), record_id, Role::H3),
-                reveal_with_additive_attack(
-                    m_ctx[2].clone(),
-                    record_id,
-                    &m_shares[2],
-                    true,
-                    Fp31::ONE,
-                ),
-            )
-            .await;
-
-            assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
-        });
+        let partial = true;
+        malicious_validation_fail(partial);
     }
 
-    pub async fn reveal_with_additive_attack<F: ExtendableField>(
-        ctx: UpgradedMaliciousContext<'_, F>,
-        record_id: RecordId,
-        input: &MaliciousReplicated<F>,
-        excluded: bool,
-        additive_error: F,
-    ) -> Result<Option<F>, Error> {
-        let (left, right) = input.x().access_without_downgrade().as_tuple();
-        let left_sender = ctx.send_channel(ctx.role().peer(Direction::Left));
-        let right_sender = ctx.send_channel(ctx.role().peer(Direction::Right));
-        let left_recv = ctx.recv_channel(ctx.role().peer(Direction::Left));
-        let right_recv = ctx.recv_channel(ctx.role().peer(Direction::Right));
+    pub fn malicious_validation_fail(partial: bool) {
+        const STEP: &str = "malicious-reveal";
 
-        // Send share to helpers to the right and left
-        try_join(
-            left_sender.send(record_id, right),
-            right_sender.send(record_id, left + additive_error),
-        )
-        .await?;
+        run(move || async move {
+            let mut rng = thread_rng();
+            let mut config = TestWorldConfig::default();
+            config.stream_interceptor =
+                MaliciousHelper::new(Role::H3, config.role_assignment(), move |ctx, data| {
+                    // H3 runs an additive attack against H1 (on the left) by
+                    // adding a 1 to the left part of share it is holding
+                    if ctx.gate.as_ref().contains(STEP) && ctx.dest == Role::H1 {
+                        let v = Fp31::deserialize_from_slice(data) + Fp31::ONE;
+                        v.serialize_to_slice(data);
+                    }
+                });
 
-        if excluded {
-            Ok(None)
-        } else {
-            let (share_from_left, _share_from_right): (F, F) =
-                try_join(left_recv.receive(record_id), right_recv.receive(record_id)).await?;
+            let world = TestWorld::new_with(config);
+            let input: Fp31 = rng.gen();
+            world
+                .malicious(input, |ctx, share| async move {
+                    let v = ctx.validator();
+                    let m_ctx = v.context().set_total_records(1);
+                    let malicious_share = v.context().upgrade(share).await.unwrap();
+                    let m_ctx = m_ctx.narrow(STEP);
+                    let my_role = m_ctx.role();
 
-            Ok(Some(left + right + share_from_left))
-        }
+                    let r = if partial {
+                        malicious_share
+                            .partial_reveal(m_ctx, RecordId::FIRST, Role::H3)
+                            .await
+                    } else {
+                        malicious_share
+                            .generic_reveal(m_ctx, RecordId::FIRST, None)
+                            .await
+                    };
+
+                    // H1 should be able to see the mismatch
+                    if my_role == Role::H1 {
+                        assert!(matches!(r, Err(Error::MaliciousRevealFailed)));
+                    } else {
+                        // sanity check
+                        r.unwrap();
+                    }
+                })
+                .await;
+        });
     }
 }

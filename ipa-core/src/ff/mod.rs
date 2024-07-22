@@ -90,6 +90,46 @@ pub trait Serializable: Sized {
             .map_err(Into::into)
             .unwrap_infallible()
     }
+
+    /// This method provides the same functionality as [`Self::deserialize`] without
+    /// compile-time guarantees on the size of `buf`. Therefore, it is not appropriate
+    /// to use in production code. It is provided as convenience method
+    /// for tests that are ok to panic.
+    ///
+    /// ## Panics
+    /// If the size of `buf` is not equal to `Self::Size` or if `buf` bytes
+    /// are not a valid representation of this instance. See [`Self::deserialize`] for
+    /// more details.
+    ///
+    /// [`Self::deserialize`]: Self::deserialize
+    #[cfg(test)]
+    #[must_use]
+    fn deserialize_from_slice(buf: &[u8]) -> Self {
+        use typenum::Unsigned;
+
+        assert_eq!(buf.len(), Self::Size::USIZE);
+
+        let mut arr = GenericArray::default();
+        arr.copy_from_slice(buf);
+        Self::deserialize(&arr).unwrap()
+    }
+
+    /// This method provides the same functionality as [`Self::serialize`] without
+    /// compile-time guarantees on the size of `buf`. Therefore, it is not appropriate
+    /// to use in production code. It is provided as convenience method
+    /// for tests that are ok to panic.
+    ///
+    /// ## Panics
+    /// If the size of `buf` is not equal to `Self::Size`.
+    #[cfg(test)]
+    fn serialize_to_slice(&self, buf: &mut [u8]) {
+        use typenum::Unsigned;
+
+        assert_eq!(buf.len(), Self::Size::USIZE);
+
+        let dest = GenericArray::<_, Self::Size>::from_mut_slice(buf);
+        self.serialize(dest);
+    }
 }
 
 pub trait ArrayAccess {

@@ -199,35 +199,22 @@ mod tests {
     }
 
     mod malicious {
-        use futures::future::try_join;
+
+        use generic_array::GenericArray;
         use rand::{distributions::Standard, prelude::Distribution};
 
         use crate::{
             error::Error,
             ff::{Field, Fp32BitPrime, Gf2, Gf32Bit},
-            helpers::{Direction, Role},
+            helpers::{in_memory_config::MaliciousHelper, Role},
             protocol::{
-                basics::{
-                    mul::step::MaliciousMultiplyStep::{RandomnessForValidation, ReshareRx},
-                    Reshare,
-                },
-                context::{
-                    Context, SemiHonestContext, UpgradableContext, UpgradedContext,
-                    UpgradedMaliciousContext, Validator,
-                },
-                prss::SharedRandomness,
+                basics::Reshare,
+                context::{Context, UpgradableContext, UpgradedContext, Validator},
                 RecordId,
             },
             rand::{thread_rng, Rng},
-            secret_sharing::{
-                replicated::{
-                    malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-                    semi_honest::AdditiveShare as Replicated,
-                    ReplicatedSecretSharing,
-                },
-                SharedValue,
-            },
-            test_fixture::{Reconstruct, Runner, TestWorld},
+            secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
+            test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
         };
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
@@ -255,83 +242,6 @@ mod tests {
             }
         }
 
-        async fn reshare_with_additive_attack<C: UpgradableContext, F: Field>(
-            ctx: C,
-            input: &Replicated<F>,
-            record_id: RecordId,
-            to_helper: Role,
-            additive_error: F,
-        ) -> Result<Replicated<F>, Error> {
-            let (r0, r1) = ctx.prss().generate_fields(record_id);
-
-            // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
-            // This is same as (a1 + a2) - r2 in the diagram
-            if ctx.role() == to_helper.peer(Direction::Left) {
-                let send_channel = ctx.send_channel(to_helper.peer(Direction::Right));
-                let receive_channel = ctx.recv_channel(to_helper.peer(Direction::Right));
-
-                let part1 = input.left() + input.right() - r1 + additive_error;
-                send_channel.send(record_id, part1).await?;
-
-                // Sleep until `to_helper.right` sends us their part2 value
-                let part2 = receive_channel.receive(record_id).await?;
-
-                Ok(Replicated::new(part1 + part2, r1))
-            } else if ctx.role() == to_helper.peer(Direction::Right) {
-                let send_channel = ctx.send_channel(to_helper.peer(Direction::Left));
-                let receive_channel = ctx.recv_channel::<F>(to_helper.peer(Direction::Left));
-
-                // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
-                // This is same as (a3 - r3) in the diagram
-                let part2 = input.left() - r0 + additive_error;
-                send_channel.send(record_id, part2).await?;
-
-                // Sleep until `to_helper.left` sends us their part1 value
-                let part1 = receive_channel.receive(record_id).await?;
-
-                Ok(Replicated::new(r0, part1 + part2))
-            } else {
-                Ok(Replicated::new(r0, r1))
-            }
-        }
-
-        async fn reshare_malicious_with_additive_attack<F: ExtendableField>(
-            ctx: UpgradedMaliciousContext<'_, F>,
-            input: &MaliciousReplicated<F>,
-            record_id: RecordId,
-            to_helper: Role,
-            small_field_additive_error: F,
-            large_field_additive_error: F::ExtendedField,
-        ) -> Result<MaliciousReplicated<F>, Error> {
-            use crate::{
-                protocol::context::SpecialAccessToUpgradedContext,
-                secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-            };
-            let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
-
-            let (rx, x) = try_join(
-                reshare_with_additive_attack(
-                    SemiHonestContext::from_base(ctx.narrow(&ReshareRx).base_context()),
-                    input.rx(),
-                    record_id,
-                    to_helper,
-                    large_field_additive_error,
-                ),
-                reshare_with_additive_attack(
-                    SemiHonestContext::from_base(ctx.base_context()),
-                    input.x().access_without_downgrade(),
-                    record_id,
-                    to_helper,
-                    small_field_additive_error,
-                ),
-            )
-            .await?;
-            let malicious_input = MaliciousReplicated::new(x, rx);
-
-            random_constant_ctx.accumulate_macs(record_id, &malicious_input);
-            Ok(malicious_input)
-        }
-
         #[tokio::test]
         async fn fp32bit_reshare_validation_fail() {
             const PERTURBATIONS: [(Fp32BitPrime, Fp32BitPrime); 3] = [
@@ -357,37 +267,49 @@ mod tests {
             F: ExtendableField,
             Standard: Distribution<F>,
         {
-            let world = TestWorld::default();
-            let mut rng = thread_rng();
+            const STEP: &str = "malicious-attack";
 
-            let a = rng.gen::<F>();
+            /// Corrupts a single value `F` by running an additive attack.
+            /// `binary_data` must carry the exact one value of `F` and the result
+            /// will be written back to it, so the attack is run in place
+            fn corrupt<F: Field>(binary_data: &mut [u8], add: F) {
+                let slice = GenericArray::from_mut_slice(binary_data);
+                let v = F::deserialize(slice).unwrap() + add;
+                v.serialize(slice);
+            }
 
-            let to_helper = Role::H1;
+            for (small_value, large_value) in perturbations.iter().copied() {
+                for malicious_actor in [Role::H2, Role::H3] {
+                    let mut config = TestWorldConfig::default();
+                    config.stream_interceptor = MaliciousHelper::new(
+                        malicious_actor,
+                        config.role_assignment(),
+                        move |ctx, data| {
+                            if ctx.gate.as_ref().contains(STEP) {
+                                if ctx.gate.as_ref().contains("reshare_rx") {
+                                    corrupt(data, large_value);
+                                } else {
+                                    corrupt(data, small_value);
+                                }
+                            }
+                        },
+                    );
+                    let world = TestWorld::new_with(&config);
+                    let mut rng = thread_rng();
+                    let a = rng.gen::<F>();
+                    let to_helper = Role::H1;
 
-            for perturbation in perturbations {
-                for malicious_actor in &[Role::H2, Role::H3] {
                     world
                         .malicious(a, |ctx, a| async move {
                             let v = ctx.validator();
                             let m_ctx = v.context().set_total_records(1);
-                            let record_id = RecordId::from(0);
                             let m_a = v.context().upgrade(a).await.unwrap();
 
-                            let m_reshared_a = if m_ctx.role() == *malicious_actor {
-                                // This role is spoiling the value.
-                                reshare_malicious_with_additive_attack(
-                                    m_ctx,
-                                    &m_a,
-                                    record_id,
-                                    to_helper,
-                                    perturbation.0,
-                                    perturbation.1,
-                                )
+                            let m_reshared_a = m_a
+                                .reshare(m_ctx.narrow(STEP), RecordId::FIRST, to_helper)
                                 .await
-                                .unwrap()
-                            } else {
-                                m_a.reshare(m_ctx, record_id, to_helper).await.unwrap()
-                            };
+                                .unwrap();
+
                             match v.validate(m_reshared_a).await {
                                 Ok(result) => panic!("Got a result {result:?}"),
                                 Err(err) => {

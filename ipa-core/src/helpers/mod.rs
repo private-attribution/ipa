@@ -64,6 +64,10 @@ pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEn
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
+#[cfg(feature = "in-memory-infra")]
+pub use transport::{
+    config as in_memory_config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport,
+};
 pub use transport::{
     make_owned_handler, query, routing, ApiError, BodyStream, BytesStream, HandlerBox, HandlerRef,
     HelperResponse, Identity as TransportIdentity, LengthDelimitedStream, LogErrors, NoQueryId,
@@ -71,8 +75,6 @@ pub use transport::{
     RouteParams, SingleRecordStream, StepBinding, StreamCollection, StreamKey, Transport,
     WrappedBoxBodyStream,
 };
-#[cfg(feature = "in-memory-infra")]
-pub use transport::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 use typenum::{Const, ToUInt, Unsigned, U8};
 use x25519_dalek::PublicKey;
 
@@ -130,6 +132,20 @@ impl TryFrom<usize> for HelperIdentity {
     }
 }
 
+impl TryFrom<&str> for HelperIdentity {
+    type Error = String;
+
+    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+        for identity in HelperIdentity::make_three() {
+            if identity.as_str() == value {
+                return Ok(identity);
+            }
+        }
+
+        Err(format!("{value} is not a valid helper identity"))
+    }
+}
+
 impl From<HelperIdentity> for u8 {
     fn from(value: HelperIdentity) -> Self {
         value.id
@@ -138,16 +154,7 @@ impl From<HelperIdentity> for u8 {
 
 impl Debug for HelperIdentity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self.id {
-                1 => "A",
-                2 => "B",
-                3 => "C",
-                _ => unreachable!(),
-            }
-        )
+        write!(f, "{}", self.as_str())
     }
 }
 

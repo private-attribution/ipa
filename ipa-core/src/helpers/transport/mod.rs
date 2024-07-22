@@ -24,7 +24,7 @@ pub use handler::{
     make_owned_handler, Error as ApiError, HandlerBox, HandlerRef, HelperResponse, RequestHandler,
 };
 #[cfg(feature = "in-memory-infra")]
-pub use in_memory::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
+pub use in_memory::{config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
 pub use stream::WrappedAxumBodyStream;
@@ -53,7 +53,12 @@ impl Identity for ShardIndex {
 }
 impl Identity for HelperIdentity {
     fn as_str(&self) -> Cow<'static, str> {
-        Cow::Owned(self.id.to_string())
+        Cow::Borrowed(match *self {
+            Self::ONE => "A",
+            Self::TWO => "B",
+            Self::THREE => "C",
+            _ => unreachable!(),
+        })
     }
 }
 
