@@ -141,6 +141,7 @@ where
     // To ensure that the output value has enough bits to hold the sum without saturating (which would be insecure noise),
     // add an assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
     let ov_bits = OV::BITS;
+    tracing::info!("In Binomial DP noise, num_bernoulli = {num_bernoulli}");
     assert!(
         num_bernoulli.ilog2() < ov_bits,
         "not enough bits in output size for noise gen sum; num_bernoulli = {num_bernoulli}. OV::BITS = {ov_bits}"
