@@ -12,7 +12,7 @@ use crate::{
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
-        boolean::{step::SixteenBitStep, NBitStep},
+        boolean::{step::ThirtyTwoBitStep, NBitStep},
         context::Context,
         ipa_prf::{
             aggregation::step::{AggregateValuesStep, AggregationStep as Step},
@@ -117,7 +117,7 @@ pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N:
     ctx: C,
     contributions_stream: St,
     contributions_stream_len: usize,
-) -> Result<Vec<Replicated<HV>>, Error>
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: Context,
     St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
@@ -189,7 +189,7 @@ where
     );
     let aggregated_result =
         aggregate_values::<_, HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
-    Ok(Vec::transposed_from(&aggregated_result)?)
+    Ok(aggregated_result)
 }
 
 /// A vector of histogram contributions for each output bucket.
@@ -258,11 +258,11 @@ where
                                 let record_id = RecordId::from(i);
                                 if a.len() < usize::try_from(OV::BITS).unwrap() {
                                     assert!(
-                                        OV::BITS <= SixteenBitStep::BITS,
-                                        "SixteenBitStep not large enough to accomodate this sum"
+                                        OV::BITS <= ThirtyTwoBitStep::BITS,
+                                        "ThirtyTwoBitStep not large enough to accommodate this sum"
                                     );
                                     // If we have enough output bits, add and keep the carry.
-                                    let (mut sum, carry) = integer_add::<_, SixteenBitStep, B>(
+                                    let (mut sum, carry) = integer_add::<_, ThirtyTwoBitStep, B>(
                                         ctx.narrow(&AggregateValuesStep::Add),
                                         record_id,
                                         &a,
@@ -273,10 +273,10 @@ where
                                     Ok(sum)
                                 } else {
                                     assert!(
-                                        OV::BITS <= SixteenBitStep::BITS,
-                                        "SixteenBitStep not large enough to accommodate this sum"
+                                        OV::BITS <= ThirtyTwoBitStep::BITS,
+                                        "ThirtyTwoBitStep not large enough to accommodate this sum"
                                     );
-                                    integer_sat_add::<C, SixteenBitStep, B>(
+                                    integer_sat_add::<C, ThirtyTwoBitStep, B>(
                                         ctx.narrow(&AggregateValuesStep::SaturatingAdd),
                                         record_id,
                                         &a,

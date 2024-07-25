@@ -55,7 +55,7 @@ mod internal {
         }
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(test)]
     impl From<u64> for PrssIndex128 {
         fn from(value: u64) -> Self {
             Self::try_from(u128::from(value)).unwrap()

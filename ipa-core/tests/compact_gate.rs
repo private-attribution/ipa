@@ -16,6 +16,7 @@ fn test_compact_gate<I: TryInto<NonZeroU32>>(
     let config = IpaQueryConfig {
         per_user_credit_cap,
         attribution_window_seconds: attribution_window_seconds.try_into().ok(),
+        with_dp: 0,
         ..Default::default()
     };
 
