@@ -47,7 +47,7 @@ impl Default for NoiseParams {
     fn default() -> Self {
         Self {
             epsilon: 5.0,
-            delta: 1e-48,
+            delta: 1e-7,
             per_user_credit_cap: 1.0,
             success_prob: 0.5,
             dimensions: 1.0,

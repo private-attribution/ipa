@@ -270,7 +270,7 @@ pub struct IpaQueryConfig {
     pub num_multi_bits: u32,
     #[arg(short = 'd', long, default_value = "1")]
     pub with_dp: u32,
-    #[arg(short = 'e', long, default_value = "1.0")]
+    #[arg(short = 'e', long, default_value = "0.1")]
     pub epsilon: f64,
 
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
