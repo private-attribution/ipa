@@ -427,11 +427,12 @@ pub mod tests {
         println!("Running semi_honest_with_dp");
         run(|| async {
             const SS_BITS: usize = 5;
-            let world = TestWorld::default();
+            const B: usize = 32; // number of histogram bins
             let expected: Vec<u32> = vec![0, 2, 5, 0, 0, 0, 0, 0];
             let epsilon = 10.0;
             let dp_params = DpMechanism::Binomial { epsilon };
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
+            let world = TestWorld::default();
 
             let records: Vec<TestRawDataRecord> = vec![
                 test_input(0, 12345, false, 1, 0),
@@ -440,10 +441,9 @@ pub mod tests {
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
             ];
-
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA16, BA20, SS_BITS, 32>(ctx, input_rows, None, dp_params)
+                    oprf_ipa::<BA5, BA3, BA16, BA20, SS_BITS, B>(ctx, input_rows, None, dp_params)
                         .await
                         .unwrap()
                 })
@@ -456,6 +456,7 @@ pub mod tests {
                 ell_1_sensitivity: per_user_credit_cap,
                 ell_2_sensitivity: per_user_credit_cap,
                 ell_infty_sensitivity: per_user_credit_cap,
+                dimensions: f64::from(u32::try_from(B).unwrap()),
                 ..Default::default()
             };
             let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);

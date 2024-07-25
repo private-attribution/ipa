@@ -142,6 +142,7 @@ where
     // add an assert about log_2(num_histogram_bins) < OV:BITS to make sure enough space in OV for sum
     let ov_bits = OV::BITS;
     tracing::info!("In Binomial DP noise, num_bernoulli = {num_bernoulli}");
+
     assert!(
         num_bernoulli.ilog2() < ov_bits,
         "not enough bits in output size for noise gen sum; num_bernoulli = {num_bernoulli}. OV::BITS = {ov_bits}"
@@ -234,16 +235,31 @@ where
                 "Epsilon must be between 0 and {MAX_EPSILON}"
             );
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
+            let dimensions = f64::from(u32::try_from(B).unwrap());
+
             let noise_params = NoiseParams {
                 epsilon,
                 per_user_credit_cap,
                 ell_1_sensitivity: per_user_credit_cap,
                 ell_2_sensitivity: per_user_credit_cap,
                 ell_infty_sensitivity: per_user_credit_cap,
+                // dimensions: f64::from(u32::from(B)),
+                dimensions,
                 ..Default::default()
             };
 
             let num_bernoulli = find_smallest_num_bernoulli(&noise_params);
+            let epsilon = noise_params.epsilon;
+            let delta = noise_params.delta;
+            tracing::info!(
+                "In dp_for_histogram: \
+                epsilon = {epsilon}, \
+                delta = {delta}, \
+                num_breakdowns (dimension) = {dimensions}, \
+                per_user_credit_cap = {per_user_credit_cap}, \
+                num_bernoulli = {num_bernoulli}"
+            );
+
             let noisy_histogram =
                 apply_dp_noise::<C, B, OV>(ctx, histogram_bin_values, num_bernoulli)
                     .await
@@ -367,8 +383,14 @@ pub fn noise_mean_std(noise_params: &NoiseParams) -> (f64, f64) {
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::io::stdout;
+
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA16, U128Conversions},
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BA16, BA32},
+            U128Conversions,
+        },
         protocol::dp::{
             apply_dp_noise, delta_constraint, epsilon_constraint, error,
             find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
@@ -376,7 +398,8 @@ mod test {
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        telemetry::metrics::BYTES_SENT,
+        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
     #[test]
@@ -585,11 +608,14 @@ mod test {
 
     #[tokio::test]
     async fn semi_honest_measure_bandwidth() {
+        // run this test in the terminal to print out bandwidth. Formates best in a large terminal
+        // cargo test --release  --lib protocol::dp::test::semi_honest_measure_bandwidth -- --nocapture
+
+        type OutputValue = BA32;
+        const NUM_BREAKDOWNS: u32 = 32;
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
-        type OutputValue = BA16;
-        const NUM_BREAKDOWNS: u32 = 32;
-        let num_bernoulli: u32 = 2000;
+        let num_bernoulli: u32 = 1_000;
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -597,8 +623,8 @@ mod test {
                         ctx,
                         num_bernoulli,
                     )
-                        .await
-                        .unwrap(),
+                    .await
+                    .unwrap(),
                 )
             })
             .await
@@ -619,12 +645,12 @@ mod test {
         }
         println!("result as u32 {result_u32:?}");
 
-
         let snapshot = world.metrics_snapshot();
 
-        let bytes_sent_assert = snapshot
-            .assert_metric(BYTES_SENT)
-            .total(3 * input_size * field_size)
-            .per_step(&metrics_step, 3 * input_size * field_size);
+        let bytes_sent = snapshot.get_counter(BYTES_SENT);
+
+        snapshot.print(&mut stdout()).unwrap();
+        println!("num_bernoulli {num_bernoulli}");
+        println!("bytes_sent {bytes_sent}");
     }
 }
