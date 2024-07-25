@@ -582,4 +582,49 @@ mod test {
         }
         println!("result as u32 {result_u32:?}");
     }
+
+    #[tokio::test]
+    async fn semi_honest_measure_bandwidth() {
+        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
+
+        type OutputValue = BA16;
+        const NUM_BREAKDOWNS: u32 = 32;
+        let num_bernoulli: u32 = 2000;
+        let result: [Vec<Replicated<OutputValue>>; 3] = world
+            .upgraded_semi_honest((), |ctx, ()| async move {
+                Vec::transposed_from(
+                    &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
+                        ctx,
+                        num_bernoulli,
+                    )
+                        .await
+                        .unwrap(),
+                )
+            })
+            .await
+            .map(Result::unwrap);
+        let result_reconstructed: Vec<OutputValue> = result.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed
+            .iter()
+            .map(|&v| u32::try_from(v.as_u128()).unwrap())
+            .collect::<Vec<_>>();
+        let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
+        let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
+        assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
+        for sample in &result_u32 {
+            assert!(
+                f64::from(*sample) > mean - 5.0 * standard_deviation
+                    && f64::from(*sample) < mean + 5.0 * standard_deviation
+            );
+        }
+        println!("result as u32 {result_u32:?}");
+
+
+        let snapshot = world.metrics_snapshot();
+
+        let bytes_sent_assert = snapshot
+            .assert_metric(BYTES_SENT)
+            .total(3 * input_size * field_size)
+            .per_step(&metrics_step, 3 * input_size * field_size);
+    }
 }
