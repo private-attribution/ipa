@@ -290,7 +290,7 @@ impl Default for IpaQueryConfig {
             attribution_window_seconds: None,
             num_multi_bits: 3,
             with_dp: 1,
-            epsilon: 3.0,
+            epsilon: 0.01,
             plaintext_match_keys: false,
         }
     }
