@@ -128,7 +128,7 @@ impl Processor {
     /// * Requests Infra and Network layer to create resources for this query
     /// * sends `prepare` request that describes the query configuration
     ///     (query id, query type, field type, roles -> endpoints or reverse)
-    ///     to followers and waits for the confirmation
+    ///         to followers and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
     /// * returns query configuration
     ///
