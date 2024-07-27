@@ -15,8 +15,8 @@ use crate::{
 ///    X is assumed to be a positive number, so we will automatically pad with ZERO.
 /// 2. Repeatedly multiply x with each digits of y, shift the result 1 digit up each time
 /// 3. Add up the partial products using `integer_add`
-/// x is assumed to be a positive number
-/// y is assumed to be in two's complement and can be either signed or unsigned
+///    x is assumed to be a positive number
+///    y is assumed to be in two's complement and can be either signed or unsigned
 #[allow(dead_code)]
 pub async fn integer_mul<C, S, const N: usize>(
     ctx: C,

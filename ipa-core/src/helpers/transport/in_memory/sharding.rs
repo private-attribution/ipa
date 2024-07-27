@@ -67,7 +67,7 @@ impl InMemoryShardNetwork {
 
     pub fn reset(&self) {
         for helper in &self.shard_network {
-            for shard in helper.iter() {
+            for shard in helper {
                 shard.reset();
             }
         }
