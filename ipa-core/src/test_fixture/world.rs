@@ -131,10 +131,12 @@ pub struct TestWorldConfig {
     /// a custom interceptor for repeated use-cases that is less
     /// generic than [`StreamInterceptor`].
     ///
-    /// If not set, all streams will be processed unchanged.
+    /// If interception is not required, the [`passthrough`] interceptor
+    /// may be used.
     ///
     /// [`StreamInterceptor`]: crate::helpers::in_memory_config::StreamInterceptor
     /// [`MaliciousHelper`]: crate::helpers::in_memory_config::MaliciousHelper
+    /// [`passthrough`]: crate::helpers::in_memory_config::passthrough
     pub stream_interceptor: DynStreamInterceptor,
 }
 

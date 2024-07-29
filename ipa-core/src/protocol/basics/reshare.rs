@@ -200,7 +200,6 @@ mod tests {
 
     mod malicious {
 
-        use generic_array::GenericArray;
         use rand::{distributions::Standard, prelude::Distribution};
 
         use crate::{
@@ -273,9 +272,8 @@ mod tests {
             /// `binary_data` must carry the exact one value of `F` and the result
             /// will be written back to it, so the attack is run in place
             fn corrupt<F: Field>(binary_data: &mut [u8], add: F) {
-                let slice = GenericArray::from_mut_slice(binary_data);
-                let v = F::deserialize(slice).unwrap() + add;
-                v.serialize(slice);
+                let v = F::deserialize_from_slice(binary_data) + add;
+                v.serialize_to_slice(binary_data);
             }
 
             for (small_value, large_value) in perturbations.iter().copied() {

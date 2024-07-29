@@ -403,7 +403,7 @@ mod tests {
             let mut config = TestWorldConfig::default();
             config.stream_interceptor =
                 MaliciousHelper::new(Role::H3, config.role_assignment(), move |ctx, data| {
-                    // H3 runs an additive attack against H1 (on the left) by
+                    // H3 runs an additive attack against H1 (on the right) by
                     // adding a 1 to the left part of share it is holding
                     if ctx.gate.as_ref().contains(STEP) && ctx.dest == Role::H1 {
                         let v = Fp31::deserialize_from_slice(data) + Fp31::ONE;

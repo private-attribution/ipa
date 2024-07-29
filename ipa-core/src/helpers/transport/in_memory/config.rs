@@ -103,12 +103,8 @@ impl<F: Fn(&MaliciousHelperContext, &mut Vec<u8>) + Send + Sync> MaliciousHelper
     }
 
     fn context(&self, ctx: &InspectContext) -> MaliciousHelperContext {
-        let dest = HelperIdentity::try_from(ctx.dest.as_ref()).unwrap_or_else(|_| {
-            panic!(
-                "MaliciousServerContext::from: invalid destination: {}",
-                ctx.dest
-            )
-        });
+        let dest = HelperIdentity::try_from(ctx.dest.as_ref())
+            .unwrap_or_else(|e| panic!("Can't resolve helper identity for {}: {e}", ctx.dest));
         let dest = self.role_assignment.role(dest);
 
         MaliciousHelperContext {
