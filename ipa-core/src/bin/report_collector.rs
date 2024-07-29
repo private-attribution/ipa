@@ -19,7 +19,7 @@ use ipa_core::{
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
-    ff::{boolean_array::BA16, FieldType},
+    ff::{boolean_array::BA32, FieldType},
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
@@ -256,7 +256,10 @@ async fn ipa(
     let mut key_registries = KeyRegistries::default();
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
-            playbook_oprf_ipa::<BA16, _>(
+            // the value for histogram values (BA32) must be kept in sync with the server-side
+            // implementation, otherwise a runtime reconstruct error will be generated.
+            // see ipa-core/src/query/executor.rs
+            playbook_oprf_ipa::<BA32, _>(
                 input_rows,
                 helper_clients,
                 query_id,
