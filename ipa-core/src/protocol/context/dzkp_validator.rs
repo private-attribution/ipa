@@ -78,9 +78,7 @@ impl MultiplicationInputsBlock {
     /// set using bitslices
     /// ## Errors
     /// Errors when length of slices is not 256 bit
-    #[allow(clippy::too_many_arguments)]
-    fn set(
-        &mut self,
+    fn clone_from(
         x_left: &BitSliceType,
         x_right: &BitSliceType,
         y_left: &BitSliceType,
@@ -88,16 +86,16 @@ impl MultiplicationInputsBlock {
         prss_left: &BitSliceType,
         prss_right: &BitSliceType,
         z_right: &BitSliceType,
-    ) -> Result<(), BoxError> {
-        self.x_left = BitArray::try_from(x_left)?;
-        self.x_right = BitArray::try_from(x_right)?;
-        self.y_left = BitArray::try_from(y_left)?;
-        self.y_right = BitArray::try_from(y_right)?;
-        self.prss_left = BitArray::try_from(prss_left)?;
-        self.prss_right = BitArray::try_from(prss_right)?;
-        self.z_right = BitArray::try_from(z_right)?;
-
-        Ok(())
+    ) -> Result<Self, BoxError> {
+        Ok(Self {
+            x_left: BitArray::try_from(x_left)?,
+            x_right: BitArray::try_from(x_right)?,
+            y_left: BitArray::try_from(y_left)?,
+            y_right: BitArray::try_from(y_right)?,
+            prss_left: BitArray::try_from(prss_left)?,
+            prss_right: BitArray::try_from(prss_right)?,
+            z_right: BitArray::try_from(z_right)?,
+        })
     }
 
     /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
@@ -407,25 +405,24 @@ impl MultiplicationInputsBatch {
         let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
         let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
         let length_in_blocks = segment.len() >> BIT_ARRAY_SHIFT;
-        if self.vec.len() <= block_id + length_in_blocks {
-            self.vec.resize_with(
-                block_id + length_in_blocks + 1,
-                MultiplicationInputsBlock::default,
-            );
+        if self.vec.len() < block_id {
+            self.vec
+                .resize_with(block_id, MultiplicationInputsBlock::default);
         }
 
         for i in 0..length_in_blocks {
-            MultiplicationInputsBlock::set(
-                &mut self.vec[block_id + i],
-                &segment.x_left.0[256 * i..256 * (i + 1)],
-                &segment.x_right.0[256 * i..256 * (i + 1)],
-                &segment.y_left.0[256 * i..256 * (i + 1)],
-                &segment.y_right.0[256 * i..256 * (i + 1)],
-                &segment.prss_left.0[256 * i..256 * (i + 1)],
-                &segment.prss_right.0[256 * i..256 * (i + 1)],
-                &segment.z_right.0[256 * i..256 * (i + 1)],
-            )
-            .unwrap();
+            self.vec.push(
+                MultiplicationInputsBlock::clone_from(
+                    &segment.x_left.0[256 * i..256 * (i + 1)],
+                    &segment.x_right.0[256 * i..256 * (i + 1)],
+                    &segment.y_left.0[256 * i..256 * (i + 1)],
+                    &segment.y_right.0[256 * i..256 * (i + 1)],
+                    &segment.prss_left.0[256 * i..256 * (i + 1)],
+                    &segment.prss_right.0[256 * i..256 * (i + 1)],
+                    &segment.z_right.0[256 * i..256 * (i + 1)],
+                )
+                .unwrap(),
+            );
         }
     }
 
