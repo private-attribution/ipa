@@ -1,13 +1,16 @@
+pub mod config;
 mod sharding;
 mod transport;
 
-use std::array;
-
 pub use sharding::InMemoryShardNetwork;
 pub use transport::Setup;
+use transport::TransportConfigBuilder;
 
 use crate::{
-    helpers::{HandlerRef, HelperIdentity},
+    helpers::{
+        in_memory_config::DynStreamInterceptor, transport::in_memory::config::passthrough,
+        HandlerRef, HelperIdentity,
+    },
     sync::{Arc, Weak},
 };
 
@@ -21,15 +24,32 @@ pub struct InMemoryMpcNetwork {
 
 impl Default for InMemoryMpcNetwork {
     fn default() -> Self {
-        Self::new(array::from_fn(|_| None))
+        Self::new(Self::noop_handlers())
     }
 }
 
 impl InMemoryMpcNetwork {
     #[must_use]
+    pub fn noop_handlers() -> [Option<HandlerRef>; 3] {
+        [None, None, None]
+    }
+
+    #[must_use]
     pub fn new(handlers: [Option<HandlerRef>; 3]) -> Self {
-        let [mut first, mut second, mut third]: [_; 3] =
-            HelperIdentity::make_three().map(Setup::new);
+        Self::with_stream_interceptor(handlers, &passthrough())
+    }
+
+    #[must_use]
+    pub fn with_stream_interceptor(
+        handlers: [Option<HandlerRef>; 3],
+        interceptor: &DynStreamInterceptor,
+    ) -> Self {
+        let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three().map(|i| {
+            let mut config_builder = TransportConfigBuilder::for_helper(i);
+            config_builder.with_interceptor(interceptor);
+
+            Setup::with_config(i, config_builder.not_sharded())
+        });
 
         first.connect(&mut second);
         second.connect(&mut third);
