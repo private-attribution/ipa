@@ -12,7 +12,7 @@ use crate::{
     ff::Field,
     helpers::{Direction, TotalRecords},
     protocol::{
-        basics::Reveal,
+        basics::malicious_reveal,
         context::{
             step::{MaliciousProtocolStep as Step, ValidateStep},
             Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
@@ -194,7 +194,10 @@ pub struct Malicious<'a, F: ExtendableField> {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
+impl<'a, F> Validator<MaliciousContext<'a>, F> for Malicious<'a, F>
+where
+    F: ExtendableField,
+{
     /// Get a copy of the context that can be used for malicious protocol execution.
     fn context<'b>(&'b self) -> UpgradedMaliciousContext<'a, F> {
         self.protocol_ctx.clone()
@@ -219,7 +222,9 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .narrow(&ValidateStep::RevealR)
             .set_total_records(TotalRecords::ONE);
         let r = <F as ExtendableField>::ExtendedField::from_array(
-            &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
+            &malicious_reveal(narrow_ctx, RecordId::FIRST, None, &self.r_share)
+                .await?
+                .expect("full reveal should always return a value"),
         );
         let t = u_share - &(w_share * r);
 

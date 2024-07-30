@@ -13,7 +13,7 @@ pub use check_zero::check_zero;
 pub use if_else::select;
 pub use mul::{BooleanArrayMul, SecureMul};
 pub use reshare::Reshare;
-pub use reveal::{partial_reveal, reveal, Reveal};
+pub use reveal::{malicious_reveal, partial_reveal, reveal, semi_honest_reveal, Reveal};
 pub use share_known_value::ShareKnownValue;
 
 use crate::{
@@ -22,7 +22,7 @@ use crate::{
     protocol::{
         context::{
             Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
-            SemiHonestContext, UpgradedSemiHonestContext,
+            UpgradedSemiHonestContext,
         },
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
         prss::FromPrss,
@@ -82,12 +82,6 @@ impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Bool
 
 impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, PRF_CHUNK>
     for AdditiveShare<Boolean, PRF_CHUNK>
-{
-}
-
-// TODO: remove this (protocols should use upgraded contexts)
-impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>, AGG_CHUNK>
-    for AdditiveShare<Boolean, AGG_CHUNK>
 {
 }
 

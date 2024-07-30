@@ -207,6 +207,13 @@ pub trait ValidateMalicious<F: ExtendableField> {
     fn validate(&self, r: F::ExtendedField);
 }
 
+impl<F> ValidateMalicious<F> for [(); 3]
+where
+    F: ExtendableField,
+{
+    fn validate(&self, _r: F::ExtendedField) {}
+}
+
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
     F: ExtendableField,
