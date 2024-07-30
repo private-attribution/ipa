@@ -35,7 +35,11 @@ pub type Array256Bit = BitArray<[u8; 32], Lsb0>;
 
 type BitSliceType = BitSlice<u8, Lsb0>;
 
-const BIT_ARRAY_SHIFT: usize = 8;
+const BIT_ARRAY_LEN: usize = 256;
+const BIT_ARRAY_MASK: usize = BIT_ARRAY_LEN - 1;
+const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
+
+pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 
 /// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
 /// that occur duringa multiplication.
@@ -74,9 +78,7 @@ impl MultiplicationInputsBlock {
     /// set using bitslices
     /// ## Errors
     /// Errors when length of slices is not 256 bit
-    #[allow(clippy::too_many_arguments)]
-    fn set(
-        &mut self,
+    fn clone_from(
         x_left: &BitSliceType,
         x_right: &BitSliceType,
         y_left: &BitSliceType,
@@ -84,16 +86,16 @@ impl MultiplicationInputsBlock {
         prss_left: &BitSliceType,
         prss_right: &BitSliceType,
         z_right: &BitSliceType,
-    ) -> Result<(), BoxError> {
-        self.x_left = BitArray::try_from(x_left)?;
-        self.x_right = BitArray::try_from(x_right)?;
-        self.y_left = BitArray::try_from(y_left)?;
-        self.y_right = BitArray::try_from(y_right)?;
-        self.prss_left = BitArray::try_from(prss_left)?;
-        self.prss_right = BitArray::try_from(prss_right)?;
-        self.z_right = BitArray::try_from(z_right)?;
-
-        Ok(())
+    ) -> Result<Self, BoxError> {
+        Ok(Self {
+            x_left: BitArray::try_from(x_left)?,
+            x_right: BitArray::try_from(x_right)?,
+            y_left: BitArray::try_from(y_left)?,
+            y_right: BitArray::try_from(y_right)?,
+            prss_left: BitArray::try_from(prss_left)?,
+            prss_right: BitArray::try_from(prss_right)?,
+            z_right: BitArray::try_from(z_right)?,
+        })
     }
 
     /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
@@ -243,19 +245,28 @@ struct MultiplicationInputsBatch {
 
 impl MultiplicationInputsBatch {
     /// Creates a new store.
-    /// `first_record` and `last_record` is initialized to `0`.
-    /// The size of the allocated vector is `(max_multiplications * multiplication_bit_size + 255) / 256`
+    /// `first_record` and `last_record` are initialized to `0`. The size of the allocated vector is
+    /// `ceil((max_multiplications * multiplication_bit_size) / BIT_ARRAY_LEN)`.
     fn new(max_multiplications: usize, multiplication_bit_size: usize) -> Self {
+        // We should probably check that max_multiplications * multiplication_bit_size does
+        // not exceed TARGET_PROOF_SIZE, or at least does not exceed it by much. But for now,
+        // it is actually convenient that we don't -- we use TARGET_PROOF_SIZE as the limit
+        // for preallocation of the storage, which is important to limit because the allocation
+        // will occur regardless of the input size (i.e. even if we run IPA on two records).
+        // The actual max_multiplications * multiplication_bit_size can be larger, for
+        // subprotocols that don't yet know how to verify at granularity less than all input
+        // records.
+        let capacity_bits = usize::min(
+            TARGET_PROOF_SIZE,
+            max_multiplications * multiplication_bit_size,
+        );
         Self {
             first_record: RecordId::FIRST,
             last_record: RecordId::FIRST,
             max_multiplications,
             multiplication_bit_size,
             is_empty: false,
-            vec: vec![
-                MultiplicationInputsBlock::default();
-                (max_multiplications * multiplication_bit_size + 255) >> BIT_ARRAY_SHIFT
-            ],
+            vec: Vec::with_capacity((capacity_bits + BIT_ARRAY_MASK) >> BIT_ARRAY_SHIFT),
         }
     }
 
@@ -350,6 +361,10 @@ impl MultiplicationInputsBatch {
         let position_within_block_start = (length * id_within_batch) % 256;
         let position_within_block_end = position_within_block_start + segment.len();
 
+        if self.vec.len() <= block_id {
+            self.vec
+                .resize_with(block_id + 1, MultiplicationInputsBlock::default);
+        }
         let block = &mut self.vec[block_id];
 
         // copy segment value into entry
@@ -389,20 +404,25 @@ impl MultiplicationInputsBatch {
 
         let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
         let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
-
         let length_in_blocks = segment.len() >> BIT_ARRAY_SHIFT;
+        if self.vec.len() < block_id {
+            self.vec
+                .resize_with(block_id, MultiplicationInputsBlock::default);
+        }
+
         for i in 0..length_in_blocks {
-            MultiplicationInputsBlock::set(
-                &mut self.vec[block_id + i],
-                &segment.x_left.0[256 * i..256 * (i + 1)],
-                &segment.x_right.0[256 * i..256 * (i + 1)],
-                &segment.y_left.0[256 * i..256 * (i + 1)],
-                &segment.y_right.0[256 * i..256 * (i + 1)],
-                &segment.prss_left.0[256 * i..256 * (i + 1)],
-                &segment.prss_right.0[256 * i..256 * (i + 1)],
-                &segment.z_right.0[256 * i..256 * (i + 1)],
-            )
-            .unwrap();
+            self.vec.push(
+                MultiplicationInputsBlock::clone_from(
+                    &segment.x_left.0[256 * i..256 * (i + 1)],
+                    &segment.x_right.0[256 * i..256 * (i + 1)],
+                    &segment.y_left.0[256 * i..256 * (i + 1)],
+                    &segment.y_right.0[256 * i..256 * (i + 1)],
+                    &segment.prss_left.0[256 * i..256 * (i + 1)],
+                    &segment.prss_right.0[256 * i..256 * (i + 1)],
+                    &segment.z_right.0[256 * i..256 * (i + 1)],
+                )
+                .unwrap(),
+            );
         }
     }
 
@@ -562,7 +582,7 @@ impl DZKPBatch {
 /// that is tied to a `DZKPBatch` rather than an `accumulator`.
 /// Function signature of `validate` is also different, it does not downgrade shares anymore
 #[async_trait]
-pub trait DZKPValidator<B: UpgradableContext> {
+pub trait DZKPValidator<B: UpgradableContext>: Send + Sync {
     fn context(&self) -> B::DZKPUpgradedContext;
 
     /// Allows to validate the current `DZKPBatch` and empties it. The associated context is then
@@ -713,6 +733,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
 
             // get number of multiplications
             let m = batch.get_number_of_multiplications();
+            tracing::info!("validating {m} multiplications");
             debug_assert_eq!(
                 m,
                 batch
@@ -810,13 +831,19 @@ mod tests {
         protocol::{
             basics::SecureMul,
             context::{
-                dzkp_field::BLOCK_SIZE,
-                dzkp_validator::{Batch, DZKPValidator, Segment, SegmentEntry, Step},
+                dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
+                dzkp_validator::{
+                    Batch, DZKPValidator, Segment, SegmentEntry, Step, BIT_ARRAY_LEN,
+                    TARGET_PROOF_SIZE,
+                },
                 Context, DZKPContext, UpgradableContext,
             },
             Gate, RecordId,
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+            Vectorizable,
+        },
         seq_join::seq_join,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
@@ -1023,6 +1050,104 @@ mod tests {
             let _ = complex_circuit_dzkp(count, chunk_size, multiplication_amount).await;
         };
         tokio::runtime::Runtime::new().unwrap().block_on(future);
+        }
+    }
+
+    #[test]
+    fn batch_allocation_small() {
+        const SIZE: usize = 1;
+        let mut batch = Batch::new(SIZE);
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
+        let segment = Segment::from_entries(
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry,
+        );
+        batch.push(Gate::default(), RecordId::FIRST, segment);
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 1);
+        assert!(batch.inner.get(&Gate::default()).unwrap().vec.capacity() >= SIZE);
+        assert!(batch.inner.get(&Gate::default()).unwrap().vec.capacity() <= 2 * SIZE);
+    }
+
+    #[test]
+    fn batch_allocation_big() {
+        const SIZE: usize = 2 * TARGET_PROOF_SIZE;
+        let mut batch = Batch::new(SIZE);
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
+        let segment = Segment::from_entries(
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry,
+        );
+        batch.push(Gate::default(), RecordId::FIRST, segment);
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 1);
+        assert!(
+            batch.inner.get(&Gate::default()).unwrap().vec.capacity()
+                >= TARGET_PROOF_SIZE / BIT_ARRAY_LEN
+        );
+        assert!(
+            batch.inner.get(&Gate::default()).unwrap().vec.capacity()
+                <= 11 * TARGET_PROOF_SIZE / 10 / BIT_ARRAY_LEN
+        );
+    }
+
+    #[test]
+    fn batch_fill() {
+        const SIZE: usize = 10;
+        let mut batch = Batch::new(SIZE);
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
+        let segment = Segment::from_entries(
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry,
+        );
+        for i in 0..SIZE {
+            batch.push(Gate::default(), RecordId::from(i), segment.clone());
+        }
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 1);
+        assert!(batch.inner.get(&Gate::default()).unwrap().vec.capacity() >= 1);
+        assert!(batch.inner.get(&Gate::default()).unwrap().vec.capacity() <= 2);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "record_id out of range in insert_segment. record 10 is beyond segment of length 10 starting at 0"
+    )]
+    fn batch_overflow() {
+        const SIZE: usize = 10;
+        let mut batch = Batch::new(SIZE);
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
+        let segment = Segment::from_entries(
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry.clone(),
+            segment_entry,
+        );
+        for i in 0..=SIZE {
+            batch.push(Gate::default(), RecordId::from(i), segment.clone());
         }
     }
 
