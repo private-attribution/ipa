@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{mul::semi_honest_multiply, reveal::Reveal, step::CheckZeroStep as Step},
+        basics::{malicious_reveal, mul::semi_honest_multiply, step::CheckZeroStep as Step},
         context::Context,
         prss::{FromRandom, SharedRandomness},
         RecordId,
@@ -39,6 +39,9 @@ use crate::{
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
+/// ## Panics
+/// If the full reveal of `rv_share` does not return a value, which would only happen if the
+/// reveal implementation is broken.
 pub async fn check_zero<C, F>(ctx: C, record_id: RecordId, v: &Replicated<F>) -> Result<bool, Error>
 where
     C: Context,
@@ -49,9 +52,9 @@ where
     let rv_share =
         semi_honest_multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
     let rv = F::from_array(
-        &rv_share
-            .reveal(ctx.narrow(&Step::RevealR), record_id)
-            .await?,
+        &malicious_reveal(ctx.narrow(&Step::RevealR), record_id, None, &rv_share)
+            .await?
+            .expect("full reveal should always return a value"),
     );
 
     Ok(rv == F::ZERO)

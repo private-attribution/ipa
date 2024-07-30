@@ -732,13 +732,13 @@ mod tests {
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
 
-        // Malicious protocol has an amplification factor of 3 and constant overhead of 3. For each input row it
+        // Malicious protocol has an amplification factor of 3 and constant overhead of 5. For each input row it
         // (input size) upgrades input to malicious
         // (input size) executes toy protocol
         // (input size) propagates u and w
         // (1) multiply r * share of zero
-        // (2) reveals r (1 for check_zero, 1 for validate)
-        let comm_factor = |input_size| 3 * input_size + 3;
+        // (4) reveals r (2 for check_zero, 2 for validate)
+        let comm_factor = |input_size| 3 * input_size + 5;
         let records_sent_assert = snapshot
             .assert_metric(RECORDS_SENT)
             .total(3 * comm_factor(input_size))
