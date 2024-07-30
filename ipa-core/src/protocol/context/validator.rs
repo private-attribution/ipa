@@ -170,7 +170,6 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
         // Then, the parties call `Ḟ_product` on vectors
         // `([[ᾶ_1]], . . . , [[ᾶ_N ]], [[β_1]], . . . , [[β_M]])` and `([[z_1]], . . . , [[z_N]], [[v_1]], . . . , [[v_M]])` to receive `[[ŵ]]`
         let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
-
         let random_constant = prss.generate(record_id);
         let u_contribution: F::ExtendedField =
             Self::compute_dot_product_contribution(&random_constant, input.rx());
