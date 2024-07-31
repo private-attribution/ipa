@@ -1,4 +1,4 @@
-use std::{convert::Infallible, iter, pin::Pin};
+use std::{any::type_name, convert::Infallible, iter, pin::Pin};
 
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
@@ -226,6 +226,15 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
 {
+    // Step used to add trigger values.
+    type AdditionStep = ThirtyTwoBitStep;
+    assert!(
+        OV::BITS <= AdditionStep::BITS,
+        "{} not large enough to accommodate the sum of {} bit values",
+        type_name::<AdditionStep>(),
+        OV::BITS,
+    );
+
     let mut depth = 0;
     while num_rows > 1 {
         // We reduce pairwise, passing through the odd record at the end if there is one, so the
@@ -257,12 +266,8 @@ where
                                 let a = chunk_pair.pop().unwrap();
                                 let record_id = RecordId::from(i);
                                 if a.len() < usize::try_from(OV::BITS).unwrap() {
-                                    assert!(
-                                        OV::BITS <= ThirtyTwoBitStep::BITS,
-                                        "ThirtyTwoBitStep not large enough to accommodate this sum"
-                                    );
                                     // If we have enough output bits, add and keep the carry.
-                                    let (mut sum, carry) = integer_add::<_, ThirtyTwoBitStep, B>(
+                                    let (mut sum, carry) = integer_add::<_, AdditionStep, B>(
                                         ctx.narrow(&AggregateValuesStep::Add),
                                         record_id,
                                         &a,
@@ -272,11 +277,7 @@ where
                                     sum.push(carry);
                                     Ok(sum)
                                 } else {
-                                    assert!(
-                                        OV::BITS <= ThirtyTwoBitStep::BITS,
-                                        "ThirtyTwoBitStep not large enough to accommodate this sum"
-                                    );
-                                    integer_sat_add::<C, ThirtyTwoBitStep, B>(
+                                    integer_sat_add::<C, AdditionStep, B>(
                                         ctx.narrow(&AggregateValuesStep::SaturatingAdd),
                                         record_id,
                                         &a,

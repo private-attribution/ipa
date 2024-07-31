@@ -45,7 +45,7 @@ impl<'a> DZKPUpgraded<'a> {
         Self {
             inner: DZKPUpgradedInner::new(source, batch),
             gate: source.gate().narrow(malicious_step),
-            total_records: TotalRecords::Unspecified,
+            total_records: source.total_records,
         }
     }
 }

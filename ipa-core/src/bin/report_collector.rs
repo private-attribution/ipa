@@ -256,6 +256,9 @@ async fn ipa(
     let mut key_registries = KeyRegistries::default();
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
+            // the value for histogram values (BA32) must be kept in sync with the server-side
+            // implementation, otherwise a runtime reconstruct error will be generated.
+            // see ipa-core/src/query/executor.rs
             playbook_oprf_ipa::<BA32, _>(
                 input_rows,
                 helper_clients,

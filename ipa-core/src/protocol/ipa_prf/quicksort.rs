@@ -14,7 +14,7 @@ use crate::{
     protocol::{
         basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::UpgradableContext,
+        context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
             step::{QuicksortPassStep, QuicksortStep as Step},
@@ -130,7 +130,7 @@ where
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: BooleanArray,
     <Boolean as Vectorizable<SORT_CHUNK>>::Array: Expand<Input = Boolean>,
-    AdditiveShare<Boolean, SORT_CHUNK>: BooleanProtocols<C, SORT_CHUNK>,
+    AdditiveShare<Boolean, SORT_CHUNK>: BooleanProtocols<C::DZKPUpgradedContext, SORT_CHUNK>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
@@ -164,12 +164,16 @@ where
         // num_comparisons_needed can only be zero if all of the ranges have length 1. We handled
         // this explicitly for the input; for subsequent passes, we shouldn't be generating trivial
         // ranges.
-        let total_records =
-            TotalRecords::specified(div_round_up(num_comparisons_needed, Const::<SORT_CHUNK>))
-                .expect("num_comparisons_needed should not be zero");
-        let c = ctx
+        let total_records_usize = div_round_up(num_comparisons_needed, Const::<SORT_CHUNK>);
+        let total_records = TotalRecords::specified(total_records_usize)
+            .expect("num_comparisons_needed should not be zero");
+        let v = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
-            .set_total_records(total_records);
+            .set_total_records(total_records)
+            // TODO: use something like this when validating in chunks
+            //.dzkp_validator(TARGET_PROOF_SIZE / usize::try_from(K::BITS).unwrap() / SORT_CHUNK);
+            .dzkp_validator(total_records_usize);
+        let c = v.context();
         let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
         let rvl_ctx = c.narrow(&QuicksortPassStep::Reveal);
 
@@ -188,36 +192,49 @@ where
             K::BITS <= ThirtyTwoBitStep::BITS,
             "ThirtyTwoBitStep is not large enough to accommodate this sort"
         );
-        let comp: BitVec<usize, Lsb0> = seq_join(
+        let compare_results = seq_join(
             ctx.active_work(),
             process_stream_by_chunks::<_, _, _, _, _, _, SORT_CHUNK>(
                 compare_index_pairs,
                 (Vec::new(), Vec::new()),
                 move |idx, (pivot, k)| {
                     let cmp_ctx = cmp_ctx.clone();
-                    let rvl_ctx = rvl_ctx.clone();
                     let record_id = RecordId::from(idx);
                     async move {
                         // Compare elements against pivot
-                        let comp = compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
+                        compare_gt::<_, ThirtyTwoBitStep, SORT_CHUNK>(
                             cmp_ctx, record_id, &k, &pivot,
                         )
-                        .await?;
-                        // Reveal the comparison result
-                        let revealed_comp = reveal(rvl_ctx, record_id, &comp).await?;
-
-                        // desc = true will flip the order of the sort
-                        Ok::<_, Error>(revealed_comp + !desc)
+                        .await
                     }
                 },
             ),
+        )
+        .try_collect::<Vec<_>>()
+        .await?;
+
+        // TODO: validate in chunks rather than for the entire input
+        v.validate().await?;
+
+        let revealed: BitVec<usize, Lsb0> = seq_join(
+            ctx.active_work(),
+            stream::iter(compare_results).enumerate().map(|(i, chunk)| {
+                let rvl_ctx = rvl_ctx.clone();
+                chunk.then(move |results| async move {
+                    // Reveal the comparison result
+                    let revealed_comp = reveal(rvl_ctx, RecordId::from(i), &results).await?;
+
+                    // desc = true will flip the order of the sort
+                    Ok::<_, Error>(revealed_comp + !desc)
+                })
+            }),
         )
         .try_flatten_iters()
         .map_ok(bool::from)
         .try_collect()
         .await?;
 
-        let mut comp_it = comp.into_iter();
+        let mut comp_it = revealed.into_iter();
         for mut range in ranges_to_sort.into_iter().filter(|r| r.len() >= 2) {
             let pivot_index = range.next().unwrap();
             let mut i = pivot_index + 1;
@@ -302,6 +319,53 @@ pub mod tests {
                 // compute mpc sort
                 let result: Vec<_> = world
                     .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..20])
+                            .await
+                            .unwrap();
+                        r
+                    })
+                    .await
+                    .reconstruct();
+
+                assert_eq!(
+                    // convert into more readable format
+                    result
+                        .into_iter()
+                        .map(|x| x.as_u128())
+                        .collect::<Vec<u128>>(),
+                    expected
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn test_quicksort_insecure_malicious() {
+        run(|| async move {
+            let world = TestWorld::default();
+            let mut rng = thread_rng();
+
+            // test cases for both, ascending and descending
+            let bools = vec![false, true];
+
+            for desc in bools {
+                // generate vector of random values
+                let records: Vec<TestSortKey> = repeat_with(|| rng.gen()).take(20).collect();
+
+                // convert expected into more readable format
+                let mut expected: Vec<u128> =
+                    records.clone().into_iter().map(|x| x.as_u128()).collect();
+                // sort expected
+                expected.sort_unstable();
+
+                if desc {
+                    expected.reverse();
+                }
+
+                // compute mpc sort
+                let result: Vec<_> = world
+                    .malicious(records.into_iter(), |ctx, mut r| async move {
                         #[allow(clippy::single_range_in_vec_init)]
                         quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..20])
                             .await

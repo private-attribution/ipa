@@ -114,7 +114,8 @@ pub fn execute<R: PrivateKeyRegistry>(
                 )
             },
         ),
-        // TODO(953): This is not doing anything differently than the Fp32BitPrime case.
+        // TODO(953): This is not doing anything differently than the Fp32BitPrime case, except
+        // using 16 bits for histogram values
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::OprfIpa(ipa_config), FieldType::Fp31) => do_query(
             config,
@@ -123,9 +124,13 @@ pub fn execute<R: PrivateKeyRegistry>(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<BA32, R>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+
+                    OprfIpaQuery::<crate::ff::boolean_array::BA16, R>::new(
+                        ipa_config,
+                        key_registry,
+                    )
+                    .execute(ctx, config.size, input)
+                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
