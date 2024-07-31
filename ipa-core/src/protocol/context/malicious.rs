@@ -23,11 +23,11 @@ use crate::{
             Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
-        prss::Endpoint as PrssEndpoint,
+        prss::{Endpoint as PrssEndpoint, FromPrss},
         Gate, RecordId,
     },
     secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField, ExtendableFieldSimd},
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
@@ -230,6 +230,20 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
             &self.inner.r_share * value.to_extended(),
         )
     }
+
+    /// Take a secret sharing and add it to the running MAC that this context maintains (if any).
+    pub fn accumulate_macs<const N: usize>(
+        self,
+        record_id: RecordId,
+        share: &MaliciousReplicated<F, N>,
+    ) where
+        F: ExtendableFieldSimd<N>,
+        Replicated<F::ExtendedField, N>: FromPrss,
+    {
+        self.inner
+            .accumulator
+            .accumulate_macs(&self.prss(), record_id, share);
+    }
 }
 
 #[async_trait]
@@ -348,12 +362,6 @@ impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
 /// this implementation makes it easier to reinterpret the context as semi-honest.
 impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, F> {
     type Base = Base<'a>;
-
-    fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
-        self.inner
-            .accumulator
-            .accumulate_macs(&self.prss(), record_id, x);
-    }
 
     fn base_context(self) -> Self::Base {
         self.as_base()

@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
+    ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519},
     helpers::TotalRecords,
     protocol::{
         basics::{malicious_reveal, SecureMul},
@@ -88,7 +88,7 @@ where
         ctx.narrow(&Step::GenRandomMask).prss().generate(record_id);
 
     //compute x+k
-    let mut y = x + AdditiveShare::<Fp25519, N>::expand(k);
+    let mut y = x + AdditiveShare::<Fp25519>::expand(k);
 
     //compute y <- r*y
     y = y

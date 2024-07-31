@@ -5,7 +5,7 @@ use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
-    ff::{boolean::Boolean, boolean_array::BooleanArray, Expand, Field, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::BooleanArray, Field, U128Conversions},
     helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
@@ -18,11 +18,8 @@ use crate::{
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-            ReplicatedSecretSharing,
-        },
-        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
+        replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
     seq_join::seq_join,
 };
@@ -103,10 +100,7 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let condition = Replicated::new_arr(
-            <Boolean as Vectorizable<B>>::Array::expand(&capped_label.left()),
-            <Boolean as Vectorizable<B>>::Array::expand(&capped_label.right()),
-        );
+        let condition = capped_label.expand();
         let bit_decomposed_output =
             BitDecomposed::transposed_from(&input_row.feature_vector).unwrap_infallible();
         let capped_attributed_feature_vector = bool_and_8_bit(

@@ -18,18 +18,19 @@ use crate::{
             Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext,
         },
-        prss::SharedRandomness,
+        prss::{FromPrss, SharedRandomness},
         RecordId,
     },
     secret_sharing::{
         replicated::{
             malicious::{
                 AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
+                ExtendableFieldSimd,
             },
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        SharedValue,
+        FieldSimd, SharedValue,
     },
     sharding::ShardBinding,
     sync::{Arc, Mutex, Weak},
@@ -137,21 +138,34 @@ pub struct MaliciousAccumulator<F: ExtendableField> {
 }
 
 impl<F: ExtendableField> MaliciousAccumulator<F> {
-    fn compute_dot_product_contribution(
-        a: &Replicated<F::ExtendedField>,
-        b: &Replicated<F::ExtendedField>,
-    ) -> F::ExtendedField {
-        (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
+    fn compute_dot_product_contribution<const N: usize>(
+        a: &Replicated<F::ExtendedField, N>,
+        b: &Replicated<F::ExtendedField, N>,
+    ) -> F::ExtendedField
+    where
+        F::ExtendedField: FieldSimd<N>,
+    {
+        // TODO: clones exist here to satisfy trait bounds (Add(A, &A)) and we still can't express
+        // bounds on &Self references properly. See `RefOps` trait for details
+        let vectorized_share = (a.left_arr().clone() + a.right_arr())
+            * &(b.left_arr().clone() + b.right_arr())
+            - a.right_arr().clone() * b.right_arr();
+        vectorized_share
+            .into_iter()
+            .fold(F::ExtendedField::ZERO, |acc, x| acc + x)
     }
 
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub fn accumulate_macs<I: SharedRandomness>(
+    pub fn accumulate_macs<I: SharedRandomness, const N: usize>(
         &self,
         prss: &I,
         record_id: RecordId,
-        input: &MaliciousReplicated<F>,
-    ) {
+        input: &MaliciousReplicated<F, N>,
+    ) where
+        F: ExtendableFieldSimd<N>,
+        Replicated<F::ExtendedField, N>: FromPrss,
+    {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = input.x().access_without_downgrade();
@@ -169,11 +183,10 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
         // of the output wire of the k-th multiplication gate.
         // Then, the parties call `Ḟ_product` on vectors
         // `([[ᾶ_1]], . . . , [[ᾶ_N ]], [[β_1]], . . . , [[β_M]])` and `([[z_1]], . . . , [[z_N]], [[v_1]], . . . , [[v_M]])` to receive `[[ŵ]]`
-        let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
+        let induced_share = x.induced();
         let random_constant = prss.generate(record_id);
-        let u_contribution: F::ExtendedField =
-            Self::compute_dot_product_contribution(&random_constant, input.rx());
-        let w_contribution: F::ExtendedField =
+        let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
+        let w_contribution =
             Self::compute_dot_product_contribution(&random_constant, &induced_share);
 
         let arc_mutex = self.inner.upgrade().unwrap();

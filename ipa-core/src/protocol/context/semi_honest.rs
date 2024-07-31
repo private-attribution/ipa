@@ -282,10 +282,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> SpecialAccessToUpgradedContext<F>
 {
     type Base = Base<'a, B>;
 
-    fn accumulate_macs(self, _record_id: RecordId, _x: &Replicated<F>) {
-        // noop
-    }
-
     fn base_context(self) -> Self::Base {
         self.inner
     }
