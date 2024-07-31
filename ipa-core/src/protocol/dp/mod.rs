@@ -5,7 +5,7 @@ use std::f64;
 use futures_util::{stream, StreamExt};
 
 use crate::{
-    error::{Error, LengthError},
+    error::{Error, Error::EpsilonOutOfBounds, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{query::DpMechanism, TotalRecords},
     protocol::{
@@ -209,10 +209,11 @@ where
 // per_user_credit_cap come as inputs to the query with per_user_sensitivity_cap = 2^{SS_BITS}
 /// # Errors
 /// will propogate errors from `apply_dp_noise`
+/// Will return an error epsilon is not in the range (0,`MAX_EPSILON`); we allow very large
+/// epsilons to make the noise gen circuit small enough for concurency testing to be possible.
 /// # Panics
 /// may panic from asserts down in  `gen_binomial_noise`
-/// may panic if running with DP noise but epsilon is not in the range (0,`MAX_EPSILON`); we allow very large
-/// epsilons to make the noise gen circuit small enough for concurency testing to be possible.
+///
 pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
     ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
@@ -230,10 +231,10 @@ where
     match dp_params {
         DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
         DpMechanism::Binomial { epsilon } => {
-            assert!(
-                epsilon > 0.0 && epsilon <= MAX_EPSILON,
-                "Epsilon must be between 0 and {MAX_EPSILON}"
-            );
+            if epsilon <= 0.0 || epsilon > MAX_EPSILON {
+                return Err(EpsilonOutOfBounds);
+            }
+
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
             let dimensions = f64::from(u32::try_from(B).unwrap());
 
@@ -243,7 +244,6 @@ where
                 ell_1_sensitivity: per_user_credit_cap,
                 ell_2_sensitivity: per_user_credit_cap,
                 ell_infty_sensitivity: per_user_credit_cap,
-                // dimensions: f64::from(u32::from(B)),
                 dimensions,
                 ..Default::default()
             };
