@@ -1,4 +1,6 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, future::ready, pin::Pin};
+
+use futures::{Future, FutureExt};
 
 use crate::{
     helpers::{HelperIdentity, Role, RoleAssignment},
@@ -42,19 +44,33 @@ pub trait StreamInterceptor: Send + Sync {
     /// from additive attacks without additional measures implemented
     /// at the transport layer, like checksumming, share consistency
     /// checks, etc.
-    fn peek(&self, ctx: &Self::Context, data: &mut Vec<u8>);
+    fn peek<'a>(
+        &'a self,
+        ctx: &'a Self::Context,
+        data: &'a mut Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 }
 
-impl<F: Fn(&InspectContext, &mut Vec<u8>) + Send + Sync + 'static> StreamInterceptor for F {
+impl<F> StreamInterceptor for F
+where
+    for<'a> F: Fn(&'a InspectContext, &'a mut Vec<u8>) -> Pin<Box<dyn Future<Output = ()> + Send>>
+        + Send
+        + Sync
+        + 'a,
+{
     type Context = InspectContext;
 
-    fn peek(&self, ctx: &Self::Context, data: &mut Vec<u8>) {
-        (self)(ctx, data);
+    fn peek(
+        &self,
+        ctx: &Self::Context,
+        data: &mut Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        (self)(ctx, data)
     }
 }
 
 /// The general context provided to stream inspectors.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct InspectContext {
     /// The shard index of this instance.
     /// This is `None` for non-sharded helpers.
@@ -76,7 +92,7 @@ pub struct InspectContext {
 #[inline]
 #[must_use]
 pub fn passthrough() -> Arc<dyn StreamInterceptor<Context = InspectContext>> {
-    Arc::new(|_ctx: &InspectContext, _data: &mut Vec<u8>| {})
+    Arc::new(|_ctx: &InspectContext, _data: &mut Vec<u8>| ready(()).boxed())
 }
 
 /// This narrows the implementation of stream seeker
@@ -93,7 +109,10 @@ pub struct MaliciousHelper<F> {
     inner: F,
 }
 
-impl<F: Fn(&MaliciousHelperContext, &mut Vec<u8>) + Send + Sync> MaliciousHelper<F> {
+impl<F> MaliciousHelper<F>
+where
+    F: Fn(MaliciousHelperContext, &mut Vec<u8>) -> Pin<Box<dyn Future<Output = ()> + Send>>,
+{
     pub fn new(role: Role, role_assignment: &RoleAssignment, peeker: F) -> Arc<Self> {
         Arc::new(Self {
             identity: role_assignment.identity(role),
@@ -131,14 +150,23 @@ pub struct MaliciousHelperContext {
     pub gate: Gate,
 }
 
-impl<F: Fn(&MaliciousHelperContext, &mut Vec<u8>) + Send + Sync> StreamInterceptor
-    for MaliciousHelper<F>
+impl<F> StreamInterceptor for MaliciousHelper<F>
+where
+    F: Fn(MaliciousHelperContext, &mut Vec<u8>) -> Pin<Box<dyn Future<Output = ()> + Send>>
+        + Send
+        + Sync,
 {
     type Context = InspectContext;
 
-    fn peek(&self, ctx: &Self::Context, data: &mut Vec<u8>) {
+    fn peek(
+        &self,
+        ctx: &Self::Context,
+        data: &mut Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         if ctx.identity == self.identity {
-            (self.inner)(&self.context(ctx), data);
+            (self.inner)(self.context(ctx), data)
+        } else {
+            ready(()).boxed()
         }
     }
 }

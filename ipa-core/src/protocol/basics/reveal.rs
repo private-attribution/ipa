@@ -207,6 +207,7 @@ where
         )
         .await?;
 
+        tracing::info!("reveal ({:?}): left {left:?} right {right:?} from left {share_from_left:?} from right {share_from_right:?}", ctx.role());
         if share_from_left == share_from_right {
             Ok(Some(share_from_left + left + right))
         } else {
@@ -305,9 +306,9 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::zip;
+    use std::{future::ready, iter::zip};
 
-    use futures::future::join_all;
+    use futures::{future::join_all, FutureExt};
 
     use crate::{
         error::Error,
@@ -510,6 +511,7 @@ mod tests {
                         let v = Fp31::deserialize_from_slice(data) + Fp31::ONE;
                         v.serialize_to_slice(data);
                     }
+                    ready(()).boxed()
                 });
 
             let world = TestWorld::new_with(config);

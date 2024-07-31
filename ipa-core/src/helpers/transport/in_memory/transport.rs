@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Formatter},
+    future::ready,
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -12,7 +13,7 @@ use ::tokio::sync::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_stream::wrappers::ReceiverStream;
@@ -21,8 +22,7 @@ use tracing::Instrument;
 use crate::{
     error::BoxError,
     helpers::{
-        in_memory_config,
-        in_memory_config::DynStreamInterceptor,
+        in_memory_config::{self, DynStreamInterceptor},
         transport::{
             in_memory::config::InspectContext,
             routing::{Addr, RouteId},
@@ -195,12 +195,16 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         channel
             .send((
                 addr,
-                InMemoryStream::wrap(data.map({
-                    move |mut chunk| {
-                        if let Some(ref context) = context {
-                            this.config.stream_interceptor.peek(context, &mut chunk);
+                InMemoryStream::wrap(data.then(move |mut chunk| {
+                    let interceptor = Arc::clone(&this.config.stream_interceptor);
+                    if let Some(context) = context.clone() {
+                        async move {
+                            interceptor.peek(&context, &mut chunk).await;
+                            Ok(Bytes::from(chunk))
                         }
-                        Ok(Bytes::from(chunk))
+                        .boxed()
+                    } else {
+                        ready(Ok(Bytes::from(chunk))).boxed()
                     }
                 })),
                 ack_tx,

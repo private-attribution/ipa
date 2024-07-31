@@ -750,9 +750,11 @@ impl<const SEED: u64> Distribute for Random<SEED> {
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
+        future::ready,
         sync::{Arc, Mutex},
     };
 
+    use futures::FutureExt;
     use futures_util::future::try_join4;
 
     use crate::{
@@ -847,10 +849,11 @@ mod tests {
             config.stream_interceptor = MaliciousHelper::new(
                 Role::H1,
                 config.role_assignment(),
-                |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
+                |ctx: MaliciousHelperContext, data: &mut Vec<u8>| {
                     if ctx.gate.as_ref().contains(STEP) {
                         corrupt_byte(&mut data[0]);
                     }
+                    ready(()).boxed()
                 },
             );
 
