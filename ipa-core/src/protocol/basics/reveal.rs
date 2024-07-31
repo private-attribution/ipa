@@ -5,9 +5,13 @@ use futures::TryFutureExt;
 
 use crate::{
     error::Error,
+    ff::boolean::Boolean,
     helpers::{Direction, MaybeFuture, Role},
     protocol::{
-        context::{Context, UpgradedMaliciousContext},
+        context::{
+            Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext,
+        },
         RecordId,
     },
     secret_sharing::{
@@ -17,6 +21,7 @@ use crate::{
         },
         SharedValue, Vectorizable,
     },
+    sharding::ShardBinding,
 };
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
@@ -80,41 +85,77 @@ pub trait Reveal<C: Context, const N: usize>: Sized {
 /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
 /// i.e. their own shares and received share.
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
-    for Replicated<V, N>
+pub async fn semi_honest_reveal<'fut, C, V, const N: usize>(
+    ctx: C,
+    record_id: RecordId,
+    excluded: Option<Role>,
+    share: &'fut Replicated<V, N>,
+) -> Result<Option<<V as Vectorizable<N>>::Array>, Error>
+where
+    C: Context + 'fut,
+    V: SharedValue + Vectorizable<N>,
+{
+    let left = share.left_arr();
+    let right = share.right_arr();
+
+    // Send shares, unless the target helper is excluded
+    if Some(ctx.role().peer(Direction::Right)) != excluded {
+        ctx.send_channel::<<V as Vectorizable<N>>::Array>(ctx.role().peer(Direction::Right))
+            .send(record_id, left)
+            .await?;
+    }
+
+    if Some(ctx.role()) == excluded {
+        Ok(None)
+    } else {
+        // Sleep until `helper's left` sends their share
+        let share: <V as Vectorizable<N>>::Array = ctx
+            .recv_channel(ctx.role().peer(Direction::Left))
+            .receive(record_id)
+            .await?;
+
+        Ok(Some(share + left + right))
+    }
+}
+
+impl<'a, B, V, const N: usize> Reveal<UpgradedSemiHonestContext<'a, B, V>, N> for Replicated<V, N>
+where
+    B: ShardBinding,
+    V: SharedValue + Vectorizable<N> + ExtendableField,
 {
     type Output = <V as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
-        ctx: C,
+        ctx: UpgradedSemiHonestContext<'a, B, V>,
         record_id: RecordId,
         excluded: Option<Role>,
-    ) -> Result<Option<<V as Vectorizable<N>>::Array>, Error>
+    ) -> Result<Option<Self::Output>, Error>
     where
-        C: 'fut,
+        UpgradedSemiHonestContext<'a, B, V>: 'fut,
     {
-        let left = self.left_arr();
-        let right = self.right_arr();
+        semi_honest_reveal(ctx, record_id, excluded, self).await
+    }
+}
 
-        // Send shares, unless the target helper is excluded
-        if Some(ctx.role().peer(Direction::Right)) != excluded {
-            ctx.send_channel::<<V as Vectorizable<N>>::Array>(ctx.role().peer(Direction::Right))
-                .send(record_id, left)
-                .await?;
-        }
+impl<'a, B, const N: usize> Reveal<DZKPUpgradedSemiHonestContext<'a, B>, N>
+    for Replicated<Boolean, N>
+where
+    B: ShardBinding,
+    Boolean: Vectorizable<N>,
+{
+    type Output = <Boolean as Vectorizable<N>>::Array;
 
-        if Some(ctx.role()) == excluded {
-            Ok(None)
-        } else {
-            // Sleep until `helper's left` sends their share
-            let share: <V as Vectorizable<N>>::Array = ctx
-                .recv_channel(ctx.role().peer(Direction::Left))
-                .receive(record_id)
-                .await?;
-
-            Ok(Some(share + left + right))
-        }
+    async fn generic_reveal<'fut>(
+        &'fut self,
+        ctx: DZKPUpgradedSemiHonestContext<'a, B>,
+        record_id: RecordId,
+        excluded: Option<Role>,
+    ) -> Result<Option<Self::Output>, Error>
+    where
+        DZKPUpgradedSemiHonestContext<'a, B>: 'fut,
+    {
+        semi_honest_reveal(ctx, record_id, excluded, self).await
     }
 }
 
@@ -122,7 +163,63 @@ impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
 /// It works similarly to semi-honest reveal, the key difference is that each helper sends its share
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
-impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, 1> for MaliciousReplicated<F> {
+pub async fn malicious_reveal<'fut, C, V, const N: usize>(
+    ctx: C,
+    record_id: RecordId,
+    excluded: Option<Role>,
+    share: &'fut Replicated<V, N>,
+) -> Result<Option<<V as Vectorizable<N>>::Array>, Error>
+where
+    C: Context + 'fut,
+    V: SharedValue + Vectorizable<N>,
+{
+    use futures::future::try_join;
+
+    let left = share.left_arr();
+    let right = share.right_arr();
+    let left_sender =
+        ctx.send_channel::<<V as Vectorizable<N>>::Array>(ctx.role().peer(Direction::Left));
+    let left_receiver =
+        ctx.recv_channel::<<V as Vectorizable<N>>::Array>(ctx.role().peer(Direction::Left));
+    let right_sender =
+        ctx.send_channel::<<V as Vectorizable<N>>::Array>(ctx.role().peer(Direction::Right));
+    let right_receiver =
+        ctx.recv_channel::<<V as Vectorizable<N>>::Array>(ctx.role().peer(Direction::Right));
+
+    // Send shares to the left and right helpers, unless excluded.
+    let send_left_fut =
+        MaybeFuture::future_or_ok(Some(ctx.role().peer(Direction::Left)) != excluded, || {
+            left_sender.send(record_id, right)
+        });
+
+    let send_right_fut =
+        MaybeFuture::future_or_ok(Some(ctx.role().peer(Direction::Right)) != excluded, || {
+            right_sender.send(record_id, left)
+        });
+    try_join(send_left_fut, send_right_fut).await?;
+
+    if Some(ctx.role()) == excluded {
+        Ok(None)
+    } else {
+        let (share_from_left, share_from_right) = try_join(
+            left_receiver.receive(record_id),
+            right_receiver.receive(record_id),
+        )
+        .await?;
+
+        tracing::info!("reveal ({:?}): left {left:?} right {right:?} from left {share_from_left:?} from right {share_from_right:?}", ctx.role());
+        if share_from_left == share_from_right {
+            Ok(Some(share_from_left + left + right))
+        } else {
+            Err(Error::MaliciousRevealFailed)
+        }
+    }
+}
+
+impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>, 1> for Replicated<F>
+where
+    F: ExtendableField,
+{
     type Output = <F as Vectorizable<1>>::Array;
 
     async fn generic_reveal<'fut>(
@@ -134,43 +231,48 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, 1> for Mali
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
-        use futures::future::try_join;
+        malicious_reveal(ctx, record_id, excluded, self).await
+    }
+}
 
+impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>, 1> for MaliciousReplicated<F>
+where
+    F: ExtendableField,
+{
+    type Output = <F as Vectorizable<1>>::Array;
+
+    async fn generic_reveal<'fut>(
+        &'fut self,
+        ctx: UpgradedMaliciousContext<'a, F>,
+        record_id: RecordId,
+        excluded: Option<Role>,
+    ) -> Result<Option<<F as Vectorizable<1>>::Array>, Error>
+    where
+        UpgradedMaliciousContext<'a, F>: 'fut,
+    {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
-        let (left, right) = self.x().access_without_downgrade().as_tuple();
-        let left_sender = ctx.send_channel(ctx.role().peer(Direction::Left));
-        let left_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Left));
-        let right_sender = ctx.send_channel(ctx.role().peer(Direction::Right));
-        let right_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Right));
+        let x_share = self.x().access_without_downgrade();
+        malicious_reveal(ctx, record_id, excluded, x_share).await
+    }
+}
 
-        // Send shares to the left and right helpers, unless excluded.
-        let send_left_fut =
-            MaybeFuture::future_or_ok(Some(ctx.role().peer(Direction::Left)) != excluded, || {
-                left_sender.send(record_id, right)
-            });
+impl<'a, const N: usize> Reveal<DZKPUpgradedMaliciousContext<'a>, N> for Replicated<Boolean, N>
+where
+    Boolean: Vectorizable<N>,
+{
+    type Output = <Boolean as Vectorizable<N>>::Array;
 
-        let send_right_fut =
-            MaybeFuture::future_or_ok(Some(ctx.role().peer(Direction::Right)) != excluded, || {
-                right_sender.send(record_id, left)
-            });
-        try_join(send_left_fut, send_right_fut).await?;
-
-        if Some(ctx.role()) == excluded {
-            Ok(None)
-        } else {
-            let (share_from_left, share_from_right) = try_join(
-                left_receiver.receive(record_id),
-                right_receiver.receive(record_id),
-            )
-            .await?;
-
-            if share_from_left == share_from_right {
-                Ok(Some((left + right + share_from_left).into_array()))
-            } else {
-                Err(Error::MaliciousRevealFailed)
-            }
-        }
+    async fn generic_reveal<'fut>(
+        &'fut self,
+        ctx: DZKPUpgradedMaliciousContext<'a>,
+        record_id: RecordId,
+        excluded: Option<Role>,
+    ) -> Result<Option<Self::Output>, Error>
+    where
+        DZKPUpgradedMaliciousContext<'a>: 'fut,
+    {
+        malicious_reveal(ctx, record_id, excluded, self).await
     }
 }
 
@@ -204,9 +306,9 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::zip;
+    use std::{future::ready, iter::zip};
 
-    use futures::future::join_all;
+    use futures::{future::join_all, FutureExt};
 
     use crate::{
         error::Error,
@@ -232,7 +334,7 @@ mod tests {
 
         let input = rng.gen::<TestField>();
         let results = world
-            .semi_honest(input, |ctx, share| async move {
+            .upgraded_semi_honest(input, |ctx, share| async move {
                 TestField::from_array(
                     &share
                         .reveal(ctx.set_total_records(1), RecordId::from(0))
@@ -259,7 +361,7 @@ mod tests {
         for &excluded in Role::all() {
             let input = rng.gen::<TestField>();
             let results = world
-                .semi_honest(input, |ctx, share| async move {
+                .upgraded_semi_honest(input, |ctx, share| async move {
                     share
                         .partial_reveal(ctx.set_total_records(1), RecordId::from(0), excluded)
                         .await
@@ -289,7 +391,7 @@ mod tests {
 
         let input = rng.gen::<TestField>();
         let results = world
-            .semi_honest(
+            .upgraded_semi_honest(
                 input,
                 |ctx, share: AdditiveShare<Fp32BitPrime, 32>| async move {
                     share
@@ -409,6 +511,7 @@ mod tests {
                         let v = Fp31::deserialize_from_slice(data) + Fp31::ONE;
                         v.serialize_to_slice(data);
                     }
+                    ready(()).boxed()
                 });
 
             let world = TestWorld::new_with(config);

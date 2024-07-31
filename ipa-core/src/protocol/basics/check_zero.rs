@@ -2,13 +2,17 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{mul::semi_honest_multiply, reveal::Reveal, step::CheckZeroStep as Step},
+        basics::{malicious_reveal, mul::semi_honest_multiply, step::CheckZeroStep as Step},
         context::Context,
         prss::{FromRandom, SharedRandomness},
         RecordId,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
+
+#[cfg(test)]
+static SH1: once_cell::sync::Lazy<tests::NotifyOnceCell<crate::ff::Fp32BitPrime>> =
+    once_cell::sync::Lazy::new(|| tests::NotifyOnceCell::new());
 
 /// A very simple protocol to check if a replicated secret sharing is a sharing of zero.
 ///
@@ -39,6 +43,9 @@ use crate::{
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
+/// ## Panics
+/// If the full reveal of `rv_share` does not return a value, which would only happen if the
+/// reveal implementation is broken.
 pub async fn check_zero<C, F>(ctx: C, record_id: RecordId, v: &Replicated<F>) -> Result<bool, Error>
 where
     C: Context,
@@ -48,26 +55,82 @@ where
 
     let rv_share =
         semi_honest_multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
+    tracing::info!("{:?}", &rv_share);
     let rv = F::from_array(
-        &rv_share
-            .reveal(ctx.narrow(&Step::RevealR), record_id)
-            .await?,
+        &malicious_reveal(ctx.narrow(&Step::RevealR), record_id, None, &rv_share)
+            .await?
+            .expect("full reveal should always return a value"),
     );
 
+    tracing::info!("{:?}", &rv);
     Ok(rv == F::ZERO)
+}
+
+#[cfg(test)]
+pub async fn check_zero_fp32bitprime<C>(
+    ctx: C,
+    record_id: RecordId,
+    v: &Replicated<crate::ff::Fp32BitPrime>,
+) -> Result<bool, Error>
+where
+    C: Context,
+{
+    use crate::{
+        ff::Fp32BitPrime,
+        secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
+    };
+
+    let r_sharing: Replicated<Fp32BitPrime> = ctx.prss().generate(record_id);
+
+    let rv_share =
+        semi_honest_multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
+    tracing::info!("{:?}", &rv_share);
+    if ctx.role() == crate::helpers::Role::H1 {
+        SH1.set(rv_share.right()).unwrap();
+        tracing::info!("sent sh1 = {:?}", rv_share.right());
+    }
+    let rv = Fp32BitPrime::from_array(
+        &malicious_reveal(ctx.narrow(&Step::RevealR), record_id, None, &rv_share)
+            .await?
+            .expect("full reveal should always return a value"),
+    );
+
+    Ok(rv == Fp32BitPrime::ZERO)
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use futures_util::future::try_join3;
+    use std::{
+        future::ready,
+        pin::Pin,
+        sync::{Arc, Mutex},
+    };
+
+    use futures::{
+        future::{join, try_join3},
+        Future, FutureExt,
+    };
+    use generic_array::GenericArray;
+    use once_cell::sync::OnceCell;
+    use rand::Rng;
+    use tokio::sync::Notify;
+    use typenum::U4;
 
     use crate::{
         error::Error,
-        ff::{Fp31, PrimeField, U128Conversions},
-        protocol::{basics::check_zero, context::Context, RecordId},
+        ff::{Fp31, Fp32BitPrime, PrimeField, Serializable, U128Conversions},
+        helpers::{
+            in_memory_config::{InspectContext, StreamInterceptor},
+            HelperIdentity, TransportIdentity,
+        },
+        protocol::{
+            basics::check_zero::{check_zero, check_zero_fp32bitprime},
+            context::Context,
+            RecordId,
+        },
         rand::thread_rng,
         secret_sharing::{IntoShares, SharedValue},
-        test_fixture::TestWorld,
+        test_fixture::{Runner, TestWorld, TestWorldConfig},
     };
 
     #[tokio::test]
@@ -123,5 +186,123 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    pub struct NotifyOnceCell<T: Clone + Send + Sync> {
+        inner: Mutex<NotifyOnceCellInner<T>>,
+    }
+
+    struct NotifyOnceCellInner<T: Clone + Send + Sync> {
+        cell: OnceCell<T>,
+        notify: Arc<Notify>,
+    }
+
+    impl<T: Clone + Send + Sync> NotifyOnceCell<T> {
+        pub fn new() -> Self {
+            Self {
+                inner: Mutex::new(NotifyOnceCellInner {
+                    cell: OnceCell::new(),
+                    notify: Arc::new(Notify::new()),
+                }),
+            }
+        }
+
+        pub fn set(&self, value: T) -> Result<(), T> {
+            let inner = self.inner.lock().unwrap();
+            inner.cell.set(value)?;
+            inner.notify.notify_waiters();
+            Ok(())
+        }
+
+        pub fn get(&self) -> Pin<Box<dyn Future<Output = T> + Send + '_>> {
+            let inner = self.inner.lock().unwrap();
+            if let Some(value) = inner.cell.get() {
+                return ready(value.clone()).boxed();
+            }
+            let notify = inner.notify.clone();
+            async move {
+                notify.notified().await;
+                self.inner.lock().unwrap().cell.get().unwrap().clone()
+            }
+            .boxed()
+        }
+    }
+
+    struct MaliciousCheckZeroInterceptor {
+        sh2: NotifyOnceCell<Fp32BitPrime>,
+    }
+
+    impl MaliciousCheckZeroInterceptor {
+        fn new() -> Self {
+            Self {
+                sh2: NotifyOnceCell::new(),
+            }
+        }
+    }
+
+    impl StreamInterceptor for MaliciousCheckZeroInterceptor {
+        type Context = InspectContext;
+
+        fn peek<'a>(
+            &'a self,
+            ctx: &'a Self::Context,
+            data: &'a mut Vec<u8>,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+            if ctx
+                .gate
+                .as_ref()
+                .contains(super::Step::MultiplyWithR.as_ref())
+                && ctx.identity == HelperIdentity::ONE
+                || ctx.gate.as_ref().contains(super::Step::RevealR.as_ref())
+                    && ctx.identity == HelperIdentity::ONE
+                    && ctx.dest == HelperIdentity::TWO.as_str()
+            {
+                async {
+                    assert_eq!(data.len(), 4);
+                    let (sh1, sh2) = join(super::SH1.get(), self.sh2.get()).await;
+                    tracing::info!("got shares: {sh1:?} {sh2:?}");
+                    let adjusted_share = -sh1 - sh2;
+                    tracing::info!("adjusted share {adjusted_share:?}");
+                    adjusted_share.serialize(
+                        <&mut GenericArray<u8, U4>>::try_from(data.as_mut_slice()).unwrap(),
+                    );
+                }
+                .boxed()
+            } else if ctx.gate.as_ref().contains(super::Step::RevealR.as_ref())
+                && ctx.identity == HelperIdentity::TWO
+                && ctx.dest == HelperIdentity::ONE.as_str()
+            {
+                assert_eq!(data.len(), 4);
+                let sh2 = Fp32BitPrime::deserialize_unchecked(
+                    <&GenericArray<u8, U4>>::try_from(data.as_slice()).unwrap(),
+                );
+                self.sh2.set(sh2).unwrap();
+                tracing::info!("sent sh2 = {sh2:?}");
+                ready(()).boxed()
+            } else {
+                ready(()).boxed()
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn malicious_check_zero() {
+        let mut config = TestWorldConfig::default();
+        config.stream_interceptor = Arc::new(MaliciousCheckZeroInterceptor::new());
+        let world = TestWorld::new_with(&config);
+        let mut rng = thread_rng();
+        let v = rng.gen::<Fp32BitPrime>();
+
+        let [res0, res1, res2] = world
+            .semi_honest(v, |ctx, v| async move {
+                check_zero_fp32bitprime(ctx.set_total_records(1), RecordId::FIRST, &v)
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+        assert_eq!(res0, false, "zero check failed on H1");
+        assert_eq!(res1, false, "zero check failed on H2");
+        assert_eq!(res2, false, "zero check failed on H3");
     }
 }

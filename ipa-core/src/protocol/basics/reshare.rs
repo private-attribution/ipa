@@ -200,6 +200,9 @@ mod tests {
 
     mod malicious {
 
+        use std::future::ready;
+
+        use futures::FutureExt;
         use rand::{distributions::Standard, prelude::Distribution};
 
         use crate::{
@@ -290,6 +293,7 @@ mod tests {
                                     corrupt(data, small_value);
                                 }
                             }
+                            ready(()).boxed()
                         },
                     );
                     let world = TestWorld::new_with(&config);

@@ -5,7 +5,7 @@ use crate::{
     ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
     helpers::TotalRecords,
     protocol::{
-        basics::{Reveal, SecureMul},
+        basics::{malicious_reveal, SecureMul},
         context::Context,
         ipa_prf::step::PrfStep as Step,
         prss::{FromPrss, SharedRandomness},
@@ -99,8 +99,14 @@ where
     let sh_gr = AdditiveShare::<RP25519, N>::from(sh_r);
 
     //reconstruct (z,R)
-    let gr = sh_gr.reveal(ctx.narrow(&Step::RevealR), record_id).await?;
-    let z = y.reveal(ctx.narrow(&Step::Revealz), record_id).await?;
+    // TODO: these should invoke reveal via the trait when this function
+    // takes a context of an appropriate type.
+    let gr = malicious_reveal(ctx.narrow(&Step::RevealR), record_id, None, &sh_gr)
+        .await?
+        .unwrap();
+    let z = malicious_reveal(ctx.narrow(&Step::Revealz), record_id, None, &y)
+        .await?
+        .unwrap();
 
     //compute R^(1/z) to u64
     Ok(zip(gr, z)
