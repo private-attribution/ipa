@@ -272,6 +272,7 @@ pub async fn test_oprf_ipa<F>(
                 ell_1_sensitivity: per_user_credit_cap_f64,
                 ell_2_sensitivity: per_user_credit_cap_f64,
                 ell_infty_sensitivity: per_user_credit_cap_f64,
+                dimensions: 256.0, // matches hard coded dimension in oprf_ipa.rs/execute
                 ..Default::default()
             };
             let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
