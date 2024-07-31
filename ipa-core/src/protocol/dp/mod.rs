@@ -126,6 +126,7 @@ impl NoiseParams {
 pub async fn gen_binomial_noise<C, const B: usize, OV>(
     ctx: C,
     num_bernoulli: u32,
+    histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: Context,
@@ -155,11 +156,12 @@ where
         vector_input_to_agg.push(element);
     }
     // Step 2: Convert to input from needed for aggregate_values
-    let aggregation_input = Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
+    // let aggregation_input = Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
-    let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> =
-        aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli as usize).await;
-    noise_vector
+    // let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> =
+    //     aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli as usize).await;
+    // noise_vector
+    Ok(histogram_bin_values)
 }
 /// `apply_dp_noise` takes the noise distribution parameters (`num_bernoulli` and in the future `quantization_scale`)
 /// and the vector of values to have noise added to.
@@ -183,9 +185,10 @@ where
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let noise_gen_ctx = ctx.narrow(&DPStep::NoiseGen);
-    let noise_vector = gen_binomial_noise::<C, B, OV>(noise_gen_ctx, num_bernoulli)
-        .await
-        .unwrap();
+    let noise_vector =
+        gen_binomial_noise::<C, B, OV>(noise_gen_ctx, num_bernoulli, histogram_bin_values.clone())
+            .await
+            .unwrap();
     // Step 4:  Add DP noise to output values
     let apply_noise_ctx = ctx
         .narrow(&DPStep::ApplyNoise)
