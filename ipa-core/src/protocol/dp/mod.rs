@@ -9,7 +9,7 @@ use crate::{
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{query::DpMechanism, TotalRecords},
     protocol::{
-        boolean::step::SixteenBitStep,
+        boolean::step::ThirtyTwoBitStep,
         context::Context,
         dp::step::DPStep,
         ipa_prf::{aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add},
@@ -190,7 +190,7 @@ where
     let apply_noise_ctx = ctx
         .narrow(&DPStep::ApplyNoise)
         .set_total_records(TotalRecords::ONE);
-    let (histogram_noised, _) = integer_add::<_, SixteenBitStep, B>(
+    let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
         apply_noise_ctx,
         RecordId::FIRST,
         &noise_vector,
