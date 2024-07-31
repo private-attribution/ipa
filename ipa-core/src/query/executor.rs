@@ -124,7 +124,6 @@ pub fn execute<R: PrivateKeyRegistry>(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-
                     OprfIpaQuery::<crate::ff::boolean_array::BA16, R>::new(
                         ipa_config,
                         key_registry,

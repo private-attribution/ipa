@@ -106,6 +106,7 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
             ell_1_sensitivity: per_user_credit_cap.into(),
             ell_2_sensitivity: per_user_credit_cap.into(),
             ell_infty_sensitivity: per_user_credit_cap.into(),
+            dimensions: 256.0, // matches the hard coded number of breakdown keys in oprf_ipa.rs/execute
             ..Default::default()
         };
 
