@@ -19,9 +19,10 @@ use crate::{
     },
     protocol::{
         context::{
-            Context, MaliciousContext, SemiHonestContext, ShardedSemiHonestContext,
-            UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator,
+            dzkp_validator::DZKPValidator, Context, DZKPUpgradedMaliciousContext, MaliciousContext,
+            SemiHonestContext, ShardedSemiHonestContext, UpgradableContext, UpgradeContext,
+            UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, QueryId,
@@ -418,6 +419,15 @@ pub trait Runner<S: ShardingScheme> {
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
+
+    /// Run with a context that has already been upgraded to malicious.
+    async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send;
 }
 
 /// Separate a length-3 array of tuples (T, U, V) into a tuple of length-3
@@ -510,6 +520,18 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
+    {
+        unimplemented!()
+    }
+
+    /// Run with a context that has already been upgraded to malicious.
+    async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
     {
         unimplemented!()
     }
@@ -613,6 +635,25 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         m_results.validate(r);
 
         output
+    }
+
+    /// Run with a context that has already been upgraded to malicious.
+    async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: (Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R) + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        self.malicious(input, |ctx, share| async {
+            let v = ctx.dzkp_validator(10);
+            let m_ctx = v.context();
+            let m_result = helper_fn(m_ctx, share).await;
+            v.validate().await.unwrap();
+            m_result
+        })
+        .await
     }
 }
 
