@@ -9,7 +9,6 @@ pub mod step;
 
 use std::ops::Not;
 
-pub use check_zero::check_zero;
 pub use if_else::select;
 pub use mul::{BooleanArrayMul, SecureMul};
 pub use reshare::Reshare;

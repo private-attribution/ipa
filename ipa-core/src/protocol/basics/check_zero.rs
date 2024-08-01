@@ -31,7 +31,7 @@ use crate::{
 /// 2.) If the randomly chosen value `r` is any other value in the field aside from zero, then the revealed value will NOT be zero.
 ///
 /// Clearly, the accuracy of this protocol is highly dependent on the field that is used.
-/// In a large field, like the integers modulo 2^31 - 1, the odds of `check_zero` returning "true"
+/// In a large field, like the integers modulo 2^31 - 1, the odds of `malicious_check_zero` returning "true"
 /// when `v` is NOT actually a sharing of zero is extrmely small; it is less than one two billion odds.
 /// In a silly field, like our test field of the integers modulo 31, the odds are very good. It'll incorrectly return "true"
 /// about 3.2% of the time.
@@ -42,7 +42,11 @@ use crate::{
 /// ## Panics
 /// If the full reveal of `rv_share` does not return a value, which would only happen if the
 /// reveal implementation is broken.
-pub async fn check_zero<C, F>(ctx: C, record_id: RecordId, v: &Replicated<F>) -> Result<bool, Error>
+pub async fn malicious_check_zero<C, F>(
+    ctx: C,
+    record_id: RecordId,
+    v: &Replicated<F>,
+) -> Result<bool, Error>
 where
     C: Context,
     F: Field + FromRandom,
@@ -64,10 +68,11 @@ where
 mod tests {
     use futures_util::future::try_join3;
 
+    use super::malicious_check_zero;
     use crate::{
         error::Error,
         ff::{Fp31, PrimeField, U128Conversions},
-        protocol::{basics::check_zero, context::Context, RecordId},
+        protocol::{context::Context, RecordId},
         rand::thread_rng,
         secret_sharing::{IntoShares, SharedValue},
         test_fixture::TestWorld,
@@ -90,9 +95,9 @@ mod tests {
                 counter += 1;
 
                 let protocol_output = try_join3(
-                    check_zero(context[0].narrow(&iteration), record_id, &v_shares[0]),
-                    check_zero(context[1].narrow(&iteration), record_id, &v_shares[1]),
-                    check_zero(context[2].narrow(&iteration), record_id, &v_shares[2]),
+                    malicious_check_zero(context[0].narrow(&iteration), record_id, &v_shares[0]),
+                    malicious_check_zero(context[1].narrow(&iteration), record_id, &v_shares[1]),
+                    malicious_check_zero(context[2].narrow(&iteration), record_id, &v_shares[2]),
                 )
                 .await?;
 

@@ -12,7 +12,7 @@ use crate::{
     ff::Field,
     helpers::{Direction, TotalRecords},
     protocol::{
-        basics::malicious_reveal,
+        basics::{check_zero::malicious_check_zero, malicious_reveal},
         context::{
             step::{MaliciousProtocolStep as Step, ValidateStep},
             Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
@@ -232,8 +232,7 @@ where
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
             .set_total_records(TotalRecords::ONE);
-        let is_valid =
-            crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
+        let is_valid = malicious_check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.

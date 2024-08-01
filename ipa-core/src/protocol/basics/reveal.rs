@@ -517,6 +517,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::ptr_arg)] // to match StreamInterceptor trait
     fn interceptor<F: Field>(ctx: &MaliciousHelperContext, data: &mut Vec<u8>) {
         // H3 runs an additive attack against H1 (on the right) by
         // adding a 1 to the left part of share it is holding
@@ -538,9 +539,7 @@ mod tests {
             let world = TestWorld::new_with(config);
             let input: Fp31 = rng.gen();
             world
-                .upgraded_malicious(input, |ctx, share| async move {
-                    do_malicious_reveal(ctx, partial, share).await
-                })
+                .upgraded_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
                 .await;
         });
     }
@@ -557,9 +556,7 @@ mod tests {
             let world = TestWorld::new_with(config);
             let input: Fp31 = rng.gen();
             world
-                .upgraded_malicious(input, move |ctx, share| {
-                    do_malicious_reveal(ctx, partial, share)
-                })
+                .upgraded_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
                 .await;
         });
     }
@@ -576,9 +573,7 @@ mod tests {
             let world = TestWorld::new_with(config);
             let input: Boolean = rng.gen();
             world
-                .dzkp_malicious(input, |ctx, share| async move {
-                    do_malicious_reveal(ctx, partial, share).await
-                })
+                .dzkp_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
                 .await;
         });
     }
@@ -595,9 +590,7 @@ mod tests {
             let world = TestWorld::new_with(config);
             let input: Boolean = rng.gen();
             world
-                .dzkp_malicious(input, move |ctx, share| {
-                    do_malicious_reveal(ctx, partial, share)
-                })
+                .dzkp_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
                 .await;
         });
     }
