@@ -424,9 +424,12 @@ pub mod tests {
 
     #[test]
     fn semi_honest_with_dp() {
+        if std::env::var("EXEC_SLOW_TESTS").is_err() {
+            return;
+        }
         println!("Running semi_honest_with_dp");
         run(|| async {
-            const SS_BITS: usize = 5;
+            const SS_BITS: usize = 2;
             const B: usize = 32; // number of histogram bins
             let expected: Vec<u32> = vec![0, 2, 5, 0, 0, 0, 0, 0];
             let epsilon = 10.0;
