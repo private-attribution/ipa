@@ -39,7 +39,7 @@ use crate::{
 /// difficulty of resolving `V` vs. `[V; 1]` issues for the known value type. `Reshare` hasn't been
 /// attempted.)
 pub trait BasicProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N: usize = 1>:
-    SecretSharing<V> + Reveal<C, N, Output = <V as Vectorizable<N>>::Array> + SecureMul<C> + FromPrss
+    SecretSharing<V> + Reveal<C, Output = <V as Vectorizable<N>>::Array> + SecureMul<C> + FromPrss
 {
 }
 
@@ -60,7 +60,7 @@ impl<'a, B: ShardBinding>
 /// Adds the requirement that the type implements `Not`.
 pub trait BooleanProtocols<C: Context, const N: usize = 1>:
     SecretSharing<Boolean>
-    + Reveal<C, N, Output = <Boolean as Vectorizable<N>>::Array>
+    + Reveal<C, Output = <Boolean as Vectorizable<N>>::Array>
     + SecureMul<C>
     + Not<Output = Self>
 where
