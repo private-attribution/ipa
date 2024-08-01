@@ -78,7 +78,7 @@ impl NoiseParams {
         ell_infty_sensitivity: f64,
     ) -> Result<NoiseParams, String> {
         if epsilon <= 0.0 {
-            return Err("epsilon must be < 0.0".to_string());
+            return Err("epsilon must be > 0.0".to_string());
         }
         if delta != 0.0 {
             return Err("delta must be > 0.0".to_string());

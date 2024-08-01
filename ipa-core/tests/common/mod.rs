@@ -271,11 +271,11 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
 
     match config.with_dp {
         0 => {
-            command.args(["--with-dp", &0_u32.to_string()]);
+            command.args(["--with-dp", &config.with_dp.to_string()]);
         }
         _ => {
             command
-                .args(["--with-dp", &1_u32.to_string()])
+                .args(["--with-dp", &config.with_dp.to_string()])
                 .args(["--epsilon", &config.epsilon.to_string()]);
         }
     }

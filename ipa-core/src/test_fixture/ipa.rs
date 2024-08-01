@@ -278,22 +278,11 @@ pub async fn test_oprf_ipa<F>(
             let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
 
             assert_eq!(result.len(), expected_results.len());
-            // would like to use the simpler version below but clippy and compiler disagree on
-            // importing zip and abs
-            // for (&sample, &expected) in zip(result.iter(), expected_results.iter()) {
-            //     assert!(
-            //         abs(f64::from(sample) - mean - f64::from(expected)) < 5.0 * standard_deviation,
-            //         "DP result was not within 5 standard deviations from what was expected"
-            //     );
-            // }
 
-            for (index, sample) in result.iter().enumerate() {
+            for (&sample, &expected) in std::iter::zip(result.iter(), expected_results.iter()) {
                 assert!(
-                    f64::from(*sample) - mean
-                        > f64::from(expected_results[index]) - 5.0 * std
-                        && f64::from(*sample) - mean
-                        < f64::from(expected_results[index]) + 5.0 * std
-                    , "DP result was more than 5 standard deviations of the noise from the expected result"
+                    (f64::from(sample) - mean - f64::from(expected)).abs() < 5.0 * std,
+                    "DP result was not within 5 standard deviations from what was expected"
                 );
             }
         }
