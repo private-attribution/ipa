@@ -20,8 +20,8 @@ use crate::{
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
         context::{
-            Context, SemiHonestContext, UpgradableContext, UpgradedContext,
-            UpgradedSemiHonestContext,
+            dzkp_validator::DZKPValidator, Context, SemiHonestContext, UpgradableContext,
+            UpgradedContext, UpgradedSemiHonestContext,
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -281,6 +281,12 @@ where
     Ok(noisy_histogram)
 }
 
+// We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
+// is CONV_CHUNK. Let `len` equal the number of converted shares. The total amount of
+// multiplications is CONV_CHUNK*512*len. We want CONV_CHUNK*512*len ≈ 50M, or len ≈ 381, for a
+// reasonably-sized proof.
+const CONV_PROOF_CHUNK: usize = 400;
+
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
     ctx: C,
@@ -288,13 +294,14 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    <C as UpgradableContext>::DZKPValidator: Send + Sync,
     C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
-    Replicated<Boolean, CONV_CHUNK>:
-        BooleanProtocols<<C as UpgradableContext>::DZKPUpgradedContext, CONV_CHUNK>,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<
+        <<C as UpgradableContext>::DZKPValidator as DZKPValidator>::Context,
+        CONV_CHUNK,
+    >,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
     let conv_records =
@@ -307,17 +314,18 @@ where
 
     let prf_key = gen_prf_key(&eval_ctx);
 
+    let validator = convert_ctx.dzkp_validator(CONV_PROOF_CHUNK);
+
     let curve_pts = seq_join(
         ctx.active_work(),
         process_slice_by_chunks(input_rows, move |idx, records: ChunkData<_, CONV_CHUNK>| {
             let record_id = RecordId::from(idx);
-            let convert_ctx = convert_ctx.clone();
             let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
                 &|i| records[i].match_key.clone();
             let match_keys =
                 BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
                     .unwrap_infallible();
-            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(convert_ctx, record_id, match_keys)
+            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(validator.clone(), record_id, match_keys)
         }),
     )
     .map_ok(Chunk::unpack::<PRF_CHUNK>)

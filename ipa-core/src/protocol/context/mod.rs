@@ -111,8 +111,7 @@ pub trait UpgradableContext: Context {
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
 
-    type DZKPUpgradedContext: DZKPContext;
-    type DZKPValidator: DZKPValidator<Self>;
+    type DZKPValidator: DZKPValidator;
 
     fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator;
 }

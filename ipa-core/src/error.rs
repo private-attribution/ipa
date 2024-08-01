@@ -76,6 +76,10 @@ pub enum Error {
     ContextUnsafe(String),
     #[error("DZKP Validation failed")]
     DZKPValidationFailed,
+    /// Because errors are not `Clone`, when a batch fails to verify, one record gets the actual
+    /// error (above, possibly with additional detail in the future), and the rest get this error.
+    #[error("Parallel DZKP Validation failed")]
+    ParallelDZKPValidationFailed,
     #[error("Inconsistent shares")]
     InconsistentShares,
     #[error("The Masks cannot be set safely, i.e. without deleting non-zero field elements")]
