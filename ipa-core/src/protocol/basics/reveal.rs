@@ -25,8 +25,8 @@ use crate::{
 };
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
-pub trait Reveal<C: Context, const N: usize>: Sized {
-    type Output;
+pub trait Reveal<C: Context> {
+    type Output: Send + Sync + 'static;
     /// Reveal a shared secret to all helpers in the MPC ring.
     ///
     /// Note that after method is called, it must be assumed that the secret value has been
@@ -118,7 +118,7 @@ where
     }
 }
 
-impl<'a, B, V, const N: usize> Reveal<UpgradedSemiHonestContext<'a, B, V>, N> for Replicated<V, N>
+impl<'a, B, V, const N: usize> Reveal<UpgradedSemiHonestContext<'a, B, V>> for Replicated<V, N>
 where
     B: ShardBinding,
     V: SharedValue + Vectorizable<N> + ExtendableField,
@@ -138,8 +138,7 @@ where
     }
 }
 
-impl<'a, B, const N: usize> Reveal<DZKPUpgradedSemiHonestContext<'a, B>, N>
-    for Replicated<Boolean, N>
+impl<'a, B, const N: usize> Reveal<DZKPUpgradedSemiHonestContext<'a, B>> for Replicated<Boolean, N>
 where
     B: ShardBinding,
     Boolean: Vectorizable<N>,
@@ -215,7 +214,7 @@ where
     }
 }
 
-impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>, 1> for Replicated<F>
+impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>> for Replicated<F>
 where
     F: ExtendableField,
 {
@@ -234,7 +233,7 @@ where
     }
 }
 
-impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>, 1> for MaliciousReplicated<F>
+impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F>
 where
     F: ExtendableField,
 {
@@ -256,7 +255,7 @@ where
     }
 }
 
-impl<'a, const N: usize> Reveal<DZKPUpgradedMaliciousContext<'a>, N> for Replicated<Boolean, N>
+impl<'a, const N: usize> Reveal<DZKPUpgradedMaliciousContext<'a>> for Replicated<Boolean, N>
 where
     Boolean: Vectorizable<N>,
 {
@@ -278,19 +277,19 @@ where
 // Workaround for https://github.com/rust-lang/rust/issues/100013. Calling these wrapper functions
 // instead of the trait methods seems to hide the `impl Future` GAT.
 
-pub fn reveal<'fut, C, S, const N: usize>(
+pub fn reveal<'fut, C, S>(
     ctx: C,
     record_id: RecordId,
     v: &'fut S,
 ) -> impl Future<Output = Result<S::Output, Error>> + Send + 'fut
 where
     C: Context + 'fut,
-    S: Reveal<C, N>,
+    S: Reveal<C>,
 {
     S::reveal(v, ctx, record_id)
 }
 
-pub fn partial_reveal<'fut, C, S, const N: usize>(
+pub fn partial_reveal<'fut, C, S>(
     ctx: C,
     record_id: RecordId,
     excluded: Role,
@@ -298,7 +297,7 @@ pub fn partial_reveal<'fut, C, S, const N: usize>(
 ) -> impl Future<Output = Result<Option<S::Output>, Error>> + Send + 'fut
 where
     C: Context + 'fut,
-    S: Reveal<C, N>,
+    S: Reveal<C>,
 {
     S::partial_reveal(v, ctx, record_id, excluded)
 }
@@ -496,7 +495,7 @@ mod tests {
     where
         C: Context + 'ctx,
         F: Field,
-        S: SecretSharing<F> + Reveal<C, 1, Output = <F as Vectorizable<1>>::Array>,
+        S: SecretSharing<F> + Reveal<C, Output = <F as Vectorizable<1>>::Array>,
     {
         let ctx = ctx.set_total_records(1);
         let my_role = ctx.role();
