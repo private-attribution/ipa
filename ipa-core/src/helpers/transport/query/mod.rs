@@ -373,4 +373,3 @@ impl std::fmt::Display for ContributionBits {
         write!(f, "{}", self.0)
     }
 }
-
