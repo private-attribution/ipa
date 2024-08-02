@@ -2,7 +2,6 @@ use std::{
     cmp::{self, min},
     collections::BTreeMap,
     fmt::Debug,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use async_trait::async_trait;
@@ -477,7 +476,7 @@ struct Batch {
     max_multiplications_per_gate: usize,
     inner: BTreeMap<Gate, MultiplicationInputsBatch>,
     validation_result: watch::Sender<bool>,
-    pending_count: AtomicUsize,
+    pending_count: usize,
     pending_records: BitVec,
 }
 
@@ -488,7 +487,7 @@ impl Batch {
             max_multiplications_per_gate,
             inner: BTreeMap::<Gate, MultiplicationInputsBatch>::default(),
             validation_result,
-            pending_count: AtomicUsize::new(0),
+            pending_count: 0,
             pending_records: bitvec![0; max_multiplications_per_gate],
         }
     }
@@ -831,11 +830,11 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
         let validate = {
             let mut batch = self.batch_ref.lock().unwrap();
             batch.pending_records.set(usize::from(record_id), true);
-            let prev_records = batch.pending_count.fetch_add(1, Ordering::Relaxed);
+            batch.pending_count += 1;
             // TODO: adjust for multi-batch
-            let last_record = min(batch.max_multiplications_per_gate, total_records.get());
-            if prev_records == last_record - 1 {
-                assert!(batch.pending_records[0..last_record].all());
+            let total_count = min(batch.max_multiplications_per_gate, total_records.get());
+            if batch.pending_count == total_count {
+                assert!(batch.pending_records[0..total_count].all());
                 Validate::Now
             } else {
                 Validate::Wait(batch.validation_result.subscribe())
