@@ -252,9 +252,6 @@ pub enum DpMechanism {
 }
 
 #[cfg(test)]
-impl Eq for DpMechanism {}
-
-#[cfg(test)]
 impl Eq for IpaQueryConfig {}
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
@@ -376,3 +373,4 @@ impl std::fmt::Display for ContributionBits {
         write!(f, "{}", self.0)
     }
 }
+
