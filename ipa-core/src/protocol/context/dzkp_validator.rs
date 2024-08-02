@@ -1,5 +1,5 @@
 use std::{
-    cmp,
+    cmp::{self, min},
     collections::BTreeMap,
     fmt::Debug,
     sync::atomic::{AtomicUsize, Ordering},
@@ -17,7 +17,7 @@ use tokio::sync::watch;
 use crate::{
     error::{BoxError, Error},
     ff::{Fp61BitPrime, U128Conversions},
-    helpers::stream::TryFlattenItersExt,
+    helpers::{stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         context::{
             dzkp_field::{DZKPBaseField, UVTupleBlock},
@@ -824,12 +824,18 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
             Now,
         }
 
+        let TotalRecords::Specified(total_records) = self.protocol_ctx.total_records() else {
+            return Err(Error::MissingTotalRecords(String::from("validate_record")));
+        };
+
         let validate = {
             let mut batch = self.batch_ref.lock().unwrap();
             batch.pending_records.set(usize::from(record_id), true);
             let prev_records = batch.pending_count.fetch_add(1, Ordering::Relaxed);
-            if prev_records == batch.max_multiplications_per_gate - 1 {
-                assert!(batch.pending_records.all());
+            // TODO: adjust for multi-batch
+            let last_record = min(batch.max_multiplications_per_gate, total_records.get());
+            if prev_records == last_record - 1 {
+                assert!(batch.pending_records[0..last_record].all());
                 Validate::Now
             } else {
                 Validate::Wait(batch.validation_result.subscribe())

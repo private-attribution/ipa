@@ -390,7 +390,7 @@ mod tests {
         helpers::{repeat_n, stream::process_slice_by_chunks},
         protocol::{
             context::UpgradableContext,
-            ipa_prf::{CONV_CHUNK, PRF_CHUNK},
+            ipa_prf::{CONV_CHUNK, CONV_PROOF_CHUNK, PRF_CHUNK},
         },
         rand::thread_rng,
         secret_sharing::SharedValue,
@@ -424,7 +424,7 @@ mod tests {
             let [res0, res1, res2] = world
                 .semi_honest(records.into_iter(), |ctx, records| async move {
                     let c_ctx = ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
-                    let validator = &c_ctx.dzkp_validator((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
+                    let validator = &c_ctx.dzkp_validator(CONV_PROOF_CHUNK);
                     let m_ctx = validator.context();
                     seq_join(
                         m_ctx.active_work(),
@@ -461,7 +461,13 @@ mod tests {
     #[test]
     fn test_malicious_convert_to_fp25519() {
         run(|| async move {
+            // TODO: use something like the commented parameters, when proof batching is fixed, to
+            // exercise it. Ideally PROOF_CHUNK could be more than 1, but the test is pretty slow.
+            //const COUNT: usize = CONV_CHUNK * PROOF_CHUNK * 2 + 1;
+            //const PROOF_CHUNK: usize = 1;
             const COUNT: usize = CONV_CHUNK + 1;
+            const TOTAL_RECORDS: usize = (COUNT + CONV_CHUNK - 1) / CONV_CHUNK;
+            const PROOF_CHUNK: usize = TOTAL_RECORDS;
 
             let world = TestWorld::default();
 
@@ -482,8 +488,8 @@ mod tests {
 
             let [res0, res1, res2] = world
                 .malicious(records.into_iter(), |ctx, records| async move {
-                    let c_ctx = ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
-                    let validator = &c_ctx.dzkp_validator((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
+                    let c_ctx = ctx.set_total_records(TOTAL_RECORDS);
+                    let validator = &c_ctx.dzkp_validator(PROOF_CHUNK);
                     let m_ctx = validator.context();
                     seq_join(
                         m_ctx.active_work(),
@@ -516,9 +522,6 @@ mod tests {
             assert_eq!(result, expected);
         });
     }
-
-    // TODO: update the malicious share conversion test (or add a variant) to exercise multiple
-    // proof batches.
 
     #[test]
     #[should_panic(expected = "< (BITS - 128)")]

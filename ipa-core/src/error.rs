@@ -88,6 +88,8 @@ pub enum Error {
     ZeroRecords,
     #[error("Epsilon submitted to query is out of bounds")]
     EpsilonOutOfBounds,
+    #[error("Missing total records in {0}")]
+    MissingTotalRecords(String),
 }
 
 impl Default for Error {
