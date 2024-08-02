@@ -9,7 +9,7 @@ use std::{
 use futures::{
     future::{try_join, try_join3},
     stream::{self, unfold},
-    FutureExt, Stream, StreamExt,
+    FutureExt, Stream, StreamExt, TryStreamExt,
 };
 
 use super::aggregation::{aggregate_contributions, breakdown_reveal::breakdown_reveal_aggregation};
@@ -29,7 +29,8 @@ use crate::{
             NBitStep,
         },
         context::{
-            Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
+            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
+            Context, DZKPContext, UpgradableContext,
         },
         ipa_prf::{
             boolean_ops::{
@@ -50,8 +51,6 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
-    seq_join::seq_join,
-    sharding::NotSharded,
 };
 
 pub mod feature_label_dot_product;
@@ -419,23 +418,35 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[tracing::instrument(name = "attribute_cap_aggregate", skip_all)]
-pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
-    sh_ctx: SemiHonestContext<'ctx>,
+pub async fn attribute_cap_aggregate<
+    'ctx,
+    C,
+    BK,
+    TV,
+    HV,
+    TS,
+    const SS_BITS: usize,
+    const B: usize,
+>(
+    sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
+    C: UpgradableContext + 'ctx,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    Replicated<Boolean>: BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context>,
+    Replicated<Boolean, B>: BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, B>,
+    Replicated<Boolean, AGG_CHUNK>:
+        BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, AGG_CHUNK>,
+    for<'a> Replicated<BK>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
+    for<'a> Replicated<TS>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
+    for<'a> Replicated<TV>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -450,8 +461,14 @@ where
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     // Get the validator and context to use for Boolean multiplication operations
-    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
-    let binary_m_ctx = binary_validator.context();
+    // The maximum number of multiplications per user is:
+    // events-1 * (BK bits + TS bits + 4 * TV bits + 3 )
+    let chunk_size = TARGET_PROOF_SIZE
+        / (histogram.len() * usize::try_from(BK::BITS + TS::BITS + 4 * TV::BITS + 3).unwrap());
+    let dzkp_validator = sh_ctx
+        .narrow(&Step::BinaryValidator)
+        .dzkp_validator(chunk_size);
+    let binary_m_ctx = dzkp_validator.context();
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
@@ -470,28 +487,26 @@ where
     collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
     let flattened_user_results = attribute::<_, _, _, _, SS_BITS, B>(
+        dzkp_validator,
         ctx_for_row_number,
         collected,
         attribution_window_seconds,
-    )
-    .await;
+    );
 
-    let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
-    let ctx = attribution_validator.context();
+    let aggregation_validator = sh_ctx.narrow(&Step::Aggregate).dzkp_validator(0);
+    let ctx = aggregation_validator.context();
 
     // New aggregation is still experimental, we need proofs that it is private,
     // hence it is only enabled behind a feature flag.
     if cfg!(feature = "reveal-aggregation") {
         // If there was any error in attribution we stop the execution with an error
         tracing::warn!("Using the experimental aggregation based on revealing breakdown keys");
-        let user_contributions = flattened_user_results
-            .into_iter()
-            .collect::<Result<_, _>>()?;
+        let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
         breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, user_contributions).await
     } else {
         aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
             ctx,
-            stream::iter(flattened_user_results),
+            flattened_user_results,
             num_outputs,
         )
         .await
@@ -499,45 +514,43 @@ where
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
-async fn attribute<C, BK, TV, TS, const SS_BITS: usize, const B: usize>(
-    contexts: Vec<C>,
+fn attribute<'ctx, V, BK, TV, TS, const SS_BITS: usize, const B: usize>(
+    dzkp_validator: V,
+    contexts: Vec<V::Context>,
     input: Vec<Vec<PrfShardedIpaInputRow<BK, TV, TS>>>,
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Vec<Result<SecretSharedAttributionOutputs<BK, TV>, Error>>
+) -> impl Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send + 'ctx
 where
-    C: Context,
-    Replicated<Boolean>: BooleanProtocols<C>,
+    V: DZKPValidator + 'ctx,
+    Replicated<Boolean>: BooleanProtocols<V::Context>,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    for<'a> Replicated<BK>: BooleanArrayMul<C>,
-    for<'a> Replicated<TS>: BooleanArrayMul<C>,
-    for<'a> Replicated<TV>: BooleanArrayMul<C>,
+    for<'a> Replicated<BK>: BooleanArrayMul<V::Context>,
+    for<'a> Replicated<TS>: BooleanArrayMul<V::Context>,
+    for<'a> Replicated<TV>: BooleanArrayMul<V::Context>,
 {
-    let active_work = contexts
-        .first()
-        .expect("Attribution circuit is called on an non-empty input")
-        .active_work();
-    let chunked_user_results = input
-        .into_iter()
-        .enumerate()
-        .map(|(record_id, rows_for_user)| {
-            let num_user_rows = rows_for_user.len();
-            let contexts = contexts[..num_user_rows - 1].to_owned();
+    let chunked_user_results =
+        input
+            .into_iter()
+            .enumerate()
+            .map(move |(record_id, rows_for_user)| {
+                let num_user_rows = rows_for_user.len();
+                let contexts = contexts[..num_user_rows - 1].to_owned();
 
-            evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS_BITS>(
-                contexts,
-                RecordId::from(record_id),
-                rows_for_user,
-                attribution_window_seconds,
-            )
-        });
+                evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS_BITS>(
+                    contexts,
+                    RecordId::from(record_id),
+                    rows_for_user,
+                    attribution_window_seconds,
+                )
+            });
 
-    // Execute all of the async futures (sequentially), and flatten the result
-    seq_join(active_work, stream::iter(chunked_user_results))
+    dzkp_validator
+        .validated_seq_join::<_, _, Vec<AttributionOutputs<_, _>>>(stream::iter(
+            chunked_user_results,
+        ))
         .try_flatten_iters()
-        .collect()
-        .await
 }
 
 #[tracing::instrument(level = "debug", name = "per_user", skip_all, fields(rows = rows_for_user.len()))]
@@ -548,7 +561,7 @@ async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, const SS_BITS: usi
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
 where
-    C: Context,
+    C: DZKPContext,
     Replicated<Boolean>: BooleanProtocols<C>,
     BK: BooleanArray + U128Conversions,
     TV: BooleanArray + U128Conversions,
@@ -1023,7 +1036,7 @@ pub mod tests {
             let result: [Vec<Replicated<BA16>>; 3] = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     Vec::transposed_from(
-                        &attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
+                        &attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, 5, 32>(
                             ctx, input_rows, None, &histogram,
                         )
                         .await
@@ -1079,7 +1092,7 @@ pub mod tests {
             let result: [Vec<Replicated<BA16>>; 3] = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     Vec::transposed_from(
-                        &attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
+                        &attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, 5, 32>(
                             ctx,
                             input_rows,
                             NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
@@ -1174,6 +1187,7 @@ pub mod tests {
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     Vec::transposed_from(
                         &attribute_cap_aggregate::<
+                            _,
                             BA8,
                             BA3,
                             BA8,
