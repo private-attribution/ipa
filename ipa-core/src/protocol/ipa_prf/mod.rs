@@ -424,12 +424,21 @@ pub mod tests {
 
     #[test]
     fn semi_honest_with_dp() {
+        const SS_BITS: usize = 2;
+        semi_honest_with_dp_internal::<SS_BITS>();
+    }
+    #[test]
+    fn semi_honest_with_dp_slow() {
+        const SS_BITS: usize = 6;
         if std::env::var("EXEC_SLOW_TESTS").is_err() {
             return;
         }
+        semi_honest_with_dp_internal::<SS_BITS>();
+    }
+
+    fn semi_honest_with_dp_internal<const SS_BITS: usize>() {
         println!("Running semi_honest_with_dp");
-        run(|| async {
-            const SS_BITS: usize = 2;
+        run(move || async {
             const B: usize = 32; // number of histogram bins
             let expected: Vec<u32> = vec![0, 2, 5, 0, 0, 0, 0, 0];
             let epsilon = 10.0;
