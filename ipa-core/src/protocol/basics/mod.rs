@@ -9,11 +9,10 @@ pub mod step;
 
 use std::ops::Not;
 
-pub use check_zero::check_zero;
 pub use if_else::select;
 pub use mul::{BooleanArrayMul, SecureMul};
 pub use reshare::Reshare;
-pub use reveal::{partial_reveal, reveal, Reveal};
+pub use reveal::{malicious_reveal, partial_reveal, reveal, semi_honest_reveal, Reveal};
 pub use share_known_value::ShareKnownValue;
 
 use crate::{
@@ -22,7 +21,7 @@ use crate::{
     protocol::{
         context::{
             Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
-            SemiHonestContext, UpgradedSemiHonestContext,
+            UpgradedSemiHonestContext,
         },
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
         prss::FromPrss,
@@ -40,7 +39,7 @@ use crate::{
 /// difficulty of resolving `V` vs. `[V; 1]` issues for the known value type. `Reshare` hasn't been
 /// attempted.)
 pub trait BasicProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N: usize = 1>:
-    SecretSharing<V> + Reveal<C, N, Output = <V as Vectorizable<N>>::Array> + SecureMul<C> + FromPrss
+    SecretSharing<V> + Reveal<C, Output = <V as Vectorizable<N>>::Array> + SecureMul<C> + FromPrss
 {
 }
 
@@ -61,7 +60,7 @@ impl<'a, B: ShardBinding>
 /// Adds the requirement that the type implements `Not`.
 pub trait BooleanProtocols<C: Context, const N: usize = 1>:
     SecretSharing<Boolean>
-    + Reveal<C, N, Output = <Boolean as Vectorizable<N>>::Array>
+    + Reveal<C, Output = <Boolean as Vectorizable<N>>::Array>
     + SecureMul<C>
     + Not<Output = Self>
 where
@@ -82,12 +81,6 @@ impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Bool
 
 impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, PRF_CHUNK>
     for AdditiveShare<Boolean, PRF_CHUNK>
-{
-}
-
-// TODO: remove this (protocols should use upgraded contexts)
-impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>, AGG_CHUNK>
-    for AdditiveShare<Boolean, AGG_CHUNK>
 {
 }
 

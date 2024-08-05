@@ -12,7 +12,7 @@ use crate::{
     ff::Field,
     helpers::{Direction, TotalRecords},
     protocol::{
-        basics::Reveal,
+        basics::{check_zero::malicious_check_zero, malicious_reveal},
         context::{
             step::{MaliciousProtocolStep as Step, ValidateStep},
             Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
@@ -194,7 +194,10 @@ pub struct Malicious<'a, F: ExtendableField> {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
+impl<'a, F> Validator<MaliciousContext<'a>, F> for Malicious<'a, F>
+where
+    F: ExtendableField,
+{
     /// Get a copy of the context that can be used for malicious protocol execution.
     fn context<'b>(&'b self) -> UpgradedMaliciousContext<'a, F> {
         self.protocol_ctx.clone()
@@ -219,7 +222,9 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .narrow(&ValidateStep::RevealR)
             .set_total_records(TotalRecords::ONE);
         let r = <F as ExtendableField>::ExtendedField::from_array(
-            &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
+            &malicious_reveal(narrow_ctx, RecordId::FIRST, None, &self.r_share)
+                .await?
+                .expect("full reveal should always return a value"),
         );
         let t = u_share - &(w_share * r);
 
@@ -227,8 +232,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
             .set_total_records(TotalRecords::ONE);
-        let is_valid =
-            crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
+        let is_valid = malicious_check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
