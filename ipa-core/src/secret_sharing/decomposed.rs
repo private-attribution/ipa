@@ -19,7 +19,7 @@ pub struct BitDecomposed<S> {
 }
 
 impl<S> BitDecomposed<S> {
-    const MAX: usize = 256;
+    pub const MAX: usize = 256;
 
     /// Create a new value from an iterator.
     /// # Panics
