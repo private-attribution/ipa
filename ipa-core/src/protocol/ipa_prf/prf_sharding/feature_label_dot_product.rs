@@ -258,7 +258,7 @@ where
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
     let aggregated_result: BitDecomposed<AdditiveShare<Boolean, B>> =
-        aggregate_values::<_, HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+        aggregate_values::<_, HV, B>(binary_m_ctx, flattened_stream, num_outputs, false).await?;
 
     let transposed_aggregated_result: Vec<Replicated<HV>> =
         Vec::transposed_from(&aggregated_result)?;

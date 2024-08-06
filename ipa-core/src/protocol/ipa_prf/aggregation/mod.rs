@@ -188,7 +188,8 @@ where
             .try_flatten_iters(),
     );
     let aggregated_result =
-        aggregate_values::<_, HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
+        aggregate_values::<_, HV, B>(ctx, aggregation_input, contributions_stream_len, false)
+            .await?;
     Ok(Vec::transposed_from(&aggregated_result)?)
 }
 
@@ -218,6 +219,7 @@ pub async fn aggregate_values<'ctx, 'fut, C, OV, const B: usize>(
     ctx: C,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
+    truncate: bool,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     'ctx: 'fut,
@@ -275,6 +277,15 @@ where
                                     )
                                     .await?;
                                     sum.push(carry);
+                                    Ok(sum)
+                                } else if truncate {
+                                    let (sum, _) = integer_add::<_, SixteenBitStep, B>(
+                                        ctx.narrow(&AggregateValuesStep::Add),
+                                        record_id,
+                                        &a,
+                                        &b,
+                                    )
+                                    .await?;
                                     Ok(sum)
                                 } else {
                                     integer_sat_add::<C, AdditionStep, B>(
@@ -362,7 +373,12 @@ pub mod tests {
             let result: BitDecomposed<BA8> = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await
                 .map(Result::unwrap)
@@ -385,7 +401,12 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await
                 .map(Result::unwrap)
@@ -411,7 +432,12 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await
                 .map(Result::unwrap)
@@ -439,7 +465,12 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await
                 .map(Result::unwrap)
@@ -466,7 +497,12 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await
                 .map(Result::unwrap)
@@ -485,7 +521,7 @@ pub mod tests {
         run(|| async move {
             let result = TestWorld::default()
                 .upgraded_semi_honest((), |ctx, ()| {
-                    aggregate_values::<_, BA8, 8>(ctx, stream::empty().boxed(), 0)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::empty().boxed(), 0, false)
                 })
                 .await
                 .map(Result::unwrap)
@@ -506,7 +542,12 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await;
 
@@ -526,7 +567,12 @@ pub mod tests {
             let _ = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() + 1;
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await
                 .map(Result::unwrap)
@@ -548,7 +594,12 @@ pub mod tests {
             let _ = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() - 1;
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(
+                        ctx,
+                        stream::iter(inputs).boxed(),
+                        num_rows,
+                        false,
+                    )
                 })
                 .await
                 .map(Result::unwrap)
@@ -634,6 +685,7 @@ pub mod tests {
                         ctx,
                         stream::iter(inputs).boxed(),
                         num_rows,
+                        false,
                     )
                 })
                 .await
