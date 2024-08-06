@@ -505,6 +505,9 @@ mod test {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 16;
         let num_bernoulli: u32 = 10000;
+        if std::env::var("EXEC_SLOW_TESTS").is_err() {
+            return;
+        }
         let world = TestWorld::default();
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
