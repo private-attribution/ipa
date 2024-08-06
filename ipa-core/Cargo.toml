@@ -194,12 +194,7 @@ required-features = ["cli", "test-fixture", "web-app", "weak-field"]
 bench = false
 
 [[bin]]
-name = "test_encrypt"
-required-features = ["cli", "test-fixture", "web-app"]
-bench = false
-
-[[bin]]
-name = "test_decrypt"
+name = "test_hpke"
 required-features = ["cli", "test-fixture", "web-app"]
 bench = false
 

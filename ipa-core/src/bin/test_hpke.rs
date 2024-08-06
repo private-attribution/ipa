@@ -20,7 +20,6 @@ use ipa_core::{
     secret_sharing::IntoShares,
     test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
-
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 
