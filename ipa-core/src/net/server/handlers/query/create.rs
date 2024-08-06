@@ -95,6 +95,29 @@ mod tests {
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
+                    with_dp: 0,
+                    epsilon: 5.0,
+                    plaintext_match_keys: true,
+                }),
+                FieldType::Fp32BitPrime,
+                1,
+            )
+            .unwrap(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn create_test_ipa_no_attr_window_with_dp() {
+        create_test(
+            QueryConfig::new(
+                QueryType::OprfIpa(IpaQueryConfig {
+                    per_user_credit_cap: 8,
+                    max_breakdown_key: 20,
+                    attribution_window_seconds: None,
+                    num_multi_bits: 3,
+                    with_dp: 1,
+                    epsilon: 5.0,
                     plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
@@ -115,6 +138,8 @@ mod tests {
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
+                with_dp: 0,
+                epsilon: 5.0,
                 plaintext_match_keys: true,
             }),
         })
@@ -187,14 +212,17 @@ mod tests {
         max_breakdown_key: String,
         attribution_window_seconds: Option<String>,
         num_multi_bits: String,
+        with_dp: String,
+        epsilon: String,
     }
 
     impl From<OverrideIPAReq> for hyper::Request<Body> {
         fn from(val: OverrideIPAReq) -> Self {
             let mut query = format!(
-                "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits
+                "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}&with_dp={}&epsilon={}",
+                val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits, val.with_dp, val.epsilon,
             );
+
             if let Some(window) = val.attribution_window_seconds {
                 query.push_str(&format!("&attribution_window_seconds={window}"));
             }
@@ -215,6 +243,8 @@ mod tests {
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
+                with_dp: "1".into(),
+                epsilon: "3.0".into(),
             }
         }
     }

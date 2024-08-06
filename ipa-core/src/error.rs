@@ -82,6 +82,8 @@ pub enum Error {
     DZKPMasks,
     #[error("Attempt to operate on zero records")]
     ZeroRecords,
+    #[error("Epsilon submitted to query is out of bounds")]
+    EpsilonOutOfBounds,
 }
 
 impl Default for Error {
