@@ -18,10 +18,9 @@ use ipa_core::{
         playbook::{make_clients, playbook_oprf_ipa, validate, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
-    config::NetworkConfig,
+    config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
-    hpke::KeyRegistries,
     net::MpcHelperClient,
     report::DEFAULT_KEY_ID,
     test_fixture::{

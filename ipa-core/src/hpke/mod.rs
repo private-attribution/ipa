@@ -17,8 +17,7 @@ mod registry;
 
 pub use info::Info;
 pub use registry::{
-    KeyPair, KeyRegistries, KeyRegistry, PrivateKeyOnly, PrivateKeyRegistry, PublicKeyOnly,
-    PublicKeyRegistry,
+    KeyPair, KeyRegistry, PrivateKeyOnly, PrivateKeyRegistry, PublicKeyOnly, PublicKeyRegistry,
 };
 
 use crate::{

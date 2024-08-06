@@ -9,10 +9,9 @@ use std::{
 use clap::Parser;
 use ipa_core::{
     cli::playbook::InputSource,
-    config::NetworkConfig,
+    config::{KeyRegistries, NetworkConfig},
     error::BoxError,
     ff::boolean_array::{BA20, BA3, BA8},
-    hpke::KeyRegistries,
     report::{OprfReport, DEFAULT_KEY_ID},
     secret_sharing::IntoShares,
     test_fixture::ipa::TestRawDataRecord,
