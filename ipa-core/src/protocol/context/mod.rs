@@ -107,7 +107,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
 pub trait UpgradableContext: Context {
     type UpgradedContext<F: ExtendableField>: UpgradedContext;
-    type Validator<F: ExtendableField>: Validator<Self, F>;
+    type Validator<F: ExtendableField>: Validator<Self::UpgradedContext<F>, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
 

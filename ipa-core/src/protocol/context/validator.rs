@@ -15,7 +15,7 @@ use crate::{
         basics::{check_zero::malicious_check_zero, malicious_reveal},
         context::{
             step::{MaliciousProtocolStep as Step, ValidateStep},
-            Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
+            Base, Context, MaliciousContext, UpgradedContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext,
         },
         prss::{FromPrss, SharedRandomness},
@@ -37,8 +37,8 @@ use crate::{
 };
 
 #[async_trait]
-pub trait Validator<B: UpgradableContext, F: ExtendableField> {
-    fn context(&self) -> B::UpgradedContext<F>;
+pub trait Validator<C: UpgradedContext, F: ExtendableField> {
+    fn context(&self) -> C;
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
 }
 
@@ -57,7 +57,7 @@ impl<'a, B: ShardBinding, F: ExtendableField> SemiHonest<'a, B, F> {
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding, F: ExtendableField> Validator<super::semi_honest::Context<'a, B>, F>
+impl<'a, B: ShardBinding, F: ExtendableField> Validator<UpgradedSemiHonestContext<'a, B, F>, F>
     for SemiHonest<'a, B, F>
 {
     fn context(&self) -> UpgradedSemiHonestContext<'a, B, F> {
@@ -207,7 +207,7 @@ pub struct Malicious<'a, F: ExtendableField> {
 }
 
 #[async_trait]
-impl<'a, F> Validator<MaliciousContext<'a>, F> for Malicious<'a, F>
+impl<'a, F> Validator<UpgradedMaliciousContext<'a, F>, F> for Malicious<'a, F>
 where
     F: ExtendableField,
 {
