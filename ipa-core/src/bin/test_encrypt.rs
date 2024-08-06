@@ -12,8 +12,8 @@ use ipa_core::{
     config::NetworkConfig,
     error::BoxError,
     ff::boolean_array::{BA20, BA3, BA8},
-    hpke::{KeyRegistry, PublicKeyOnly},
-    report::{KeyIdentifier, OprfReport, DEFAULT_KEY_ID},
+    hpke::KeyRegistries,
+    report::{OprfReport, DEFAULT_KEY_ID},
     secret_sharing::IntoShares,
     test_fixture::ipa::TestRawDataRecord,
 };
@@ -27,7 +27,7 @@ type TriggerValue = BA3;
 #[derive(Debug, Parser)]
 #[clap(name = "test_encrypt", about = "Test Encrypt")]
 #[command(about)]
-struct Args {
+struct EncryptArgs {
     /// Path to file to secret share and encrypt
     #[arg(long)]
     input_file: PathBuf,
@@ -41,47 +41,20 @@ struct Args {
     network: PathBuf,
 }
 
-#[derive(Default)]
-struct KeyRegistries(Vec<KeyRegistry<PublicKeyOnly>>);
-
-impl KeyRegistries {
-    fn init_from(
-        &mut self,
-        network: &NetworkConfig,
-    ) -> Option<(KeyIdentifier, [&KeyRegistry<PublicKeyOnly>; 3])> {
-        // Get the configs, if all three peers have one
-        let configs = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
-            if let (mut vec, Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
-                vec.push(hpke_config);
-                Some(vec)
-            } else {
-                None
-            }
-        })?;
-
-        // Create key registries
-        self.0 = configs
-            .into_iter()
-            .map(|hpke| KeyRegistry::from_keys([PublicKeyOnly(hpke.public_key.clone())]))
-            .collect::<Vec<KeyRegistry<PublicKeyOnly>>>();
-
-        Some((
-            DEFAULT_KEY_ID,
-            self.0.iter().collect::<Vec<_>>().try_into().ok().unwrap(),
-        ))
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
-    let args = Args::parse();
+    let args = EncryptArgs::parse();
+    encrypt(args).await
+}
+
+async fn encrypt(args: EncryptArgs) -> Result<(), BoxError> {
     let input = InputSource::from_file(&args.input_file);
     let records = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
 
     let mut rng = StdRng::from_entropy();
     let mut key_registries = KeyRegistries::default();
     let network = NetworkConfig::from_toml_str(&read_to_string(&args.network).unwrap()).unwrap();
-    let Some((key_id, key_registries)) = key_registries.init_from(&network) else {
+    let Some((key_id, key_registries)) = key_registries.init_from(&network, DEFAULT_KEY_ID) else {
         panic!("could not load network file")
     };
     let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =

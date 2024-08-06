@@ -3,6 +3,7 @@ use std::ops::Deref;
 use hpke::Serializable;
 
 use super::{IpaPrivateKey, IpaPublicKey, KeyIdentifier};
+use crate::config::NetworkConfig;
 
 /// A pair of secret key and public key. Public keys used by UA to encrypt the data towards helpers
 /// secret keys used by helpers to open the ciphertexts. Each helper needs access to both
@@ -145,6 +146,38 @@ impl PublicKeyRegistry for KeyRegistry<KeyPair> {
 impl PublicKeyRegistry for KeyRegistry<PublicKeyOnly> {
     fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey> {
         self.key(key_id).map(|pk| &**pk)
+    }
+}
+
+#[derive(Default)]
+pub struct KeyRegistries(Vec<KeyRegistry<PublicKeyOnly>>);
+
+impl KeyRegistries {
+    pub fn init_from(
+        &mut self,
+        network: &NetworkConfig,
+        key_id: KeyIdentifier,
+    ) -> Option<(KeyIdentifier, [&KeyRegistry<PublicKeyOnly>; 3])> {
+        // Get the configs, if all three peers have one
+        let configs = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
+            if let (mut vec, Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
+                vec.push(hpke_config);
+                Some(vec)
+            } else {
+                None
+            }
+        })?;
+
+        // Create key registries
+        self.0 = configs
+            .into_iter()
+            .map(|hpke| KeyRegistry::from_keys([PublicKeyOnly(hpke.public_key.clone())]))
+            .collect::<Vec<KeyRegistry<PublicKeyOnly>>>();
+
+        Some((
+            key_id,
+            self.0.iter().collect::<Vec<_>>().try_into().ok().unwrap(),
+        ))
     }
 }
 
