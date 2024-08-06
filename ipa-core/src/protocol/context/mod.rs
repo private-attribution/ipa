@@ -23,7 +23,6 @@ use ipa_step::{Step, StepNarrow};
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
-pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
 pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
@@ -39,10 +38,7 @@ use crate::{
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
         Gate, RecordId,
     },
-    secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        SecretSharing,
-    },
+    secret_sharing::replicated::malicious::ExtendableField,
     seq_join::SeqJoin,
     sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
 };
@@ -118,61 +114,6 @@ pub trait UpgradableContext: Context {
 #[async_trait]
 pub trait UpgradedContext: Context {
     type Field: ExtendableField;
-    type Share: SecretSharing<Self::Field> + 'static;
-
-    async fn upgrade_one(
-        &self,
-        record_id: RecordId,
-        x: Replicated<Self::Field>,
-    ) -> Result<Self::Share, Error>;
-
-    /// Upgrade an input using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<Self>: UpgradeToMalicious<T, M>,
-    {
-        #[cfg(descriptive_gate)]
-        {
-            use crate::protocol::{context::step::UpgradeStep, NoRecord};
-
-            UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
-                .upgrade(input)
-                .await
-        }
-        #[cfg(not(descriptive_gate))]
-        {
-            let _ = input;
-            unimplemented!()
-        }
-    }
-
-    /// Upgrade an input for a specific bit index and record using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<Self, RecordId>: UpgradeToMalicious<T, M>,
-    {
-        #[cfg(descriptive_gate)]
-        {
-            use crate::protocol::context::step::UpgradeStep;
-
-            UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
-                .upgrade(input)
-                .await
-        }
-        #[cfg(not(descriptive_gate))]
-        {
-            let _ = (record_id, input);
-            unimplemented!()
-        }
-    }
 }
 
 pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext {
@@ -555,8 +496,8 @@ mod tests {
         protocol::{
             basics::ShareKnownValue,
             context::{
-                reshard, step::MaliciousProtocolStep::MaliciousProtocol, Context, ShardedContext,
-                UpgradableContext, UpgradedContext, Validator,
+                reshard, step::MaliciousProtocolStep::MaliciousProtocol, upgrade::Upgradable,
+                Context, ShardedContext, UpgradableContext, Validator,
             },
             prss::SharedRandomness,
             RecordId,
@@ -785,9 +726,16 @@ mod tests {
                 // upgrade shares two times using different contexts
                 let v = ctx.validator();
                 let ctx = v.context().narrow("step1");
-                ctx.upgrade(shares.clone()).await.unwrap();
+                shares
+                    .clone()
+                    .upgrade(RecordId::FIRST, ctx.set_total_records(1))
+                    .await
+                    .unwrap();
                 let ctx = v.context().narrow("step2");
-                ctx.upgrade(shares).await.unwrap();
+                shares
+                    .upgrade(RecordId::FIRST, ctx.set_total_records(1))
+                    .await
+                    .unwrap();
             })
             .await;
     }
