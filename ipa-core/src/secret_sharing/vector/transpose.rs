@@ -609,13 +609,15 @@ impl_transpose_shares_bool_to_ba!(BA256, 256, 256, test_transpose_shares_bool_to
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 256, test_transpose_shares_bool_to_ba_8x256);
 impl_transpose_shares_bool_to_ba!(BA16, 16, 256, test_transpose_shares_bool_to_ba_16x256);
 impl_transpose_shares_bool_to_ba!(BA16, 16, 32, test_transpose_shares_bool_to_ba_16x32);
+impl_transpose_shares_bool_to_ba!(BA32, 32, 256, test_transpose_shares_bool_to_ba_32x256);
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 32, test_transpose_shares_bool_to_ba_8x32);
+// added to support HV = BA32 to hold results when adding Binomial noise
+impl_transpose_shares_bool_to_ba_small!(BA32, 32, 32, test_transpose_shares_bool_to_ba_32x32);
 
 // Usage: Aggregation output tests
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 8, test_transpose_shares_bool_to_ba_8x8);
 
 // Usage: Binomial Noise Gen
-impl_transpose_shares_bool_to_ba!(BA32, 32, 32, test_transpose_shares_bool_to_ba_32x32);
 impl_transpose_shares_bool_to_ba!(BA16, 16, 16, test_transpose_shares_bool_to_ba_16x16);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as

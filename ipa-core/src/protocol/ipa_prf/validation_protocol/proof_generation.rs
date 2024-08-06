@@ -7,7 +7,11 @@ use crate::{
             dzkp_field::{UVTupleBlock, BLOCK_SIZE},
             Context,
         },
-        ipa_prf::malicious_security::prover::{LargeProofGenerator, SmallProofGenerator},
+        ipa_prf::malicious_security::{
+            lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+            prover::{LargeProofGenerator, SmallProofGenerator},
+        },
+        prss::SharedRandomness,
         RecordId,
     },
 };
@@ -37,6 +41,8 @@ impl FromIterator<Fp61BitPrime> for ProofBatch {
 
 impl ProofBatch {
     /// This function returns the length in field elements.
+    #[allow(clippy::len_without_is_empty)]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.proofs.len() * SmallProofGenerator::PROOF_LENGTH + LargeProofGenerator::PROOF_LENGTH
     }
@@ -48,7 +54,117 @@ impl ProofBatch {
             .chain(self.proofs.iter().flat_map(|x| x.iter()))
     }
 
+    /// Each helper party generates a set of proofs, which are secret-shared.
+    /// The "left" shares of these proofs are for the helper on the left.
+    /// The "right" shares of these proofs need not be transmitted over the wire, as they
+    /// are generated via `PRSS`, so the helper on the right can independently generate them.
+    /// The final proof must be "masked" with random values drawn from PRSS.
+    /// These values will be needed at verification time.
+    /// The function outputs `my_proofs_left_shares`, `shares_of_proofs_from_prover_left`,
+    /// `p_mask_from_right_prover`, `q_mask_from_left_prover`
+    ///
+    /// ## Panics
+    /// Panics when the function fails to set the masks without overwritting `u` and `v` values.
+    /// This only happens when there is an issue in the recursion.
+    pub fn generate<C, I>(ctx: &C, uv_tuple_inputs: I) -> (Self, Self, Fp61BitPrime, Fp61BitPrime)
+    where
+        C: Context,
+        I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
+    {
+        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const LLL: usize = LargeProofGenerator::LAGRANGE_LENGTH;
+        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+        const SLL: usize = SmallProofGenerator::LAGRANGE_LENGTH;
+        const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
+
+        // set up record counter
+        let mut record_counter = RecordId::FIRST;
+
+        // precomputation for first proof
+        let first_denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, LRF>::new();
+        let first_lagrange_table = LagrangeTable::<Fp61BitPrime, LRF, LLL>::from(first_denominator);
+
+        // generate first proof from input iterator
+        let (mut uv_values, first_proof_from_left, my_first_proof_left_share) =
+            LargeProofGenerator::gen_artefacts_from_recursive_step(
+                ctx,
+                &mut record_counter,
+                &first_lagrange_table,
+                ProofBatch::polynomials_from_inputs(uv_tuple_inputs),
+            );
+
+        // approximate length of proof vector (rounded up)
+        let uv_len_bits: u32 = usize::BITS - uv_values.len().leading_zeros();
+        let small_recursion_factor_bits: u32 = usize::BITS - SRF.leading_zeros();
+        let expected_len = 1 << (uv_len_bits - small_recursion_factor_bits);
+
+        // storage for other proofs
+        let mut my_proofs_left_shares = Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
+        let mut shares_of_proofs_from_prover_left =
+            Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
+
+        // generate masks
+        // Prover `P_i` and verifier `P_{i-1}` both compute p(x)
+        // therefore the "right" share computed by this verifier corresponds to that which
+        // was used by the prover to the right.
+        let (my_p_mask, p_mask_from_right_prover) = ctx.prss().generate_fields(record_counter);
+        record_counter += 1;
+        // Prover `P_i` and verifier `P_{i+1}` both compute q(x)
+        // therefore the "left" share computed by this verifier corresponds to that which
+        // was used by the prover to the left.
+        let (q_mask_from_left_prover, my_q_mask) = ctx.prss().generate_fields(record_counter);
+        record_counter += 1;
+
+        let denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, SRF>::new();
+        let lagrange_table = LagrangeTable::<Fp61BitPrime, SRF, SLL>::from(denominator);
+
+        // The last recursion can only include (λ - 1) u/v value pairs, because it needs to put the
+        // masks in the constant term. If we compress to `uv_values.len() == SRF`, then we need to
+        // do two more iterations: compressing SRF u/v values to 1 pair of (unmasked) u/v values,
+        // and then compressing that pair and the masks to the final u/v value.
+        //
+        // There is a test for this corner case in validation.rs.
+        let mut did_set_masks = false;
+
+        // recursively generate proofs via SmallProofGenerator
+        while !did_set_masks {
+            if uv_values.len() < SRF {
+                did_set_masks = true;
+                uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
+            }
+            let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =
+                SmallProofGenerator::gen_artefacts_from_recursive_step(
+                    ctx,
+                    &mut record_counter,
+                    &lagrange_table,
+                    uv_values.iter(),
+                );
+            shares_of_proofs_from_prover_left.push(share_of_proof_from_prover_left);
+            my_proofs_left_shares.push(my_proof_left_share);
+
+            uv_values = uv_values_new;
+        }
+
+        let my_batch_left_shares = ProofBatch {
+            first_proof: my_first_proof_left_share,
+            proofs: my_proofs_left_shares,
+        };
+        let shares_of_batch_from_left_prover = ProofBatch {
+            first_proof: first_proof_from_left,
+            proofs: shares_of_proofs_from_prover_left,
+        };
+        (
+            my_batch_left_shares,
+            shares_of_batch_from_left_prover,
+            p_mask_from_right_prover,
+            q_mask_from_left_prover,
+        )
+    }
+
     /// This function sends a `Proof` to the party on the left
+    ///
+    /// ## Errors
+    /// Propagates error from sending values over the network channel.
     pub async fn send_to_left<C>(&self, ctx: &C) -> Result<(), Error>
     where
         C: Context,
@@ -73,6 +189,9 @@ impl ProofBatch {
     }
 
     /// This function receives a `Proof` from the party on the right.
+    ///
+    /// ## Errors
+    /// Propagates errors from receiving values over the network channel.
     pub async fn receive_from_right<C>(ctx: &C, length: usize) -> Result<Self, Error>
     where
         C: Context,
@@ -99,7 +218,7 @@ impl ProofBatch {
     /// which consists of arrays of size `BLOCK_SIZE`
     /// into an iterator over arrays of size `LargeProofGenerator::RECURSION_FACTOR`.
     ///
-    /// ## Panic
+    /// ## Panics
     /// Panics when `unwrap` panics, i.e. `try_from` fails to convert a slice to an array.
     pub fn polynomials_from_inputs<I>(
         inputs: I,
@@ -139,19 +258,16 @@ mod test {
     use crate::{
         ff::{Fp61BitPrime, U128Conversions},
         protocol::{
-            context::dzkp_field::BLOCK_SIZE,
-            ipa_prf::validation_protocol::validation::{test::simple_proof_check, BatchToVerify},
+            context::{dzkp_field::BLOCK_SIZE, Context},
+            ipa_prf::validation_protocol::{
+                proof_generation::ProofBatch,
+                validation::{test::simple_proof_check, BatchToVerify},
+            },
         },
-        secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
+        secret_sharing::replicated::ReplicatedSecretSharing,
         test_executor::run,
         test_fixture::{Runner, TestWorld},
     };
-
-    impl Default for Fp61BitPrime {
-        fn default() -> Self {
-            Fp61BitPrime::ZERO
-        }
-    }
 
     #[test]
     fn generate_verifier_batch() {
@@ -189,11 +305,27 @@ mod test {
                         .collect::<Vec<_>>();
 
                     // generate and output VerifierBatch together with h value
-                    (
-                        h,
-                        BatchToVerify::generate_batch_to_verify(ctx, uv_tuple_vec.into_iter())
-                            .await,
+                    let (
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
+                    ) = ProofBatch::generate(
+                        &ctx.narrow("generate_batch"),
+                        uv_tuple_vec.into_iter(),
+                    );
+
+                    let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                        ctx.narrow("generate_batch"),
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
                     )
+                    .await;
+
+                    // generate and output VerifierBatch together with h value
+                    (h, batch_to_verify)
                 })
                 .await;
 

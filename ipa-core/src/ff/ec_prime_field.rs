@@ -5,16 +5,14 @@ use generic_array::GenericArray;
 use typenum::{U2, U32};
 
 use crate::{
-    ff::{boolean_array::BA256, Expand, Field, Serializable},
+    ff::{boolean_array::BA256, Field, Serializable},
     impl_shared_value_common,
     protocol::{
         ipa_prf::PRF_CHUNK,
         prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
     },
     secret_sharing::{
-        replicated::{
-            malicious::ExtendableField, semi_honest::AdditiveShare, ReplicatedSecretSharing,
-        },
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare},
         Block, FieldVectorizable, SharedValue, StdArray, Vectorizable,
     },
 };
@@ -38,6 +36,12 @@ impl Fp25519 {
     pub fn invert(&self) -> Fp25519 {
         assert_ne!(*self, Fp25519::ZERO);
         Fp25519(self.0.invert())
+    }
+}
+
+impl Default for Fp25519 {
+    fn default() -> Self {
+        Self::ZERO
     }
 }
 
@@ -130,20 +134,6 @@ impl std::ops::MulAssign for Fp25519 {
     #[allow(clippy::assign_op_pattern)]
     fn mul_assign(&mut self, rhs: Self) {
         *self = *self * rhs;
-    }
-}
-
-impl<const N: usize> Expand for AdditiveShare<Fp25519, N>
-where
-    Fp25519: Vectorizable<N>,
-{
-    type Input = AdditiveShare<Fp25519>;
-
-    fn expand(v: &Self::Input) -> Self {
-        AdditiveShare::new_arr(
-            <Fp25519 as Vectorizable<N>>::Array::expand(&v.left()),
-            <Fp25519 as Vectorizable<N>>::Array::expand(&v.right()),
-        )
     }
 }
 
@@ -277,6 +267,11 @@ mod test {
     };
 
     sc_hash_impl!(u32);
+
+    #[test]
+    fn zero() {
+        assert_eq!(Fp25519::default(), Fp25519::ZERO);
+    }
 
     ///test serialize and deserialize
     #[test]

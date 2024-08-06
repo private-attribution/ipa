@@ -1,105 +1,124 @@
 mod crypto;
-#[cfg(debug_assertions)]
-use std::collections::HashSet;
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display, Formatter},
-    marker::PhantomData,
-};
+use std::{collections::HashMap, fmt::Debug, marker::PhantomData, ops::AddAssign};
 
 pub use crypto::{
     FromPrss, FromRandom, FromRandomU128, Generator, GeneratorFactory, KeyExchange,
     SharedRandomness,
 };
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+pub(super) use internal::PrssIndex128;
 use x25519_dalek::PublicKey;
 
 use crate::{
+    helpers::Direction,
     protocol::{Gate, RecordId},
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
 
-/// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
-/// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.
-/// As PRSS instance is unique per step, this only constrains randomness generated within
-/// a given step.
-#[cfg(debug_assertions)]
-struct UsedSet {
-    key: Gate,
-    used: Arc<Mutex<HashSet<usize>>>,
-}
+/// This module restricts access to internal PRSS index's private fields
+/// and enforces constructing it via `new` even for impl blocks
+/// defined in this module.
+///
+/// This helps to make sure an invalid [`PrssIndex128`] cannot be created
+/// and all instantiations occur via `From` calls.
+mod internal {
+    use std::{
+        fmt::{Debug, Display, Formatter},
+        num::TryFromIntError,
+    };
 
-#[cfg(debug_assertions)]
-impl UsedSet {
-    fn new(key: Gate) -> Self {
-        Self {
-            key,
-            used: Arc::new(Mutex::new(HashSet::new())),
-        }
-    }
+    use crate::protocol::prss::PrssIndex;
 
-    /// Adds a given index to the list of used indices.
+    /// Internal PRSS index.
     ///
-    /// ## Panics
-    /// Panic if this index has been used before.
-    fn insert(&self, index: PrssIndex128) {
-        let raw_index = u128::from(index);
-        if raw_index > usize::MAX as u128 {
-            // This is unreachable with the current PRSS index encoding.
-            tracing::warn!("PRSS index is too large: {index} > usize::MAX");
-        } else {
-            assert!(
-                self.used.lock().unwrap().insert(raw_index as usize),
-                "Generated randomness for index '{index}' twice using the same key '{}'",
-                self.key,
-            );
+    /// `PrssIndex128` values are directly input to the block cipher used for pseudo-random generation.
+    /// Each invocation must use a distinct `PrssIndex128` value. Most code should use the `PrssIndex`
+    /// type instead, which often corresponds to record IDs. `PrssIndex128` values are produced by
+    /// the `PrssIndex::offset` function and include the primary `PrssIndex` plus a possible offset
+    /// when more than 128 bits of randomness are required to generate the requested value.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct PrssIndex128 {
+        index: PrssIndex,
+        offset: u32,
+    }
+
+    impl Display for PrssIndex128 {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}:{}", self.index.0, self.offset)
         }
     }
-}
 
-#[cfg(debug_assertions)]
-impl Debug for UsedSet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IndicesSet(key={})", self.key)
-    }
-}
-
-/// Internal PRSS index.
-///
-/// `PrssIndex128` values are directly input to the block cipher used for pseudo-random generation.
-/// Each invocation must use a distinct `PrssIndex128` value. Most code should use the `PrssIndex`
-/// type instead, which often corresponds to record IDs. `PrssIndex128` values are produced by
-/// the `PrssIndex::offset` function and include the primary `PrssIndex` plus a possible offset
-/// when more than 128 bits of randomness are required to generate the requested value.
-///
-/// This is public so that it can be used by the instrumentation wrappers in
-/// `ipa_core::protocol::context`.  It should not generally be used outside the PRSS implementation.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PrssIndex128 {
-    index: PrssIndex,
-    offset: u32,
-}
-
-impl Display for PrssIndex128 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.index.0, self.offset)
-    }
-}
-
-#[cfg(debug_assertions)]
-impl From<u64> for PrssIndex128 {
-    fn from(value: u64) -> Self {
-        Self {
-            index: u32::try_from(value >> 32).unwrap().into(),
-            offset: u32::try_from(value & u64::from(u32::MAX)).unwrap(),
+    impl Debug for PrssIndex128 {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{self}")
         }
     }
-}
 
-impl From<PrssIndex128> for u128 {
-    fn from(value: PrssIndex128) -> Self {
-        u128::from((u64::from(value.index.0) << 32) + u64::from(value.offset))
+    #[cfg(test)]
+    impl From<u64> for PrssIndex128 {
+        fn from(value: u64) -> Self {
+            Self::try_from(u128::from(value)).unwrap()
+        }
+    }
+
+    impl From<PrssIndex128> for u128 {
+        fn from(value: PrssIndex128) -> Self {
+            u128::from(u64::from(value))
+        }
+    }
+
+    impl From<PrssIndex128> for u64 {
+        fn from(value: PrssIndex128) -> Self {
+            (u64::from(value.index.0) << 32) + u64::from(value.offset)
+        }
+    }
+
+    impl TryFrom<u128> for PrssIndex128 {
+        type Error = PrssIndexError;
+
+        fn try_from(value: u128) -> Result<Self, Self::Error> {
+            let value64 = u64::try_from(value)?;
+            let index = PrssIndex::from(u32::try_from(value64 >> 32).unwrap());
+            let offset = usize::try_from(value64 & u64::from(u32::MAX)).unwrap();
+
+            Self::new(index, offset)
+        }
+    }
+
+    impl PrssIndex128 {
+        /// The absolute maximum number of times we can encrypt
+        /// using the same AES key inside PRSS is 2^43.  We reserve
+        /// 32 bits for index, leaving the remaining 11 for the offset.
+        /// That puts a limit to 32k maximum entropy generated
+        /// from PRSS using the same record id.
+        /// [`proof`]: <https://github.com/private-attribution/i-d/blob/main/draft-thomson-ppm-prss.md>
+        pub(super) const MAX_OFFSET: u32 = 1 << 11;
+
+        pub fn new(index: PrssIndex, offset: usize) -> Result<Self, PrssIndexError> {
+            let this = Self {
+                index,
+                offset: offset.try_into()?,
+            };
+
+            if this.offset <= Self::MAX_OFFSET {
+                Ok(this)
+            } else {
+                Err(PrssIndexError::OutOfRange(this.into()))
+            }
+        }
+
+        pub fn index(self) -> PrssIndex {
+            self.index
+        }
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum PrssIndexError {
+        #[error("Type conversion failed")]
+        ConversionError(#[from] TryFromIntError),
+        #[error("PRSS index is out of range: {0}")]
+        OutOfRange(u128),
     }
 }
 
@@ -108,7 +127,7 @@ impl From<PrssIndex128> for u128 {
 /// PRSS indexes are used to ensure that distinct pseudo-randomness is generated for every value
 /// output by PRSS. It is often sufficient to use record IDs as PRSS indexes, and
 /// `impl From<RecordId> for PrssIndex` is provided for that purpose.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 pub struct PrssIndex(u32);
 
 impl From<u32> for PrssIndex {
@@ -133,12 +152,19 @@ impl From<RecordId> for PrssIndex {
     }
 }
 
+impl AddAssign<u32> for PrssIndex {
+    fn add_assign(&mut self, rhs: u32) {
+        if let Some(v) = self.0.checked_add(rhs) {
+            self.0 = v;
+        } else {
+            panic!("PrssIndex {} overflowed after adding {rhs}", self.0)
+        }
+    }
+}
+
 impl PrssIndex {
     fn offset(self, offset: usize) -> PrssIndex128 {
-        PrssIndex128 {
-            index: self,
-            offset: offset.try_into().expect("PRSS offset out of range"),
-        }
+        PrssIndex128::new(self, offset).expect("PRSS offset must not be out of range")
     }
 }
 
@@ -152,19 +178,89 @@ impl PrssIndex {
 pub struct IndexedSharedRandomness {
     left: Generator,
     right: Generator,
-    #[cfg(debug_assertions)]
-    used: UsedSet,
 }
 
 impl SharedRandomness for IndexedSharedRandomness {
-    type ChunksIter<'a, Z: ArrayLength> = ChunksIter<'a, Z>;
+    type ChunkIter<'a, Z: ArrayLength> = ChunkIter<'a, Z>;
 
+    fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> Self::ChunkIter<'_, Z> {
+        Self::ChunkIter::new(self, index, direction)
+    }
+
+    /// Override the generic implementation for performance reasons.
+    /// We need to hint the compiler that calls to `left.generate` and `right.generate` can be
+    /// interleaved. See [`ChunksIter`] documentation for more details
     fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,
         index: I,
-    ) -> Self::ChunksIter<'_, Z> {
+    ) -> impl Iterator<Item = (GenericArray<u128, Z>, GenericArray<u128, Z>)> {
+        let index = index.into();
         ChunksIter {
-            inner: self,
+            left: Self::ChunkIter::new(self, index, Direction::Left),
+            right: Self::ChunkIter::new(self, index, Direction::Right),
+        }
+    }
+}
+
+/// Specialized implementation for chunks that are generated using both left and right
+/// randomness. The functionality is the same as [`std::iter::zip`], but it does not use
+/// `Iterator` trait to call `left` and `right` next. It uses inlined method calls to
+/// allow rustc to interleave these calls and improve performance.
+///
+/// Comparing this implementation vs [`std::iter::zip`] showed that this one is
+/// 15% faster in benchmarks generating [`crate::ff::BA256`] values.
+struct ChunksIter<'a, Z: ArrayLength> {
+    left: ChunkIter<'a, Z>,
+    right: ChunkIter<'a, Z>,
+}
+
+impl<'a, Z: ArrayLength> Iterator for ChunksIter<'a, Z> {
+    type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let l = self.left.next()?;
+        let r = self.right.next()?;
+        Some((l, r))
+    }
+}
+
+pub struct ChunkIter<'a, Z: ArrayLength> {
+    inner: &'a Generator,
+    index: PrssIndex,
+    offset: usize,
+    phantom_data: PhantomData<Z>,
+}
+
+impl<'a, Z: ArrayLength> Iterator for ChunkIter<'a, Z> {
+    type Item = GenericArray<u128, Z>;
+
+    /// Rustc 1.79 and below does not inline this call without an explicit hint, and it hurts
+    /// performance - see ipa/1187.
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let chunk =
+            GenericArray::generate(|i| self.inner.generate(self.index.offset(self.offset + i)));
+
+        self.offset += Z::USIZE;
+        Some(chunk)
+    }
+}
+
+impl<'a, Z: ArrayLength> ChunkIter<'a, Z> {
+    pub fn new<I: Into<PrssIndex>>(
+        prss: &'a IndexedSharedRandomness,
+        index: I,
+        direction: Direction,
+    ) -> Self {
+        Self {
+            inner: match direction {
+                Direction::Left => &prss.left,
+                Direction::Right => &prss.right,
+            },
             index: index.into(),
             offset: 0,
             phantom_data: PhantomData,
@@ -172,44 +268,14 @@ impl SharedRandomness for IndexedSharedRandomness {
     }
 }
 
-pub struct ChunksIter<'a, Z: ArrayLength> {
-    inner: &'a IndexedSharedRandomness,
-    index: PrssIndex,
-    offset: usize,
-    phantom_data: PhantomData<Z>,
-}
-
-impl<'a, Z: ArrayLength> Iterator for ChunksIter<'a, Z> {
-    type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        #[cfg(debug_assertions)]
-        {
-            for i in self.offset..self.offset + Z::USIZE {
-                self.inner.used.insert(self.index.offset(i));
-            }
-        }
-        let l = GenericArray::generate(|i| {
-            self.inner
-                .left
-                .generate(self.index.offset(self.offset + i).into())
-        });
-        let r = GenericArray::generate(|i| {
-            self.inner
-                .right
-                .generate(self.index.offset(self.offset + i).into())
-        });
-        self.offset += Z::USIZE;
-        Some((l, r))
-    }
-}
-
 /// An implementation of `RngCore` that uses the same underlying `Generator`.
 /// For use in place of `PrssSpace` where indexing cannot be used, such as
 /// in APIs that expect `Rng`.
+///
+/// There is a limit of 4B unique values that can be obtained from this.
 pub struct SequentialSharedRandomness {
     generator: Generator,
-    counter: u128,
+    counter: PrssIndex,
 }
 
 impl SequentialSharedRandomness {
@@ -217,7 +283,7 @@ impl SequentialSharedRandomness {
     fn new(generator: Generator) -> Self {
         Self {
             generator,
-            counter: 0,
+            counter: PrssIndex::default(),
         }
     }
 }
@@ -232,7 +298,7 @@ impl RngCore for SequentialSharedRandomness {
     // That is OK for the same reason that we use in converting a `u128` to a small `Field`.
     #[allow(clippy::cast_possible_truncation)]
     fn next_u64(&mut self) -> u64 {
-        let v = self.generator.generate(self.counter);
+        let v = self.generator.generate(self.counter.offset(0));
         self.counter += 1;
         v as u64
     }
@@ -315,8 +381,6 @@ impl EndpointInner {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
                     left: self.left.generator(k.as_ref().as_bytes()),
                     right: self.right.generator(k.as_ref().as_bytes()),
-                    #[cfg(debug_assertions)]
-                    used: UsedSet::new(key.clone()),
                 }))
             })
         };
@@ -377,9 +441,11 @@ impl EndpointSetup {
 #[cfg(all(test, unit_test))]
 pub mod test {
     use ipa_step::StepNarrow;
-    use rand::prelude::SliceRandom;
+    use proptest::proptest;
+    use rand::{prelude::SliceRandom, rngs::StdRng};
+    use rand_core::{RngCore, SeedableRng};
 
-    use super::{Generator, KeyExchange, SequentialSharedRandomness};
+    use super::{Generator, KeyExchange, PrssIndex128, SequentialSharedRandomness};
     use crate::{
         ff::{Field, Fp31, U128Conversions},
         protocol::{
@@ -391,9 +457,9 @@ pub mod test {
         test_fixture::make_participants,
     };
 
-    fn make() -> (Generator, Generator) {
+    fn make(seed: u64) -> (Generator, Generator) {
         const CONTEXT: &[u8] = b"test generator";
-        let mut r = thread_rng();
+        let mut r = StdRng::seed_from_u64(seed);
 
         let (x1, x2) = (KeyExchange::new(&mut r), KeyExchange::new(&mut r));
         let (pk1, pk2) = (x1.public_key(), x2.public_key());
@@ -444,28 +510,29 @@ pub mod test {
     /// When inputs are the same, outputs are the same.
     #[test]
     fn generate_equal() {
-        let (g1, g2) = make();
+        const SEED: u64 = 0;
+        let (g1, g2) = make(SEED);
         assert_eq!(g1.generate(0), g2.generate(0));
         assert_eq!(g1.generate(1), g2.generate(1));
-        assert_eq!(g1.generate(u128::MAX), g2.generate(u128::MAX));
+        assert_eq!(g1.generate(1 << 32), g2.generate(1 << 32));
 
-        // Calling g1 twice with the same input produces the same output.
-        assert_eq!(g1.generate(12), g1.generate(12));
+        // Calling generators seeded with the same key produce the same output
+        assert_eq!(g1.generate(12), make(SEED).0.generate(12));
         // Now that g1 has been invoked more times than g2, we can check
         // that it isn't cheating by using an internal counter.
         assert_eq!(g1.generate(100), g2.generate(100));
-        assert_eq!(g2.generate(13), g2.generate(13));
+        assert_eq!(g1.generate(13), g2.generate(13));
     }
 
     /// It is *highly* unlikely that two different inputs will produce
     /// equal outputs.
     #[test]
     fn generate_unlikely() {
-        let (g1, g2) = make();
+        let (g1, g2) = make(thread_rng().next_u64());
         // An equal output is *unlikely*.
         assert_ne!(g1.generate(0), g2.generate(1));
         // As is a zero output.
-        assert_ne!(0, g1.generate(0));
+        assert_ne!(0, g1.generate(1));
     }
 
     /// Creating generators with different contexts means different output.
@@ -694,5 +761,42 @@ pub mod test {
 
         let _: u128 = random_u128(&*p1.indexed(&step), 100_u128);
         let _: u128 = random_u128(&*p1.indexed(&step), 100_u128);
+    }
+
+    #[test]
+    fn one_prss_index_u128_conversion() {
+        assert_8_byte_index_is_valid(65535, 42);
+    }
+
+    #[test]
+    #[should_panic(expected = "PrssIndex 4294967295 overflowed after adding 1")]
+    fn prss_index_catches_overflow() {
+        let mut base = PrssIndex(u32::MAX);
+        base += 1;
+    }
+
+    #[test]
+    fn index_upper_bound() {
+        let bad_index = (u128::from(u32::MAX) << 32) + u128::from(PrssIndex128::MAX_OFFSET + 1);
+        let good_index = (u128::from(u32::MAX) << 32) + u128::from(PrssIndex128::MAX_OFFSET);
+
+        assert!(PrssIndex128::try_from(bad_index).is_err());
+        assert!(PrssIndex128::try_from(good_index).is_ok());
+    }
+
+    fn assert_8_byte_index_is_valid(index: u32, offset: usize) {
+        let index = PrssIndex(index);
+        let index128 = u128::from(index.offset(offset));
+        assert_eq!(
+            index128,
+            u128::from(PrssIndex128::try_from(index128).unwrap())
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn prss_index_128_conversions(index in 0..u32::MAX, offset in 0..PrssIndex128::MAX_OFFSET) {
+            assert_8_byte_index_is_valid(index, usize::try_from(offset).unwrap());
+        }
     }
 }

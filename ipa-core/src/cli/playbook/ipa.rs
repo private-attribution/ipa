@@ -165,11 +165,15 @@ where
     for (breakdown_key, trigger_value) in results.into_iter().enumerate() {
         // TODO: make the data type used consistent with `ipa_in_the_clear`
         // I think using u32 is wrong, we should move to u128
-        assert!(
-            breakdown_key < query_config.max_breakdown_key.try_into().unwrap()
-                || trigger_value == HV::ZERO,
-            "trigger values were attributed to buckets more than max breakdown key"
-        );
+        if query_config.with_dp == 0 {
+            // otherwise if DP is added trigger_values will not be zero due to noise
+            assert!(
+                breakdown_key < query_config.max_breakdown_key.try_into().unwrap()
+                    || trigger_value == HV::ZERO,
+                "trigger values were attributed to buckets more than max breakdown key"
+            );
+        }
+
         if breakdown_key < query_config.max_breakdown_key.try_into().unwrap() {
             breakdowns[breakdown_key] += u32::try_from(trigger_value.as_u128()).unwrap();
         }

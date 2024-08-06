@@ -12,7 +12,7 @@ use crate::{
         Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
         ShardTransportImpl, Transport,
     },
-    hpke::{KeyPair, KeyRegistry},
+    hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
     query::{
         executor,
@@ -28,27 +28,27 @@ use crate::{
 ///
 /// Query processing consists of multiple steps:
 /// - A new request to initiate a query arrives from an external party (report collector) to any of the
-/// helpers.
+///     helpers.
 /// - Upon receiving that request, helper chooses a unique [`QueryId`] and assigns [`Role`] to every
-/// helper. It informs other parties about it and awaits their response.
+///     helper. It informs other parties about it and awaits their response.
 /// - If all parties accept the proposed query, they negotiate shared randomness and signal that
-/// - they're ready to receive inputs.
+///     they're ready to receive inputs.
 /// - Each party, upon receiving the input as a set of [`AdditiveShare`], immediately starts executing
-/// IPA protocol.
+///     IPA protocol.
 /// - When helper party is done, it holds onto the results of the computation until the external party
-/// that initiated this request asks for them.
+///     that initiated this request asks for them.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
 pub struct Processor {
     queries: RunningQueries,
-    key_registry: Arc<KeyRegistry<KeyPair>>,
+    key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
 }
 
 impl Default for Processor {
     fn default() -> Self {
         Self {
             queries: RunningQueries::default(),
-            key_registry: Arc::new(KeyRegistry::<KeyPair>::empty()),
+            key_registry: Arc::new(KeyRegistry::<PrivateKeyOnly>::empty()),
         }
     }
 }
@@ -112,7 +112,7 @@ impl Debug for Processor {
 
 impl Processor {
     #[must_use]
-    pub fn new(key_registry: KeyRegistry<KeyPair>) -> Self {
+    pub fn new(key_registry: KeyRegistry<PrivateKeyOnly>) -> Self {
         Self {
             queries: RunningQueries::default(),
             key_registry: Arc::new(key_registry),
@@ -121,10 +121,14 @@ impl Processor {
 
     /// Upon receiving a new query request:
     /// * processor generates new query id
-    /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka coordinator).
-    /// The coordinator is in theory free to choose helpers for `Role::H2` and `Role::H3` arbitrarily (aka followers), however, this is not currently exercised.
+    /// * assigns roles to helpers in the ring.
+    ///     Helper that received new query request becomes `Role::H1` (aka coordinator).
+    ///     The coordinator is in theory free to choose helpers for `Role::H2` and `Role::H3`
+    ///         arbitrarily (aka followers), however, this is not currently exercised.
     /// * Requests Infra and Network layer to create resources for this query
-    /// * sends `prepare` request that describes the query configuration (query id, query type, field type, roles -> endpoints or reverse) to followers and waits for the confirmation
+    /// * sends `prepare` request that describes the query configuration
+    ///     (query id, query type, field type, roles -> endpoints or reverse)
+    ///         to followers and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
     /// * returns query configuration
     ///
@@ -665,6 +669,8 @@ mod tests {
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
                             num_multi_bits: 3,
+                            with_dp: 0,
+                            epsilon: 1.0,
                             plaintext_match_keys: true,
                         }),
                     },

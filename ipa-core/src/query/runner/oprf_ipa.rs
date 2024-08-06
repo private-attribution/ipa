@@ -11,10 +11,10 @@ use crate::{
         Field, Serializable, U128Conversions,
     },
     helpers::{
-        query::{IpaQueryConfig, QuerySize},
+        query::{DpMechanism, IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
-    hpke::{KeyPair, KeyRegistry},
+    hpke::PrivateKeyRegistry,
     protocol::{
         basics::ShareKnownValue,
         context::{Context, SemiHonestContext},
@@ -29,14 +29,14 @@ use crate::{
     sync::Arc,
 };
 
-pub struct OprfIpaQuery<'a, HV> {
+pub struct OprfIpaQuery<'a, HV, R: PrivateKeyRegistry> {
     config: IpaQueryConfig,
-    key_registry: Arc<KeyRegistry<KeyPair>>,
+    key_registry: Arc<R>,
     phantom_data: PhantomData<&'a HV>,
 }
 
-impl<'a, HV> OprfIpaQuery<'a, HV> {
-    pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
+impl<'a, HV, R: PrivateKeyRegistry> OprfIpaQuery<'a, HV, R> {
+    pub fn new(config: IpaQueryConfig, key_registry: Arc<R>) -> Self {
         Self {
             config,
             key_registry,
@@ -46,9 +46,10 @@ impl<'a, HV> OprfIpaQuery<'a, HV> {
 }
 
 #[allow(clippy::too_many_lines)]
-impl<'ctx, HV> OprfIpaQuery<'ctx, HV>
+impl<'ctx, HV, R> OprfIpaQuery<'ctx, HV, R>
 where
     HV: BooleanArray + U128Conversions,
+    R: PrivateKeyRegistry,
     Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'ctx>, Boolean>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
@@ -112,12 +113,18 @@ where
         };
 
         let aws = config.attribution_window_seconds;
+        let dp_params: DpMechanism = match config.with_dp {
+            0 => DpMechanism::NoDp,
+            _ => DpMechanism::Binomial {
+                epsilon: config.epsilon,
+            },
+        };
         match config.per_user_credit_cap {
-            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws).await,
-            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws).await,
-            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws).await,
-            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws).await,
-            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws).await,
+            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params).await,
+            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params).await,
+            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws, dp_params).await,
+            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws, dp_params).await,
+            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws, dp_params).await,
             _ => panic!(
                 "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap
@@ -142,7 +149,7 @@ mod tests {
             query::{IpaQueryConfig, QuerySize},
             BodyStream,
         },
-        hpke::KeyRegistry,
+        hpke::{KeyPair, KeyRegistry},
         query::runner::OprfIpaQuery,
         report::{OprfReport, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
@@ -202,7 +209,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
-        let key_registry = Arc::new(KeyRegistry::random(1, &mut rng));
+        let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
 
         let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
 
@@ -224,10 +231,13 @@ mod tests {
                 per_user_credit_cap: 8,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
+                with_dp: 0,
+                epsilon: 1.0,
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            OprfIpaQuery::<BA16>::new(query_config, Arc::clone(&key_registry))
+
+            OprfIpaQuery::<BA16, KeyRegistry<KeyPair>>::new(query_config, Arc::clone(&key_registry))
                 .execute(ctx, query_size, input)
         }))
         .await;

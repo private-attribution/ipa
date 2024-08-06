@@ -184,7 +184,22 @@ pub fn test_multiply(config_dir: &Path, https: bool) {
     test_mpc.wait().unwrap_status();
 }
 
-pub fn test_network(https: bool) {
+pub fn test_add_in_prime_field(config_dir: &Path, https: bool, count: u32) {
+    let mut command = Command::new(TEST_MPC_BIN);
+    command
+        .args(["--network".into(), config_dir.join("network.toml")])
+        .args(["--wait", "2"])
+        .args(["--generate", &count.to_string()]);
+    if !https {
+        command.arg("--disable-https");
+    }
+    command.silent().arg("add-in-prime-field");
+
+    let test_mpc = command.spawn().unwrap().terminate_on_drop();
+    test_mpc.wait().unwrap_status();
+}
+
+pub fn test_network<T: NetworkTest>(https: bool) {
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
@@ -192,11 +207,17 @@ pub fn test_network(https: bool) {
     let sockets = test_setup(path);
     let _helpers = spawn_helpers(path, &sockets, https);
 
-    test_multiply(path, https);
+    T::execute(path, https);
 }
 
 pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
-    test_ipa_with_config(mode, https, IpaQueryConfig::default());
+    test_ipa_with_config(
+        mode,
+        https,
+        IpaQueryConfig {
+            ..Default::default()
+        },
+    );
 }
 
 pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQueryConfig) {
@@ -246,14 +267,27 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         .args([
             "--per-user-credit-cap",
             &config.per_user_credit_cap.to_string(),
-        ])
-        .stdin(Stdio::piped());
+        ]);
+
+    match config.with_dp {
+        0 => {
+            command.args(["--with-dp", &config.with_dp.to_string()]);
+        }
+        _ => {
+            command
+                .args(["--with-dp", &config.with_dp.to_string()])
+                .args(["--epsilon", &config.epsilon.to_string()]);
+        }
+    }
+    command.stdin(Stdio::piped());
+
     if config.attribution_window_seconds.is_some() {
         command.args([
             "--attribution-window-seconds",
             &config.attribution_window_seconds.unwrap().to_string(),
         ]);
     }
+
     if !https {
         // No reason that match key encryption needs to be coupled with helper-to-helper TLS, but
         // currently it is.
@@ -262,7 +296,6 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
     test_mpc.wait().unwrap_status();
-
     // basic output checks - output should have the exact size as number of breakdowns
     let output = serde_json::from_str::<IpaQueryResult>(
         &std::fs::read_to_string(&output_file).expect("IPA results file exists"),
@@ -275,4 +308,24 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         "Number of breakdowns does not match the expected",
     );
     assert_eq!(INPUT_SIZE, usize::from(output.input_size));
+}
+
+pub trait NetworkTest {
+    fn execute(config_path: &Path, https: bool);
+}
+
+pub struct Multiply;
+
+impl NetworkTest for Multiply {
+    fn execute(config_path: &Path, https: bool) {
+        test_multiply(config_path, https)
+    }
+}
+
+pub struct AddInPrimeField<const N: u32>;
+
+impl<const N: u32> NetworkTest for AddInPrimeField<N> {
+    fn execute(config_path: &Path, https: bool) {
+        test_add_in_prime_field(config_path, https, N)
+    }
 }

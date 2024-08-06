@@ -1,6 +1,7 @@
 use crate::{
     helpers::{
-        transport::in_memory::transport::{InMemoryTransport, Setup},
+        in_memory_config::{passthrough, DynStreamInterceptor},
+        transport::in_memory::transport::{InMemoryTransport, Setup, TransportConfigBuilder},
         HelperIdentity,
     },
     sharding::ShardIndex,
@@ -22,9 +23,22 @@ pub struct InMemoryShardNetwork {
 
 impl InMemoryShardNetwork {
     pub fn with_shards<I: Into<ShardIndex>>(shard_count: I) -> Self {
+        Self::with_stream_interceptor(shard_count, &passthrough())
+    }
+
+    pub fn with_stream_interceptor<I: Into<ShardIndex>>(
+        shard_count: I,
+        interceptor: &DynStreamInterceptor,
+    ) -> Self {
         let shard_count = shard_count.into();
         let shard_network: [_; 3] = HelperIdentity::make_three().map(|h| {
-            let mut shard_connections = shard_count.iter().map(Setup::new).collect::<Vec<_>>();
+            let mut config_builder = TransportConfigBuilder::for_helper(h);
+            config_builder.with_interceptor(interceptor);
+
+            let mut shard_connections = shard_count
+                .iter()
+                .map(|i| Setup::with_config(i, config_builder.bind_to_shard(i)))
+                .collect::<Vec<_>>();
             for i in 0..shard_connections.len() {
                 let (lhs, rhs) = shard_connections.split_at_mut(i);
                 if let Some((a, _)) = lhs.split_last_mut() {
@@ -67,7 +81,7 @@ impl InMemoryShardNetwork {
 
     pub fn reset(&self) {
         for helper in &self.shard_network {
-            for shard in helper.iter() {
+            for shard in helper {
                 shard.reset();
             }
         }

@@ -45,9 +45,28 @@ impl<V: SharedValue + Vectorizable<N> + Debug, const N: usize> Debug for Additiv
     }
 }
 
-impl<V: SharedValue> Default for AdditiveShare<V> {
+impl<V: SharedValue + Vectorizable<N>, const N: usize> Default for AdditiveShare<V, N> {
     fn default() -> Self {
-        AdditiveShare::new(V::ZERO, V::ZERO)
+        Self::ZERO
+    }
+}
+
+impl<V: SharedValue + Vectorizable<1>> AdditiveShare<V> {
+    /// Replicates this secret share `N` times, converting the resulting value
+    /// into a vectorized replicated share with vectorization factor `N`.
+    /// This is not the same operation as padding.
+    ///
+    /// ## Example
+    /// Secret share of a single bit (0, 1) can be expanded into a secret share
+    /// of `N` bits, by copying (0, 1) `N` times.
+    pub(crate) fn expand<const N: usize>(&self) -> AdditiveShare<V, N>
+    where
+        V: Vectorizable<N>,
+    {
+        AdditiveShare(
+            <V as Vectorizable<N>>::Array::from_fn(|_| self.left()),
+            <V as Vectorizable<N>>::Array::from_fn(|_| self.right()),
+        )
     }
 }
 
@@ -118,6 +137,27 @@ impl<V: SharedValue + Vectorizable<N>, const N: usize> AdditiveShare<V, N> {
     pub fn into_unpacking_iter(self) -> UnpackIter<V, N> {
         let Self(left, right) = self;
         UnpackIter(left.into_iter(), right.into_iter())
+    }
+
+    /// Transforms this into an additive sharing of another type, provided there exists
+    /// a deterministic way to go from `V` to `T`. Both values can be vectorized, but
+    /// vectorization factor must be the same.
+    pub fn transform<F, T>(self, mut f: F) -> AdditiveShare<T, N>
+    where
+        F: FnMut(V) -> T,
+        T: SharedValue + Vectorizable<N>,
+    {
+        let (l, r) = (self.0, self.1);
+        let left_arr = l
+            .into_iter()
+            .map(&mut f)
+            .collect::<<T as Vectorizable<N>>::Array>();
+        let right_arr = r
+            .into_iter()
+            .map(&mut f)
+            .collect::<<T as Vectorizable<N>>::Array>();
+
+        AdditiveShare::new_arr(left_arr, right_arr)
     }
 }
 

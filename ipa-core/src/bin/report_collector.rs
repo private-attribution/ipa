@@ -15,11 +15,11 @@ use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
         noise::{apply, ApplyDpArgs},
-        playbook::{make_clients, playbook_oprf_ipa, validate, InputSource},
+        playbook::{make_clients, playbook_oprf_ipa, validate, validate_dp, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
-    ff::{boolean_array::BA16, FieldType},
+    ff::{boolean_array::BA32, FieldType},
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
@@ -256,7 +256,10 @@ async fn ipa(
     let mut key_registries = KeyRegistries::default();
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
-            playbook_oprf_ipa::<BA16, _>(
+            // the value for histogram values (BA32) must be kept in sync with the server-side
+            // implementation, otherwise a runtime reconstruct error will be generated.
+            // see ipa-core/src/query/executor.rs
+            playbook_oprf_ipa::<BA32, _>(
                 input_rows,
                 helper_clients,
                 query_id,
@@ -304,7 +307,19 @@ async fn ipa(
 
     tracing::info!("{m:?}", m = ipa_query_config);
 
-    validate(&expected, &actual.breakdowns);
+    match ipa_query_config.with_dp {
+        0 => {
+            validate(&expected, &actual.breakdowns);
+        }
+        _ => {
+            validate_dp(
+                expected,
+                actual.breakdowns,
+                ipa_query_config.epsilon,
+                ipa_query_config.per_user_credit_cap,
+            );
+        }
+    }
 
     Ok(())
 }

@@ -13,13 +13,13 @@ use crate::{
     },
 };
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BitDecomposed<S> {
     bits: Vec<S>,
 }
 
 impl<S> BitDecomposed<S> {
-    const MAX: usize = 256;
+    pub const MAX: usize = 256;
 
     /// Create a new value from an iterator.
     /// # Panics

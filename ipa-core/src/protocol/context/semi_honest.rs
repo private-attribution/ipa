@@ -16,10 +16,9 @@ use crate::{
     },
     protocol::{
         context::{
-            dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
-            validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
-            InstrumentedSequentialSharedRandomness, ShardedContext, SpecialAccessToUpgradedContext,
-            UpgradableContext, UpgradedContext,
+            dzkp_validator::SemiHonestDZKPValidator, validator::SemiHonest as Validator, Base,
+            InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
+            ShardedContext, SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, RecordId,
@@ -154,11 +153,9 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
         Self::Validator::new(self.inner)
     }
 
-    type DZKPUpgradedContext = DZKPUpgraded<'a, B>;
     type DZKPValidator = SemiHonestDZKPValidator<'a, B>;
 
-    #[allow(unused_variables)]
-    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator {
+    fn dzkp_validator(self, _max_multiplications_per_gate: usize) -> Self::DZKPValidator {
         Self::DZKPValidator::new(self.inner)
     }
 }
@@ -282,10 +279,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> SpecialAccessToUpgradedContext<F>
     for Upgraded<'a, B, F>
 {
     type Base = Base<'a, B>;
-
-    fn accumulate_macs(self, _record_id: RecordId, _x: &Replicated<F>) {
-        // noop
-    }
 
     fn base_context(self) -> Self::Base {
         self.inner

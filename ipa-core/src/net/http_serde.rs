@@ -120,6 +120,8 @@ pub mod query {
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
                 QueryType::OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::OprfIpa(q))
@@ -145,12 +147,12 @@ pub mod query {
             )?;
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-                QueryType::TestMultiply => Ok(()),
+                QueryType::TestMultiply | QueryType::TestAddInPrimeField => Ok(()),
                 QueryType::OprfIpa(config) => {
                     write!(
                         f,
-                        "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        config.per_user_credit_cap, config.max_breakdown_key, config.num_multi_bits,
+                        "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}&with_dp={}&epsilon={}",
+                        config.per_user_credit_cap, config.max_breakdown_key, config.num_multi_bits,config.with_dp,config.epsilon
                     )?;
 
                     if config.plaintext_match_keys {

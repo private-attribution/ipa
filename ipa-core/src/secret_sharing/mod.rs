@@ -72,7 +72,18 @@ impl<V: SharedValue> Sendable for V {}
 /// (capable of supporting addition and multiplication) is desired, the `Field` trait extends
 /// `SharedValue` to require multiplication.
 pub trait SharedValue:
-    Clone + Copy + Eq + Debug + Send + Sync + Sized + Additive + Sendable + Vectorizable<1> + 'static
+    Clone
+    + Copy
+    + Default
+    + Eq
+    + Debug
+    + Send
+    + Sync
+    + Sized
+    + Additive
+    + Sendable
+    + Vectorizable<1>
+    + 'static
 {
     type Storage: Block;
 

@@ -1,6 +1,7 @@
 use std::{
+    cmp::{max, min},
     fmt::{Debug, Display, Formatter},
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroUsize},
 };
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -140,9 +141,25 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
 }
 
 impl From<&QueryConfig> for GatewayConfig {
-    fn from(_value: &QueryConfig) -> Self {
-        // TODO: pick the correct value for active and test it
-        Self::default()
+    fn from(value: &QueryConfig) -> Self {
+        let mut config = Self::default();
+        // Minimum size for active work is 2 because:
+        // * `UnorderedReceiver` wants capacity to be greater than 1
+        // * 1 is better represented by not using seq_join and/or indeterminate total records
+        let active = max(
+            2,
+            min(
+                config.active.get(),
+                // It makes sense to start with active work set to input size, but some protocols
+                // may want to change that, if their fanout factor per input row is greater than 1.
+                // we don't have capabilities (see #ipa/1171) to allow that currently.
+                usize::try_from(value.size.0).expect("u32 fits into usize"),
+            ),
+        );
+        // we set active to be at least 2, so unwrap is fine.
+        config.active = NonZeroUsize::new(active).unwrap();
+
+        config
     }
 }
 
@@ -198,15 +215,20 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
+    #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+    TestAddInPrimeField,
     OprfIpa(IpaQueryConfig),
 }
 
 impl QueryType {
+    /// TODO: strum
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
+    pub const TEST_ADD_STR: &'static str = "test-add";
     pub const OPRF_IPA_STR: &'static str = "oprf_ipa";
 }
 
@@ -216,12 +238,23 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
+            #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+            QueryType::TestAddInPrimeField => Self::TEST_ADD_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum DpMechanism {
+    NoDp,
+    Binomial { epsilon: f64 },
+}
+
+#[cfg(test)]
+impl Eq for IpaQueryConfig {}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]
@@ -232,6 +265,10 @@ pub struct IpaQueryConfig {
     pub attribution_window_seconds: Option<NonZeroU32>,
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
+    #[arg(short = 'd', long, default_value = "1")]
+    pub with_dp: u32,
+    #[arg(short = 'e', long, default_value = "5.0")]
+    pub epsilon: f64,
 
     /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
     /// shares from input reports directly. Setting this to true also activates an alternate
@@ -249,6 +286,8 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
+            with_dp: 1,
+            epsilon: 5.0,
             plaintext_match_keys: false,
         }
     }
@@ -263,6 +302,8 @@ impl IpaQueryConfig {
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
         num_multi_bits: u32,
+        with_dp: u32,
+        epsilon: f64,
     ) -> Self {
         Self {
             per_user_credit_cap,
@@ -272,6 +313,9 @@ impl IpaQueryConfig {
                     .expect("attribution window must be a positive value > 0"),
             ),
             num_multi_bits,
+            with_dp,
+            epsilon,
+            // dp_params,
             plaintext_match_keys: false,
         }
     }
@@ -285,12 +329,16 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         num_multi_bits: u32,
+        with_dp: u32,
+        epsilon: f64,
     ) -> Self {
         Self {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds: None,
             num_multi_bits,
+            with_dp,
+            epsilon,
             plaintext_match_keys: false,
         }
     }

@@ -1,3 +1,5 @@
+mod add;
+mod generator;
 mod input;
 mod ipa;
 mod multiply;
@@ -5,6 +7,7 @@ mod multiply;
 use core::fmt::Debug;
 use std::{fs, path::Path, time::Duration};
 
+pub use add::secure_add;
 use comfy_table::{Cell, Color, Table};
 use hyper::http::uri::Scheme;
 pub use input::InputSource;
@@ -15,6 +18,7 @@ pub use self::ipa::playbook_oprf_ipa;
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
     net::{ClientIdentity, MpcHelperClient},
+    protocol::dp::NoiseParams,
 };
 
 /// Validates that the expected result matches the actual.
@@ -43,7 +47,8 @@ where
             break;
         }
 
-        let same = next_expected == next_actual;
+        let same = next_expected == next_actual; // with DP non-exact match here
+
         let color = if same { Color::Green } else { Color::Red };
         table.add_row(vec![
             Cell::new(format!("{i}")).fg(color),
@@ -65,6 +70,75 @@ where
         mismatch.is_empty(),
         "Expected and actual results don't match: {mismatch:?}",
     );
+}
+
+/// Validates that the expected result matches the actual.
+///
+/// ## Panics
+/// If results don't match.
+pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_credit_cap: u32) {
+    let mut expected = expected.into_iter().fuse();
+    let mut actual = actual.into_iter().fuse();
+    let mut mismatch = Vec::new();
+
+    let mut table = Table::new();
+    table.set_header(vec!["Row", "Expected", "Actual", "Diff?"]);
+
+    let mut all_equal: bool = true;
+    let mut i = 0;
+    loop {
+        let next_expected = expected.next();
+        let next_actual = actual.next();
+
+        if next_expected.is_none() && next_actual.is_none() {
+            break;
+        }
+
+        // make sure DP noise actually changed at least one of the results
+        if next_expected != next_actual {
+            all_equal = false;
+        }
+
+        let next_expected_f64: f64 = next_expected.unwrap().into();
+        let actual_expect_f64: f64 = next_actual.unwrap().into();
+        let noise_params = NoiseParams {
+            epsilon,
+            ell_1_sensitivity: per_user_credit_cap.into(),
+            ell_2_sensitivity: per_user_credit_cap.into(),
+            ell_infty_sensitivity: per_user_credit_cap.into(),
+            dimensions: 256.0, // matches the hard coded number of breakdown keys in oprf_ipa.rs/execute
+            ..Default::default()
+        };
+
+        let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
+        let same = actual_expect_f64 - mean > next_expected_f64 - 10.0 * std
+            && actual_expect_f64 - mean < next_expected_f64 + 10.0 * std;
+
+        let color = if same { Color::Green } else { Color::Red };
+        table.add_row(vec![
+            Cell::new(format!("{i}")).fg(color),
+            Cell::new(format!("{next_expected:?}")).fg(color),
+            Cell::new(format!("{next_actual:?}")).fg(color),
+            Cell::new(if same { "" } else { "X" }),
+        ]);
+
+        if !same {
+            mismatch.push((i, next_expected, next_actual));
+        }
+
+        i += 1;
+    }
+
+    tracing::info!("\n{table}\n");
+
+    assert!(
+        mismatch.is_empty(),
+        "Expected and actual results don't match: {mismatch:?}",
+    );
+
+    // make sure DP noise actually changed the results
+    assert!(!all_equal,
+    "Expected and actual results match exactly...probably DP noise is not being added when it should be");
 }
 
 /// Creates 3 clients to talk to MPC helpers.

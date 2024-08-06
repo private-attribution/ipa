@@ -13,14 +13,16 @@ use tracing::{Instrument, Level, Span};
 
 use crate::{
     helpers::{
+        in_memory_config::{passthrough, DynStreamInterceptor},
         Gateway, GatewayConfig, HelperIdentity, InMemoryMpcNetwork, InMemoryShardNetwork,
         InMemoryTransport, Role, RoleAssignment, Transport,
     },
     protocol::{
         context::{
-            Context, MaliciousContext, SemiHonestContext, ShardedSemiHonestContext,
-            UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator,
+            dzkp_validator::DZKPValidator, Context, DZKPUpgradedMaliciousContext, MaliciousContext,
+            SemiHonestContext, ShardedSemiHonestContext, UpgradableContext, UpgradeContext,
+            UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, QueryId,
@@ -109,6 +111,34 @@ pub struct TestWorldConfig {
     /// performance and want to use compact gates, you set this to the gate narrowed to root step
     /// of the protocol being tested.
     pub initial_gate: Option<Gate>,
+
+    /// An optional interceptor to be put inside the in-memory stream
+    /// module. This allows inspecting and modifying stream content
+    /// for each communication round between any pair of helpers.
+    /// The application include:
+    /// * Malicious behavior. This can help simulating a malicious
+    ///     actor being present in the system by running one or several
+    ///     additive attacks.
+    /// * Data corruption. Tests can simulate bit flips that occur
+    ///     at the network layer and check whether IPA can recover from
+    ///     these (checksums, etc).
+    ///
+    /// The interface is pretty low level because of the layer
+    /// where it operates. [`StreamInterceptor`] interface provides
+    /// access to the circuit gate and raw bytes being
+    /// sent between helpers and/or shards. [`MaliciousHelper`]
+    /// is one example of helper that could be built on top
+    /// of this generic interface. It is recommended to build
+    /// a custom interceptor for repeated use-cases that is less
+    /// generic than [`StreamInterceptor`].
+    ///
+    /// If interception is not required, the [`passthrough`] interceptor
+    /// may be used.
+    ///
+    /// [`StreamInterceptor`]: crate::helpers::in_memory_config::StreamInterceptor
+    /// [`MaliciousHelper`]: crate::helpers::in_memory_config::MaliciousHelper
+    /// [`passthrough`]: crate::helpers::in_memory_config::passthrough
+    pub stream_interceptor: DynStreamInterceptor,
 }
 
 impl ShardingScheme for NotSharded {
@@ -236,7 +266,8 @@ impl<S: ShardingScheme> TestWorld<S> {
         println!("TestWorld random seed {seed}", seed = config.seed);
 
         let shard_count = ShardIndex::try_from(S::SHARDS).unwrap();
-        let shard_network = InMemoryShardNetwork::with_shards(shard_count);
+        let shard_network =
+            InMemoryShardNetwork::with_stream_interceptor(shard_count, &config.stream_interceptor);
 
         let shards = shard_count
             .iter()
@@ -285,6 +316,7 @@ impl Default for TestWorldConfig {
             role_assignment: None,
             seed: thread_rng().next_u64(),
             initial_gate: None,
+            stream_interceptor: passthrough(),
         }
     }
 }
@@ -387,6 +419,15 @@ pub trait Runner<S: ShardingScheme> {
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
+
+    /// Run with a context that has already been upgraded to malicious.
+    async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send;
 }
 
 /// Separate a length-3 array of tuples (T, U, V) into a tuple of length-3
@@ -479,6 +520,18 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
+    {
+        unimplemented!()
+    }
+
+    /// Run with a context that has already been upgraded to malicious.
+    async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
     {
         unimplemented!()
     }
@@ -583,6 +636,25 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
 
         output
     }
+
+    /// Run with a context that has already been upgraded to malicious.
+    async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: (Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R) + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        self.malicious(input, |ctx, share| async {
+            let v = ctx.dzkp_validator(10);
+            let m_ctx = v.context();
+            let m_result = helper_fn(m_ctx, share).await;
+            v.validate().await.unwrap();
+            m_result
+        })
+        .await
+    }
 }
 
 struct ShardWorld<B: ShardBinding> {
@@ -602,9 +674,11 @@ impl<B: ShardBinding> ShardWorld<B> {
         shard_seed: u64,
         transports: [InMemoryTransport<ShardIndex>; 3],
     ) -> Self {
-        // todo: B -> seed
         let participants = make_participants(&mut StdRng::seed_from_u64(config.seed + shard_seed));
-        let network = InMemoryMpcNetwork::default();
+        let network = InMemoryMpcNetwork::with_stream_interceptor(
+            InMemoryMpcNetwork::noop_handlers(),
+            &config.stream_interceptor,
+        );
 
         let mut gateways = zip3_ref(&network.transports(), &transports).map(|(mpc, shard)| {
             Gateway::new(
@@ -720,9 +794,19 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
+    use futures_util::future::try_join4;
+
     use crate::{
-        ff::{boolean_array::BA3, U128Conversions},
-        protocol::{context::Context, prss::SharedRandomness},
+        ff::{boolean_array::BA3, Field, Fp31, U128Conversions},
+        helpers::{
+            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
+            Direction, Role,
+        },
+        protocol::{context::Context, prss::SharedRandomness, RecordId},
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue,
+        },
         sharding::ShardConfiguration,
         test_executor::run,
         test_fixture::{world::WithShards, Reconstruct, Runner, TestWorld, TestWorldConfig},
@@ -783,6 +867,69 @@ mod tests {
                     }
                 })
                 .await.into_iter().map(|v| v.reconstruct()).collect::<Vec<_>>();
+        });
+    }
+
+    #[test]
+    fn peeker_can_corrupt_data() {
+        const STEP: &str = "corruption";
+        run(|| async move {
+            fn corrupt_byte(data: &mut u8) {
+                // flipping the bit may result in prime overflow,
+                // so we just set the value to be 0 or 1 if it was 0
+                if *data == 0 {
+                    *data = 1;
+                } else {
+                    *data = 0;
+                }
+            }
+
+            let mut config = TestWorldConfig::default();
+            config.stream_interceptor = MaliciousHelper::new(
+                Role::H1,
+                config.role_assignment(),
+                |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
+                    if ctx.gate.as_ref().contains(STEP) {
+                        corrupt_byte(&mut data[0]);
+                    }
+                },
+            );
+
+            let world = TestWorld::new_with(config);
+
+            let shares = world
+                .semi_honest((), |ctx, ()| async move {
+                    let ctx = ctx.narrow(STEP).set_total_records(1);
+                    let (l, r): (Fp31, Fp31) = ctx.prss().generate(RecordId::FIRST);
+
+                    let ((), (), r, l) = try_join4(
+                        ctx.send_channel(ctx.role().peer(Direction::Right))
+                            .send(RecordId::FIRST, r),
+                        ctx.send_channel(ctx.role().peer(Direction::Left))
+                            .send(RecordId::FIRST, l),
+                        ctx.recv_channel::<Fp31>(ctx.role().peer(Direction::Right))
+                            .receive(RecordId::FIRST),
+                        ctx.recv_channel::<Fp31>(ctx.role().peer(Direction::Left))
+                            .receive(RecordId::FIRST),
+                    )
+                    .await
+                    .unwrap();
+
+                    AdditiveShare::new(l, r)
+                })
+                .await;
+
+            println!("{shares:?}");
+            // shares received from H1 must be corrupted
+            assert_ne!(shares[0].right(), shares[1].left());
+            assert_ne!(shares[0].left(), shares[2].right());
+
+            // and must be set to either 0 or 1
+            assert!([Fp31::ZERO, Fp31::ONE].contains(&shares[1].left()));
+            assert!([Fp31::ZERO, Fp31::ONE].contains(&shares[2].right()));
+
+            // values shared between H2 and H3 must be consistent
+            assert_eq!(shares[1].right(), shares[2].left());
         });
     }
 }
