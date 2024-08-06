@@ -152,7 +152,6 @@ impl<'a> super::Context for Context<'a> {
 }
 
 impl<'a> UpgradableContext for Context<'a> {
-    type UpgradedContext<F: ExtendableField> = Upgraded<'a, F>;
     type Validator<F: ExtendableField> = Validator<'a, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {

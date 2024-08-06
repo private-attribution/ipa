@@ -21,7 +21,7 @@ use crate::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
         context::{
             dzkp_validator::DZKPValidator, Context, SemiHonestContext, UpgradableContext,
-            UpgradedContext, UpgradedSemiHonestContext,
+            UpgradedSemiHonestContext,
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -294,7 +294,6 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
