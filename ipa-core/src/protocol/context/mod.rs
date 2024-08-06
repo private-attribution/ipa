@@ -183,9 +183,6 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext {
     /// associated with the `Base` struct.
     type Base: Context;
 
-    /// Take a secret sharing and add it to the running MAC that this context maintains (if any).
-    fn accumulate_macs(self, record_id: RecordId, x: &Self::Share);
-
     /// Get a base context that is an exact copy of this malicious
     /// context, so it will be tied up to the same step and prss.
     #[must_use]

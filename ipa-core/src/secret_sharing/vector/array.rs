@@ -11,7 +11,7 @@ use typenum::{U16, U256, U32, U64};
 use crate::{
     const_assert_eq,
     error::LengthError,
-    ff::{ec_prime_field::Fp25519, Expand, Field, Fp32BitPrime, Serializable},
+    ff::{ec_prime_field::Fp25519, Field, Fp32BitPrime, Serializable},
     protocol::{ipa_prf::PRF_CHUNK, prss::FromRandom},
     secret_sharing::{FieldArray, Sendable, SharedValue, SharedValueArray},
 };
@@ -136,14 +136,6 @@ impl<V: SharedValue, const N: usize> IntoIterator for StdArray<V, N> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
-    }
-}
-
-impl<V: SharedValue, const N: usize> Expand for StdArray<V, N> {
-    type Input = V;
-
-    fn expand(v: &Self::Input) -> Self {
-        Self(array::from_fn(|_| *v))
     }
 }
 
