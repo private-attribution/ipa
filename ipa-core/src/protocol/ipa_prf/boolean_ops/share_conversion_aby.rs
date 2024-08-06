@@ -171,7 +171,7 @@ where
         &Step::RevealY,
         record_id,
         Role::H3,
-        &*sh_y,
+        &sh_y,
     )
     .await?;
 

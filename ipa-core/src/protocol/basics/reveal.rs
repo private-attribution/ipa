@@ -24,7 +24,7 @@ use crate::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        SharedValue, Vectorizable,
+        BitDecomposed, SharedValue, Vectorizable,
     },
     sharding::ShardBinding,
 };
@@ -78,7 +78,7 @@ pub trait Reveal<C: Context> {
         C: 'fut;
 }
 
-impl<C, S> Reveal<C> for [S]
+impl<C, S> Reveal<C> for BitDecomposed<S>
 where
     C: Context,
     S: Reveal<C> + Send + Sync + 'static,
@@ -94,7 +94,7 @@ where
     where
         C: 'fut,
     {
-        ctx.parallel_join(zip(self, repeat(ctx.clone())).enumerate().map(
+        ctx.parallel_join(zip(&**self, repeat(ctx.clone())).enumerate().map(
             |(i, (bit, ctx))| async move {
                 generic_reveal(
                     ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(i)),
@@ -404,8 +404,8 @@ mod tests {
         },
         rand::{thread_rng, Rng},
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare, IntoShares, SecretSharing, SharedValue,
-            Vectorizable,
+            replicated::semi_honest::AdditiveShare, BitDecomposed, IntoShares, SecretSharing,
+            SharedValue, Vectorizable,
         },
         test_executor::run,
         test_fixture::{join3v, Runner, TestWorld, TestWorldConfig},
@@ -680,7 +680,7 @@ mod tests {
     async fn reveal_empty_vec() {
         let [res0, res1, res2] = TestWorld::default()
             .upgraded_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
-                reveal(ctx, RecordId::FIRST, share.as_slice())
+                reveal(ctx, RecordId::FIRST, &BitDecomposed::new(share))
                     .await
                     .unwrap()
                     .into_iter()
@@ -698,7 +698,7 @@ mod tests {
     async fn reveal_empty_vec_partial() {
         let [res0, res1, res2] = TestWorld::default()
             .upgraded_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
-                partial_reveal(ctx, RecordId::FIRST, Role::H3, share.as_slice())
+                partial_reveal(ctx, RecordId::FIRST, Role::H3, &BitDecomposed::new(share))
                     .await
                     .unwrap()
             })
