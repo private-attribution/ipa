@@ -294,7 +294,6 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
-    <C as UpgradableContext>::DZKPValidator: Send + Sync,
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
