@@ -19,10 +19,7 @@ use crate::{
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
-        context::{
-            Context, SemiHonestContext, UpgradableContext, UpgradedContext,
-            UpgradedSemiHonestContext,
-        },
+        context::{Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext},
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
@@ -274,7 +271,6 @@ async fn compute_prf_for_inputs<C, BK, TV, TS>(
 where
     C: UpgradableContext,
     <C as UpgradableContext>::DZKPValidator: Send + Sync,
-    C::UpgradedContext<Boolean>: UpgradedContext<Field = Boolean, Share = Replicated<Boolean>>,
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
