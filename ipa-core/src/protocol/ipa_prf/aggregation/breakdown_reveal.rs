@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, mem};
+use std::mem;
 
 use futures::{
     future,
@@ -60,8 +60,8 @@ where
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
 {
-    let atributions = shuffle_attributions::<_, _, B>(&ctx, atributions).await?;
-    let grouped_tvs = reveal_breakdowns::<HV, _, _, B>(&ctx, atributions).await?;
+    let atributions = shuffle_attributions(&ctx, atributions).await?;
+    let grouped_tvs = reveal_breakdowns(&ctx, atributions).await?;
     add_tvs_by_bk::<TV, HV, B>(&ctx, grouped_tvs).await
 }
 
@@ -97,14 +97,13 @@ where
 #[tracing::instrument(name = "reveal_breakdowns", skip_all, fields(
     total = attributions.len(),
 ))]
-async fn reveal_breakdowns<HV, BK, TV, const B: usize>(
+async fn reveal_breakdowns<BK, TV, const B: usize>(
     parent_ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
     attributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
-) -> Result<GroupedTriggerValues<HV, B>, Error>
+) -> Result<GroupedTriggerValues<B>, Error>
 where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
-    HV: BooleanArray,
 {
     let reveal_ctx = parent_ctx
         .narrow(&AggregationStep::RevealStep)
@@ -124,7 +123,7 @@ where
         }
     });
     let tv_size: usize = TV::BITS.try_into().unwrap();
-    let mut grouped_tvs = GroupedTriggerValues::<HV, B>::new(tv_size);
+    let mut grouped_tvs = GroupedTriggerValues::<B>::new(tv_size);
     let tvs: Vec<(usize, Replicated<TV>)> = seq_join(reveal_ctx.active_work(), reveal_work)
         .try_collect()
         .await?;
@@ -146,24 +145,21 @@ type Operand = BitDecomposed<Replicated<Boolean>>;
 /// Since the addition of 2 TVs returns a newly alloc TV and the number of
 /// BKs is small, there's not a lot of gain by doing operations in place with
 /// references in this structure.
-struct GroupedTriggerValues<HV, const B: usize> {
+struct GroupedTriggerValues<const B: usize> {
     singles: [Option<Operand>; B],
     pairs: Vec<Pair>,
     size: usize,
-    phantom: PhantomData<HV>,
 }
 
-impl<HV, const B: usize> GroupedTriggerValues<HV, B>
+impl<const B: usize> GroupedTriggerValues<B>
 where
     Boolean: Vectorizable<1>,
-    HV: BooleanArray,
 {
     fn new(size: usize) -> Self {
         Self {
             singles: std::array::from_fn(|_| None),
             pairs: vec![],
             size,
-            phantom: PhantomData,
         }
     }
 
@@ -176,14 +172,12 @@ where
     /// `None` in its place) and add a new `Pair`.
     fn push(&mut self, bk: usize, value: Operand) {
         assert_eq!(self.size, value.len());
-        let op = self.singles[bk].take();
-        if let Some(existing_value) = op {
+        if let Some(existing_value) = self.singles[bk].take() {
             self.pairs.push(Pair {
                 left: existing_value,
                 right: value,
                 bk,
             });
-            self.singles[bk] = None;
         } else {
             self.singles[bk] = Some(value);
         }
@@ -197,7 +191,7 @@ where
     /// Besides that, if the size is bellow, it will grow all the contained
     /// singles by one Zero and increase the size by one. Size makes sure that
     /// only Operands with the correct size are pushed in.
-    fn expand(&mut self) -> bool {
+    fn expand<HV: BooleanArray>(&mut self) -> bool {
         let hv_size: usize = HV::BITS.try_into().unwrap();
         if self.size >= hv_size {
             return false;
@@ -209,6 +203,14 @@ where
             }
         }
         true
+    }
+
+    fn into_final_result<HV: BooleanArray>(self) -> Vec<Replicated<HV>> {
+        let mut r = Vec::<Replicated<HV>>::with_capacity(B);
+        for s in self.singles {
+            r.push(s.map_or(Replicated::ZERO, BitDecomposed::collect_bits));
+        }
+        r
     }
 }
 
@@ -279,7 +281,7 @@ pub const MAX_DEPTH: usize = 64;
 #[tracing::instrument(name = "add_tvs_by_bk", skip_all)]
 async fn add_tvs_by_bk<TV, HV, const B: usize>(
     parent_ctx: &UpgradedSemiHonestContext<'_, NotSharded, Boolean>,
-    mut grouped_tvs: GroupedTriggerValues<HV, B>,
+    mut grouped_tvs: GroupedTriggerValues<B>,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     TV: BooleanArray,
@@ -289,24 +291,17 @@ where
         let pairs = mem::take(&mut grouped_tvs.pairs);
         // Exit condition
         if pairs.is_empty() {
-            let mut r: Vec<Replicated<HV>> = vec![];
-            for s in grouped_tvs.singles {
-                if let Some(hv_bits) = s {
-                    r.push(hv_bits.collect_bits());
-                } else {
-                    r.push(Replicated::ZERO);
-                }
-            }
-            return Ok(r);
+            return Ok(grouped_tvs.into_final_result());
         }
 
-        let can_expand = grouped_tvs.expand();
+        let can_expand = grouped_tvs.expand::<HV>();
 
         let add_ctx = parent_ctx
             .narrow(&AggregationStep::Aggregate(d))
             .set_total_records(TotalRecords::specified(pairs.len()).unwrap());
 
-        let work = pairs.iter().enumerate().map(|(i, p)| {
+        let pairs_len = pairs.len();
+        let work = pairs.into_iter().enumerate().map(|(i, p)| {
             let record_id = RecordId::from(i);
             let i_ctx = add_ctx.clone();
             // This is the work that will be executed in the future by seq_join
@@ -345,13 +340,13 @@ where
                 "add_tvs_reduce",
                 depth = d,
                 max_breakdowns = B,
-                pairs_len = pairs.len(),
+                pairs_len
             ))
             .await?;
     }
-    // Should never come to this. Insted it should return from the exit
-    // condition in the for loop.
-    Err(Error::Internal)
+    // This loop terminates if the number of steps exceeds 64, which means
+    // processing more than 2^64 events that shouldn't happen in practice.
+    panic!()
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
