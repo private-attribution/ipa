@@ -88,7 +88,7 @@ where
         ctx.narrow(&Step::GenRandomMask).prss().generate(record_id);
 
     //compute x+k
-    let mut y = x + AdditiveShare::<Fp25519>::expand(k);
+    let mut y = x + k.expand();
 
     //compute y <- r*y
     y = y
