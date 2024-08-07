@@ -16,10 +16,9 @@ use crate::{
     },
     protocol::{
         context::{
-            dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
-            validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
-            InstrumentedSequentialSharedRandomness, ShardedContext, SpecialAccessToUpgradedContext,
-            UpgradableContext, UpgradedContext,
+            dzkp_validator::SemiHonestDZKPValidator, validator::SemiHonest as Validator, Base,
+            InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
+            ShardedContext, SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, RecordId,
@@ -147,14 +146,12 @@ impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
 }
 
 impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
-    type UpgradedContext<F: ExtendableField> = Upgraded<'a, B, F>;
     type Validator<F: ExtendableField> = Validator<'a, B, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Self::Validator::new(self.inner)
     }
 
-    type DZKPUpgradedContext = DZKPUpgraded<'a, B>;
     type DZKPValidator = SemiHonestDZKPValidator<'a, B>;
 
     fn dzkp_validator(self, _max_multiplications_per_gate: usize) -> Self::DZKPValidator {

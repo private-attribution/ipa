@@ -12,7 +12,9 @@ use std::ops::Not;
 pub use if_else::select;
 pub use mul::{BooleanArrayMul, SecureMul};
 pub use reshare::Reshare;
-pub use reveal::{malicious_reveal, partial_reveal, reveal, semi_honest_reveal, Reveal};
+pub use reveal::{
+    malicious_reveal, partial_reveal, reveal, semi_honest_reveal, validated_partial_reveal, Reveal,
+};
 pub use share_known_value::ShareKnownValue;
 
 use crate::{

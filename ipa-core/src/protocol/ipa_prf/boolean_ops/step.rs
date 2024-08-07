@@ -26,8 +26,8 @@ pub(crate) enum Fp25519ConversionStep {
     IntegerAddBetweenMasks,
     #[step(child = crate::protocol::boolean::step::TwoHundredFiftySixBitOpStep)]
     IntegerAddMaskToX,
-    #[step(count = 256)]
-    RevealY(usize),
+    #[step(child = crate::protocol::boolean::step::TwoHundredFiftySixBitOpStep)]
+    RevealY,
 }
 
 #[derive(CompactStep)]

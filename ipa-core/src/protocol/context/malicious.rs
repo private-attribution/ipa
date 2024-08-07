@@ -152,14 +152,12 @@ impl<'a> super::Context for Context<'a> {
 }
 
 impl<'a> UpgradableContext for Context<'a> {
-    type UpgradedContext<F: ExtendableField> = Upgraded<'a, F>;
     type Validator<F: ExtendableField> = Validator<'a, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Validator::new(self)
     }
 
-    type DZKPUpgradedContext = DZKPUpgraded<'a>;
     type DZKPValidator = MaliciousDZKPValidator<'a>;
 
     fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator {

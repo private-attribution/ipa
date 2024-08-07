@@ -1,21 +1,29 @@
-use std::{cmp, collections::BTreeMap, fmt::Debug};
+use std::{
+    cmp::{self, min},
+    collections::BTreeMap,
+    fmt::Debug,
+};
 
 use async_trait::async_trait;
-use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
+use bitvec::{
+    bitvec,
+    prelude::{BitArray, BitSlice, BitVec, Lsb0},
+};
 use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
+use tokio::sync::watch;
 
 use crate::{
     error::{BoxError, Error},
     ff::{Fp61BitPrime, U128Conversions},
-    helpers::stream::TryFlattenItersExt,
+    helpers::{stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         context::{
             dzkp_field::{DZKPBaseField, UVTupleBlock},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             step::ZeroKnowledgeProofValidateStep as Step,
-            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
+            Base, Context, DZKPContext, MaliciousContext,
         },
         ipa_prf::validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
         Gate, RecordId,
@@ -463,17 +471,24 @@ impl MultiplicationInputsBatch {
 /// The size of the batch is limited due to the memory costs and verifier specific constraints.
 ///
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct Batch {
     max_multiplications_per_gate: usize,
     inner: BTreeMap<Gate, MultiplicationInputsBatch>,
+    validation_result: watch::Sender<bool>,
+    pending_count: usize,
+    pending_records: BitVec,
 }
 
 impl Batch {
     fn new(max_multiplications_per_gate: usize) -> Self {
+        let (validation_result, _) = watch::channel::<bool>(false);
         Self {
             max_multiplications_per_gate,
             inner: BTreeMap::<Gate, MultiplicationInputsBatch>::default(),
+            validation_result,
+            pending_count: 0,
+            pending_records: bitvec![0; max_multiplications_per_gate],
         }
     }
 
@@ -582,8 +597,10 @@ impl DZKPBatch {
 /// that is tied to a `DZKPBatch` rather than an `accumulator`.
 /// Function signature of `validate` is also different, it does not downgrade shares anymore
 #[async_trait]
-pub trait DZKPValidator<B: UpgradableContext>: Send + Sync {
-    fn context(&self) -> B::DZKPUpgradedContext;
+pub trait DZKPValidator: Clone + Send + Sync {
+    type Context: DZKPContext;
+
+    fn context(&self) -> Self::Context;
 
     /// Allows to validate the current `DZKPBatch` and empties it. The associated context is then
     /// considered safe until another multiplication is performed and thus new values are added
@@ -605,6 +622,18 @@ pub trait DZKPValidator<B: UpgradableContext>: Send + Sync {
     /// when calling validate multiple times for the same base context.
     async fn validate_chunk(&self, chunk_counter: usize) -> Result<(), Error>;
 
+    /// Request and wait for validation of data associated with the supplied `record_id`.
+    ///
+    /// Validation will not generally occur immediately. The indicated record ID is marked as
+    /// complete and the future blocks pending all other records in the batch also requesting
+    /// validation. Once `validate_record` has been called for all records in the batch, the
+    /// batch is verified, and all of the `validate_record` futures complete.
+    ///
+    /// This API may only be used when the number of records per batch is the same for every
+    /// step submitting intermediates to this validator. It also requires that `set_total_records`
+    /// is set appropriately on the context that is used to create the validator.
+    async fn validate_record(&self, record_id: RecordId) -> Result<(), Error>;
+
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
     /// within the associated `DZKPBatch`
     ///
@@ -625,7 +654,7 @@ pub trait DZKPValidator<B: UpgradableContext>: Send + Sync {
     where
         S: Stream<Item = F> + Send + 'st,
         F: Future<Output = O> + Send + 'st,
-        O: Send + Sync + Clone + 'static,
+        O: Send + Sync + 'static,
     {
         // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
         // but there is some overhead
@@ -653,14 +682,18 @@ impl<'a, B: ShardBinding> SemiHonestDZKPValidator<'a, B> {
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
-    for SemiHonestDZKPValidator<'a, B>
-{
+impl<'a, B: ShardBinding> DZKPValidator for SemiHonestDZKPValidator<'a, B> {
+    type Context = SemiHonestDZKPUpgraded<'a, B>;
+
     fn context(&self) -> SemiHonestDZKPUpgraded<'a, B> {
         self.context.clone()
     }
 
     async fn validate_chunk(&self, _context_counter: usize) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn validate_record(&self, _record_id: RecordId) -> Result<(), Error> {
         Ok(())
     }
 
@@ -679,7 +712,9 @@ pub struct MaliciousDZKPValidator<'a> {
 }
 
 #[async_trait]
-impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
+impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
+    type Context = MaliciousDZKPUpgraded<'a>;
+
     fn context(&self) -> MaliciousDZKPUpgraded<'a> {
         self.protocol_ctx.clone()
     }
@@ -762,7 +797,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         };
 
         // verify BatchToVerify, return result
-        chunk_batch
+        let result = chunk_batch
             .verify(
                 chunk_ctx.narrow(&Step::VerifyProof),
                 sum_of_uv,
@@ -771,7 +806,63 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
                 &challenges_for_left_prover,
                 &challenges_for_right_prover,
             )
-            .await
+            .await;
+
+        self.batch_ref
+            .lock()
+            .unwrap()
+            .validation_result
+            .send_replace(result.is_ok());
+
+        result
+    }
+
+    async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
+        enum Validate {
+            Wait(watch::Receiver<bool>),
+            Now,
+        }
+
+        let TotalRecords::Specified(total_records) = self.protocol_ctx.total_records() else {
+            return Err(Error::MissingTotalRecords(String::from("validate_record")));
+        };
+
+        let validate = {
+            let mut batch = self.batch_ref.lock().unwrap();
+            batch.pending_records.set(usize::from(record_id), true);
+            batch.pending_count += 1;
+            // TODO: adjust for multi-batch
+            let total_count = min(batch.max_multiplications_per_gate, total_records.get());
+            if batch.pending_count == total_count {
+                assert!(batch.pending_records[0..total_count].all());
+                Validate::Now
+            } else {
+                Validate::Wait(batch.validation_result.subscribe())
+            }
+            // Release the batch lock.
+        };
+        match validate {
+            Validate::Wait(mut validation_result_rx) => {
+                validation_result_rx
+                    .changed()
+                    .await
+                    .expect("sender should not be dropped");
+                if *validation_result_rx.borrow() {
+                    Ok(())
+                } else {
+                    // Because errors are not `Clone`, only the validate_record call that actually
+                    // did the validation returns the actual error (of type
+                    // `Error::DZKPValidationFailed`, possibly with additional detail in the
+                    // future). The rest get this error.
+                    Err(Error::ParallelDZKPValidationFailed)
+                }
+            }
+            Validate::Now => {
+                let index = 0; // TODO: need to update this when batching logic is fixed
+                tracing::debug!("validating batch {index}");
+                self.validate_chunk(index).await
+            }
+        }
     }
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified.
@@ -816,6 +907,7 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 mod tests {
     use std::{
         iter::{repeat, repeat_with, zip},
+        mem,
         num::NonZeroUsize,
     };
 
@@ -926,21 +1018,21 @@ mod tests {
         let mut rng = thread_rng();
 
         let original_inputs = (0..count)
-            .map(|_| rng.gen::<Fp61BitPrime>())
-            .collect::<Vec<Fp61BitPrime>>();
+            .map(|_| rng.gen::<Boolean>())
+            .collect::<Vec<Boolean>>();
 
-        let shared_inputs: Vec<[Replicated<Fp61BitPrime>; 3]> = original_inputs
+        let shared_inputs: Vec<[Replicated<Boolean>; 3]> = original_inputs
             .iter()
             .map(|x| x.share_with(&mut rng))
             .collect();
-        let h1_shares: Vec<Replicated<Fp61BitPrime>> =
+        let h1_shares: Vec<Replicated<Boolean>> =
             shared_inputs.iter().map(|x| x[0].clone()).collect();
-        let h2_shares: Vec<Replicated<Fp61BitPrime>> =
+        let h2_shares: Vec<Replicated<Boolean>> =
             shared_inputs.iter().map(|x| x[1].clone()).collect();
-        let h3_shares: Vec<Replicated<Fp61BitPrime>> =
+        let h3_shares: Vec<Replicated<Boolean>> =
             shared_inputs.iter().map(|x| x[2].clone()).collect();
 
-        // todo(DM): change to malicious once we can run the dzkps
+        // todo(DM): change to malicious when proof batching is fixed
         let futures = world
             .contexts()
             .into_iter()
@@ -1360,12 +1452,8 @@ mod tests {
                 // LOCK BEGIN
                 let mut batch = validator.batch_ref.lock().unwrap();
 
-                let output = batch.clone();
-
-                // cheat, i.e. prevent panic without verification
-                batch.increment_record_ids();
-
-                output
+                let max_mult = batch.max_multiplications_per_gate;
+                mem::replace(&mut *batch, Batch::new(max_mult))
             })
             .await;
 

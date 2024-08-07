@@ -106,13 +106,11 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 }
 
 pub trait UpgradableContext: Context {
-    type UpgradedContext<F: ExtendableField>: UpgradedContext;
-    type Validator<F: ExtendableField>: Validator<Self, F>;
+    type Validator<F: ExtendableField>: Validator<F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
 
-    type DZKPUpgradedContext: DZKPContext;
-    type DZKPValidator: DZKPValidator<Self>;
+    type DZKPValidator: DZKPValidator;
 
     fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator;
 }

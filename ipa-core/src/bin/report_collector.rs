@@ -15,7 +15,7 @@ use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
         noise::{apply, ApplyDpArgs},
-        playbook::{make_clients, playbook_oprf_ipa, validate, InputSource},
+        playbook::{make_clients, playbook_oprf_ipa, validate, validate_dp, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
@@ -307,7 +307,19 @@ async fn ipa(
 
     tracing::info!("{m:?}", m = ipa_query_config);
 
-    validate(&expected, &actual.breakdowns);
+    match ipa_query_config.with_dp {
+        0 => {
+            validate(&expected, &actual.breakdowns);
+        }
+        _ => {
+            validate_dp(
+                expected,
+                actual.breakdowns,
+                ipa_query_config.epsilon,
+                ipa_query_config.per_user_credit_cap,
+            );
+        }
+    }
 
     Ok(())
 }
