@@ -6,8 +6,8 @@ use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 #[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{PrimeField, Serializable},
-    helpers::query::IpaQueryConfig,
-    protocol::ipa_prf::OPRFIPAInputRow,
+    helpers::query::{DpMechanism, IpaQueryConfig},
+    protocol::{dp::NoiseParams, ipa_prf::OPRFIPAInputRow},
     secret_sharing::{
         replicated::{
             malicious::ExtendableField, semi_honest, semi_honest::AdditiveShare as Replicated,
@@ -193,7 +193,7 @@ pub async fn test_oprf_ipa<F>(
 {
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA3, BA5, BA8},
+            boolean_array::{BA20, BA3, BA32, BA5, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
@@ -201,13 +201,19 @@ pub async fn test_oprf_ipa<F>(
     };
 
     let aws = config.attribution_window_seconds;
+    let dp_params: DpMechanism = match config.with_dp {
+        0 => DpMechanism::NoDp,
+        _ => DpMechanism::Binomial {
+            epsilon: config.epsilon,
+        },
+    };
     let result: Vec<_> = if config.per_user_credit_cap == 256 {
         // Note that many parameters are different in this case, not just the credit cap.
         // This config is needed for collect_steps coverage.
         world.semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA8, BA20>>| async move {
-                oprf_ipa::<BA5, BA8, BA16, BA20, 8, 32>(ctx, input_rows, aws)
+                oprf_ipa::<BA5, BA8, BA32, BA20, 8, 32>(ctx, input_rows, aws, dp_params)
                     .await
                     .unwrap()
             },
@@ -219,19 +225,19 @@ pub async fn test_oprf_ipa<F>(
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
-                    8 => oprf_ipa::<BA8, BA3, BA16, BA20, 3, 256>(ctx, input_rows, aws)
+                    8 => oprf_ipa::<BA8, BA3, BA32, BA20, 3, 256>(ctx, input_rows, aws, dp_params)
                     .await
                     .unwrap(),
-                    16 => oprf_ipa::<BA8, BA3, BA16, BA20, 4, 256>(ctx, input_rows, aws)
+                    16 => oprf_ipa::<BA8, BA3, BA32, BA20, 4, 256>(ctx, input_rows, aws, dp_params)
                     .await
                     .unwrap(),
-                    32 => oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, aws)
+                    32 => oprf_ipa::<BA8, BA3, BA32, BA20, 5, 256>(ctx, input_rows, aws, dp_params)
                     .await
                     .unwrap(),
-                    64 => oprf_ipa::<BA8, BA3, BA16, BA20, 6, 256>(ctx, input_rows, aws)
+                    64 => oprf_ipa::<BA8, BA3, BA32, BA20, 6, 256>(ctx, input_rows, aws, dp_params)
                     .await
                     .unwrap(),
-                    128 => oprf_ipa::<BA8, BA3, BA16, BA20, 7, 256>(ctx, input_rows, aws)
+                    128 => oprf_ipa::<BA8, BA3, BA32, BA20, 7, 256>(ctx, input_rows, aws, dp_params)
                     .await
                     .unwrap(),
                     _ =>
@@ -253,7 +259,34 @@ pub async fn test_oprf_ipa<F>(
 
     //TODO(richaj): To be removed once the function supports non power of 2 breakdowns
     let _ = result.split_off(expected_results.len());
-    assert_eq!(result, expected_results);
+
+    match dp_params {
+        DpMechanism::NoDp => {
+            assert_eq!(result, expected_results);
+        }
+        DpMechanism::Binomial { epsilon } => {
+            let per_user_credit_cap_f64 = f64::from(config.per_user_credit_cap);
+            let noise_params = NoiseParams {
+                epsilon,
+                delta: 1e-6,
+                ell_1_sensitivity: per_user_credit_cap_f64,
+                ell_2_sensitivity: per_user_credit_cap_f64,
+                ell_infty_sensitivity: per_user_credit_cap_f64,
+                dimensions: 256.0, // matches hard coded dimension in oprf_ipa.rs/execute
+                ..Default::default()
+            };
+            let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
+
+            assert_eq!(result.len(), expected_results.len());
+
+            for (&sample, &expected) in std::iter::zip(result.iter(), expected_results.iter()) {
+                assert!(
+                    (f64::from(sample) - mean - f64::from(expected)).abs() < 5.0 * std,
+                    "DP result was not within 5 standard deviations from what was expected"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(all(test, unit_test))]

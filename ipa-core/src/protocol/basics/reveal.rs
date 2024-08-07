@@ -1,25 +1,30 @@
-use std::future::Future;
+use std::{
+    future::Future,
+    iter::{repeat, zip},
+};
 
 use embed_doc_image::embed_doc_image;
-use futures::TryFutureExt;
+use futures::{FutureExt, TryFutureExt};
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
     ff::boolean::Boolean,
     helpers::{Direction, MaybeFuture, Role},
     protocol::{
+        boolean::step::TwoHundredFiftySixBitOpStep,
         context::{
-            Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext,
+            dzkp_validator::DZKPValidator, Context, DZKPUpgradedMaliciousContext,
+            DZKPUpgradedSemiHonestContext, UpgradedMaliciousContext, UpgradedSemiHonestContext,
         },
-        RecordId,
+        Gate, RecordId,
     },
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        SharedValue, Vectorizable,
+        BitDecomposed, SharedValue, Vectorizable,
     },
     sharding::ShardBinding,
 };
@@ -71,6 +76,52 @@ pub trait Reveal<C: Context> {
     ) -> impl Future<Output = Result<Option<Self::Output>, Error>> + Send + 'fut
     where
         C: 'fut;
+}
+
+impl<C, S> Reveal<C> for BitDecomposed<S>
+where
+    C: Context,
+    S: Reveal<C> + Send + Sync + 'static,
+{
+    type Output = Vec<<S as Reveal<C>>::Output>;
+
+    fn generic_reveal<'fut>(
+        &'fut self,
+        ctx: C,
+        record_id: RecordId,
+        excluded: Option<Role>,
+    ) -> impl Future<Output = Result<Option<Self::Output>, Error>> + Send + 'fut
+    where
+        C: 'fut,
+    {
+        ctx.parallel_join(zip(&**self, repeat(ctx.clone())).enumerate().map(
+            |(i, (bit, ctx))| async move {
+                generic_reveal(
+                    ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(i)),
+                    record_id,
+                    excluded,
+                    bit,
+                )
+                .await
+            },
+        ))
+        .map(move |res| {
+            res.map(move |vec| {
+                match vec.first() {
+                    None => (excluded != Some(ctx.role())).then(Vec::new),
+                    Some(&None) => None,
+                    Some(&Some(_)) => Some(
+                        // Transform `Vec<Option<V>>` to `Option<Vec<V>>`.
+                        vec.into_iter()
+                            .map(|opt_v| {
+                                opt_v.expect("inconsistent full vs. partial reveal behavior")
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                }
+            })
+        })
+    }
 }
 
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
@@ -284,7 +335,7 @@ pub fn reveal<'fut, C, S>(
 ) -> impl Future<Output = Result<S::Output, Error>> + Send + 'fut
 where
     C: Context + 'fut,
-    S: Reveal<C>,
+    S: Reveal<C> + ?Sized,
 {
     S::reveal(v, ctx, record_id)
 }
@@ -297,14 +348,45 @@ pub fn partial_reveal<'fut, C, S>(
 ) -> impl Future<Output = Result<Option<S::Output>, Error>> + Send + 'fut
 where
     C: Context + 'fut,
-    S: Reveal<C>,
+    S: Reveal<C> + ?Sized,
 {
     S::partial_reveal(v, ctx, record_id, excluded)
 }
 
+pub fn generic_reveal<'fut, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    excluded: Option<Role>,
+    v: &'fut S,
+) -> impl Future<Output = Result<Option<S::Output>, Error>> + Send + 'fut
+where
+    C: Context + 'fut,
+    S: Reveal<C> + ?Sized,
+{
+    S::generic_reveal(v, ctx, record_id, excluded)
+}
+
+pub async fn validated_partial_reveal<'fut, V, S, STEP>(
+    validator: V,
+    step: &'fut STEP,
+    record_id: RecordId,
+    excluded: Role,
+    v: &'fut S,
+) -> Result<Option<<S as Reveal<V::Context>>::Output>, Error>
+where
+    V: DZKPValidator + 'fut,
+    S: Reveal<V::Context> + Send + Sync + ?Sized,
+    STEP: Step + Send + Sync + 'static,
+    Gate: StepNarrow<STEP>,
+{
+    let ctx = validator.context().narrow(step);
+    validator.validate_record(record_id).await?;
+    partial_reveal(ctx, record_id, excluded, v).await
+}
+
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::zip;
+    use std::iter::{self, zip};
 
     use futures::future::join_all;
 
@@ -322,8 +404,8 @@ mod tests {
         },
         rand::{thread_rng, Rng},
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare, IntoShares, SecretSharing, SharedValue,
-            Vectorizable,
+            replicated::semi_honest::AdditiveShare, BitDecomposed, IntoShares, SecretSharing,
+            SharedValue, Vectorizable,
         },
         test_executor::run,
         test_fixture::{join3v, Runner, TestWorld, TestWorldConfig},
@@ -592,5 +674,38 @@ mod tests {
                 .dzkp_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
                 .await;
         });
+    }
+
+    #[tokio::test]
+    async fn reveal_empty_vec() {
+        let [res0, res1, res2] = TestWorld::default()
+            .upgraded_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
+                reveal(ctx, RecordId::FIRST, &BitDecomposed::new(share))
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .map(|v| Boolean::from_array(&v))
+                    .collect::<Vec<_>>()
+            })
+            .await;
+
+        assert_eq!(res0, vec![]);
+        assert_eq!(res1, vec![]);
+        assert_eq!(res2, vec![]);
+    }
+
+    #[tokio::test]
+    async fn reveal_empty_vec_partial() {
+        let [res0, res1, res2] = TestWorld::default()
+            .upgraded_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
+                partial_reveal(ctx, RecordId::FIRST, Role::H3, &BitDecomposed::new(share))
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+        assert_eq!(res0, Some(vec![]));
+        assert_eq!(res1, Some(vec![]));
+        assert_eq!(res2, None);
     }
 }

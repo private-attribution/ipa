@@ -129,7 +129,8 @@ where
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: BooleanArray,
-    AdditiveShare<Boolean, SORT_CHUNK>: BooleanProtocols<C::DZKPUpgradedContext, SORT_CHUNK>,
+    AdditiveShare<Boolean, SORT_CHUNK>:
+        BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, SORT_CHUNK>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:

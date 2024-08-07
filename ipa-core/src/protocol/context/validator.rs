@@ -15,7 +15,7 @@ use crate::{
         basics::{check_zero::malicious_check_zero, malicious_reveal},
         context::{
             step::{MaliciousProtocolStep as Step, ValidateStep},
-            Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
+            Base, Context, MaliciousContext, UpgradedContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext,
         },
         prss::{FromPrss, SharedRandomness},
@@ -37,8 +37,10 @@ use crate::{
 };
 
 #[async_trait]
-pub trait Validator<B: UpgradableContext, F: ExtendableField> {
-    fn context(&self) -> B::UpgradedContext<F>;
+pub trait Validator<F: ExtendableField> {
+    type Context: UpgradedContext;
+
+    fn context(&self) -> Self::Context;
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
 }
 
@@ -57,10 +59,10 @@ impl<'a, B: ShardBinding, F: ExtendableField> SemiHonest<'a, B, F> {
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding, F: ExtendableField> Validator<super::semi_honest::Context<'a, B>, F>
-    for SemiHonest<'a, B, F>
-{
-    fn context(&self) -> UpgradedSemiHonestContext<'a, B, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> Validator<F> for SemiHonest<'a, B, F> {
+    type Context = UpgradedSemiHonestContext<'a, B, F>;
+
+    fn context(&self) -> Self::Context {
         self.context.clone()
     }
 
@@ -207,12 +209,14 @@ pub struct Malicious<'a, F: ExtendableField> {
 }
 
 #[async_trait]
-impl<'a, F> Validator<MaliciousContext<'a>, F> for Malicious<'a, F>
+impl<'a, F> Validator<F> for Malicious<'a, F>
 where
     F: ExtendableField,
 {
+    type Context = UpgradedMaliciousContext<'a, F>;
+
     /// Get a copy of the context that can be used for malicious protocol execution.
-    fn context<'b>(&'b self) -> UpgradedMaliciousContext<'a, F> {
+    fn context(&self) -> Self::Context {
         self.protocol_ctx.clone()
     }
 

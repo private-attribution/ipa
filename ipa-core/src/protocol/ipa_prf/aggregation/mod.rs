@@ -117,7 +117,7 @@ pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N:
     ctx: C,
     contributions_stream: St,
     contributions_stream_len: usize,
-) -> Result<Vec<Replicated<HV>>, Error>
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: Context,
     St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
@@ -189,7 +189,7 @@ where
     );
     let aggregated_result =
         aggregate_values::<_, HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
-    Ok(Vec::transposed_from(&aggregated_result)?)
+    Ok(aggregated_result)
 }
 
 /// A vector of histogram contributions for each output bucket.
