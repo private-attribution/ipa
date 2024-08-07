@@ -338,7 +338,7 @@ mod tests {
         helpers::Role,
         protocol::{
             basics::SecureMul,
-            context::{validator::Validator, Context, UpgradableContext, UpgradedContext},
+            context::{upgrade::Upgradable, validator::Validator, Context, UpgradableContext},
             RecordId,
         },
         rand::{thread_rng, Rng},
@@ -384,8 +384,10 @@ mod tests {
                 let v = ctx.validator();
                 let m_ctx = v.context();
 
-                let (a_malicious, b_malicious) =
-                    m_ctx.clone().upgrade((a_share, b_share)).await.unwrap();
+                let (a_malicious, b_malicious) = (a_share, b_share)
+                    .upgrade(m_ctx.set_total_records(1), RecordId::FIRST)
+                    .await
+                    .unwrap();
 
                 let m_result = a_malicious
                     .multiply(&b_malicious, m_ctx.set_total_records(1), RecordId::from(0))
@@ -425,7 +427,10 @@ mod tests {
         let result = world
             .malicious(a, |ctx, a| async move {
                 let v = ctx.validator();
-                let m = v.context().upgrade(a).await.unwrap();
+                let m = a
+                    .upgrade(v.context().set_total_records(1), RecordId::FIRST)
+                    .await
+                    .unwrap();
                 v.validate(m).await.unwrap()
             })
             .await;
@@ -449,7 +454,10 @@ mod tests {
                         a
                     };
                     let v = ctx.validator();
-                    let m = v.context().upgrade(a).await.unwrap();
+                    let m = a
+                        .upgrade(v.context().set_total_records(1), RecordId::FIRST)
+                        .await
+                        .unwrap();
                     match v.validate(m).await {
                         Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
@@ -506,7 +514,10 @@ mod tests {
                 let v = ctx.validator();
                 let m_ctx = v.context();
 
-                let m_input = m_ctx.upgrade(input_shares).await.unwrap();
+                let m_input = input_shares
+                    .upgrade(m_ctx.set_total_records(1), RecordId::FIRST)
+                    .await
+                    .unwrap();
 
                 let m_results = m_ctx
                     .try_join(

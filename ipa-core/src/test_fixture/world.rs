@@ -15,17 +15,17 @@ use crate::{
     helpers::{
         in_memory_config::{passthrough, DynStreamInterceptor},
         Gateway, GatewayConfig, HelperIdentity, InMemoryMpcNetwork, InMemoryShardNetwork,
-        InMemoryTransport, Role, RoleAssignment, Transport,
+        InMemoryTransport, Role, RoleAssignment, TotalRecords, Transport,
     },
     protocol::{
         context::{
-            dzkp_validator::DZKPValidator, Context, DZKPUpgradedMaliciousContext, MaliciousContext,
-            SemiHonestContext, ShardedSemiHonestContext, UpgradableContext, UpgradeContext,
-            UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext,
+            dzkp_validator::DZKPValidator, upgrade::Upgradable, Context,
+            DZKPUpgradedMaliciousContext, MaliciousContext, SemiHonestContext,
+            ShardedSemiHonestContext, UpgradableContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
-        Gate, QueryId,
+        Gate, QueryId, RecordId,
     },
     secret_sharing::{
         replicated::malicious::{DowngradeMalicious, ExtendableField},
@@ -410,8 +410,7 @@ pub trait Runner<S: ShardingScheme> {
     where
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
-        A: Send + 'static,
-        UpgradeContext<UpgradedMaliciousContext<'a, F>>: UpgradeToMalicious<A, M>,
+        A: Send + 'static + Upgradable<UpgradedMaliciousContext<'a, F>, Output = M>,
         O: Send + Debug,
         M: Send + 'static,
         H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -511,8 +510,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
     where
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
-        A: Send + 'static,
-        UpgradeContext<UpgradedMaliciousContext<'a, F>>: UpgradeToMalicious<A, M>,
+        A: Send + 'static + Upgradable<UpgradedMaliciousContext<'a, F>, Output = M>,
         O: Send + Debug,
         M: Send + 'static,
         H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -605,8 +603,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
     where
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
-        A: Send + 'static,
-        UpgradeContext<UpgradedMaliciousContext<'a, F>>: UpgradeToMalicious<A, M>,
+        A: Send + 'static + Upgradable<UpgradedMaliciousContext<'a, F>, Output = M>,
         O: Send + Debug,
         M: Send + 'static,
         H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -619,7 +616,13 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
             self.malicious(input, |ctx, share| async {
                 let v = ctx.validator();
                 let m_ctx = v.context();
-                let m_share = m_ctx.upgrade(share).await.unwrap();
+                let m_share = share
+                    .upgrade(
+                        m_ctx.set_total_records(TotalRecords::specified(1).unwrap()),
+                        RecordId::FIRST,
+                    )
+                    .await
+                    .unwrap();
                 let m_result = helper_fn(m_ctx, m_share).await;
                 let m_result_clone = m_result.clone();
                 let r_share = v.r_share().clone();

@@ -19,6 +19,8 @@ use crate::{
             dzkp_malicious::DZKPUpgraded,
             dzkp_validator::{DZKPBatch, MaliciousDZKPValidator},
             prss::InstrumentedIndexedSharedRandomness,
+            step::UpgradeStep,
+            upgrade::Upgradable,
             validator::{Malicious as Validator, MaliciousAccumulator},
             Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
@@ -29,7 +31,6 @@ use crate::{
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField, ExtendableFieldSimd},
         semi_honest::AdditiveShare as Replicated,
-        ReplicatedSecretSharing,
     },
     seq_join::SeqJoin,
     sharding::NotSharded,
@@ -242,46 +243,17 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
             .accumulator
             .accumulate_macs(&self.prss(), record_id, share);
     }
+
+    /// It is intentionally not public, allows access to it only from within
+    /// this module
+    fn r_share(&self) -> &Replicated<F::ExtendedField> {
+        &self.inner.r_share
+    }
 }
 
 #[async_trait]
 impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
     type Field = F;
-    type Share = MaliciousReplicated<F>;
-
-    async fn upgrade_one(
-        &self,
-        record_id: RecordId,
-        x: Replicated<F>,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        //
-        // This code is drawn from:
-        // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
-        // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
-        // <https://eprint.iacr.org/2019/386.pdf>
-        //
-        // See protocol 4.15
-        // In Step 3: "Randomization of inputs:", it says:
-        //
-        // For each input wire sharing `[v_j]` (where j ∈ {1, . . . , M}), the parties locally
-        // compute the induced share `[[v_j]] = f([v_j], 0, . . . , 0)`.
-        // Then, the parties call `Ḟ_mult` on `[[ȓ]]` and `[[v_j]]` to receive `[[ȓ · v_j]]`
-        //
-        let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
-
-        let rx = semi_honest_multiply(
-            self.as_base(),
-            record_id,
-            &induced_share,
-            &self.inner.r_share,
-        )
-        .await?;
-        let m = MaliciousReplicated::new(x, rx);
-        let narrowed = self.narrow(&RandomnessForValidation);
-        let prss = narrowed.prss();
-        self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
-        Ok(m)
-    }
 }
 
 impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
@@ -390,5 +362,131 @@ impl<'a, F: ExtendableField> UpgradedInner<'a, F> {
             accumulator,
             r_share,
         })
+    }
+
+    fn accumulator(&self) -> &MaliciousAccumulator<F> {
+        &self.accumulator
+    }
+}
+
+/// Upgrading a semi-honest replicated share using malicious context produces
+/// a MAC-secured share with the same vectorization factor.
+#[async_trait]
+impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V>> for Replicated<V, N>
+where
+    Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
+{
+    type Output = MaliciousReplicated<V, N>;
+
+    async fn upgrade(
+        self,
+        ctx: Upgraded<'a, V>,
+        record_id: RecordId,
+    ) -> Result<Self::Output, Error> {
+        let ctx = ctx.narrow(&UpgradeStep);
+        //
+        // This code is drawn from:
+        // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+        // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+        // <https://eprint.iacr.org/2019/386.pdf>
+        //
+        // See protocol 4.15
+        // In Step 3: "Randomization of inputs:", it says:
+        //
+        // For each input wire sharing `[v_j]` (where j ∈ {1, . . . , M}), the parties locally
+        // compute the induced share `[[v_j]] = f([v_j], 0, . . . , 0)`.
+        // Then, the parties call `Ḟ_mult` on `[[ȓ]]` and `[[v_j]]` to receive `[[ȓ · v_j]]`
+        //
+        let induced_share = self.induced();
+        // expand r to match the vectorization factor of induced share
+        let r = ctx.r_share().expand();
+
+        let rx = semi_honest_multiply(ctx.as_base(), record_id, &induced_share, &r).await?;
+        let m = MaliciousReplicated::new(self, rx);
+        let narrowed = ctx.narrow(&RandomnessForValidation);
+        let prss = narrowed.prss();
+        let accumulator = narrowed.inner.accumulator();
+        accumulator.accumulate_macs(&prss, record_id, &m);
+
+        Ok(m)
+    }
+}
+
+/// Convenience trait implementations to upgrade test data.
+
+#[cfg(all(test, descriptive_gate))]
+#[async_trait]
+impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V>>
+    for (Replicated<V, N>, Replicated<V, N>)
+where
+    Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
+{
+    type Output = (MaliciousReplicated<V, N>, MaliciousReplicated<V, N>);
+
+    async fn upgrade(
+        self,
+        ctx: Upgraded<'a, V>,
+        record_id: RecordId,
+    ) -> Result<Self::Output, Error> {
+        let (l, r) = self;
+        let l = l.upgrade(ctx.narrow("upgrade_l"), record_id).await?;
+        let r = r.upgrade(ctx.narrow("upgrade_r"), record_id).await?;
+        Ok((l, r))
+    }
+}
+
+#[cfg(all(test, descriptive_gate))]
+#[async_trait]
+impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V>> for () {
+    type Output = ();
+
+    async fn upgrade(
+        self,
+        _context: Upgraded<'a, V>,
+        _record_id: RecordId,
+    ) -> Result<Self::Output, Error> {
+        Ok(())
+    }
+}
+
+#[cfg(all(test, descriptive_gate))]
+#[async_trait]
+impl<'a, V, U> Upgradable<Upgraded<'a, V>> for Vec<U>
+where
+    V: ExtendableField,
+    U: Upgradable<Upgraded<'a, V>, Output: Send> + Send + 'a,
+{
+    type Output = Vec<U::Output>;
+
+    async fn upgrade(
+        self,
+        ctx: Upgraded<'a, V>,
+        record_id: RecordId,
+    ) -> Result<Self::Output, Error> {
+        /// Need a standalone function to avoid GAT issue that apparently can manifest
+        /// even with `async_trait`.
+        fn upgrade_vec<'a, V, U>(
+            ctx: Upgraded<'a, V>,
+            record_id: RecordId,
+            input: Vec<U>,
+        ) -> impl std::future::Future<Output = Result<Vec<U::Output>, Error>> + 'a
+        where
+            V: ExtendableField,
+            U: Upgradable<Upgraded<'a, V>> + 'a,
+        {
+            let mut upgraded = Vec::with_capacity(input.len());
+            async move {
+                for (i, item) in input.into_iter().enumerate() {
+                    let ctx = ctx.narrow(&format!("upgrade-vec-{i}"));
+                    // FQN syntax fixes the GAT issue, `item.upgrade` does not work
+                    // (I know, its crazy)
+                    let v = Upgradable::upgrade(item, ctx, record_id).await?;
+                    upgraded.push(v);
+                }
+                Ok(upgraded)
+            }
+        }
+
+        crate::seq_join::assert_send(upgrade_vec(ctx, record_id, self)).await
     }
 }

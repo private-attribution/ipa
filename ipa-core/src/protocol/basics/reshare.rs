@@ -208,7 +208,7 @@ mod tests {
             helpers::{in_memory_config::MaliciousHelper, Role},
             protocol::{
                 basics::Reshare,
-                context::{Context, UpgradableContext, UpgradedContext, Validator},
+                context::{upgrade::Upgradable, Context, UpgradableContext, Validator},
                 RecordId,
             },
             rand::{thread_rng, Rng},
@@ -301,7 +301,7 @@ mod tests {
                         .malicious(a, |ctx, a| async move {
                             let v = ctx.validator();
                             let m_ctx = v.context().set_total_records(1);
-                            let m_a = v.context().upgrade(a).await.unwrap();
+                            let m_a = a.upgrade(m_ctx.clone(), RecordId::FIRST).await.unwrap();
 
                             let m_reshared_a = m_a
                                 .reshare(m_ctx.narrow(STEP), RecordId::FIRST, to_helper)

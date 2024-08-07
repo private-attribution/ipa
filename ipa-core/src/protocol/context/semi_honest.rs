@@ -16,15 +16,17 @@ use crate::{
     },
     protocol::{
         context::{
-            dzkp_validator::SemiHonestDZKPValidator, validator::SemiHonest as Validator, Base,
-            InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
-            ShardedContext, SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
+            dzkp_validator::SemiHonestDZKPValidator, upgrade::Upgradable,
+            validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
+            InstrumentedSequentialSharedRandomness, ShardedContext, SpecialAccessToUpgradedContext,
+            UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, RecordId,
     },
-    secret_sharing::replicated::{
-        malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        Vectorizable,
     },
     seq_join::SeqJoin,
     sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
@@ -263,15 +265,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
 #[async_trait]
 impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext for Upgraded<'a, B, F> {
     type Field = F;
-    type Share = Replicated<F>;
-
-    async fn upgrade_one(
-        &self,
-        _record_id: RecordId,
-        x: Replicated<F>,
-    ) -> Result<Self::Share, Error> {
-        Ok(x)
-    }
 }
 
 impl<'a, B: ShardBinding, F: ExtendableField> SpecialAccessToUpgradedContext<F>
@@ -292,5 +285,20 @@ impl<B: ShardBinding, F: ExtendableField> Debug for Upgraded<'_, B, F> {
             type_name::<B>(),
             type_name::<F>()
         )
+    }
+}
+
+#[async_trait]
+impl<'a, V: ExtendableField + Vectorizable<N>, const N: usize>
+    Upgradable<Upgraded<'a, NotSharded, V>> for Replicated<V, N>
+{
+    type Output = Replicated<V, N>;
+
+    async fn upgrade(
+        self,
+        _context: Upgraded<'a, NotSharded, V>,
+        _record_id: RecordId,
+    ) -> Result<Self::Output, Error> {
+        Ok(self)
     }
 }

@@ -399,7 +399,7 @@ mod tests {
         },
         protocol::{
             basics::{partial_reveal, reveal, Reveal},
-            context::{Context, UpgradableContext, UpgradedContext, Validator},
+            context::{upgrade::Upgradable, Context, UpgradableContext, Validator},
             RecordId,
         },
         rand::{thread_rng, Rng},
@@ -509,8 +509,9 @@ mod tests {
         let input: TestField = rng.gen();
 
         let m_shares = join3v(
-            zip(m_ctx.iter(), input.share_with(&mut rng))
-                .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
+            zip(m_ctx.iter(), input.share_with(&mut rng)).map(|(m_ctx, share)| async {
+                share.upgrade(m_ctx.clone(), RecordId::FIRST).await
+            }),
         )
         .await;
 
@@ -543,10 +544,9 @@ mod tests {
             let record_id = RecordId::from(0);
             let input: TestField = rng.gen();
 
-            let m_shares = join3v(
-                zip(m_ctx.iter(), input.share_with(&mut rng))
-                    .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
-            )
+            let m_shares = join3v(zip(m_ctx.iter(), input.share_with(&mut rng)).map(
+                |(m_ctx, share)| async { share.upgrade(m_ctx.clone(), RecordId::FIRST).await },
+            ))
             .await;
 
             let results = join_all(zip(m_ctx.clone().into_iter(), m_shares).map(
