@@ -1,6 +1,8 @@
 #[cfg(feature = "web-app")]
 mod clientconf;
 mod csv;
+#[cfg(all(feature = "test-fixture", feature = "web-app", feature = "cli"))]
+pub mod hpke;
 mod ipa_output;
 #[cfg(feature = "web-app")]
 mod keygen;
