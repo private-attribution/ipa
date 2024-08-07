@@ -380,8 +380,8 @@ where
 
     async fn upgrade(
         self,
-        record_id: RecordId,
         ctx: Upgraded<'a, V>,
+        record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let ctx = ctx.narrow(&UpgradeStep);
         //
@@ -425,12 +425,12 @@ where
 
     async fn upgrade(
         self,
-        record_id: RecordId,
         ctx: Upgraded<'a, V>,
+        record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let (l, r) = self;
-        let l = l.upgrade(record_id, ctx.narrow("upgrade_l")).await?;
-        let r = r.upgrade(record_id, ctx.narrow("upgrade_r")).await?;
+        let l = l.upgrade(ctx.narrow("upgrade_l"), record_id).await?;
+        let r = r.upgrade(ctx.narrow("upgrade_r"), record_id).await?;
         Ok((l, r))
     }
 }
@@ -442,8 +442,8 @@ impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V>> for () {
 
     async fn upgrade(
         self,
-        _record_id: RecordId,
         _context: Upgraded<'a, V>,
+        _record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         Ok(())
     }
@@ -460,8 +460,8 @@ where
 
     async fn upgrade(
         self,
-        record_id: RecordId,
         ctx: Upgraded<'a, V>,
+        record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         /// Need a standalone function to avoid GAT issue that apparently can manifest
         /// even with `async_trait`.
@@ -480,7 +480,7 @@ where
                     let ctx = ctx.narrow(&format!("upgrade-vec-{i}"));
                     // FQN syntax fixes the GAT issue, `item.upgrade` does not work
                     // (I know, its crazy)
-                    let v = Upgradable::upgrade(item, record_id, ctx).await?;
+                    let v = Upgradable::upgrade(item, ctx, record_id).await?;
                     upgraded.push(v);
                 }
                 Ok(upgraded)

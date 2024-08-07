@@ -296,8 +296,8 @@ impl<'a, V: ExtendableField + Vectorizable<N>, const N: usize>
 
     async fn upgrade(
         self,
-        _record_id: RecordId,
         _context: Upgraded<'a, NotSharded, V>,
+        _record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         Ok(self)
     }

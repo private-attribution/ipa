@@ -21,7 +21,7 @@ pub trait Upgradable<C: UpgradedContext>: Send {
     /// ## Errors
     /// When upgrade fails or if context provided does not have
     /// total records setting configured.
-    async fn upgrade(self, record_id: RecordId, ctx: C) -> Result<Self::Output, Error>
+    async fn upgrade(self, ctx: C, record_id: RecordId) -> Result<Self::Output, Error>
     where
         C: 'async_trait;
 }

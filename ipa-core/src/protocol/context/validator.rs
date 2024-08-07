@@ -385,7 +385,7 @@ mod tests {
                 let m_ctx = v.context();
 
                 let (a_malicious, b_malicious) = (a_share, b_share)
-                    .upgrade(RecordId::FIRST, m_ctx.set_total_records(1))
+                    .upgrade(m_ctx.set_total_records(1), RecordId::FIRST)
                     .await
                     .unwrap();
 
@@ -428,7 +428,7 @@ mod tests {
             .malicious(a, |ctx, a| async move {
                 let v = ctx.validator();
                 let m = a
-                    .upgrade(RecordId::FIRST, v.context().set_total_records(1))
+                    .upgrade(v.context().set_total_records(1), RecordId::FIRST)
                     .await
                     .unwrap();
                 v.validate(m).await.unwrap()
@@ -455,7 +455,7 @@ mod tests {
                     };
                     let v = ctx.validator();
                     let m = a
-                        .upgrade(RecordId::FIRST, v.context().set_total_records(1))
+                        .upgrade(v.context().set_total_records(1), RecordId::FIRST)
                         .await
                         .unwrap();
                     match v.validate(m).await {
@@ -515,7 +515,7 @@ mod tests {
                 let m_ctx = v.context();
 
                 let m_input = input_shares
-                    .upgrade(RecordId::FIRST, m_ctx.set_total_records(1))
+                    .upgrade(m_ctx.set_total_records(1), RecordId::FIRST)
                     .await
                     .unwrap();
 

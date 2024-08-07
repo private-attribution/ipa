@@ -510,7 +510,7 @@ mod tests {
 
         let m_shares = join3v(
             zip(m_ctx.iter(), input.share_with(&mut rng)).map(|(m_ctx, share)| async {
-                share.upgrade(RecordId::FIRST, m_ctx.clone()).await
+                share.upgrade(m_ctx.clone(), RecordId::FIRST).await
             }),
         )
         .await;
@@ -545,7 +545,7 @@ mod tests {
             let input: TestField = rng.gen();
 
             let m_shares = join3v(zip(m_ctx.iter(), input.share_with(&mut rng)).map(
-                |(m_ctx, share)| async { share.upgrade(RecordId::FIRST, m_ctx.clone()).await },
+                |(m_ctx, share)| async { share.upgrade(m_ctx.clone(), RecordId::FIRST).await },
             ))
             .await;
 

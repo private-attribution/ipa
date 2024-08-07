@@ -618,8 +618,8 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
                 let m_ctx = v.context();
                 let m_share = share
                     .upgrade(
-                        RecordId::FIRST,
                         m_ctx.set_total_records(TotalRecords::specified(1).unwrap()),
+                        RecordId::FIRST,
                     )
                     .await
                     .unwrap();

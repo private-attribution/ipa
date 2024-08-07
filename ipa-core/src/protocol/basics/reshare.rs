@@ -301,7 +301,7 @@ mod tests {
                         .malicious(a, |ctx, a| async move {
                             let v = ctx.validator();
                             let m_ctx = v.context().set_total_records(1);
-                            let m_a = a.upgrade(RecordId::FIRST, m_ctx.clone()).await.unwrap();
+                            let m_a = a.upgrade(m_ctx.clone(), RecordId::FIRST).await.unwrap();
 
                             let m_reshared_a = m_a
                                 .reshare(m_ctx.narrow(STEP), RecordId::FIRST, to_helper)

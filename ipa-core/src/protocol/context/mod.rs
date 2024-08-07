@@ -728,12 +728,12 @@ mod tests {
                 let ctx = v.context().narrow("step1");
                 shares
                     .clone()
-                    .upgrade(RecordId::FIRST, ctx.set_total_records(1))
+                    .upgrade(ctx.set_total_records(1), RecordId::FIRST)
                     .await
                     .unwrap();
                 let ctx = v.context().narrow("step2");
                 shares
-                    .upgrade(RecordId::FIRST, ctx.set_total_records(1))
+                    .upgrade(ctx.set_total_records(1), RecordId::FIRST)
                     .await
                     .unwrap();
             })
