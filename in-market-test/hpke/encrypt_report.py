@@ -23,7 +23,7 @@ class IPAReportInfo:
         return f"key_id: {self.key_id}, epoch: {self.epoch}, event_type: {self.event_type}, helper_domain: {self.helper_domain}, site_domain: {self.site_domain}"
 
     def to_bytes(self):
-        data = IPAReportInfo.DOMAIN.encode('utf-8') + b'\x00' + self.helper_domain.encode('utf-8') + b'\x00' + self.site_domain.encode('utf-8') + b'\x00' + self.key_id.to_bytes() + self.epoch.to_bytes(2) + self.event_type.to_bytes()
+        data = IPAReportInfo.DOMAIN.encode('utf-8') + b'\x00' + self.helper_domain.encode('utf-8') + b'\x00' + self.site_domain.encode('utf-8') + b'\x00' + self.key_id.to_bytes(1, 'little') + self.epoch.to_bytes(2, 'little') + self.event_type.to_bytes(1, 'little')
         return data       
 
 class IPAKeyEncryption:
@@ -44,7 +44,7 @@ class IPAKeyEncryption:
         return self.encapsulated_key + self.ciphertext_and_tag
     
     def ipa_report_info_to_bytes(self):
-        return self.info.event_type.to_bytes(1) + self.info.key_id.to_bytes(1) + self.info.epoch.to_bytes(2) + self.info.site_domain.encode('utf-8')
+        return self.info.event_type.to_bytes(1, 'little') + self.info.key_id.to_bytes(1, 'little') + self.info.epoch.to_bytes(2, 'little') + self.info.site_domain.encode('utf-8')
 
 def encrypt_share(
     share_data: bytes,
@@ -90,7 +90,7 @@ def main():
     parser.add_argument("data", help="Data to be encrypted")
 
     args = parser.parse_args()
-    encrypted_data = encrypt_share(args.data, args.event, args.site_domain, args.pub_key, args.helper_domain)
+    encrypted_data = encrypt_share(args.data.encode('utf-8'), args.event, args.site_domain, args.pub_key, args.helper_domain)
 
     print(f"{encrypted_data.encrypted_to_bytes().hex()}{encrypted_data.ipa_report_info_to_bytes().hex()}")
 
