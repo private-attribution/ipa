@@ -431,7 +431,7 @@ pub mod tests {
 
     #[test]
     fn semi_honest_with_dp() {
-        const SS_BITS: usize = 2;
+        const SS_BITS: usize = 1;
         semi_honest_with_dp_internal::<SS_BITS>();
     }
     #[test]

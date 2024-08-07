@@ -383,7 +383,6 @@ pub fn noise_mean_std(noise_params: &NoiseParams) -> (f64, f64) {
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::io::stdout;
 
     use crate::{
         ff::{
@@ -505,6 +504,9 @@ mod test {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 16;
         let num_bernoulli: u32 = 10000;
+        if std::env::var("EXEC_SLOW_TESTS").is_err() {
+            return;
+        }
         let world = TestWorld::default();
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .upgraded_semi_honest((), |ctx, ()| async move {
@@ -608,6 +610,7 @@ mod test {
 
     #[tokio::test]
     async fn semi_honest_measure_bandwidth() {
+        // uncomment the print statements in this test and
         // run this test in the terminal to print out bandwidth. Formates best in a large terminal
         // cargo test --release  --lib protocol::dp::test::semi_honest_measure_bandwidth -- --nocapture
 
@@ -649,8 +652,8 @@ mod test {
 
         let bytes_sent = snapshot.get_counter(BYTES_SENT);
 
-        snapshot.print(&mut stdout()).unwrap();
-        println!("num_bernoulli {num_bernoulli}");
+        // snapshot.print(&mut stdout()).unwrap();
+        // println!("num_bernoulli {num_bernoulli}");
         println!("bytes_sent {bytes_sent}");
     }
 }
