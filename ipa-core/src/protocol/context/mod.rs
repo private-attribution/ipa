@@ -8,6 +8,7 @@ pub mod semi_honest;
 pub mod step;
 pub mod upgrade;
 
+mod batcher;
 /// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
 /// this flag can be removed
 #[allow(dead_code)]
@@ -114,6 +115,15 @@ pub trait UpgradableContext: Context {
 #[async_trait]
 pub trait UpgradedContext: Context {
     type Field: ExtendableField;
+
+    /// This method blocks until `record_id` has been validated. Validation happens
+    /// in batches, this method will block each individual future until
+    /// the whole batch is validated. The code written this way is more concise
+    /// and easier to read
+    ///
+    /// Future improvement will combine this with [`Reveal`] to access
+    /// the value after validation.
+    async fn validate_record(&self, record_id: RecordId) -> Result<(), Error>;
 }
 
 pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext {
@@ -539,23 +549,24 @@ mod tests {
     }
 
     /// Toy protocol to execute PRSS generation and send/receive logic
-    async fn toy_protocol<F, S, C>(ctx: C, index: usize, share: &S) -> Replicated<F>
+    async fn toy_protocol<F, S, C, I>(ctx: C, index: I, share: &S) -> Replicated<F>
     where
         F: Field + U128Conversions,
         Standard: Distribution<F>,
         C: Context,
         S: ReplicatedLeftValue<F>,
+        I: Into<RecordId>,
     {
         let ctx = ctx.narrow("metrics");
         let (left_peer, right_peer) = (
             ctx.role().peer(Direction::Left),
             ctx.role().peer(Direction::Right),
         );
-        let record_id = RecordId::from(index);
+        let record_id = index.into();
         let (l, r) = ctx.prss().generate_fields(record_id);
 
         let (seq_l, seq_r) = {
-            let ctx = ctx.narrow(&format!("seq-prss-{index}"));
+            let ctx = ctx.narrow(&format!("seq-prss-{record_id}"));
             let (mut left_rng, mut right_rng) = ctx.prss_rng();
 
             // exercise both methods of `RngCore` trait
@@ -643,7 +654,6 @@ mod tests {
     async fn malicious_metrics() {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
         let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
-        let input_len = input.len();
         let field_size = <Fp31 as Serializable>::Size::USIZE;
         let metrics_step = world
             .gate()
@@ -652,14 +662,8 @@ mod tests {
             .narrow("metrics");
 
         let _result = world
-            .upgraded_malicious(input.clone().into_iter(), |ctx, a| async move {
-                let ctx = ctx.set_total_records(input_len);
-                join_all(
-                    a.iter()
-                        .enumerate()
-                        .map(|(i, share)| toy_protocol(ctx.clone(), i, share)),
-                )
-                .await;
+            .upgraded_malicious(input.clone().into_iter(), |ctx, record_id, a| async move {
+                let _ = toy_protocol(ctx.clone(), record_id, &a).await;
 
                 a
             })
@@ -724,18 +728,11 @@ mod tests {
         world
             .malicious(input.into_iter(), |ctx, shares| async move {
                 // upgrade shares two times using different contexts
-                let v = ctx.validator();
+                let v = ctx.set_total_records(1).validator();
                 let ctx = v.context().narrow("step1");
-                shares
-                    .clone()
-                    .upgrade(ctx.set_total_records(1), RecordId::FIRST)
-                    .await
-                    .unwrap();
+                shares.clone().upgrade(ctx, RecordId::FIRST).await.unwrap();
                 let ctx = v.context().narrow("step2");
-                shares
-                    .upgrade(ctx.set_total_records(1), RecordId::FIRST)
-                    .await
-                    .unwrap();
+                shares.upgrade(ctx, RecordId::FIRST).await.unwrap();
             })
             .await;
     }
