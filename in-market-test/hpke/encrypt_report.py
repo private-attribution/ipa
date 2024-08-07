@@ -1,5 +1,4 @@
-# (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
-
+import argparse
 import pyhpke
 from cryptography.hazmat.primitives.asymmetric import x25519
 
@@ -83,17 +82,17 @@ def encrypt_share(
     )
 
 def main():
-    # code to be executed when the program is run
-    public_key = "92a6fb666c37c008defd74abf3204ebea685742eab8347b08e2f7c759893947a"
-    helper_domain="github.com/private-attribution"
-    encrypted_match_key="2d9bc24772352055463a044d257299a64bf586fd79558da6668533ac0a824266d4522d15fcebd04779ad360c9ddca0b7f8c5aca263928319bf6904c765807e69"
-    share_data=b'\x01\x02\x03\x01\x02\x03\x01\x01\x01\x01'
-    site_domain="www.meta.com"
-    encrypted_data = encrypt_share(share_data, 0, site_domain, public_key, helper_domain)
+    parser = argparse.ArgumentParser(description="Sample function for encrypting shared data for IPA query")
+    parser.add_argument("--pub_key", required=True, help="The public key used for encryption")
+    parser.add_argument("--helper_domain", required=False, default="github.com/private-attribution", help="IPA helper domain, defaults to github.com/private-attribution")
+    parser.add_argument("--site_domain", required=True, help="The site domain where the event originates from")
+    parser.add_argument("--event", required=False, type=int, default=0, help="Event type. 0 for source event, 1 for trigger event")
+    parser.add_argument("data", help="Data to be encrypted")
 
-    print(len(encrypted_data.encrypted_to_bytes()))
-    print(len(encrypted_data.ipa_report_info_to_bytes()))
-    print(f"{encrypted_match_key}{encrypted_data.encrypted_to_bytes().hex()}{encrypted_data.ipa_report_info_to_bytes().hex()}")
+    args = parser.parse_args()
+    encrypted_data = encrypt_share(args.data, args.event, args.site_domain, args.pub_key, args.helper_domain)
+
+    print(f"{encrypted_data.encrypted_to_bytes().hex()}{encrypted_data.ipa_report_info_to_bytes().hex()}")
 
 
 if __name__ == "__main__":
