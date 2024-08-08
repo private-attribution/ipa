@@ -95,6 +95,9 @@ check "Clippy web checks" \
 check "Tests" \
     cargo test
 
+check "Tests with reveal aggreagtion" \
+    cargo test --features "reveal-aggregation"
+
 check "Web tests" \
     cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 

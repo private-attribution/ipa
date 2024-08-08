@@ -11,8 +11,9 @@ use futures::{
     stream::{self, unfold},
     FutureExt, Stream, StreamExt,
 };
+use tracing::info;
 
-use super::aggregation::breakdown_reveal::breakdown_reveal_aggregation;
+use super::aggregation::{aggregate_contributions, breakdown_reveal::breakdown_reveal_aggregation};
 use crate::{
     error::{Error, LengthError},
     ff::{
@@ -444,6 +445,8 @@ where
         &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
         Error = Infallible,
     >,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -452,6 +455,7 @@ where
     let binary_m_ctx = binary_validator.context();
 
     // Tricky hacks to work around the limitations of our current infrastructure
+    let num_outputs = input_rows.len() - histogram[0];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram)?;
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
@@ -476,11 +480,21 @@ where
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
 
-    // If there was any error in attribution we stop the execution with an error
-    let try_contribs: Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error> =
-        flattened_user_results.into_iter().collect();
-    let contribs = try_contribs.expect("Errors found during attribution, stopping aggregation");
-    breakdown_reveal_aggregation::<_, _, HV, B>(ctx, contribs).await
+    if cfg!(feature = "reveal-aggregation") {
+        // If there was any error in attribution we stop the execution with an error
+        info!("Using breakdown reveal aggregation");
+        let try_contribs: Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error> =
+            flattened_user_results.into_iter().collect();
+        let contribs = try_contribs.expect("Errors found during attribution, stopping aggregation");
+        breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, contribs).await
+    } else {
+        aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
+            ctx,
+            stream::iter(flattened_user_results),
+            num_outputs,
+        )
+        .await
+    }
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
