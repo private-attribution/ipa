@@ -1,0 +1,12 @@
+- name: Upload network.toml
+  hosts: all
+  vars:
+    network_toml: "in-market-test/v2/ansible/network.toml"
+    local_file: "{{ lookup('env', 'PWD') }}/{{ network_toml }}"
+    remote_file: "{{ ansible_env.HOME }}/ipa/{{ network_toml }}"
+
+  tasks:
+  - name: Upload network.toml
+    copy:
+      src: "{{ local_file }}"
+      dest: "{{ remote_file }}"

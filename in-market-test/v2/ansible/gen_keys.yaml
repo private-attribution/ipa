@@ -1,0 +1,43 @@
+- name: Generate Keys
+  hosts: all
+  vars:
+    key_directory: "in-market-test/v2/deployed_keys"
+    local_public_key_directory: "{{ lookup('env', 'PWD') }}/{{ key_directory }}/"
+  tasks:
+    - name: Set timestamp
+      set_fact:
+        timestamp: "{{ '%Y%m%d%H%M%S' | strftime }}"
+    - name: Get hostname from .ssh/config
+      local_action:
+        module: shell
+        cmd: "ssh -G {{ inventory_hostname }} | grep '^hostname' | cut -d ' ' -f 2"
+      register: hostname
+
+    - name: Run keygen command
+      shell:
+        cmd: >
+          ./target/release/helper keygen --name {{ hostname.stdout }}
+          --tls-key {{ key_directory }}/{{ timestamp }}-cert.key
+          --tls-cert {{ key_directory }}/{{ timestamp }}-cert.pem
+          --mk-public-key {{ key_directory }}/{{ timestamp }}-mk.pub
+          --mk-private-key {{ key_directory }}/{{ timestamp }}-mk.key
+        chdir: "{{ ansible_env.HOME }}/ipa"
+
+    - name: Make copy without timestamp
+      shell:
+        cmd: cp {{ key_directory }}/{{ timestamp }}-{{ item }} {{ key_directory }}/{{ item }}
+        chdir: "{{ ansible_env.HOME }}/ipa"
+      loop:
+        - "cert.key"
+        - "cert.pem"
+        - "mk.pub"
+        - "mk.key"
+
+    - name: Fetch the public keys
+      fetch:
+        src: "{{ ansible_env.HOME }}/ipa/{{ key_directory}}/{{ item }}"
+        dest: "{{ local_public_key_directory }}/{{ hostname.stdout }}-{{ item }}"
+        flat: yes
+      loop:
+        - "{{ timestamp }}-cert.pem"
+        - "{{ timestamp }}-mk.pub"
