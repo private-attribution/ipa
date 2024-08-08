@@ -1,0 +1,18 @@
+- name: Start Helper
+  hosts: all
+  vars:
+    key_directory: "in-market-test/v2/deployed_keys"
+
+  tasks:
+    - name: Start Helper
+      shell:
+        cmd: >
+          nohup ./target/release/helper
+          --identity {{ identity }}
+          --network in-market-test/v2/ansible/network.toml
+          --tls-cert {{ key_directory }}/cert.pem
+          --tls-key {{ key_directory }}/cert.key
+          --mk-public-key {{ key_directory }}/mk.pub
+          --mk-private-key {{ key_directory }}/mk.key
+          --port 443 > helper.log 2>&1 &
+        chdir: "{{ ansible_env.HOME }}/ipa"

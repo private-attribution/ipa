@@ -1,0 +1,7 @@
+- name: Stop Helper
+  hosts: all
+  tasks:
+    - name: Stop Helper
+      shell:
+        cmd: "pkill -f ./target/release/helper"
+        chdir: "{{ ansible_env.HOME }}/ipa"
