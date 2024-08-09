@@ -108,3 +108,15 @@ ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/an
 ```
 ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/start_helper.yaml
 ```
+
+### See logs
+
+```
+ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/print_helper_logs.yaml
+```
+
+### Kill helper
+
+```
+ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/kill_helper.yaml
+```
