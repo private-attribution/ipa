@@ -11,7 +11,6 @@ use futures::{
     stream::{self, unfold},
     FutureExt, Stream, StreamExt,
 };
-use tracing::info;
 
 use super::aggregation::{aggregate_contributions, breakdown_reveal::breakdown_reveal_aggregation};
 use crate::{
@@ -480,13 +479,15 @@ where
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
 
+    // New aggregation is still experimental, we need proofs that it is private,
+    // hence it is only enabled behind a feature flag.
     if cfg!(feature = "reveal-aggregation") {
         // If there was any error in attribution we stop the execution with an error
-        info!("Using breakdown reveal aggregation");
-        let try_contribs: Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error> =
-            flattened_user_results.into_iter().collect();
-        let contribs = try_contribs.expect("Errors found during attribution, stopping aggregation");
-        breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, contribs).await
+        tracing::warn!("Using the experimental aggregation based on revealing breakdown keys");
+        let user_contributions = flattened_user_results
+            .into_iter()
+            .collect::<Result<_, _>>()?;
+        breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, user_contributions).await
     } else {
         aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
             ctx,

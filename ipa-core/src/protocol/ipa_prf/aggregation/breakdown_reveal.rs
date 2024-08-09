@@ -1,4 +1,7 @@
-use std::{convert::Infallible, pin::Pin};
+use std::{
+    convert::Infallible,
+    pin::{pin, Pin},
+};
 
 use futures::{stream, Stream};
 use futures_util::{StreamExt, TryStreamExt};
@@ -23,7 +26,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        TransposeFrom, Vectorizable,
+        TransposeFrom,
     },
     seq_join::seq_join,
 };
@@ -44,11 +47,11 @@ use crate::{
 /// 3. Add all values for each breakdown.
 pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     ctx: C,
-    atributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
+    attributed_values: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: UpgradedContext,
-    Boolean: Vectorizable<B> + FieldSimd<B>,
+    Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
@@ -56,7 +59,7 @@ where
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
 {
-    let atributions = shuffle_attributions(&ctx, atributions).await?;
+    let atributions = shuffle_attributions(&ctx, attributed_values).await?;
     let grouped_tvs = reveal_breakdowns(&ctx, atributions).await?;
     let num_rows = grouped_tvs.max_len;
     aggregate_values::<_, HV, B>(ctx, grouped_tvs.into_stream(), num_rows).await
@@ -114,24 +117,22 @@ where
                 None,
                 &ao.attributed_breakdown_key_bits,
             )
-            .await?;
-            let Some(revealed_bk) = revealed_bk else {
-                return Err(Error::Internal);
-            };
+            .await?
+            // Full reveal is used, meaning it is not possible to return None here
+            .unwrap();
             let revealed_bk = BK::from_array(&revealed_bk);
             let Ok(bk) = usize::try_from(revealed_bk.as_u128()) else {
                 return Err(Error::Internal);
             };
-            Ok::<(usize, Replicated<TV>), Error>((bk, ao.capped_attributed_trigger_value))
+            Ok::<_, Error>((bk, ao.capped_attributed_trigger_value))
         }
     });
     let mut grouped_tvs = GroupedTriggerValues::<TV, B>::new();
-    let tvs: Vec<(usize, Replicated<TV>)> = seq_join(reveal_ctx.active_work(), reveal_work)
-        .try_collect()
-        .await?;
-    for (bk, tv) in tvs {
+    let mut stream = pin!(seq_join(reveal_ctx.active_work(), reveal_work));
+    while let Some((bk, tv)) = stream.try_next().await? {
         grouped_tvs.push(bk, tv);
     }
+
     Ok(grouped_tvs)
 }
 
@@ -160,23 +161,19 @@ impl<TV: BooleanArray, const B: usize> GroupedTriggerValues<TV, B> {
 
     fn into_stream<'fut>(mut self) -> Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>
     where
-        Boolean: Vectorizable<B> + FieldSimd<B>,
+        Boolean: FieldSimd<B>,
         BitDecomposed<Replicated<Boolean, B>>:
             for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     {
-        let mut vector_input_to_agg: Vec<AggResult<B>> = vec![];
-        for _ in 0..self.max_len {
+        let iter = (0..self.max_len).map(move |_| {
             let slice: [Replicated<TV>; B] = self
                 .tvs
-                .iter_mut()
-                .map(|tv| tv.pop().unwrap_or(Replicated::ZERO))
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
-            let item = BitDecomposed::transposed_from(&slice).unwrap_infallible();
-            vector_input_to_agg.push(Ok(item));
-        }
-        Box::pin(stream::iter(vector_input_to_agg))
+                .each_mut()
+                .map(|tv| tv.pop().unwrap_or(Replicated::ZERO));
+
+            Ok(BitDecomposed::transposed_from(&slice).unwrap_infallible())
+        });
+        Box::pin(stream::iter(iter))
     }
 }
 
