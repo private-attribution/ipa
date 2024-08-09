@@ -11,7 +11,7 @@ use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 
 use crate::{
-    cli::playbook::InputSource,
+    cli::playbook::{BreakdownKey, InputSource, Timestamp, TriggerValue},
     config::{hpke_registry, HpkeServerConfig, KeyRegistries, NetworkConfig},
     error::BoxError,
     ff::{
@@ -23,10 +23,6 @@ use crate::{
     secret_sharing::IntoShares,
     test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
-
-type BreakdownKey = BA8;
-type Timestamp = BA20;
-type TriggerValue = BA3;
 
 #[derive(Debug, Parser)]
 #[clap(name = "test_encrypt", about = "Test Encrypt")]
