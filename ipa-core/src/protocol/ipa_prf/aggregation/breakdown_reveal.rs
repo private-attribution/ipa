@@ -86,11 +86,6 @@ where
 /// first list contains all the possible Breakdowns, the index in the list
 /// representing the Breakdown value. The second list groups all the Trigger
 /// Values for that particular Breakdown.
-///
-/// TODO: Vectorize
-/// ```rust, ignore
-/// [Replicated<Boolean>;2].transpose() -> Replicated<Boolean, N=2>
-/// ```
 #[tracing::instrument(name = "reveal_breakdowns", skip_all, fields(
     total = attributions.len(),
 ))]
@@ -113,7 +108,6 @@ where
         let record_id = RecordId::from(i);
         let reveal_ctx = reveal_ctx.clone();
         async move {
-            //let bk_bits: BitDecomposed<Replicated<Boolean>> = ao.attributed_breakdown_key_bits.to_bits();
             let revealed_bk = semi_honest_reveal(
                 reveal_ctx,
                 record_id,
@@ -142,7 +136,8 @@ where
 }
 
 /// Helper type that hold all the Trigger Values, grouped by their Breakdown
-/// Key.
+/// Key. The main functionality is to turn into a stream that can be given to
+/// [`aggregate_values`].
 struct GroupedTriggerValues<TV: BooleanArray, const B: usize> {
     tvs: [Vec<Replicated<TV>>; B],
     max_len: usize,
