@@ -238,6 +238,8 @@ where
         &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
         Error = Infallible,
     >,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {

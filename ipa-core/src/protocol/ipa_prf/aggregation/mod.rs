@@ -28,6 +28,7 @@ use crate::{
     },
 };
 
+pub(crate) mod breakdown_reveal;
 mod bucket;
 pub(crate) mod step;
 

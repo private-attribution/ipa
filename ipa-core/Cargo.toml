@@ -68,6 +68,8 @@ multi-threading = ["async-scoped"]
 # Note that if there are other flags enabled on your platform in .cargo/config.toml, you need to include them as well.
 tokio-console = ["console-subscriber", "tokio/tracing"]
 
+# If this flag is used, then the new breakdown reveal based aggregation is used
+reveal-aggregation = []
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
 aggregate-circuit = []
