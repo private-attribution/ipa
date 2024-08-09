@@ -71,7 +71,7 @@ ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/an
 ```
 This should download `cert.pem` and `mk.pub` locally.
 
-Warning: After sharing the public keys with other helpers (in the next step), you'll want to avoid rerunning this command. However, the are generated in the form of `<timestamp>-cert.pem` and `<timestamp>-mk.pub`, to prevent overwrite if you happen to run this command again. On the machine, it makes a copy of these timestamps into a fixed location (`in-market-test/v2/deployed_keys/cert.pem`, ...), which are used below to start the helper. If they are accidentally overwritten, you'll need to manually copy the correct ones into the expected location.
+Warning: After sharing the public keys with other helpers (in the next step), you'll want to avoid rerunning this command. However, they are generated in the form of `<timestamp>-cert.pem` and `<timestamp>-mk.pub`, to prevent overwrite if you happen to run this command again. On the machine, it makes a copy of these timestamps into a fixed location (`in-market-test/v2/deployed_keys/cert.pem`, ...), which are used below to start the helper. If they are accidentally overwritten, you'll need to manually copy the correct ones into the expected location.
 
 
 ### Share public information with other helpers
