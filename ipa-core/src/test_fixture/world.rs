@@ -1,6 +1,8 @@
 // We have quite a bit of code that is only used when descriptive-gate is enabled.
 #![allow(dead_code)]
-use std::{array::from_fn, borrow::Borrow, fmt::Debug, io::stdout, iter::zip, marker::PhantomData};
+use std::{
+    array::from_fn, borrow::Borrow, fmt::Debug, io::stdout, iter, iter::zip, marker::PhantomData,
+};
 
 use async_trait::async_trait;
 use futures::{future::join_all, stream::FuturesOrdered, Future, StreamExt};
@@ -21,14 +23,16 @@ use crate::{
         context::{
             dzkp_validator::DZKPValidator, upgrade::Upgradable, Context,
             DZKPUpgradedMaliciousContext, MaliciousContext, SemiHonestContext,
-            ShardedSemiHonestContext, UpgradableContext, UpgradedMaliciousContext,
+            ShardedSemiHonestContext, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, QueryId, RecordId,
     },
     secret_sharing::{
-        replicated::malicious::{DowngradeMalicious, ExtendableField},
+        replicated::malicious::{
+            DowngradeMalicious, ExtendableField, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        },
         IntoShares,
     },
     sharding::{NotSharded, ShardBinding, ShardIndex, Sharded},
@@ -406,14 +410,14 @@ pub trait Runner<S: ShardingScheme> {
         &'a self,
         input: I,
         helper_fn: H,
-    ) -> [O; 3]
+    ) -> [Vec<O>; 3]
     where
         F: ExtendableField,
-        I: IntoShares<A> + Send + 'static,
+        I: IntoShares<Vec<A>> + Send + 'static,
         A: Send + 'static + Upgradable<UpgradedMaliciousContext<'a, F>, Output = M>,
         O: Send + Debug,
         M: Send + 'static,
-        H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
+        H: Fn(UpgradedMaliciousContext<'a, F>, RecordId, M) -> R + Send + Sync,
         R: Future<Output = P> + Send,
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
@@ -506,14 +510,14 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         &'a self,
         _input: I,
         _helper_fn: H,
-    ) -> [O; 3]
+    ) -> [Vec<O>; 3]
     where
         F: ExtendableField,
-        I: IntoShares<A> + Send + 'static,
+        I: IntoShares<Vec<A>> + Send + 'static,
         A: Send + 'static + Upgradable<UpgradedMaliciousContext<'a, F>, Output = M>,
         O: Send + Debug,
         M: Send + 'static,
-        H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
+        H: Fn(UpgradedMaliciousContext<'a, F>, RecordId, M) -> R + Send + Sync,
         R: Future<Output = P> + Send,
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
@@ -599,35 +603,51 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         &'a self,
         input: I,
         helper_fn: H,
-    ) -> [O; 3]
+    ) -> [Vec<O>; 3]
     where
         F: ExtendableField,
-        I: IntoShares<A> + Send + 'static,
+        I: IntoShares<Vec<A>> + Send + 'static,
         A: Send + 'static + Upgradable<UpgradedMaliciousContext<'a, F>, Output = M>,
         O: Send + Debug,
         M: Send + 'static,
-        H: Fn(UpgradedMaliciousContext<'a, F>, M) -> R + Send + Sync,
+        H: Fn(UpgradedMaliciousContext<'a, F>, RecordId, M) -> R + Send + Sync,
         R: Future<Output = P> + Send,
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
     {
+        // Closure is Copy, so we don't need to fight rustc convincing it
+        // that it is ok to use `helper_fn` in `malicious` closure.
+        #[allow(clippy::redundant_closure)]
+        let helper_fn = |ctx, record_id, m_share| helper_fn(ctx, record_id, m_share);
+
         let (m_results, r_shares, output) = split_array_of_tuples(
-            self.malicious(input, |ctx, share| async {
-                let v = ctx.validator();
+            self.malicious(input, |ctx, shares| async move {
+                let ctx = ctx.set_total_records(
+                    TotalRecords::specified(shares.len()).expect("Non-empty input"),
+                );
+                let v = ctx.validator::<F>();
                 let m_ctx = v.context();
-                let m_share = share
-                    .upgrade(
-                        m_ctx.set_total_records(TotalRecords::specified(1).unwrap()),
-                        RecordId::FIRST,
-                    )
-                    .await
-                    .unwrap();
-                let m_result = helper_fn(m_ctx, m_share).await;
-                let m_result_clone = m_result.clone();
-                let r_share = v.r_share().clone();
-                let output = v.validate(m_result_clone).await.unwrap();
-                (m_result, r_share, output)
+                let r_share = m_ctx.clone().r(RecordId::FIRST).clone();
+                let m_shares: Vec<_> =
+                    join_all(zip(shares, iter::repeat(m_ctx.clone())).enumerate().map(
+                        |(i, (share, m_ctx))| async move {
+                            let record_id = RecordId::from(i);
+                            let m_share = share.upgrade(m_ctx.clone(), record_id).await.unwrap();
+                            let m_result = helper_fn(m_ctx.clone(), record_id, m_share).await;
+                            m_ctx.validate_record(record_id).await.unwrap();
+
+                            (
+                                m_result.clone(),
+                                m_result.downgrade().await.access_without_downgrade(),
+                            )
+                        },
+                    ))
+                    .await;
+
+                let (m_results, outputs): (Vec<_>, Vec<_>) = m_shares.into_iter().unzip();
+
+                (m_results, r_share, outputs)
             })
             .await,
         );
@@ -635,7 +655,10 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         // Sanity check that rx = r * x at the output (it should not be possible
         // for this to fail if the distributed validation protocol passed).
         let r = r_shares.reconstruct();
-        m_results.validate(r);
+        let [h1_r, h2_r, h3_r] = m_results;
+        for (h1, (h2, h3)) in zip(h1_r, zip(h2_r, h3_r)) {
+            [h1, h2, h3].validate(r);
+        }
 
         output
     }

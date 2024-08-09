@@ -208,7 +208,9 @@ mod tests {
             helpers::{in_memory_config::MaliciousHelper, Role},
             protocol::{
                 basics::Reshare,
-                context::{upgrade::Upgradable, Context, UpgradableContext, Validator},
+                context::{
+                    upgrade::Upgradable, Context, UpgradableContext, UpgradedContext, Validator,
+                },
                 RecordId,
             },
             rand::{thread_rng, Rng},
@@ -229,15 +231,15 @@ mod tests {
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
-                    .upgraded_malicious(secret, |ctx, share| async move {
-                        share
-                            .reshare(ctx.set_total_records(1), RecordId::from(0), role)
-                            .await
-                            .unwrap()
-                    })
+                    .upgraded_malicious(
+                        vec![secret].into_iter(),
+                        |ctx, record_id, share| async move {
+                            share.reshare(ctx, record_id, role).await.unwrap()
+                        },
+                    )
                     .await;
 
-                assert_eq!(secret, new_shares.reconstruct());
+                assert_eq!(secret, new_shares.reconstruct()[0]);
             }
         }
 
@@ -299,16 +301,16 @@ mod tests {
 
                     world
                         .malicious(a, |ctx, a| async move {
-                            let v = ctx.validator();
-                            let m_ctx = v.context().set_total_records(1);
+                            let v = ctx.set_total_records(1).validator();
+                            let m_ctx = v.context();
                             let m_a = a.upgrade(m_ctx.clone(), RecordId::FIRST).await.unwrap();
 
-                            let m_reshared_a = m_a
+                            let _ = m_a
                                 .reshare(m_ctx.narrow(STEP), RecordId::FIRST, to_helper)
                                 .await
                                 .unwrap();
 
-                            match v.validate(m_reshared_a).await {
+                            match m_ctx.validate_record(RecordId::FIRST).await {
                                 Ok(result) => panic!("Got a result {result:?}"),
                                 Err(err) => {
                                     assert!(matches!(err, Error::MaliciousSecurityCheckFailed));

@@ -130,7 +130,7 @@ where
 mod test {
     use crate::{
         ff::Fp31,
-        protocol::{basics::SecureMul, context::Context, RecordId},
+        protocol::basics::SecureMul,
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -143,14 +143,16 @@ mod test {
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
 
-        let res = world
-            .upgraded_malicious((a, b), |ctx, (a, b)| async move {
-                a.multiply(&b, ctx.set_total_records(1), RecordId::from(0))
-                    .await
-                    .unwrap()
-            })
-            .await;
+        let res =
+            world
+                .upgraded_malicious(
+                    vec![(a, b)].into_iter(),
+                    |ctx, record_id, (a, b)| async move {
+                        a.multiply(&b, ctx, record_id).await.unwrap()
+                    },
+                )
+                .await;
 
-        assert_eq!(a * b, res.reconstruct());
+        assert_eq!(a * b, res.reconstruct()[0]);
     }
 }

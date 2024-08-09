@@ -265,6 +265,10 @@ impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
 #[async_trait]
 impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext for Upgraded<'a, B, F> {
     type Field = F;
+
+    async fn validate_record(&self, _record_id: RecordId) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl<'a, B: ShardBinding, F: ExtendableField> SpecialAccessToUpgradedContext<F>
