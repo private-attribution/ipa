@@ -1,0 +1,60 @@
+[[peers]]
+certificate = """
+-----BEGIN CERTIFICATE-----
+this-is-not-a-real-cert--ALAFEQwCgYIKoZIzj0EAwIwHTEbMBkGA1UEAwwS
+KoZIzj0DAQcDQgAEKqRuJxcBWyj6sZNXNwQv0DokYaB3+K5awnQkyUddkohDRoPf
+MFowHTEbMBkGA1UEAwwSaGVscGVyMS5kcmFmdC50ZXN0MFkwEwYHKoZIzj0CAQYI
+aGVscGVyMS5kcmFmdC50ZXN0MB4XDTI0MDUxOTIwMjc1MFoXDTI0MDgxODIwMjc1
+gUAX/DQezhcqkDcOKMXMuP5BpjEPYj3nd8UEdKNQME4wHQYDVR0RBBYwFIISaGVs
+cGVyMS5kcmFmdC50ZXN0MA4GA1UdDwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEF
+BQcDAQYIKwYBBQUHAwIwCgYIKoZIzj0EAwIDSAAwRQIgGjpC+WFl9MwpBjpn1oJZ
+ZvNkhjIzEAPu2HJzE4bgU7QCIQDEfVM2RxnnsXBQdpEq/ANX1xdMpYZi5ZHQP8ZE
+5GYNCw==
+-----END CERTIFICATE-----
+"""
+url = "helper1.example"
+
+[peers.hpke]
+public_key = "this-is-not-a-real-key--c810bff9e7d0cbf17c777969f3c23e81c377a197"
+
+[[peers]]
+certificate = """
+-----BEGIN CERTIFICATE-----
+this-is-not-a-real-cert--C/dz4AwCgYIKoZIzj0EAwIwHTEbMBkGA1UEAwwS
+YUUjhGlduCNvn4SJCeLtZxeTt1wyCzfKhVOevaNQME4wHQYDVR0RBBYwFIISaGVs
+cGVyMi5kcmFmdC50ZXN0MA4GA1UdDwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEF
+NVowHTEbMBkGA1UEAwwSaGVscGVyMi5kcmFmdC50ZXN0MFkwEwYHKoZIzj0CAQYI
+aGVscGVyMi5kcmFmdC50ZXN0MB4XDTI0MDUxOTIwMjgxNVoXDTI0MDgxODIwMjgx
+KoZIzj0DAQcDQgAEnvjNnTCyuVXmqPOf4ytNbytMRjZv7071yjY3SKIYKO4lLXgA
+qLOdmVEBY1UIGzYUrl5maoqXAiEAw4E3sDRsbP5jfgrx235RkVouQSENyC/I6/vQ
+BQcDAQYIKwYBBQUHAwIwCgYIKoZIzj0EAwIDSQAwRgIhALaFcXtFfVXRxmxBWGqU
+gkzBFP0=
+-----END CERTIFICATE-----
+"""
+url = "helper2.example"
+
+[peers.hpke]
+public_key = "this-is-not-a-real-key--ded3336a9c65725f35998e765c4e2db9a458e50e"
+
+[[peers]]
+certificate = """
+-----BEGIN CERTIFICATE-----
+this-is-not-a-real-cert--mE7qhMwCgYIKoZIzj0EAwIwHTEbMBkGA1UEAwwS
+KoZIzj0DAQcDQgAE9GWiUgWTbLFRbZdeJd/MpH3EvJvEOWFnJIqVMllfhHF6fKB6
+BQcDAQYIKwYBBQUHAwIwCgYIKoZIzj0EAwIDSQAwRgIhAPWMYS6CHXpFhM0z5n1K
+M1owHTEbMBkGA1UEAwwSaGVscGVyMy5kcmFmdC50ZXN0MFkwEwYHKoZIzj0CAQYI
+U81XgCkyj/Jjqd84I/6qrBrvZwDm9keduJkfQqNQME4wHQYDVR0RBBYwFIISaGVs
+QyuFesT47zkYATrYgdbQm/KSAiEA4RDWidGzAeVylaWi8C1sx8/DtJwfKNw7VyqP
+aGVscGVyMy5kcmFmdC50ZXN0MB4XDTI0MDUxOTIwMjgzM1oXDTI0MDgxODIwMjgz
+cGVyMy5kcmFmdC50ZXN0MA4GA1UdDwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEF
+BRcMXEI=
+-----END CERTIFICATE-----
+"""
+url = "helper3.example"
+
+[peers.hpke]
+public_key = "this-is-not-a-real-key--16152d5f8971291e030231dc92063dcfcd44fd1b"
+
+[client.http_config]
+ping_interval_secs = 90.0
+version = "http2"
