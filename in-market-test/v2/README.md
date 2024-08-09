@@ -45,7 +45,7 @@ Host ipa-helper
 Now, copy the inventory template
 
 ```
-cp in-market-test/v2/ansible/inventory-template.ini in-market-test/v2/ansible/inventory.ini
+cp in-market-test/v2/ansible/templates/inventory-template.ini in-market-test/v2/ansible/inventory.ini
 ```
 and update it with the host name used in the SSH config and the assigned identity (1,2, or 3):
 
@@ -90,7 +90,7 @@ Helpers must also agree on identities (1, 2, or 3). The order does not have impa
 You'll now need to update the network.toml file and upload it.
 
 ```
-cp in-market-test/v2/ansible/network-template.toml in-market-test/v2/ansible/network.toml
+cp in-market-test/v2/ansible/templates/network-template.toml in-market-test/v2/ansible/network.toml
 ```
 
 All three helpers need to have the same network.toml, in the same order. For each helper, you'll update:
