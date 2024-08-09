@@ -12,6 +12,7 @@ use futures::{
     FutureExt, Stream, StreamExt,
 };
 
+use super::aggregation::{aggregate_contributions, breakdown_reveal::breakdown_reveal_aggregation};
 use crate::{
     error::{Error, LengthError},
     ff::{
@@ -31,7 +32,6 @@ use crate::{
             Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
         ipa_prf::{
-            aggregation::aggregate_contributions,
             boolean_ops::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
@@ -47,10 +47,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-            ReplicatedSecretSharing,
-        },
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
     seq_join::seq_join,
@@ -286,7 +283,28 @@ pub struct AttributionOutputs<BK, TV> {
 }
 
 pub type SecretSharedAttributionOutputs<BK, TV> =
-    AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>;
+    AttributionOutputs<Replicated<BK>, Replicated<TV>>;
+
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
+pub struct AttributionOutputsTestInput<BK: BooleanArray, TV: BooleanArray> {
+    pub bk: BK,
+    pub tv: TV,
+}
+
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+impl<BK, TV> crate::secret_sharing::IntoShares<(Replicated<BK>, Replicated<TV>)>
+    for AttributionOutputsTestInput<BK, TV>
+where
+    BK: BooleanArray + crate::secret_sharing::IntoShares<Replicated<BK>>,
+    TV: BooleanArray + crate::secret_sharing::IntoShares<Replicated<TV>>,
+{
+    fn share_with<R: rand::Rng>(self, rng: &mut R) -> [(Replicated<BK>, Replicated<TV>); 3] {
+        let [bk_0, bk_1, bk_2] = self.bk.share_with(rng);
+        let [tv_0, tv_1, tv_2] = self.tv.share_with(rng);
+        [(bk_0, tv_0), (bk_1, tv_1), (bk_2, tv_2)]
+    }
+}
 
 pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
@@ -426,6 +444,8 @@ where
         &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
         Error = Infallible,
     >,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -458,12 +478,24 @@ where
 
     let attribution_validator = sh_ctx.narrow(&Step::Aggregate).validator::<Boolean>();
     let ctx = attribution_validator.context();
-    aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
-        ctx,
-        stream::iter(flattened_user_results),
-        num_outputs,
-    )
-    .await
+
+    // New aggregation is still experimental, we need proofs that it is private,
+    // hence it is only enabled behind a feature flag.
+    if cfg!(feature = "reveal-aggregation") {
+        // If there was any error in attribution we stop the execution with an error
+        tracing::warn!("Using the experimental aggregation based on revealing breakdown keys");
+        let user_contributions = flattened_user_results
+            .into_iter()
+            .collect::<Result<_, _>>()?;
+        breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, user_contributions).await
+    } else {
+        aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
+            ctx,
+            stream::iter(flattened_user_results),
+            num_outputs,
+        )
+        .await
+    }
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
@@ -868,12 +900,14 @@ pub mod tests {
         }
     }
 
-    #[derive(Debug, PartialEq)]
-    struct PreAggregationTestOutputInDecimal {
-        attributed_breakdown_key: u128,
-        capped_attributed_trigger_value: u128,
+    #[cfg(all(test, any(unit_test, feature = "shuttle")))]
+    #[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
+    pub struct PreAggregationTestOutputInDecimal {
+        pub attributed_breakdown_key: u128,
+        pub capped_attributed_trigger_value: u128,
     }
 
+    #[cfg(all(test, any(unit_test, feature = "shuttle")))]
     impl<BK, TV, TS> IntoShares<PrfShardedIpaInputRow<BK, TV, TS>>
         for PreShardedAndSortedOPRFTestInput<BK, TV, TS>
     where
@@ -925,6 +959,7 @@ pub mod tests {
         }
     }
 
+    #[cfg(all(test, any(unit_test, feature = "shuttle")))]
     impl<BK, TV> Reconstruct<PreAggregationTestOutputInDecimal>
         for [&AttributionOutputs<Replicated<BK>, Replicated<TV>>; 3]
     where

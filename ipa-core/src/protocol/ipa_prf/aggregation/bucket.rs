@@ -51,6 +51,7 @@ impl From<MoveToBucketError> for Error {
 ///
 /// ## Errors
 /// If `breakdown_count` does not fit into `BK` bits or greater than or equal to $2^9$
+#[allow(dead_code)]
 pub async fn move_single_value_to_bucket<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
