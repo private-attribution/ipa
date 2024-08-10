@@ -209,7 +209,7 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
     Ok(())
 }
 
-#[cfg(all(test, unit_test))]
+#[cfg(test)]
 mod tests {
     use std::{
         fs::File,
@@ -223,18 +223,19 @@ mod tests {
     use tempfile::{tempdir, NamedTempFile};
 
     use crate::{
-        cli::CsvSerializer,
-        decrypt_and_reconstruct, encrypt,
+        cli::{
+            hpke::{decrypt_and_reconstruct, encrypt, DecryptArgs, EncryptArgs},
+            CsvSerializer,
+        },
         test_fixture::{ipa::TestRawDataRecord, EventGenerator, EventGeneratorConfig},
-        DecryptArgs, EncryptArgs,
     };
 
     fn are_files_equal(file1: &Path, file2: &Path) {
         let file1 = File::open(file1).unwrap();
         let file2 = File::open(file2).unwrap();
-        let mut reader1 = BufReader::new(file1).lines();
+        let reader1 = BufReader::new(file1).lines();
         let mut reader2 = BufReader::new(file2).lines();
-        while let Some(line1) = reader1.next() {
+        for line1 in reader1 {
             let line2 = reader2.next().expect("Files have different lengths");
             assert_eq!(line1.unwrap(), line2.unwrap());
         }
@@ -242,10 +243,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_encrypt_and_decrypt() {
+    async fn encrypt_and_decrypt() {
         let count: u32 = 10;
         let rng = StdRng::from_entropy();
-        let event_gen_args = EventGeneratorConfig::new(10, 5, 20, 1, 10, 604800);
+        let event_gen_args = EventGeneratorConfig::new(10, 5, 20, 1, 10, 604_800);
 
         let event_gen: Vec<TestRawDataRecord> = EventGenerator::with_config(rng, event_gen_args)
             .take(count as usize)
@@ -275,7 +276,7 @@ url = "helper3.test"
 public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
 "#;
         let mut network = NamedTempFile::new().unwrap();
-        writeln!(network.as_file_mut(), "{}", network_data).unwrap();
+        writeln!(network.as_file_mut(), "{network_data}").unwrap();
         let encrypt_args = EncryptArgs::try_parse_from([
             "test_encrypt",
             "--input-file",
@@ -297,9 +298,9 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
         let mut mk_private_key1 = NamedTempFile::new().unwrap();
         let mut mk_private_key2 = NamedTempFile::new().unwrap();
         let mut mk_private_key3 = NamedTempFile::new().unwrap();
-        writeln!(mk_private_key1.as_file_mut(), "{}", mk_private_key1_data).unwrap();
-        writeln!(mk_private_key2.as_file_mut(), "{}", mk_private_key2_data).unwrap();
-        writeln!(mk_private_key3.as_file_mut(), "{}", mk_private_key3_data).unwrap();
+        writeln!(mk_private_key1.as_file_mut(), "{mk_private_key1_data}").unwrap();
+        writeln!(mk_private_key2.as_file_mut(), "{mk_private_key2_data}").unwrap();
+        writeln!(mk_private_key3.as_file_mut(), "{mk_private_key3_data}").unwrap();
 
         let enc1 = output_dir.path().join("helper1.enc");
         let enc2 = output_dir.path().join("helper2.enc");
