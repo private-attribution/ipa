@@ -79,7 +79,6 @@ pub struct DecryptArgs {
 /// if it cannot open the files
 pub fn encrypt(args: &EncryptArgs) -> Result<(), BoxError> {
     let input = InputSource::from_file(&args.input_file);
-    let records = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
 
     let mut rng = thread_rng();
     let mut key_registries = KeyRegistries::default();
@@ -98,7 +97,7 @@ pub fn encrypt(args: &EncryptArgs) -> Result<(), BoxError> {
         panic!("could not load network file")
     };
     let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
-        records.iter().cloned().share();
+        input.iter::<TestRawDataRecord>().share();
 
     let shares_key_registries = zip(shares, key_registries);
 
