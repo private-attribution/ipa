@@ -84,7 +84,17 @@ pub fn encrypt(args: &EncryptArgs) -> Result<(), BoxError> {
 
     let mut rng = StdRng::from_entropy();
     let mut key_registries = KeyRegistries::default();
-    let network = NetworkConfig::from_toml_str(&read_to_string(&args.network).unwrap()).unwrap();
+
+    let network = NetworkConfig::from_toml_str(
+        &read_to_string(&args.network)
+            .unwrap_or_else(|e| panic!("Failed to open network file: {:?}. {}", &args.network, e)),
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "Failed to parse network file into toml: {:?}. {}",
+            &args.network, e
+        )
+    });
     let Some((key_id, key_registries)) = key_registries.init_from(&network, DEFAULT_KEY_ID) else {
         panic!("could not load network file")
     };
