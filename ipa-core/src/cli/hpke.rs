@@ -7,8 +7,7 @@ use std::{
 };
 
 use clap::Parser;
-use rand::rngs::StdRng;
-use rand_core::SeedableRng;
+use rand::thread_rng;
 
 use crate::{
     cli::playbook::{BreakdownKey, InputSource, Timestamp, TriggerValue},
@@ -82,7 +81,7 @@ pub fn encrypt(args: &EncryptArgs) -> Result<(), BoxError> {
     let input = InputSource::from_file(&args.input_file);
     let records = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
 
-    let mut rng = StdRng::from_entropy();
+    let mut rng = thread_rng();
     let mut key_registries = KeyRegistries::default();
 
     let network = NetworkConfig::from_toml_str(
@@ -228,8 +227,7 @@ mod tests {
     };
 
     use clap::Parser;
-    use rand::rngs::StdRng;
-    use rand_core::SeedableRng;
+    use rand::thread_rng;
     use tempfile::{tempdir, NamedTempFile};
 
     use crate::{
@@ -255,7 +253,7 @@ mod tests {
     #[tokio::test]
     async fn encrypt_and_decrypt() {
         let count: u32 = 10;
-        let rng = StdRng::from_entropy();
+        let rng = thread_rng();
         let event_gen_args = EventGeneratorConfig::new(10, 5, 20, 1, 10, 604_800);
 
         let event_gen: Vec<TestRawDataRecord> = EventGenerator::with_config(rng, event_gen_args)
