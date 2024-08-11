@@ -99,15 +99,14 @@ pub fn encrypt(args: &EncryptArgs) -> Result<(), BoxError> {
     let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
         input.iter::<TestRawDataRecord>().share();
 
-    let shares_key_registries = zip(shares, key_registries);
+    for (index, (shares, key_registry)) in zip(shares, key_registries).enumerate() {
+        let output_filename = format!("helper{}.enc", index + 1);
+        let mut writer = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(args.output_dir.join(&output_filename))
+            .unwrap_or_else(|e| panic!("unable write to {}. {}", &output_filename, e));
 
-    for (index, (shares, key_registry)) in shares_key_registries.enumerate() {
-        let mut writer: Box<dyn Write> = Box::new(
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(args.output_dir.join(format!("helper{}.enc", index + 1)))?,
-        );
         for share in shares {
             let output = share.encrypt(key_id, key_registry, &mut rng).unwrap();
             let hex_output = hex::encode(&output);
