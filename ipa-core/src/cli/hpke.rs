@@ -125,20 +125,52 @@ async fn build_hpke_registry(
     Ok(key_registry)
 }
 
+struct DecryptedReports {
+    reader: BufReader<File>,
+    key_registry: KeyRegistry<PrivateKeyOnly>,
+}
+
+impl DecryptedReports {
+    fn new(filename: &PathBuf, key_registry: KeyRegistry<PrivateKeyOnly>) -> Self {
+        let file = File::open(filename)
+            .unwrap_or_else(|e| panic!("unable to open file {filename:?}. {e}"));
+        let reader = BufReader::new(file);
+        Self {
+            reader,
+            key_registry,
+        }
+    }
+}
+
+impl Iterator for DecryptedReports {
+    type Item = OprfReport<BA8, BA3, BA20>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut line = String::new();
+        if self.reader.read_line(&mut line).unwrap() > 0 {
+            let encrypted_report_bytes = hex::decode(line.trim()).unwrap();
+            let enc_report =
+                EncryptedOprfReport::from_bytes(encrypted_report_bytes.as_slice()).unwrap();
+            let dec_report: OprfReport<BA8, BA3, BA20> =
+                enc_report.decrypt(&self.key_registry).unwrap();
+            Some(dec_report)
+        } else {
+            None
+        }
+    }
+}
+
 /// # Panics
 // if input files or private_keys are not correctly formatted
 /// # Errors
 /// if it cannot open the files
 pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> {
-    let file1 = File::open(args.input_file1)?;
-    let file2 = File::open(args.input_file2)?;
-    let file3 = File::open(args.input_file3)?;
-    let reader1 = BufReader::new(file1);
-    let reader2 = BufReader::new(file2);
-    let reader3 = BufReader::new(file3);
     let key_registry1 = build_hpke_registry(args.mk_private_key1).await?;
     let key_registry2 = build_hpke_registry(args.mk_private_key2).await?;
     let key_registry3 = build_hpke_registry(args.mk_private_key3).await?;
+    let decrypted_reports1 = DecryptedReports::new(&args.input_file1, key_registry1);
+    let decrypted_reports2 = DecryptedReports::new(&args.input_file2, key_registry2);
+    let decrypted_reports3 = DecryptedReports::new(&args.input_file3, key_registry3);
 
     let mut writer: Box<dyn Write> = Box::new(
         OpenOptions::new()
@@ -147,25 +179,9 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
             .open(args.output_file)?,
     );
 
-    for (line1, (line2, line3)) in reader1.lines().zip(reader2.lines().zip(reader3.lines())) {
-        let line1 = line1?;
-        let line2 = line2?;
-        let line3 = line3?;
-        let encrypted_report_bytes1 = hex::decode(line1.trim()).unwrap();
-        let encrypted_report_bytes2 = hex::decode(line2.trim()).unwrap();
-        let encrypted_report_bytes3 = hex::decode(line3.trim()).unwrap();
-
-        let enc_report1 =
-            EncryptedOprfReport::from_bytes(encrypted_report_bytes1.as_slice()).unwrap();
-        let enc_report2 =
-            EncryptedOprfReport::from_bytes(encrypted_report_bytes2.as_slice()).unwrap();
-        let enc_report3 =
-            EncryptedOprfReport::from_bytes(encrypted_report_bytes3.as_slice()).unwrap();
-
-        let dec_report1: OprfReport<BA8, BA3, BA20> = enc_report1.decrypt(&key_registry1).unwrap();
-        let dec_report2: OprfReport<BA8, BA3, BA20> = enc_report2.decrypt(&key_registry2).unwrap();
-        let dec_report3: OprfReport<BA8, BA3, BA20> = enc_report3.decrypt(&key_registry3).unwrap();
-
+    for (dec_report1, (dec_report2, dec_report3)) in
+        decrypted_reports1.zip(decrypted_reports2.zip(decrypted_reports3))
+    {
         let timestamp = [
             dec_report1.timestamp,
             dec_report2.timestamp,
