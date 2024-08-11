@@ -246,7 +246,7 @@ mod tests {
 
     use crate::{
         cli::{
-            hpke::{decrypt_and_reconstruct, encrypt, DecryptArgs, EncryptArgs},
+            crypto::{decrypt_and_reconstruct, encrypt, DecryptArgs, EncryptArgs},
             CsvSerializer,
         },
         test_fixture::{ipa::TestRawDataRecord, EventGenerator, EventGeneratorConfig},
