@@ -81,18 +81,34 @@ def encrypt_share(
         info=report_info_data,
     )
 
+def encrypt_to_file(file_in: str, file_out: str, pub_key: str):
+    with open(file_in, 'r') as f_in:
+        with open (file_out, 'w') as f_out:
+            for line in f_in:
+                encrypted = encrypt_share(line.encode('utf-8'), 0, "www.abc.com", pub_key, "github.com/private-attribution")
+                print(f"{encrypted.encrypted_to_bytes().hex()}{encrypted.ipa_report_info_to_bytes().hex()}\n")
+                f_out.write(f"{encrypted.encrypted_to_bytes().hex()}{encrypted.ipa_report_info_to_bytes().hex()}\n") 
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sample function for encrypting shared data for IPA query")
-    parser.add_argument("--pub_key", required=True, help="The public key used for encryption")
+    parser.add_argument("--pub_key", required=True, help="The public key used for encryption, binary in hex encoding")
     parser.add_argument("--helper_domain", required=False, default="github.com/private-attribution", help="IPA helper domain, defaults to github.com/private-attribution")
-    parser.add_argument("--site_domain", required=True, help="The site domain where the event originates from")
+    parser.add_argument("--site_domain", required=False, help="The site domain where the event originates from")
     parser.add_argument("--event", required=False, type=int, default=0, help="Event type. 0 for source event, 1 for trigger event")
-    parser.add_argument("data", help="Data to be encrypted")
+    parser.add_argument("--file_in", required=False, help="Path to file with data to be encrypted.")
+    parser.add_argument("--file_out", required=False, help="Path to output file with encrypted data")
+    parser.add_argument("data", nargs='?', help="Data to be encrypted")
 
     args = parser.parse_args()
-    encrypted_data = encrypt_share(args.data.encode('utf-8'), args.event, args.site_domain, args.pub_key, args.helper_domain)
 
-    print(f"{encrypted_data.encrypted_to_bytes().hex()}{encrypted_data.ipa_report_info_to_bytes().hex()}")
+    if (args.data is not None):
+        encrypted_data = encrypt_share(args.data.encode('utf-8'), args.event, args.site_domain, args.pub_key, args.helper_domain)
+        print(f"{encrypted_data.encrypted_to_bytes().hex()}{encrypted_data.ipa_report_info_to_bytes().hex()}")
+    elif (args.file_in is not None):
+        file_out = args.file_out if args.file_out is not None else "output.txt"
+        encrypt_to_file(args.file_in, file_out, args.pub_key)
 
 
 if __name__ == "__main__":
