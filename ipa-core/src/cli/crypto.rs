@@ -175,7 +175,7 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
     let decrypted_reports2 = DecryptedReports::new(&args.input_file2, key_registry2);
     let decrypted_reports3 = DecryptedReports::new(&args.input_file3, key_registry3);
 
-    let mut writer: Box<dyn Write> = Box::new(
+    let mut writer = Box::new(
         OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -201,6 +201,9 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
         .reconstruct()
         .as_u128();
 
+        // these aren't reconstucted, so we explictly make sure
+        // they are consistent across all three files, then set
+        // it to the first one (without loss of generality)
         assert_eq!(dec_report1.event_type, dec_report2.event_type);
         assert_eq!(dec_report2.event_type, dec_report3.event_type);
         let is_trigger_report = dec_report1.event_type == EventType::Trigger;
@@ -224,11 +227,11 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
         writeln!(
             writer,
             "{},{},{},{},{}",
-            timestamp.try_into().unwrap_or(u64::MAX),
-            match_key.try_into().unwrap_or(u64::MAX),
+            timestamp,
+            match_key,
             u8::from(is_trigger_report),
-            breakdown_key.try_into().unwrap_or(u32::MAX),
-            trigger_value.try_into().unwrap_or(u32::MAX)
+            breakdown_key,
+            trigger_value,
         )?;
     }
 
@@ -252,7 +255,7 @@ mod tests {
             crypto::{decrypt_and_reconstruct, encrypt, DecryptArgs, EncryptArgs},
             CsvSerializer,
         },
-        test_fixture::{ipa::TestRawDataRecord, EventGenerator, EventGeneratorConfig},
+        test_fixture::{EventGenerator, EventGeneratorConfig},
     };
 
     fn are_files_equal(file1: &Path, file2: &Path) {
@@ -269,18 +272,18 @@ mod tests {
 
     #[tokio::test]
     async fn encrypt_and_decrypt() {
-        let count: u32 = 10;
+        let count = 10;
         let rng = thread_rng();
         let event_gen_args = EventGeneratorConfig::new(10, 5, 20, 1, 10, 604_800);
 
-        let event_gen: Vec<TestRawDataRecord> = EventGenerator::with_config(rng, event_gen_args)
-            .take(count as usize)
+        let event_gen = EventGenerator::with_config(rng, event_gen_args)
+            .take(count)
             .collect::<Vec<_>>();
         let mut raw_input = NamedTempFile::new().unwrap();
 
         for event in event_gen {
             let _ = event.to_csv(raw_input.as_file_mut());
-            writeln!(raw_input.as_file_mut()).unwrap();
+            writeln!(raw_input.as_file()).unwrap();
         }
         raw_input.as_file_mut().flush().unwrap();
 
