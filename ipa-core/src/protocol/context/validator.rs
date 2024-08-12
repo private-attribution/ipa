@@ -211,11 +211,12 @@ impl<'a, F: ExtendableField> BatchValidator<'a, F> {
     /// If total records is not set.
     #[must_use]
     pub fn new(ctx: MaliciousContext<'a>) -> Self {
-        assert!(
-            ctx.total_records().is_specified(),
-            "Total records must be specified before creating the validator"
-        );
-        let total_records = ctx.total_records().count().unwrap();
+        let Some(total_records) = ctx.total_records().count() else {
+            panic!("Total records must be specified before creating the validator");
+        };
+
+        // TODO: Right now we set the batch work to be equal to active_work,
+        // but it does not need to be. We can make this configurable if needed.
         let records_per_batch = ctx.active_work().get().min(total_records);
 
         Self {
@@ -254,6 +255,11 @@ impl<F: ExtendableField> Malicious<'_, F> {
         let narrow_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
+            // TODO: propagate_u_and_w, RevealR and CheckZero all use indeterminate record count
+            // to communicate data right away. We could make it better if we had support from
+            // compact gate infrastructure to override batch size per step. All of the steps
+            // above require batch size to be set to 1, but we know the total number of records
+            // sent through these channels (total_records / batch_size)
             .set_total_records(TotalRecords::Indeterminate);
         let r = <F as ExtendableField>::ExtendedField::from_array(
             &malicious_reveal(

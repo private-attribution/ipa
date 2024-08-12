@@ -194,14 +194,17 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
         });
     }
 
+    /// `TestWorld` malicious methods require access to r share to perform validation.
+    /// This method allows such access only in non-prod code.
     #[cfg(any(test, feature = "test-fixture"))]
     #[must_use]
     pub fn r(&self, record_id: RecordId) -> Replicated<F::ExtendedField> {
         self.r_share(record_id)
     }
 
+    /// It is intentionally not public, allows access to it only from within
+    /// this module
     fn r_share(&self, record_id: RecordId) -> Replicated<F::ExtendedField> {
-        // its unfortunate, but carrying references across mutex boundaries is not possible
         self.with_batch(record_id, |v| v.r_share().clone())
     }
 
