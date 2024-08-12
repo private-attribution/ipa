@@ -93,9 +93,10 @@ pub fn encrypt(args: &EncryptArgs) -> Result<(), BoxError> {
             &args.network, e
         )
     });
-    let Some((key_id, key_registries)) = key_registries.init_from(&network, DEFAULT_KEY_ID) else {
+    let Some(key_registries) = key_registries.init_from(&network) else {
         panic!("could not load network file")
     };
+
     let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
         input.iter::<TestRawDataRecord>().share();
 
@@ -108,7 +109,9 @@ pub fn encrypt(args: &EncryptArgs) -> Result<(), BoxError> {
             .unwrap_or_else(|e| panic!("unable write to {}. {}", &output_filename, e));
 
         for share in shares {
-            let output = share.encrypt(key_id, key_registry, &mut rng).unwrap();
+            let output = share
+                .encrypt(DEFAULT_KEY_ID, key_registry, &mut rng)
+                .unwrap();
             let hex_output = hex::encode(&output);
             writeln!(writer, "{hex_output}")?;
         }

@@ -222,6 +222,9 @@ async fn ipa(
     };
 
     let mut key_registries = KeyRegistries::default();
+    let Some(key_registries) = key_registries.init_from(network) else {
+        panic!("could not load network file")
+    };
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
             // the value for histogram values (BA32) must be kept in sync with the server-side
@@ -232,7 +235,7 @@ async fn ipa(
                 helper_clients,
                 query_id,
                 ipa_query_config,
-                key_registries.init_from(network, DEFAULT_KEY_ID),
+                Some((DEFAULT_KEY_ID, key_registries)),
             )
             .await
         }
