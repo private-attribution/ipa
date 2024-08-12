@@ -21,7 +21,9 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            malicious::{
+                AdditiveShare as MaliciousReplicated, ExtendableField, ExtendableFieldSimd,
+            },
             semi_honest::AdditiveShare as Replicated,
         },
         BitDecomposed, SharedValue, Vectorizable,
@@ -265,18 +267,18 @@ where
     }
 }
 
-impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>> for Replicated<F>
+impl<'a, F, const N: usize> Reveal<UpgradedMaliciousContext<'a, F>> for Replicated<F, N>
 where
-    F: ExtendableField,
+    F: ExtendableFieldSimd<N>,
 {
-    type Output = <F as Vectorizable<1>>::Array;
+    type Output = <F as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
         ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
         excluded: Option<Role>,
-    ) -> Result<Option<<F as Vectorizable<1>>::Array>, Error>
+    ) -> Result<Option<<F as Vectorizable<N>>::Array>, Error>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
@@ -284,18 +286,18 @@ where
     }
 }
 
-impl<'a, F> Reveal<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F>
+impl<'a, F, const N: usize> Reveal<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F, N>
 where
-    F: ExtendableField,
+    F: ExtendableFieldSimd<N>,
 {
-    type Output = <F as Vectorizable<1>>::Array;
+    type Output = <F as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
         ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
         excluded: Option<Role>,
-    ) -> Result<Option<<F as Vectorizable<1>>::Array>, Error>
+    ) -> Result<Option<<F as Vectorizable<N>>::Array>, Error>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {

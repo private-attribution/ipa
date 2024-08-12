@@ -18,7 +18,7 @@ use crate::{
         TotalRecords,
     },
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
+        basics::{BooleanArrayMul, BooleanProtocols},
         context::{
             dzkp_validator::DZKPValidator, Context, SemiHonestContext, UpgradableContext,
             UpgradedSemiHonestContext,
@@ -30,7 +30,6 @@ use crate::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
         },
-        prss::FromPrss,
         RecordId,
     },
     secret_sharing::{
@@ -91,7 +90,7 @@ use step::IpaPrfStep as Step;
 
 use crate::{
     helpers::query::DpMechanism,
-    protocol::{context::Validator, dp::dp_for_histogram},
+    protocol::{context::Validator, dp::dp_for_histogram, ipa_prf::prf_eval::PrfSharing},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -301,7 +300,11 @@ where
         <<C as UpgradableContext>::DZKPValidator as DZKPValidator>::Context,
         CONV_CHUNK,
     >,
-    Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
+    Replicated<Fp25519, PRF_CHUNK>: PrfSharing<
+        <C::Validator<Fp25519> as Validator<Fp25519>>::Context,
+        PRF_CHUNK,
+        Field = Fp25519,
+    >,
 {
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
@@ -309,9 +312,6 @@ where
     let convert_ctx = ctx
         .narrow(&Step::ConvertFp25519)
         .set_total_records(conv_records);
-    let eval_ctx = ctx.narrow(&Step::EvalPrf).set_total_records(eval_records);
-
-    let prf_key = gen_prf_key(&eval_ctx);
 
     let validator = convert_ctx.dzkp_validator(CONV_PROOF_CHUNK);
 
@@ -331,6 +331,11 @@ where
     .try_flatten_iters()
     .try_collect::<Vec<_>>()
     .await?;
+
+    let eval_ctx = ctx.narrow(&Step::EvalPrf).set_total_records(eval_records);
+    let prf_key = gen_prf_key(&eval_ctx);
+    let validator = eval_ctx.validator::<Fp25519>();
+    let eval_ctx = validator.context();
 
     let prf_of_match_keys = seq_join(
         ctx.active_work(),
