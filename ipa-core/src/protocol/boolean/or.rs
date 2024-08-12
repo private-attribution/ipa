@@ -93,20 +93,16 @@ mod tests {
             .await
             .reconstruct();
         let m_result = world
-            .upgraded_malicious((a, b), |ctx, (a_share, b_share)| async move {
-                or(
-                    ctx.set_total_records(1),
-                    RecordId::from(0_u32),
-                    &a_share,
-                    &b_share,
-                )
-                .await
-                .unwrap()
-            })
+            .upgraded_malicious(
+                vec![(a, b)].into_iter(),
+                |ctx, record_id, (a_share, b_share)| async move {
+                    or(ctx, record_id, &a_share, &b_share).await.unwrap()
+                },
+            )
             .await
             .reconstruct();
 
-        assert_eq!(result, m_result);
+        assert_eq!(result, m_result[0]);
         result
     }
 

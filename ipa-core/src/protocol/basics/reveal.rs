@@ -399,7 +399,10 @@ mod tests {
         },
         protocol::{
             basics::{partial_reveal, reveal, Reveal},
-            context::{upgrade::Upgradable, Context, UpgradableContext, Validator},
+            context::{
+                upgrade::Upgradable, validator::BatchValidator, Context, UpgradableContext,
+                Validator,
+            },
             RecordId,
         },
         rand::{thread_rng, Rng},
@@ -501,9 +504,12 @@ mod tests {
 
         let mut rng = thread_rng();
         let world = TestWorld::default();
-        let sh_ctx = world.malicious_contexts();
+        let sh_ctx = world
+            .malicious_contexts()
+            .each_ref()
+            .map(|c| c.set_total_records(1));
         let v = sh_ctx.map(UpgradableContext::validator);
-        let m_ctx = v.each_ref().map(|v| v.context().set_total_records(1));
+        let m_ctx = v.each_ref().map(BatchValidator::context);
 
         let record_id = RecordId::from(0);
         let input: TestField = rng.gen();
@@ -537,9 +543,12 @@ mod tests {
         let world = TestWorld::default();
 
         for &excluded in Role::all() {
-            let sh_ctx = world.malicious_contexts();
+            let sh_ctx = world
+                .malicious_contexts()
+                .each_ref()
+                .map(|c| c.set_total_records(1));
             let v = sh_ctx.map(UpgradableContext::validator);
-            let m_ctx = v.each_ref().map(|v| v.context().set_total_records(1));
+            let m_ctx = v.each_ref().map(BatchValidator::context);
 
             let record_id = RecordId::from(0);
             let input: TestField = rng.gen();
@@ -579,7 +588,6 @@ mod tests {
         F: Field,
         S: SecretSharing<F> + Reveal<C, Output = <F as Vectorizable<1>>::Array>,
     {
-        let ctx = ctx.set_total_records(1);
         let my_role = ctx.role();
         let ctx = ctx.narrow(MALICIOUS_REVEAL_STEP);
 
@@ -620,7 +628,10 @@ mod tests {
             let world = TestWorld::new_with(config);
             let input: Fp31 = rng.gen();
             world
-                .upgraded_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
+                .upgraded_malicious(
+                    vec![input].into_iter(),
+                    |ctx, _record_id: RecordId, share| do_malicious_reveal(ctx, partial, share),
+                )
                 .await;
         });
     }
@@ -637,7 +648,10 @@ mod tests {
             let world = TestWorld::new_with(config);
             let input: Fp31 = rng.gen();
             world
-                .upgraded_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
+                .upgraded_malicious(
+                    vec![input].into_iter(),
+                    |ctx, _record_id: RecordId, share| do_malicious_reveal(ctx, partial, share),
+                )
                 .await;
         });
     }
@@ -653,8 +667,12 @@ mod tests {
 
             let world = TestWorld::new_with(config);
             let input: Boolean = rng.gen();
+            // ZKP malicious does not set the total records as `upgraded_malicious`
+            // something to think about how to bring them closer together.
             world
-                .dzkp_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
+                .dzkp_malicious(input, |ctx, share| {
+                    do_malicious_reveal(ctx.set_total_records(1), partial, share)
+                })
                 .await;
         });
     }
@@ -671,7 +689,9 @@ mod tests {
             let world = TestWorld::new_with(config);
             let input: Boolean = rng.gen();
             world
-                .dzkp_malicious(input, |ctx, share| do_malicious_reveal(ctx, partial, share))
+                .dzkp_malicious(input, |ctx, share| {
+                    do_malicious_reveal(ctx.set_total_records(1), partial, share)
+                })
                 .await;
         });
     }

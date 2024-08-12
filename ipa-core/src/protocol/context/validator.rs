@@ -4,9 +4,6 @@ use std::{
     marker::PhantomData,
 };
 
-use async_trait::async_trait;
-use typenum::Const;
-
 use crate::{
     error::Error,
     ff::Field,
@@ -14,6 +11,8 @@ use crate::{
     protocol::{
         basics::{check_zero::malicious_check_zero, malicious_reveal},
         context::{
+            batcher::Batcher,
+            malicious::MacBatch,
             step::{MaliciousProtocolStep as Step, ValidateStep},
             Base, Context, MaliciousContext, UpgradedContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext,
@@ -24,24 +23,22 @@ use crate::{
     secret_sharing::{
         replicated::{
             malicious::{
-                AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
-                ExtendableFieldSimd,
+                AdditiveShare as MaliciousReplicated, ExtendableField, ExtendableFieldSimd,
             },
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
         FieldSimd, SharedValue,
     },
+    seq_join::SeqJoin,
     sharding::ShardBinding,
-    sync::{Arc, Mutex, Weak},
+    sync::Arc,
 };
 
-#[async_trait]
 pub trait Validator<F: ExtendableField> {
     type Context: UpgradedContext;
 
     fn context(&self) -> Self::Context;
-    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
 }
 
 pub struct SemiHonest<'a, B: ShardBinding, F: ExtendableField> {
@@ -58,17 +55,11 @@ impl<'a, B: ShardBinding, F: ExtendableField> SemiHonest<'a, B, F> {
     }
 }
 
-#[async_trait]
 impl<'a, B: ShardBinding, F: ExtendableField> Validator<F> for SemiHonest<'a, B, F> {
     type Context = UpgradedSemiHonestContext<'a, B, F>;
 
     fn context(&self) -> Self::Context {
         self.context.clone()
-    }
-
-    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
-        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-        Ok(values.downgrade().await.access_without_downgrade())
     }
 }
 
@@ -136,10 +127,14 @@ impl<T: Field> AccumulatorState<T> {
 
 #[derive(Clone, Debug)]
 pub struct MaliciousAccumulator<F: ExtendableField> {
-    inner: Weak<Mutex<AccumulatorState<F::ExtendedField>>>,
+    inner: AccumulatorState<F::ExtendedField>,
 }
 
 impl<F: ExtendableField> MaliciousAccumulator<F> {
+    pub(super) fn u_and_w(&self) -> (F::ExtendedField, F::ExtendedField) {
+        (self.inner.u, self.inner.w)
+    }
+
     fn compute_dot_product_contribution<const N: usize>(
         a: &Replicated<F::ExtendedField, N>,
         b: &Replicated<F::ExtendedField, N>,
@@ -160,7 +155,7 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     pub fn accumulate_macs<I: SharedRandomness, const N: usize>(
-        &self,
+        &mut self,
         prss: &I,
         record_id: RecordId,
         input: &MaliciousReplicated<F, N>,
@@ -191,35 +186,58 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
         let w_contribution =
             Self::compute_dot_product_contribution(&random_constant, &induced_share);
 
-        let arc_mutex = self.inner.upgrade().unwrap();
-        // LOCK BEGIN
-        let mut accumulator_state = arc_mutex.lock().unwrap();
+        self.inner.u += u_contribution;
+        self.inner.w += w_contribution;
+    }
+}
 
-        accumulator_state.u += u_contribution;
-        accumulator_state.w += w_contribution;
-        // LOCK END
+/// Validates the upgraded shares in batches, similarly to
+/// ZKP validator. It keeps a unique context per batch that carries
+/// the `r` value and accumulator. All multiplications that occur
+/// in that context, will use the associated `r` value.
+///
+/// When batch is validated, `r` is revealed and can never be
+/// used again. In fact, it gets out of scope after successful validation
+/// so no code can get access to it.
+pub struct BatchValidator<'a, F: ExtendableField> {
+    batches_ref: Arc<MacBatch<'a, F>>,
+    protocol_ctx: MaliciousContext<'a>,
+}
+
+impl<'a, F: ExtendableField> BatchValidator<'a, F> {
+    /// Create a new validator for malicious context.
+    ///
+    /// ## Panics
+    /// If total records is not set.
+    #[must_use]
+    pub fn new(ctx: MaliciousContext<'a>) -> Self {
+        let Some(total_records) = ctx.total_records().count() else {
+            panic!("Total records must be specified before creating the validator");
+        };
+
+        // TODO: Right now we set the batch work to be equal to active_work,
+        // but it does not need to be. We can make this configurable if needed.
+        let records_per_batch = ctx.active_work().get().min(total_records);
+
+        Self {
+            protocol_ctx: ctx.narrow(&Step::MaliciousProtocol),
+            batches_ref: Batcher::new(
+                records_per_batch,
+                total_records,
+                Box::new(move |batch_index| Malicious::new(ctx.clone(), batch_index)),
+            ),
+        }
     }
 }
 
 pub struct Malicious<'a, F: ExtendableField> {
     r_share: Replicated<F::ExtendedField>,
-    u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
-    protocol_ctx: UpgradedMaliciousContext<'a, F>,
+    pub(super) accumulator: MaliciousAccumulator<F>,
     validate_ctx: Base<'a>,
+    offset: usize,
 }
 
-#[async_trait]
-impl<'a, F> Validator<F> for Malicious<'a, F>
-where
-    F: ExtendableField,
-{
-    type Context = UpgradedMaliciousContext<'a, F>;
-
-    /// Get a copy of the context that can be used for malicious protocol execution.
-    fn context(&self) -> Self::Context {
-        self.protocol_ctx.clone()
-    }
-
+impl<F: ExtendableField> Malicious<'_, F> {
     /// ## Errors
     /// If the two information theoretic MACs are not equal (after multiplying by `r`), this indicates that one of the parties
     /// must have launched an additive attack. At this point the honest parties should abort the protocol. This method throws an
@@ -229,7 +247,7 @@ where
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[tracing::instrument(name = "validate", skip_all, fields(gate = %self.validate_ctx.gate().as_ref()))]
-    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
+    pub(crate) async fn validate(self) -> Result<(), Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
 
@@ -237,52 +255,82 @@ where
         let narrow_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
-            .set_total_records(TotalRecords::ONE);
+            // TODO: propagate_u_and_w, RevealR and CheckZero all use indeterminate record count
+            // to communicate data right away. We could make it better if we had support from
+            // compact gate infrastructure to override batch size per step. All of the steps
+            // above require batch size to be set to 1, but we know the total number of records
+            // sent through these channels (total_records / batch_size)
+            .set_total_records(TotalRecords::Indeterminate);
         let r = <F as ExtendableField>::ExtendedField::from_array(
-            &malicious_reveal(narrow_ctx, RecordId::FIRST, None, &self.r_share)
-                .await?
-                .expect("full reveal should always return a value"),
+            &malicious_reveal(
+                narrow_ctx,
+                Self::reveal_check_zero_record(self.offset),
+                None,
+                &self.r_share,
+            )
+            .await?
+            .expect("full reveal should always return a value"),
         );
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
-            .set_total_records(TotalRecords::ONE);
-        let is_valid = malicious_check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
+            .set_total_records(TotalRecords::Indeterminate);
+        let is_valid = malicious_check_zero(
+            check_zero_ctx,
+            Self::reveal_check_zero_record(self.offset),
+            &t,
+        )
+        .await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
-            use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-            Ok(values.downgrade().await.access_without_downgrade())
+
+            Ok(())
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
         }
     }
 }
 
+impl<'a, F> Validator<F> for BatchValidator<'a, F>
+where
+    F: ExtendableField,
+{
+    type Context = UpgradedMaliciousContext<'a, F>;
+
+    fn context(&self) -> Self::Context {
+        UpgradedMaliciousContext::new(&self.batches_ref, self.protocol_ctx.clone())
+    }
+}
+
 impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: MaliciousContext<'a>) -> Self {
+    pub fn new(ctx: MaliciousContext<'a>, offset: usize) -> Self {
+        // Each invocation requires 3 calls to PRSS to generate the state.
+        // Validation occurs in batches and `offset` indicates which batch
+        // we're in right now.
+        const TOTAL_CALLS_TO_PRSS: usize = 3;
+
         // Use the current step in the context for initialization.
-        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate(RecordId::FIRST);
+        let r_share: Replicated<F::ExtendedField> = ctx
+            .prss()
+            .generate(Self::r_share_record(offset, TOTAL_CALLS_TO_PRSS));
         let prss = ctx.prss();
-        let u: F::ExtendedField = prss.zero(RecordId::FIRST + 1);
-        let w: F::ExtendedField = prss.zero(RecordId::FIRST + 2);
+        let u: F::ExtendedField = prss.zero(Self::u_record(offset, TOTAL_CALLS_TO_PRSS));
+        let w: F::ExtendedField = prss.zero(Self::w_record(offset, TOTAL_CALLS_TO_PRSS));
         let state = AccumulatorState::new(u, w);
 
-        let u_and_w = Arc::new(Mutex::new(state));
-        let accumulator = MaliciousAccumulator::<F> {
-            inner: Arc::downgrade(&u_and_w),
-        };
+        let accumulator = MaliciousAccumulator::<F> { inner: state };
         let validate_ctx = ctx.narrow(&Step::Validate).validator_context();
-        let protocol_ctx = ctx.upgrade(&Step::MaliciousProtocol, accumulator, r_share.clone());
+
         Self {
             r_share,
-            u_and_w,
-            protocol_ctx,
+            accumulator,
             validate_ctx,
+            offset,
         }
     }
 
@@ -295,30 +343,46 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
         &self,
     ) -> Result<(Replicated<F::ExtendedField>, Replicated<F::ExtendedField>), Error> {
         use futures::future::try_join;
+        const TOTAL_SEND: usize = 2;
 
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUAndW)
-            .set_total_records(Const::<2>);
+            .set_total_records(TotalRecords::Indeterminate);
         let helper_right = propagate_ctx.send_channel(propagate_ctx.role().peer(Direction::Right));
         let helper_left = propagate_ctx.recv_channel(propagate_ctx.role().peer(Direction::Left));
-        let (u_local, w_local) = {
-            let state = self.u_and_w.lock().unwrap();
-            (state.u, state.w)
-        };
+        let (u_local, w_local) = self.accumulator.u_and_w();
+        let (u_record, w_record) = (
+            Self::u_record(self.offset, TOTAL_SEND),
+            Self::w_record(self.offset, TOTAL_SEND),
+        );
+
         try_join(
-            helper_right.send(RecordId::FIRST, u_local),
-            helper_right.send(RecordId::FIRST + 1, w_local),
+            helper_right.send(u_record, u_local),
+            helper_right.send(w_record, w_local),
         )
         .await?;
-        let (u_left, w_left): (F::ExtendedField, F::ExtendedField) = try_join(
-            helper_left.receive(RecordId::FIRST),
-            helper_left.receive(RecordId::FIRST + 1),
-        )
-        .await?;
+        let (u_left, w_left): (F::ExtendedField, F::ExtendedField) =
+            try_join(helper_left.receive(u_record), helper_left.receive(w_record)).await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
         Ok((u_share, w_share))
+    }
+
+    fn u_record(offset: usize, total: usize) -> RecordId {
+        RecordId::from(total * offset)
+    }
+
+    fn w_record(offset: usize, total: usize) -> RecordId {
+        RecordId::from(total * offset + 1)
+    }
+
+    fn r_share_record(offset: usize, total: usize) -> RecordId {
+        RecordId::from(total * offset + 2)
+    }
+
+    fn reveal_check_zero_record(offset: usize) -> RecordId {
+        RecordId::from(offset)
     }
 }
 
@@ -338,7 +402,10 @@ mod tests {
         helpers::Role,
         protocol::{
             basics::SecureMul,
-            context::{upgrade::Upgradable, validator::Validator, Context, UpgradableContext},
+            context::{
+                upgrade::Upgradable, validator::Validator, Context, UpgradableContext,
+                UpgradedContext,
+            },
             RecordId,
         },
         rand::{thread_rng, Rng},
@@ -381,22 +448,21 @@ mod tests {
 
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
-                let v = ctx.validator();
+                let v = ctx.set_total_records(1).validator();
                 let m_ctx = v.context();
 
                 let (a_malicious, b_malicious) = (a_share, b_share)
-                    .upgrade(m_ctx.set_total_records(1), RecordId::FIRST)
+                    .upgrade(m_ctx.clone(), RecordId::FIRST)
                     .await
                     .unwrap();
 
                 let m_result = a_malicious
-                    .multiply(&b_malicious, m_ctx.set_total_records(1), RecordId::from(0))
+                    .multiply(&b_malicious, m_ctx.clone(), RecordId::from(0))
                     .await?;
 
                 // Save some cloned values so that we can check them.
-                let r_share = v.r_share().clone();
-                let result = v.validate(m_result.clone()).await?;
-                assert_eq!(&result, m_result.x().access_without_downgrade());
+                let r_share = m_ctx.r(RecordId::FIRST);
+                m_ctx.validate_record(RecordId::FIRST).await?;
                 Ok::<_, Error>((m_result, r_share))
             });
 
@@ -426,12 +492,12 @@ mod tests {
 
         let result = world
             .malicious(a, |ctx, a| async move {
+                let ctx = ctx.set_total_records(1);
                 let v = ctx.validator();
-                let m = a
-                    .upgrade(v.context().set_total_records(1), RecordId::FIRST)
-                    .await
-                    .unwrap();
-                v.validate(m).await.unwrap()
+                let m = a.upgrade(v.context(), RecordId::FIRST).await.unwrap();
+                v.context().validate_record(RecordId::FIRST).await.unwrap();
+
+                m.access_without_downgrade()
             })
             .await;
         assert_eq!(a, result.reconstruct());
@@ -453,12 +519,10 @@ mod tests {
                     } else {
                         a
                     };
+                    let ctx = ctx.set_total_records(1);
                     let v = ctx.validator();
-                    let m = a
-                        .upgrade(v.context().set_total_records(1), RecordId::FIRST)
-                        .await
-                        .unwrap();
-                    match v.validate(m).await {
+                    let _ = a.upgrade(v.context(), RecordId::FIRST).await.unwrap();
+                    match v.context().validate_record(RecordId::FIRST).await {
                         Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                     }
@@ -511,64 +575,59 @@ mod tests {
             .into_iter()
             .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
+                let ctx = ctx.set_total_records(COUNT - 1);
                 let v = ctx.validator();
                 let m_ctx = v.context();
-
-                let m_input = input_shares
-                    .upgrade(m_ctx.set_total_records(1), RecordId::FIRST)
-                    .await
-                    .unwrap();
 
                 let m_results = m_ctx
                     .try_join(
                         zip(
-                            repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
-                            zip(m_input.iter(), m_input.iter().skip(1)),
+                            repeat(m_ctx.clone()).enumerate(),
+                            zip(input_shares.iter(), input_shares.iter().skip(1)),
                         )
-                        .map(
-                            |((i, ctx), (a_malicious, b_malicious))| async move {
-                                a_malicious
-                                    .multiply(b_malicious, ctx, RecordId::from(i))
-                                    .await
-                            },
-                        ),
+                        .map(|((i, ctx), (a, b))| async move {
+                            let record_id = RecordId::from(i);
+                            let (a_malicious, b_malicious) = (a.clone(), b.clone())
+                                .upgrade(ctx.clone(), record_id)
+                                .await?;
+                            let m_result = a_malicious
+                                .multiply(&b_malicious, ctx.clone(), RecordId::from(i))
+                                .await;
+
+                            let r_share = ctx.r(RecordId::from(i));
+                            ctx.validate_record(record_id).await?;
+
+                            Ok::<_, Error>((m_result?, r_share))
+                        }),
                     )
                     .await?;
 
-                let r_share = v.r_share().clone();
-                let results = v.validate(m_results.clone()).await?;
-                assert_eq!(
-                    results.iter().collect::<Vec<_>>(),
-                    m_results
-                        .iter()
-                        .map(|x| x.x().access_without_downgrade())
-                        .collect::<Vec<_>>()
-                );
-                Ok::<_, Error>((m_results, r_share))
+                Ok::<_, Error>(m_results)
             });
 
         let processed_outputs = join3v(futures).await;
 
-        let r = [
-            &processed_outputs[0].1,
-            &processed_outputs[1].1,
-            &processed_outputs[2].1,
-        ]
-        .reconstruct();
-
         for i in 0..99 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
+
             let x1_times_x2 = [
-                processed_outputs[0].0[i].x().access_without_downgrade(),
-                processed_outputs[1].0[i].x().access_without_downgrade(),
-                processed_outputs[2].0[i].x().access_without_downgrade(),
+                processed_outputs[0][i].0.x().access_without_downgrade(),
+                processed_outputs[1][i].0.x().access_without_downgrade(),
+                processed_outputs[2][i].0.x().access_without_downgrade(),
             ]
             .reconstruct();
             let r_times_x1_times_x2 = [
-                processed_outputs[0].0[i].rx(),
-                processed_outputs[1].0[i].rx(),
-                processed_outputs[2].0[i].rx(),
+                processed_outputs[0][i].0.rx(),
+                processed_outputs[1][i].0.rx(),
+                processed_outputs[2][i].0.rx(),
+            ]
+            .reconstruct();
+
+            let r = [
+                processed_outputs[0][i].1.clone(),
+                processed_outputs[1][i].1.clone(),
+                processed_outputs[2][i].1.clone(),
             ]
             .reconstruct();
 

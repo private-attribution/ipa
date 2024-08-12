@@ -9,19 +9,18 @@ use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
-    helpers::{ChannelId, Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
+    helpers::{Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
-        basics::{
-            mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
-            ShareKnownValue,
-        },
+        basics::mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
         context::{
+            batcher::{Batcher, Either},
             dzkp_malicious::DZKPUpgraded,
             dzkp_validator::{DZKPBatch, MaliciousDZKPValidator},
             prss::InstrumentedIndexedSharedRandomness,
             step::UpgradeStep,
             upgrade::Upgradable,
-            validator::{Malicious as Validator, MaliciousAccumulator},
+            validator,
+            validator::BatchValidator,
             Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
@@ -57,24 +56,6 @@ impl<'a> Context<'a> {
                 NotSharded,
             ),
         }
-    }
-
-    /// Upgrade this context to malicious using MACs.
-    /// `malicious_step` is the step that will be used for malicious protocol execution.
-    /// `upgrade_step` is the step that will be used for upgrading inputs
-    /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
-    /// `accumulator` and `r_share` come from a `MaliciousValidator`.
-    #[must_use]
-    pub fn upgrade<S: Step + ?Sized, F: ExtendableField>(
-        self,
-        malicious_step: &S,
-        accumulator: MaliciousAccumulator<F>,
-        r_share: Replicated<F::ExtendedField>,
-    ) -> Upgraded<'a, F>
-    where
-        Gate: StepNarrow<S>,
-    {
-        Upgraded::new(&self.inner, malicious_step, accumulator, r_share)
     }
 
     /// Upgrade this context to malicious using DZKPs
@@ -153,10 +134,10 @@ impl<'a> super::Context for Context<'a> {
 }
 
 impl<'a> UpgradableContext for Context<'a> {
-    type Validator<F: ExtendableField> = Validator<'a, F>;
+    type Validator<F: ExtendableField> = BatchValidator<'a, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
-        Validator::new(self)
+        BatchValidator::new(self)
     }
 
     type DZKPValidator = MaliciousDZKPValidator<'a>;
@@ -178,56 +159,24 @@ impl Debug for Context<'_> {
     }
 }
 
+use crate::sync::{Mutex, Weak};
+
+pub(super) type MacBatch<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F>>>;
+
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone)]
 pub struct Upgraded<'a, F: ExtendableField> {
-    /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
-    /// may operate with raw references and be more efficient
-    inner: Arc<UpgradedInner<'a, F>>,
-    gate: Gate,
-    total_records: TotalRecords,
+    batch: Weak<MacBatch<'a, F>>,
+    base_ctx: Context<'a>,
 }
 
 impl<'a, F: ExtendableField> Upgraded<'a, F> {
-    pub(super) fn new<S: Step + ?Sized>(
-        source: &Base<'a>,
-        malicious_step: &S,
-        acc: MaliciousAccumulator<F>,
-        r_share: Replicated<F::ExtendedField>,
-    ) -> Self
-    where
-        Gate: StepNarrow<S>,
-    {
+    pub(super) fn new(batch: &Arc<MacBatch<'a, F>>, ctx: Context<'a>) -> Self {
         Self {
-            inner: UpgradedInner::new(source, acc, r_share),
-            gate: source.gate().narrow(malicious_step),
-            total_records: TotalRecords::Unspecified,
+            batch: Arc::downgrade(batch),
+            base_ctx: ctx,
         }
-    }
-
-    // TODO: it can be made more efficient by impersonating malicious context as semi-honest
-    // it does not work as of today because of https://github.com/rust-lang/rust/issues/20400
-    // while it is possible to define a struct that wraps a reference to malicious context
-    // and implement `Context` trait for it, implementing SecureMul and Reveal for Context
-    // is not.
-    // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
-    // for `MaliciousContext`. Deep clone is the only option.
-    fn as_base(&self) -> Base<'a> {
-        Base::new_complete(
-            self.inner.prss,
-            self.inner.gateway,
-            self.gate.clone(),
-            self.total_records,
-            NotSharded,
-        )
-    }
-
-    pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
-        MaliciousReplicated::new(
-            Replicated::share_known_value(&self.clone().base_context(), value),
-            &self.inner.r_share * value.to_extended(),
-        )
     }
 
     /// Take a secret sharing and add it to the running MAC that this context maintains (if any).
@@ -239,30 +188,74 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
         F: ExtendableFieldSimd<N>,
         Replicated<F::ExtendedField, N>: FromPrss,
     {
-        self.inner
-            .accumulator
-            .accumulate_macs(&self.prss(), record_id, share);
+        self.with_batch(record_id, |v| {
+            v.accumulator
+                .accumulate_macs(&self.prss(), record_id, share);
+        });
+    }
+
+    /// `TestWorld` malicious methods require access to r share to perform validation.
+    /// This method allows such access only in non-prod code.
+    #[cfg(any(test, feature = "test-fixture"))]
+    #[must_use]
+    pub fn r(&self, record_id: RecordId) -> Replicated<F::ExtendedField> {
+        self.r_share(record_id)
     }
 
     /// It is intentionally not public, allows access to it only from within
     /// this module
-    fn r_share(&self) -> &Replicated<F::ExtendedField> {
-        &self.inner.r_share
+    fn r_share(&self, record_id: RecordId) -> Replicated<F::ExtendedField> {
+        self.with_batch(record_id, |v| v.r_share().clone())
+    }
+
+    fn with_batch<C: FnOnce(&mut validator::Malicious<'a, F>) -> T, T>(
+        &self,
+        record_id: RecordId,
+        action: C,
+    ) -> T {
+        let batcher = self.batch.upgrade().expect("Validator is active");
+
+        let mut batch = batcher.lock().unwrap();
+        let state = batch.get_batch(record_id);
+        (action)(&mut state.batch)
     }
 }
 
 #[async_trait]
 impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
     type Field = F;
+
+    async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
+        let r = {
+            self.batch
+                .upgrade()
+                .expect("Validation batch is active")
+                .lock()
+                .unwrap()
+                .validate_record(record_id)
+        };
+        match r {
+            Either::Left((_, batch)) => {
+                // TODO: fix naming (batch.batch)
+                batch.batch.validate().await?;
+                batch.notify.notify_waiters();
+                Ok(())
+            }
+            Either::Right(notify) => {
+                notify.notified().await;
+                Ok(())
+            }
+        }
+    }
 }
 
 impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
     fn role(&self) -> Role {
-        self.inner.gateway.role()
+        self.base_ctx.role()
     }
 
     fn gate(&self) -> &Gate {
-        &self.gate
+        self.base_ctx.gate()
     }
 
     fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self
@@ -270,28 +263,24 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         Gate: StepNarrow<S>,
     {
         Self {
-            inner: Arc::clone(&self.inner),
-            gate: self.gate.narrow(step),
-            total_records: self.total_records,
+            base_ctx: self.base_ctx.narrow(step),
+            ..self.clone()
         }
     }
 
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
-            inner: Arc::clone(&self.inner),
-            gate: self.gate.clone(),
-            total_records: self.total_records.overwrite(total_records),
+            base_ctx: self.base_ctx.set_total_records(total_records),
+            ..self.clone()
         }
     }
 
     fn total_records(&self) -> TotalRecords {
-        self.total_records
+        self.base_ctx.total_records()
     }
 
     fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
-        let prss = self.inner.prss.indexed(self.gate());
-
-        InstrumentedIndexedSharedRandomness::new(prss, &self.gate, self.role())
+        self.base_ctx.prss()
     }
 
     fn prss_rng(
@@ -300,29 +289,21 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         InstrumentedSequentialSharedRandomness<'_>,
         InstrumentedSequentialSharedRandomness<'_>,
     ) {
-        let (left, right) = self.inner.prss.sequential(self.gate());
-        (
-            InstrumentedSequentialSharedRandomness::new(left, self.gate(), self.role()),
-            InstrumentedSequentialSharedRandomness::new(right, self.gate(), self.role()),
-        )
+        self.base_ctx.prss_rng()
     }
 
     fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M> {
-        self.inner
-            .gateway
-            .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
+        self.base_ctx.send_channel(role)
     }
 
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
-        self.inner
-            .gateway
-            .get_mpc_receiver(&ChannelId::new(role, self.gate.clone()))
+        self.base_ctx.recv_channel(role)
     }
 }
 
 impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
     fn active_work(&self) -> NonZeroUsize {
-        self.inner.gateway.config().active_work()
+        self.base_ctx.active_work()
     }
 }
 
@@ -334,38 +315,13 @@ impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, 
     type Base = Base<'a>;
 
     fn base_context(self) -> Self::Base {
-        self.as_base()
+        self.base_ctx.inner
     }
 }
 
 impl<F: ExtendableField> Debug for Upgraded<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousContext<{:?}>", type_name::<F>())
-    }
-}
-struct UpgradedInner<'a, F: ExtendableField> {
-    prss: &'a PrssEndpoint,
-    gateway: &'a Gateway,
-    accumulator: MaliciousAccumulator<F>,
-    r_share: Replicated<F::ExtendedField>,
-}
-
-impl<'a, F: ExtendableField> UpgradedInner<'a, F> {
-    fn new(
-        base_context: &Base<'a>,
-        accumulator: MaliciousAccumulator<F>,
-        r_share: Replicated<F::ExtendedField>,
-    ) -> Arc<Self> {
-        Arc::new(UpgradedInner {
-            prss: base_context.inner.prss,
-            gateway: base_context.inner.gateway,
-            accumulator,
-            r_share,
-        })
-    }
-
-    fn accumulator(&self) -> &MaliciousAccumulator<F> {
-        &self.accumulator
     }
 }
 
@@ -399,14 +355,12 @@ where
         //
         let induced_share = self.induced();
         // expand r to match the vectorization factor of induced share
-        let r = ctx.r_share().expand();
+        let r = ctx.r_share(record_id).expand();
 
-        let rx = semi_honest_multiply(ctx.as_base(), record_id, &induced_share, &r).await?;
-        let m = MaliciousReplicated::new(self, rx);
         let narrowed = ctx.narrow(&RandomnessForValidation);
-        let prss = narrowed.prss();
-        let accumulator = narrowed.inner.accumulator();
-        accumulator.accumulate_macs(&prss, record_id, &m);
+        let rx = semi_honest_multiply(ctx.base_context(), record_id, &induced_share, &r).await?;
+        let m = MaliciousReplicated::new(self, rx);
+        narrowed.accumulate_macs(record_id, &m);
 
         Ok(m)
     }
