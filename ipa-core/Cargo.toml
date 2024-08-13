@@ -195,6 +195,11 @@ name = "test_mpc"
 required-features = ["cli", "test-fixture", "web-app", "weak-field"]
 bench = false
 
+[[bin]]
+name = "crypto_util"
+required-features = ["cli", "test-fixture", "web-app"]
+bench = false
+
 [[bench]]
 name = "criterion_arithmetic"
 path = "benches/ct/arithmetic_circuit.rs"

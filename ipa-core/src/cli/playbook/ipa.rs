@@ -13,11 +13,11 @@ use tokio::time::sleep;
 use typenum::Unsigned;
 
 use crate::{
-    cli::IpaQueryResult,
-    ff::{
-        boolean_array::{BA20, BA3, BA8},
-        Serializable, U128Conversions,
+    cli::{
+        playbook::{BreakdownKey, Timestamp, TriggerValue},
+        IpaQueryResult,
     },
+    ff::{Serializable, U128Conversions},
     helpers::{
         query::{IpaQueryConfig, QueryInput, QuerySize},
         BodyStream,
@@ -30,10 +30,6 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares, SharedValue},
     test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
-
-type BreakdownKey = BA8;
-type Timestamp = BA20;
-type TriggerValue = BA3;
 
 /// Executes the IPA v3 protocol.
 ///
