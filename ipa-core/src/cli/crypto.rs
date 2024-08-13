@@ -363,7 +363,7 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
     }
 
     #[test]
-    #[should_panic = ""]
+    #[should_panic = "Failed to open network file:"]
     fn encrypt_no_network_file() {
         let input_file = write_input_file();
         let output_dir = tempdir().unwrap();
@@ -375,7 +375,7 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
     }
 
     #[test]
-    #[should_panic = ""]
+    #[should_panic = "TOML parse error at"]
     fn encrypt_bad_network_file() {
         let input_file = write_input_file();
         let output_dir = tempdir().unwrap();
@@ -393,7 +393,7 @@ this is not toml!
     }
 
     #[test]
-    #[should_panic = ""]
+    #[should_panic = "invalid length 2, expected an array of length 3"]
     fn encrypt_incomplete_network_file() {
         let input_file = write_input_file();
         let output_dir = tempdir().unwrap();
@@ -416,7 +416,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
     }
 
     #[tokio::test]
-    #[should_panic = ""]
+    #[should_panic = "No such file or directory (os error 2)"]
     async fn decrypt_no_enc_file() {
         let input_file = write_input_file();
         let output_dir = tempdir().unwrap();
@@ -453,7 +453,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
     }
 
     #[tokio::test]
-    #[should_panic = ""]
+    #[should_panic = "called `Result::unwrap()` on an `Err` value: Crypt(Other)"]
     async fn decrypt_bad_private_key() {
         let input_file = write_input_file();
         let output_dir = tempdir().unwrap();
