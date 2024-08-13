@@ -310,6 +310,12 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
         network
     }
 
+    fn write_mk_private_key(mk_private_key_data: &str) -> NamedTempFile {
+        let mut mk_private_key = NamedTempFile::new().unwrap();
+        writeln!(mk_private_key.as_file_mut(), "{mk_private_key_data}").unwrap();
+        mk_private_key
+    }
+
     fn build_encrypt_args(
         input_file: &Path,
         output_dir: &Path,
@@ -323,6 +329,35 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
             output_dir.to_str().unwrap(),
             "--network",
             network_file.to_str().unwrap(),
+        ])
+        .unwrap()
+    }
+
+    fn build_decrypt_args(
+        enc1: &Path,
+        enc2: &Path,
+        enc3: &Path,
+        mk_private_key1: &Path,
+        mk_private_key2: &Path,
+        mk_private_key3: &Path,
+        decrypt_output: &Path,
+    ) -> DecryptArgs {
+        DecryptArgs::try_parse_from([
+            "test_decrypt",
+            "--input-file1",
+            enc1.to_str().unwrap(),
+            "--input-file2",
+            enc2.to_str().unwrap(),
+            "--input-file3",
+            enc3.to_str().unwrap(),
+            "--mk-private-key1",
+            mk_private_key1.to_str().unwrap(),
+            "--mk-private-key2",
+            mk_private_key2.to_str().unwrap(),
+            "--mk-private-key3",
+            mk_private_key3.to_str().unwrap(),
+            "--output-file",
+            decrypt_output.to_str().unwrap(),
         ])
         .unwrap()
     }
@@ -395,39 +430,25 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
         let enc2 = output_dir.path().join("helper2.enc");
         let enc3 = output_dir.path().join("helper3.enc");
 
-        let mk_private_key1_data =
-            "53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff";
-        let mk_private_key2_data =
-            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569";
-        let mk_private_key3_data =
-            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7";
+        let mk_private_key1 = write_mk_private_key(
+            "53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff",
+        );
+        let mk_private_key2 = write_mk_private_key(
+            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569",
+        );
+        let mk_private_key3 = write_mk_private_key(
+            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7",
+        );
 
-        let mut mk_private_key1 = NamedTempFile::new().unwrap();
-        let mut mk_private_key2 = NamedTempFile::new().unwrap();
-        let mut mk_private_key3 = NamedTempFile::new().unwrap();
-        writeln!(mk_private_key1.as_file_mut(), "{mk_private_key1_data}").unwrap();
-        writeln!(mk_private_key2.as_file_mut(), "{mk_private_key2_data}").unwrap();
-        writeln!(mk_private_key3.as_file_mut(), "{mk_private_key3_data}").unwrap();
-
-        let decrypt_args = DecryptArgs::try_parse_from([
-            "test_decrypt",
-            "--input-file1",
-            enc1.to_str().unwrap(),
-            "--input-file2",
-            enc2.to_str().unwrap(),
-            "--input-file3",
-            enc3.to_str().unwrap(),
-            "--mk-private-key1",
-            mk_private_key1.path().to_str().unwrap(),
-            "--mk-private-key2",
-            mk_private_key2.path().to_str().unwrap(),
-            "--mk-private-key3",
-            mk_private_key3.path().to_str().unwrap(),
-            "--output-file",
-            decrypt_output.to_str().unwrap(),
-        ])
-        .unwrap();
-
+        let decrypt_args = build_decrypt_args(
+            enc1.as_path(),
+            enc2.as_path(),
+            enc3.as_path(),
+            mk_private_key1.path(),
+            mk_private_key2.path(),
+            mk_private_key3.path(),
+            &decrypt_output,
+        );
         let _ = decrypt_and_reconstruct(decrypt_args).await;
     }
 
@@ -445,40 +466,25 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
         let enc1 = output_dir.path().join("helper1.enc");
         let enc2 = output_dir.path().join("helper2.enc");
         let enc3 = output_dir.path().join("helper3.enc");
+        let mk_private_key1 = write_mk_private_key(
+            "bad9fdc79d98471cedd07ee6743d3bb43aabbddabc49cd9fae1d5daef3f2b3ba",
+        );
+        let mk_private_key2 = write_mk_private_key(
+            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569",
+        );
+        let mk_private_key3 = write_mk_private_key(
+            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7",
+        );
 
-        let mk_private_key1_data =
-            "bad9fdc79d98471cedd07ee6743d3bb43aabbddabc49cd9fae1d5daef3f2b3ba";
-        let mk_private_key2_data =
-            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569";
-        let mk_private_key3_data =
-            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7";
-
-        let mut mk_private_key1 = NamedTempFile::new().unwrap();
-        let mut mk_private_key2 = NamedTempFile::new().unwrap();
-        let mut mk_private_key3 = NamedTempFile::new().unwrap();
-        writeln!(mk_private_key1.as_file_mut(), "{mk_private_key1_data}").unwrap();
-        writeln!(mk_private_key2.as_file_mut(), "{mk_private_key2_data}").unwrap();
-        writeln!(mk_private_key3.as_file_mut(), "{mk_private_key3_data}").unwrap();
-
-        let decrypt_args = DecryptArgs::try_parse_from([
-            "test_decrypt",
-            "--input-file1",
-            enc1.to_str().unwrap(),
-            "--input-file2",
-            enc2.to_str().unwrap(),
-            "--input-file3",
-            enc3.to_str().unwrap(),
-            "--mk-private-key1",
-            mk_private_key1.path().to_str().unwrap(),
-            "--mk-private-key2",
-            mk_private_key2.path().to_str().unwrap(),
-            "--mk-private-key3",
-            mk_private_key3.path().to_str().unwrap(),
-            "--output-file",
-            decrypt_output.to_str().unwrap(),
-        ])
-        .unwrap();
-
+        let decrypt_args = build_decrypt_args(
+            enc1.as_path(),
+            enc2.as_path(),
+            enc3.as_path(),
+            mk_private_key1.path(),
+            mk_private_key2.path(),
+            mk_private_key3.path(),
+            &decrypt_output,
+        );
         let _ = decrypt_and_reconstruct(decrypt_args).await;
     }
 
@@ -495,40 +501,25 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
         let enc1 = output_dir.path().join("helper1.enc");
         let enc2 = output_dir.path().join("helper2.enc");
         let enc3 = output_dir.path().join("helper3.enc");
+        let mk_private_key1 = write_mk_private_key(
+            "53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff",
+        );
+        let mk_private_key2 = write_mk_private_key(
+            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569",
+        );
+        let mk_private_key3 = write_mk_private_key(
+            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7",
+        );
 
-        let mk_private_key1_data =
-            "53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff";
-        let mk_private_key2_data =
-            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569";
-        let mk_private_key3_data =
-            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7";
-
-        let mut mk_private_key1 = NamedTempFile::new().unwrap();
-        let mut mk_private_key2 = NamedTempFile::new().unwrap();
-        let mut mk_private_key3 = NamedTempFile::new().unwrap();
-        writeln!(mk_private_key1.as_file_mut(), "{mk_private_key1_data}").unwrap();
-        writeln!(mk_private_key2.as_file_mut(), "{mk_private_key2_data}").unwrap();
-        writeln!(mk_private_key3.as_file_mut(), "{mk_private_key3_data}").unwrap();
-
-        let decrypt_args = DecryptArgs::try_parse_from([
-            "test_decrypt",
-            "--input-file1",
-            enc1.to_str().unwrap(),
-            "--input-file2",
-            enc2.to_str().unwrap(),
-            "--input-file3",
-            enc3.to_str().unwrap(),
-            "--mk-private-key1",
-            mk_private_key1.path().to_str().unwrap(),
-            "--mk-private-key2",
-            mk_private_key2.path().to_str().unwrap(),
-            "--mk-private-key3",
-            mk_private_key3.path().to_str().unwrap(),
-            "--output-file",
-            decrypt_output.to_str().unwrap(),
-        ])
-        .unwrap();
-
+        let decrypt_args = build_decrypt_args(
+            enc1.as_path(),
+            enc2.as_path(),
+            enc3.as_path(),
+            mk_private_key1.path(),
+            mk_private_key2.path(),
+            mk_private_key3.path(),
+            &decrypt_output,
+        );
         let _ = decrypt_and_reconstruct(decrypt_args).await;
 
         are_files_equal(input_file.path(), &decrypt_output);
