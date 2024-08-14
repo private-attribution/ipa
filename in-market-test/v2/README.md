@@ -85,6 +85,20 @@ These are all public keys, and are only used for encryption, not decryption.
 
 Helpers must also agree on identities (1, 2, or 3). The order does not have impact on the process.
 
+After adding these to `in-market-test/v2/deployed_keys`, it should contain:
+- 1-cert.pem
+- 1-mk.pub
+- 2-cert.pem
+- 2-mk.pub
+- 3-cert.pem
+- 3-mk.pub
+
+With all of these, and the url for each helper, you can then generate the `network.toml` file:
+
+```
+python3 in-market-test/v2/ansible/build_network_file.py
+```
+
 ### Upload network.toml
 
 You'll now need to update the network.toml file and upload it.

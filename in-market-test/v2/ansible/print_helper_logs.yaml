@@ -2,10 +2,8 @@
   hosts: all
   tasks:
     - name: Read and print helper log
-      slurp:
-        src: "{{ ansible_env.HOME }}/ipa/helper.log"
+      command: "cat {{ ansible_env.HOME }}/ipa/helper.log"
       register: helper_log
     - name: Print helper log
       debug:
-        var: helper_log['content'] | b64decode
-        verbosity: 0
+        msg: "{{ helper_log.stdout_lines }}"

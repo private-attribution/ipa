@@ -35,6 +35,12 @@
         state: latest
       become: yes
 
+    - name: Install specific openssl version
+      yum:
+        name: "openssl-devel"
+        state: present
+      become: yes
+
     - name: Install Git
       yum:
         name: git
@@ -42,11 +48,10 @@
       become: yes
       when: git_installed.rc != 0
 
-    - name: Clone repository if it doesn't exist
+    - name: Clone repository and check out specified commit
       git:
         repo: 'https://github.com/private-attribution/ipa.git'
         dest: '{{ ansible_env.HOME }}/ipa'
-        update: no
         version: "{{ commit_hash }}"
 
     - name: Build IPA helper
