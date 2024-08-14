@@ -20,8 +20,8 @@ use crate::{
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
         context::{
-            dzkp_validator::DZKPValidator, Context, DZKPUpgradedSemiHonestContext,
-            SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext,
+            Context, DZKPUpgraded, DZKPUpgradedSemiHonestContext, SemiHonestContext,
+            UpgradableContext, UpgradedSemiHonestContext,
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -300,10 +300,7 @@ where
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
-    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<
-        <<C as UpgradableContext>::DZKPValidator as DZKPValidator>::Context,
-        CONV_CHUNK,
-    >,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
     let conv_records =

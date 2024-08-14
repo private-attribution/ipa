@@ -30,7 +30,7 @@ use crate::{
         },
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPContext, UpgradableContext,
+            Context, DZKPContext, DZKPUpgraded, UpgradableContext,
         },
         ipa_prf::{
             boolean_ops::{
@@ -473,13 +473,12 @@ where
     HV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean>: BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context>,
-    Replicated<Boolean, B>: BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, B>,
-    Replicated<Boolean, AGG_CHUNK>:
-        BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, AGG_CHUNK>,
-    for<'a> Replicated<BK>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
-    for<'a> Replicated<TS>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
-    for<'a> Replicated<TV>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
+    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
+    Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
+    for<'a> Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>,
+    for<'a> Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
+    for<'a> Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:

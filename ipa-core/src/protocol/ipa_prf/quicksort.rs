@@ -14,7 +14,7 @@ use crate::{
     protocol::{
         basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
+        context::{dzkp_validator::DZKPValidator, Context, DZKPUpgraded, UpgradableContext},
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
             step::{QuicksortPassStep, QuicksortStep as Step},
@@ -129,8 +129,7 @@ where
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: BooleanArray,
-    AdditiveShare<Boolean, SORT_CHUNK>:
-        BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, SORT_CHUNK>,
+    AdditiveShare<Boolean, SORT_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, SORT_CHUNK>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
