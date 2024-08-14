@@ -168,6 +168,7 @@ where
 /// asserts in `gen_binomial_noise` may panic
 /// # Errors
 /// Result error case could come from transpose
+#[tracing::instrument(name = "apply_dp_noise", skip_all)]
 pub async fn apply_dp_noise<C, const B: usize, OV>(
     ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
