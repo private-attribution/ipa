@@ -111,6 +111,38 @@ struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedVal
     source_event_timestamp: Replicated<TS>,
 }
 
+/// Returns the number of Boolean multiplications per input record, for use in computing the number
+/// of records in each DZKP. These multiplications are in `compute_row_with_previous` and the
+/// functions it calls.
+fn multiplications_per_record<BK: SharedValue, TV: SharedValue, TS: SharedValue>(
+    attribution_window: Option<NonZeroU32>,
+) -> usize {
+    let mut count =
+        // breakdown_key_of_most_recent_source_event
+        BK::BITS +
+        // zero_out_trigger_value_unless_attributed
+        // cumulative trigger value sum
+        // difference to cap
+        // compute_capped_trigger_value (2x)
+        5 * TV::BITS +
+        // ever_encountered_a_source_event
+        // overflow_bit_and_prev_row_not_saturated
+        // did_trigger_get_attributed
+        3;
+
+    if attribution_window.is_some() {
+        count +=
+            // timestamp_of_most_recent_source_event
+            // time_delta_bits
+            // time_delta_gt_attribution_window
+            3 * TS::BITS +
+            // zero_out_flag
+            1;
+    }
+
+    usize::try_from(count).unwrap()
+}
+
 impl<BK, TV, TS> InputsRequiredFromPrevRow<BK, TV, TS>
 where
     BK: BooleanArray + U128Conversions,
@@ -311,7 +343,8 @@ pub trait GroupingKey {
 
 #[tracing::instrument(name = "histograms_ranges_sortkeys", skip_all)]
 /// This function does following computations per user
-/// 1. Compute histogram of users with row counts
+/// 1. Compute histogram of users with row counts. `histogram[row number]` contains the count of
+///    users having that row number (i.e. the count of users with at least row_number+1 records)
 /// 2. Compute range of rows for each user in the input vector
 /// 3. Compute the sort key for the input rows which is used later for sorting
 pub fn histograms_ranges_sortkeys<BK, TV, TS>(
@@ -460,11 +493,13 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    // Get the validator and context to use for Boolean multiplication operations
-    // The maximum number of multiplications per user is:
-    // events-1 * (BK bits + TS bits + 4 * TV bits + 3 )
+    // Get the validator and context to use for Boolean multiplication operations.
+    // Record IDs count users. The maximum number of multiplications per record (user) is:
+    // (max_events - 1) * multiplictions_per_record, because the attribution circuit is
+    // only evaluated for the second and subsequent records.
     let chunk_size = TARGET_PROOF_SIZE
-        / (histogram.len() * usize::try_from(BK::BITS + TS::BITS + 4 * TV::BITS + 3).unwrap());
+        / ((histogram.len() - 1)
+            * multiplications_per_record::<BK, TV, TS>(attribution_window_seconds));
     let dzkp_validator = sh_ctx
         .narrow(&Step::BinaryValidator)
         .dzkp_validator(chunk_size);
