@@ -96,7 +96,7 @@ After adding these to `in-market-test/v2/deployed_keys`, it should contain:
 With all of these, and the url for each helper, you can then generate the `network.toml` file:
 
 ```
-python3 in-market-test/v2/ansible/build_network_file.py
+python3 in-market-test/v2/ansible/build_network_file.py --helper1-url <helper1_url> --helper2-url <helper2_url> --helper3-url <helper3_url>
 ```
 
 ### Upload network.toml
