@@ -1,0 +1,11 @@
+[package]
+name = "ipa-metrics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Crate uses raw entry API that is unstable in stdlib
+hashbrown = "0.14"
+# Fast non-collision-resistant hashing
+rustc-hash = "2.0.0"
+
