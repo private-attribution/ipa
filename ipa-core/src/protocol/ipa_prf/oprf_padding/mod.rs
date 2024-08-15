@@ -123,6 +123,8 @@ where
     TV: BooleanArray,
     TS: BooleanArray,
 {
+    let initial_len = input.len();
+
     // H1 and H2 add padding noise
     input = apply_dp_padding_pass::<C, BK, TV, TS, B>(
         ctx.narrow(&PaddingDpStep::PaddingDpPass1),
@@ -155,6 +157,12 @@ where
         &padding_params,
     )
     .await?;
+
+    let after_padding_len = input.len();
+    tracing::info!(
+        "Total number of padding records added: {}",
+        after_padding_len - initial_len
+    );
 
     Ok(input)
 }
