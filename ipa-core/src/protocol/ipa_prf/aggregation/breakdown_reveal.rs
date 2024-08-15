@@ -17,7 +17,7 @@ use crate::{
     helpers::TotalRecords,
     protocol::{
         basics::semi_honest_reveal,
-        context::UpgradedContext,
+        context::Context,
         ipa_prf::{
             aggregation::step::AggregationStep, prf_sharding::SecretSharedAttributionOutputs,
             shuffle::shuffle_attribution_outputs, BreakdownKey,
@@ -50,7 +50,7 @@ pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     attributed_values: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradedContext,
+    C: Context,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     BK: BreakdownKey<B>,
@@ -75,7 +75,7 @@ async fn shuffle_attributions<C, BK, TV, const B: usize>(
     contribs: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
 where
-    C: UpgradedContext,
+    C: Context,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
 {
@@ -97,7 +97,7 @@ async fn reveal_breakdowns<C, BK, TV, const B: usize>(
     attributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<GroupedTriggerValues<TV, B>, Error>
 where
-    C: UpgradedContext,
+    C: Context,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     Boolean: FieldSimd<B>,
     BK: BreakdownKey<B>,
