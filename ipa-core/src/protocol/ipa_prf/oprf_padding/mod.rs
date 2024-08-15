@@ -160,8 +160,9 @@ where
 
     let after_padding_len = input.len();
     tracing::info!(
-        "Total number of padding records added: {}",
-        after_padding_len - initial_len
+        "Total number of padding records added: {}. Padding Parameters: {:?}",
+        after_padding_len - initial_len,
+        padding_params
     );
 
     Ok(input)
@@ -636,6 +637,102 @@ mod tests {
                 (f64::from(*sample) - mean).abs() < 5.0 * std_bound,
                 "aggregation noise sample was not within 5 times the standard deviation bound from what was expected."
             );
+        }
+    }
+
+    pub fn expected_number_fake_rows(
+        padding_params: PaddingParameters,
+        num_breakdown_keys: u32,
+    ) -> (f64, f64) {
+        // print out how many fake rows are expected for both oprf and aggregation
+        // for the given parameter set.
+        let mut expected_agg_total_rows = 0.0;
+        let mut expected_oprf_total_rows = 0.0;
+
+        // padding for aggregation
+        match padding_params.aggregation_padding {
+            AggregationPadding::NoAggPadding => {
+                expected_agg_total_rows = 0.0;
+            }
+            AggregationPadding::Parameters {
+                aggregation_epsilon,
+                aggregation_delta,
+                aggregation_padding_sensitivity,
+            } => {
+                let aggregation_padding = OPRFPaddingDp::new(
+                    aggregation_epsilon,
+                    aggregation_delta,
+                    aggregation_padding_sensitivity,
+                )
+                .unwrap();
+
+                let (mean, _) = aggregation_padding.mean_and_std_bound();
+                expected_agg_total_rows += f64::from(num_breakdown_keys) * mean;
+            }
+        }
+
+        // padding for oprf
+        match padding_params.oprf_padding {
+            OPRFPadding::NoOPRFPadding => expected_oprf_total_rows = 0.0,
+            OPRFPadding::Parameters {
+                oprf_epsilon,
+                oprf_delta,
+                matchkey_cardinality_cap,
+                oprf_padding_sensitivity,
+            } => {
+                let oprf_padding =
+                    OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity).unwrap();
+
+                let (mean, _) = oprf_padding.mean_and_std_bound();
+                for cardinality in 0..matchkey_cardinality_cap {
+                    expected_oprf_total_rows += mean * f64::from(cardinality);
+                }
+            }
+        }
+        (expected_oprf_total_rows, expected_agg_total_rows)
+    }
+
+    #[test]
+    pub fn table_of_padding_parameters() {
+        // see output https://docs.google.com/spreadsheets/d/1N0WEUkarP_6nd-7W8O9r-Xurh9OImESgAC1Jd_6OfWw/edit?gid=0#gid=0
+        let epsilon_values = [0.01, 0.1, 1.0, 5.0, 10.0];
+        let delta_values = [1e-9, 1e-8, 1e-7, 1e-6];
+        let matchkey_cardinality_cap_values = [10, 100, 1000];
+        let num_breakdown_keys_values = [16, 64, 256, 1024];
+        println!(
+            "epsilon, delta, matchkey_cardinality_cap,aggregation_padding_sensitivity,num_breakdown_keys,Expected \
+            OPRF total rows,Expected Aggregation total rows ",
+        );
+        for epsilon in epsilon_values {
+            for delta in delta_values {
+                for matchkey_cardinality_cap in matchkey_cardinality_cap_values {
+                    let aggregation_padding_sensitivity = matchkey_cardinality_cap;
+                    for num_breakdown_keys in num_breakdown_keys_values {
+                        let padding_params = PaddingParameters {
+                            aggregation_padding: AggregationPadding::Parameters {
+                                aggregation_epsilon: epsilon,
+                                aggregation_delta: delta,
+                                aggregation_padding_sensitivity,
+                            },
+                            oprf_padding: OPRFPadding::Parameters {
+                                oprf_epsilon: epsilon,
+                                oprf_delta: delta,
+                                matchkey_cardinality_cap,
+                                oprf_padding_sensitivity: 2,
+                            },
+                        };
+                        // Call the function to get expected number of fake rows
+                        let (expected_oprf_total_rows, expected_agg_total_rows) =
+                            expected_number_fake_rows(padding_params, num_breakdown_keys);
+                        // Print parameters and outcomes
+                        println!(
+                            "{epsilon}, {delta}, {matchkey_cardinality_cap},\
+                            {aggregation_padding_sensitivity},{num_breakdown_keys},\
+                            {expected_oprf_total_rows},{expected_agg_total_rows}"
+                        );
+                    }
+                }
+            }
         }
     }
 
