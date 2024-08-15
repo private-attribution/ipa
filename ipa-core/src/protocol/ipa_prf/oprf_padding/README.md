@@ -44,7 +44,9 @@ The process of drawing a sample from a Truncated Double Geometric will be done b
 4. We will use rejection sampleing from a double geometric to sample from a truncated double geometric.
 
 ### Sampling from the Geometric Distribuiton
-We take the Geometric Distribution to be the probability distribution of the number of failures of Bernoulli trials before the first success, supported on the set $\{0,1,2,...\}$, with $0 < p \leq 1$ the success probability of the Bernoulli trials.  <!-- The mean of the geometric is $\mu = \frac{1-p}{p}$ and variance is $\sigma^2 = \frac{1-p}{p^2}$. -->
+We take the Geometric Distribution to be the probability distribution of the number of failures of Bernoulli trials before the first success, supported on the set $\{0,1,2,...\}$, with $0 < p \leq 1$ the success probability of the Bernoulli trials.
+
+The mean of the geometric is $\mu = \frac{1-p}{p}$ and variance is $\sigma^2 = \frac{1-p}{p^2}$.
 
 ### Sampling from the Double Geometric Distribution
 We use the following from this [book](https://www.researchgate.net/publication/258697410_The_Laplace_Distribution_and_Generalizations) page 159.
@@ -56,7 +58,27 @@ $Y=\theta + X_1 - X_2$
 where $X_1$ and $X_2$ are iid geometric variables with success probability $p = 1 - e^{-1/s}$.  We use this relation to sample from the double geometric by first drawing two independent samples from $X_1$ and $X_2$ and then computing their difference plus the shift by $\theta$.
 
 
-<!-- The variance of a double geometric is the sum of the variances of the two independent geometrics, $X_1$ and $X_2$, so is $2 (\frac{1-p}{p^2})$ -->
+The variance of a double geometric is the sum of the variances of the two independent geometrics, $X_1$ and $X_2$, so is $2 * (\frac{1-p}{p^2})$
 
 ### Samples from the Truncated Double Geometric Distribution
 Once we can draw samples from a double geometric, we can sample from our desired truncated double geometric by sampling the double geometric with rejection if the sample lies outside the support set $\{0,...,2n\}$.
+
+The variance of a truncated double geometric distribution is (TODO), but the variance is always less than the variance of the underlying (non-truncated) double geometric distribution.
+
+# Padding Breakdowns Keys for New Aggregation
+A new aggregation protocol reveals the breakdown keys in the clear before aggregating the associated secret
+shared values.   This leaks the number of records for each breakdown key.  We can assume that there is a cap
+enforced on the number of records for any one matchkey in IPA. Using this sensitivity we can then (with a desired epsilon,
+delta) generate a random padding number of dummy rows with each breakdown key.
+
+# Generating Padding for Matchkeys and Breakdown keys together
+We need to add fake rows for matchkeys and fake rows for breakdown keys.  It makes sense to try and add the fake breakdown
+keys to the fake rows already being generated for fake matchkeys. But this approach has a couple challenges:
+1. We shouldn't add any fake breakdown keys to fake matchkey rows when the matchkey is being added with cardinality equal to one.
+Because these rows can be dropped after matching and never have the fake breakdowns revealed.
+2. There may need to be some adjustment made to the DP parameters achieved. TODO
+3. We should not be adding fake breakdown keys to matchkeys that have a cardinality larger than the cap we have established for
+the number of breakdowns per user. Otherwise, those breakdown keys would never be revealed as they will be dropped.
+
+Instead of this approach we will the fake rows for matchkey padding first and then the fake rows for breakdown key padding. When
+we generate the fake rows for breakdown key padding, the fake matchkeys generated will all have cardinality two or three (and with small probability one).

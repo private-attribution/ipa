@@ -5,8 +5,11 @@ use std::f64::consts::E;
 use rand::distributions::{BernoulliError, Distribution};
 use rand_core::{CryptoRng, RngCore};
 
-use crate::protocol::ipa_prf::oprf_padding::distributions::{
-    BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric,
+use crate::{
+    error,
+    protocol::ipa_prf::oprf_padding::distributions::{
+        BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric,
+    },
 };
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -39,6 +42,31 @@ pub enum Error {
 impl From<BernoulliError> for Error {
     fn from(_: BernoulliError) -> Self {
         Error::BadGeometricProb(f64::NAN)
+    }
+}
+
+impl From<Error> for error::Error {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::BadEpsilon(value) => {
+                error::Error::DPPaddingError(format!("Epsilon value must be greater than {}, got {}", f64::MIN_POSITIVE, value))
+            },
+            Error::BadDelta(value) => {
+                error::Error::DPPaddingError(format!("Valid values for DP-delta are within {:?}, got: {}", f64::MIN_POSITIVE..1.0 - f64::MIN_POSITIVE, value))
+            },
+            Error::BadS(value) => {
+                error::Error::DPPaddingError(format!("Valid values for TruncatedDoubleGeometric are greater than {:?}, got: {}", f64::MIN_POSITIVE, value))
+            },
+            Error::BadGeometricProb(value) => {
+                error::Error::DPPaddingError(format!("Valid values for success probability in Geometric are greater than {:?}, got: {}", f64::MIN_POSITIVE, value))
+            },
+            Error::BadShiftValue(value) => {
+                error::Error::DPPaddingError(format!("Shift value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow in Double Geometric sample, got: {value}"))
+            },
+            Error::BadSensitivity(value) => {
+                error::Error::DPPaddingError(format!("Sensitivity value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow in Double Geometric sample, got: {value}"))
+            },
+        }
     }
 }
 
@@ -218,10 +246,23 @@ impl OPRFPaddingDp {
     pub fn sample<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
         self.truncated_double_geometric.sample(rng)
     }
+
+    /// Returns the mean and an upper bound on the standard deviation of the `OPRFPaddingDp` distribution
+    /// The upper bound is valid if the standard deviation is greater than 1.
+    /// see `oprf_padding/README.md`
+    pub fn mean_and_std_bound(&self) -> (f64, f64) {
+        let mean = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let s = 1.0 / self.epsilon;
+        let p = 1.0 - E.powf(-1.0 / s);
+        let std_bound = (2.0 * (1.0 - p) / pow_u32(p, 2)).sqrt();
+        (mean, std_bound)
+    }
 }
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::collections::BTreeMap;
+
     use proptest::{prelude::ProptestConfig, proptest};
     use rand::{rngs::StdRng, thread_rng, Rng};
     use rand_core::SeedableRng;
@@ -408,11 +449,21 @@ mod test {
     }
     #[test]
     fn test_oprf_padding_dp() {
-        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6, 10);
+        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6, 10).unwrap();
 
         let mut rng = rand::thread_rng();
 
-        oprf_padding.unwrap().sample(&mut rng);
+        let num_samples = 1000;
+        let mut count_sample_values: BTreeMap<u32, u32> = BTreeMap::new();
+
+        for _ in 0..num_samples {
+            let sample = oprf_padding.sample(&mut rng);
+            let sample_count = count_sample_values.entry(sample).or_insert(0);
+            *sample_count += 1;
+        }
+        for (sample, count) in &count_sample_values {
+            println!("A sample value equal to {sample} occurred {count} time(s)",);
+        }
     }
     fn test_oprf_padding_dp_constructor() {
         let mut actual = OPRFPaddingDp::new(-1.0, 1e-6, 10); // (epsilon, delta, sensitivity)

@@ -86,6 +86,8 @@ pub enum Error {
     DZKPMasks,
     #[error("Attempt to operate on zero records")]
     ZeroRecords,
+    #[error("DP related error: {0}")]
+    DPPaddingError(String),
     #[error("Epsilon submitted to query is out of bounds")]
     EpsilonOutOfBounds,
     #[error("Missing total records in {0}")]
