@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-def get_urls_from_config():
+def get_urls_from_config() -> tuple[str]:
     # Read the Ansible inventory file
     config = configparser.ConfigParser()
     config.read(Path("in-market-test/v2/ansible/inventory.ini"))

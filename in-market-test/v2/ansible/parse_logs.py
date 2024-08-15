@@ -2,6 +2,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 time_multiplier = {
     "s": 1_000_000,
@@ -10,7 +11,7 @@ time_multiplier = {
 }
 
 
-def time_string(µs):
+def time_string(µs: int) -> str:
     # microsecond * 1,000,000 = 1 second
     if µs < 1_000:
         return f"{µs}µs"
@@ -24,7 +25,7 @@ def time_string(µs):
     return f"{int(s//3600)}h{int(s//60) % 60}m{s % 60:.1f}s"
 
 
-def split_logs_into_queries(log_file: Path):
+def split_logs_into_queries(log_file: Path) -> list[str]:
     if not log_file.exists():
         return []
     full_log_contents = log_file.read_text()
@@ -44,16 +45,16 @@ class Step:
     idle_time: float
 
     @property
-    def total_time(self):
+    def total_time(self) -> float:
         return self.busy_time + self.idle_time
 
-    def percent_busy_time(self, total_busy_time):
+    def percent_busy_time(self, total_busy_time) -> float:
         return 100.0 * self.busy_time / total_busy_time
 
-    def percent_idle_time(self, total_idle_time):
+    def percent_idle_time(self, total_idle_time) -> float:
         return 100.0 * self.idle_time / total_idle_time
 
-    def percent_total_time(self, total_time):
+    def percent_total_time(self, total_time) -> float:
         return 100.0 * self.total_time / total_time
 
 
@@ -63,7 +64,7 @@ class Steps:
     helper: int
 
     @classmethod
-    def build_from_logs(cls, helper: int, log_contents: str):
+    def build_from_logs(cls, helper: int, log_contents: str) -> "Steps":
         pattern = (
             r".*{sz=(\d+)}:([a-zA-Z_]+):.*close time\.busy=(\d+\.?\d*)(ms|µs|s) "
             r"time\.idle=(\d+\.?\d*)(ms|µs|s)"
@@ -84,25 +85,25 @@ class Steps:
         )
 
     @property
-    def total_busy_time(self):
+    def total_busy_time(self) -> float:
         return sum(step.busy_time for step in self.steps)
 
     @property
-    def total_idle_time(self):
+    def total_idle_time(self) -> float:
         return sum(step.idle_time for step in self.steps)
 
     @property
-    def total_time(self):
+    def total_time(self) -> float:
         return sum(step.total_time for step in self.steps)
 
     @property
-    def size(self):
+    def size(self) -> Optional[int]:
         if not self.steps:
             return None
         return self.steps[0].size
 
     @property
-    def report(self):
+    def report_table(self) -> str:
         if len(self.steps) == 0:
             return f"Helper {self.helper}: No steps found."
         data = [
@@ -151,7 +152,7 @@ class Errors:
     error_counter: Counter
 
     @classmethod
-    def build_from_logs(cls, helper: int, log_contents: str, size: int):
+    def build_from_logs(cls, helper: int, log_contents: str, size: int) -> "Errors":
         error_counter = Counter()
         for log in log_contents.split("\n"):
             if "ERROR" in log:
@@ -160,7 +161,7 @@ class Errors:
         return cls(helper=helper, error_counter=error_counter, size=size)
 
     @property
-    def report(self):
+    def report_table(self) -> str:
         if len(self.error_counter) == 0:
             return f"Helper {self.helper} - Query Size {self.size:_}: No Errors"
         width = max(len(error_message) for error_message in self.error_counter.keys())
@@ -182,11 +183,11 @@ def main():
     for i, log_file in enumerate(log_files):
         for query in split_logs_into_queries(log_file):
             steps = Steps.build_from_logs(helper=i + 1, log_contents=query)
-            print(steps.report)
+            print(steps.report_table)
             errors = Errors.build_from_logs(
                 helper=i + 1, log_contents=query, size=steps.size
             )
-            print(errors.report)
+            print(errors.report_table)
             print()
 
 
