@@ -24,6 +24,18 @@ def time_string(µs):
     return f"{int(s//3600)}h{int(s//60) % 60}m{s % 60:.1f}s"
 
 
+def split_logs_into_queries(log_file: Path):
+    if not log_file.exists():
+        return []
+    full_log_contents = log_file.read_text()
+    queries_log_contents = full_log_contents.split(
+        "ipa_core::query::runner::oprf_ipa: new"
+    )
+    if len(queries_log_contents) < 2:
+        return []
+    return queries_log_contents[1:]
+
+
 @dataclass
 class Step:
     size: int
@@ -51,8 +63,7 @@ class Steps:
     helper: int
 
     @classmethod
-    def build_from_logs(cls, helper: int, log_file: Path):
-        log_contents = log_file.read_text()
+    def build_from_logs(cls, helper: int, log_contents: str):
         pattern = (
             r".*{sz=(\d+)}:([a-zA-Z_]+):.*close time\.busy=(\d+\.?\d*)(ms|µs|s) "
             r"time\.idle=(\d+\.?\d*)(ms|µs|s)"
@@ -60,7 +71,7 @@ class Steps:
         matches = re.findall(pattern, log_contents)
         steps = [
             Step(
-                size=re_match[0],
+                size=int(re_match[0]),
                 method=re_match[1],
                 busy_time=float(re_match[2]) * time_multiplier[re_match[3]],
                 idle_time=float(re_match[4]) * time_multiplier[re_match[5]],
@@ -92,6 +103,8 @@ class Steps:
 
     @property
     def report(self):
+        if len(self.steps) == 0:
+            return f"Helper {self.helper}: No steps found."
         data = [
             (
                 step.method,
@@ -126,7 +139,7 @@ class Steps:
             for d in data
         )
         return (
-            f"Helper {self.helper} Summary - Query Size {self.size}\n"
+            f"Helper {self.helper} Summary - Query Size {self.size:_}\n"
             f"{header}\n{steps_report}\n"
         )
 
@@ -134,20 +147,22 @@ class Steps:
 @dataclass
 class Errors:
     helper: int
+    size: int
     error_counter: Counter
 
     @classmethod
-    def build_from_logs(cls, helper: int, log_file: Path):
-        log_contents = log_file.read_text()
+    def build_from_logs(cls, helper: int, log_contents: str, size: int):
         error_counter = Counter()
         for log in log_contents.split("\n"):
             if "ERROR" in log:
                 error_message = log.split(":")[-1].strip()
                 error_counter[error_message] += 1
-        return cls(helper=helper, error_counter=error_counter)
+        return cls(helper=helper, error_counter=error_counter, size=size)
 
     @property
     def report(self):
+        if len(self.error_counter) == 0:
+            return f"Helper {self.helper} - Query Size {self.size:_}: No Errors"
         width = max(len(error_message) for error_message in self.error_counter.keys())
         header = f"|{'error_message':<{width}}|count  |\n|{'---':<{width}}|---    |"
         error_report = "\n".join(
@@ -156,17 +171,23 @@ class Errors:
                 self.error_counter.items(), key=lambda x: x[0].lower()
             )
         )
-        return f"Helper {self.helper} Error Summary\n{header}\n{error_report}\n"
+        return (
+            f"Helper {self.helper} Error Summary - Query Size {self.size:_}"
+            f"\n{header}\n{error_report}\n"
+        )
 
 
 def main():
     log_files = [Path(f"in-market-test/v2/logs/helper{i}.log") for i in [1, 2, 3]]
     for i, log_file in enumerate(log_files):
-        steps = Steps.build_from_logs(helper=i + 1, log_file=log_file)
-        print(steps.report)
-        errors = Errors.build_from_logs(helper=i + 1, log_file=log_file)
-        print(errors.report)
-        print()
+        for query in split_logs_into_queries(log_file):
+            steps = Steps.build_from_logs(helper=i + 1, log_contents=query)
+            print(steps.report)
+            errors = Errors.build_from_logs(
+                helper=i + 1, log_contents=query, size=steps.size
+            )
+            print(errors.report)
+            print()
 
 
 if __name__ == "__main__":
