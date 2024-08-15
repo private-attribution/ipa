@@ -1,9 +1,17 @@
-- name: Setup IPA Helper
+- name: Fetch and print IPA helper logs
   hosts: all
+  vars:
+    local_log_directory: "{{ lookup('env', 'PWD') }}/in-market-test/v2/logs"
   tasks:
-    - name: Read and print helper log
-      command: "cat {{ ansible_env.HOME }}/ipa/helper.log"
-      register: helper_log
-    - name: Print helper log
+    - name: Fetch log file
+      fetch:
+        src: "{{ ansible_env.HOME }}/ipa/helper.log"
+        dest: "{{ local_log_directory }}/helper{{ identity }}.log"
+        flat: yes
+    - name: Print log file contents
+      shell: cat "{{ local_log_directory }}/helper{{ identity }}.log"
+      delegate_to: localhost
+      register: log_output
+    - name: Print log output
       debug:
-        msg: "{{ helper_log.stdout_lines }}"
+        var: log_output.stdout_lines
