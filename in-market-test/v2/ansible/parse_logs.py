@@ -102,7 +102,6 @@ class Steps:
             return None
         return self.steps[0].size
 
-    @property
     def report_table(self) -> str:
         if len(self.steps) == 0:
             return f"Helper {self.helper}: No steps found."
@@ -160,7 +159,6 @@ class Errors:
                 error_counter[error_message] += 1
         return cls(helper=helper, error_counter=error_counter, size=size)
 
-    @property
     def report_table(self) -> str:
         if len(self.error_counter) == 0:
             return f"Helper {self.helper} - Query Size {self.size:_}: No Errors"
@@ -183,11 +181,11 @@ def main():
     for i, log_file in enumerate(log_files):
         for query in split_logs_into_queries(log_file):
             steps = Steps.build_from_logs(helper=i + 1, log_contents=query)
-            print(steps.report_table)
+            print(steps.report_table())
             errors = Errors.build_from_logs(
                 helper=i + 1, log_contents=query, size=steps.size
             )
-            print(errors.report_table)
+            print(errors.report_table())
             print()
 
 
