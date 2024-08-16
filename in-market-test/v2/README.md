@@ -99,19 +99,13 @@ With all of these, and the url for each helper, you can then generate the `netwo
 python3 in-market-test/v2/ansible/build_network_file.py --helper1-url <helper1_url> --helper2-url <helper2_url> --helper3-url <helper3_url>
 ```
 
+If running a test with 3 servers, this can also load these automatically from `~/.ssh/config` and `inventory.ini` with:
+```
+python3 in-market-test/v2/ansible/build_network_file.py --config
+```
+
+
 ### Upload network.toml
-
-You'll now need to update the network.toml file and upload it.
-
-```
-cp in-market-test/v2/ansible/templates/network-template.toml in-market-test/v2/ansible/network.toml
-```
-
-All three helpers need to have the same network.toml, in the same order. For each helper, you'll update:
-1. Their `cert`, from their cert.pem
-2. Their `url` (the hostname / ip address)
-3. Their `public_key`, from mk.pub
-
 
 ```
 ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/upload_network_toml.yaml
@@ -128,9 +122,48 @@ ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/an
 ```
 ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/print_helper_logs.yaml
 ```
+There is also a script to parse the logs and get a run time report:
+```
+python3 in-market-test/v2/ansible/parse_logs.py
+```
+
 
 ### Kill helper
 
 ```
 ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/kill_helper.yaml
+```
+
+
+## Run a test query
+
+### Start 3 helper servers
+If you spin up 3 servers, and put all 3 of them in your `~/.ssh/config` and `inventory.ini`, you should be able to get them all running with just the provided commands, e.g.:
+
+```
+ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/kill_helper.yaml
+ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/provision.yaml
+ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/gen_keys.yaml
+python3 in-market-test/v2/ansible/build_network_file.py --config
+ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/upload_network_toml.yaml
+ansible-playbook -i in-market-test/v2/ansible/inventory.ini in-market-test/v2/ansible/start_helper.yaml
+```
+
+### Run a test query
+You can do this portion locally or from a 4th server, so long as you have access to port 433 on all 3 servers.
+
+First, build the report collector binary:
+
+```
+cargo build --bin report_collector --features="cli test-fixture web-app"
+```
+
+Generate input data:
+```
+./target/debug/report_collector gen-ipa-inputs -n 10000 > input-data-10000.txt
+```
+
+Run a test query:
+```
+./target/debug/report_collector --network in-market-test/v2/ansible/network.toml --input-file input-data-10000.txt oprf-ipa --max-breakdown-key 64 --per-user-credit-cap 64 --plaintext-match-keys
 ```
