@@ -20,8 +20,8 @@ use crate::{
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols},
         context::{
-            dzkp_validator::DZKPValidator, Context, SemiHonestContext, UpgradableContext,
-            UpgradedSemiHonestContext,
+            Context, DZKPUpgraded, DZKPUpgradedSemiHonestContext, SemiHonestContext,
+            UpgradableContext, UpgradedSemiHonestContext,
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -226,9 +226,10 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    for<'a> Replicated<BK>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TS>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
-    for<'a> Replicated<TV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
+    Replicated<Boolean, B>: BooleanProtocols<DZKPUpgradedSemiHonestContext<'ctx, NotSharded>, B>,
+    for<'a> Replicated<BK>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
+    for<'a> Replicated<TS>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
+    for<'a> Replicated<TV>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -237,6 +238,8 @@ where
         &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
         Error = Infallible,
     >,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -248,8 +251,8 @@ where
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
-    let (histogram, ranges) = histograms_ranges_sortkeys(&mut prfd_inputs);
-    if histogram.len() == 1 {
+    let (row_count_histogram, ranges) = histograms_ranges_sortkeys(&mut prfd_inputs);
+    if row_count_histogram.len() == 1 {
         // No user has more than one record.
         return Ok(vec![Replicated::ZERO; B]);
     }
@@ -262,22 +265,22 @@ where
     )
     .await?;
 
-    let histogram = attribute_cap_aggregate::<_, _, _, _, SS_BITS, B>(
+    let output_histogram = attribute_cap_aggregate::<_, _, _, _, _, SS_BITS, B>(
         ctx.narrow(&Step::Attribution),
         prfd_inputs,
         attribution_window_seconds,
-        &histogram,
+        &row_count_histogram,
     )
     .await?;
 
     let dp_validator = ctx
         .narrow(&Step::DifferentialPrivacy)
         .validator::<Boolean>();
-    let dp_ctx: UpgradedSemiHonestContext<_, _> = dp_validator.context();
+    let dp_ctx = dp_validator.context();
 
-    let noisy_histogram =
-        dp_for_histogram::<_, B, HV, SS_BITS>(dp_ctx, histogram, dp_params).await?;
-    Ok(noisy_histogram)
+    let noisy_output_histogram =
+        dp_for_histogram::<_, B, HV, SS_BITS>(dp_ctx, output_histogram, dp_params).await?;
+    Ok(noisy_output_histogram)
 }
 
 // We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
@@ -296,15 +299,9 @@ where
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
-    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<
-        <<C as UpgradableContext>::DZKPValidator as DZKPValidator>::Context,
-        CONV_CHUNK,
-    >,
-    Replicated<Fp25519, PRF_CHUNK>: PrfSharing<
-        <C::Validator<Fp25519> as Validator<Fp25519>>::Context,
-        PRF_CHUNK,
-        Field = Fp25519,
-    >,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        PrfSharing<MacUpgraded<C>, PRF_CHUNK, Field = Fp25519> + FromPrss,
 {
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;

@@ -17,9 +17,14 @@ use tokio::time::sleep;
 pub use self::ipa::playbook_oprf_ipa;
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
+    ff::boolean_array::{BA20, BA3, BA8},
     net::{ClientIdentity, MpcHelperClient},
     protocol::dp::NoiseParams,
 };
+
+pub type BreakdownKey = BA8;
+pub type Timestamp = BA20;
+pub type TriggerValue = BA3;
 
 /// Validates that the expected result matches the actual.
 ///

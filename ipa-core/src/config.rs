@@ -20,7 +20,7 @@ use crate::{
     helpers::HelperIdentity,
     hpke::{
         Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry, PrivateKeyOnly,
-        Serializable as _,
+        PublicKeyOnly, Serializable as _,
     },
 };
 
@@ -411,6 +411,36 @@ impl Debug for Http2Configurator {
         f.debug_struct("Http2Configurator")
             .field("PING_interval", &self.ping_interval)
             .finish()
+    }
+}
+
+#[derive(Default)]
+pub struct KeyRegistries(Vec<KeyRegistry<PublicKeyOnly>>);
+
+impl KeyRegistries {
+    /// # Panics
+    /// If network file is improperly formatted
+    pub fn init_from(
+        &mut self,
+        network: &NetworkConfig,
+    ) -> Option<[&KeyRegistry<PublicKeyOnly>; 3]> {
+        // Get the configs, if all three peers have one
+        let configs = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
+            if let (mut vec, Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
+                vec.push(hpke_config);
+                Some(vec)
+            } else {
+                None
+            }
+        })?;
+
+        // Create key registries
+        self.0 = configs
+            .into_iter()
+            .map(|hpke| KeyRegistry::from_keys([PublicKeyOnly(hpke.public_key.clone())]))
+            .collect::<Vec<KeyRegistry<PublicKeyOnly>>>();
+
+        Some(self.0.iter().collect::<Vec<_>>().try_into().ok().unwrap())
     }
 }
 

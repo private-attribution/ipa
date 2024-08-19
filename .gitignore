@@ -8,3 +8,6 @@
 /Cargo.lock
 /target/
 /test_data/
+/in-market-test/hpke/bin
+/in-market-test/hpke/lib
+/in-market-test/hpke/pyvenv.cfg

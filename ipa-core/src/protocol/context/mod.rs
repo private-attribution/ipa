@@ -112,6 +112,9 @@ pub trait UpgradableContext: Context {
     fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator;
 }
 
+pub type MacUpgraded<C, F> = <<C as UpgradableContext>::Validator<F> as Validator<F>>::Context;
+pub type DZKPUpgraded<C> = <<C as UpgradableContext>::DZKPValidator as DZKPValidator>::Context;
+
 #[async_trait]
 pub trait UpgradedContext: Context {
     type Field: ExtendableField;

@@ -1,0 +1,5 @@
+# this directory exists to save generate keys
+# we don't want to commit them
+*.key
+*.pub
+*.pem

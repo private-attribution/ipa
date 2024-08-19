@@ -18,12 +18,11 @@ use ipa_core::{
         playbook::{make_clients, playbook_oprf_ipa, validate, validate_dp, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
-    config::NetworkConfig,
+    config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
-    hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
-    report::{KeyIdentifier, DEFAULT_KEY_ID},
+    report::DEFAULT_KEY_ID,
     test_fixture::{
         ipa::{ipa_in_the_clear, CappingOrder, IpaQueryStyle, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig,
@@ -172,37 +171,6 @@ fn gen_inputs(
     Ok(())
 }
 
-#[derive(Default)]
-struct KeyRegistries(Vec<KeyRegistry<PublicKeyOnly>>);
-
-impl KeyRegistries {
-    fn init_from(
-        &mut self,
-        network: &NetworkConfig,
-    ) -> Option<(KeyIdentifier, [&KeyRegistry<PublicKeyOnly>; 3])> {
-        // Get the configs, if all three peers have one
-        let configs = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
-            if let (mut vec, Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
-                vec.push(hpke_config);
-                Some(vec)
-            } else {
-                None
-            }
-        })?;
-
-        // Create key registries
-        self.0 = configs
-            .into_iter()
-            .map(|hpke| KeyRegistry::from_keys([PublicKeyOnly(hpke.public_key.clone())]))
-            .collect::<Vec<KeyRegistry<PublicKeyOnly>>>();
-
-        Some((
-            DEFAULT_KEY_ID,
-            self.0.iter().collect::<Vec<_>>().try_into().ok().unwrap(),
-        ))
-    }
-}
-
 async fn ipa(
     args: &Args,
     network: &NetworkConfig,
@@ -254,6 +222,9 @@ async fn ipa(
     };
 
     let mut key_registries = KeyRegistries::default();
+    let Some(key_registries) = key_registries.init_from(network) else {
+        panic!("could not load network file")
+    };
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
             // the value for histogram values (BA32) must be kept in sync with the server-side
@@ -264,7 +235,7 @@ async fn ipa(
                 helper_clients,
                 query_id,
                 ipa_query_config,
-                key_registries.init_from(network),
+                Some((DEFAULT_KEY_ID, key_registries)),
             )
             .await
         }

@@ -1,5 +1,7 @@
 #[cfg(feature = "web-app")]
 mod clientconf;
+#[cfg(all(feature = "test-fixture", feature = "web-app", feature = "cli"))]
+pub mod crypto;
 mod csv;
 mod ipa_output;
 #[cfg(feature = "web-app")]

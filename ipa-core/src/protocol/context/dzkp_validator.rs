@@ -2,6 +2,7 @@ use std::{
     cmp::{self, min},
     collections::BTreeMap,
     fmt::Debug,
+    mem,
 };
 
 use async_trait::async_trait;
@@ -9,14 +10,13 @@ use bitvec::{
     bitvec,
     prelude::{BitArray, BitSlice, BitVec, Lsb0},
 };
-use futures::{Future, Stream};
-use futures_util::{StreamExt, TryFutureExt};
+use futures::{Future, FutureExt, Stream, StreamExt};
 use tokio::sync::watch;
 
 use crate::{
     error::{BoxError, Error},
     ff::{Fp61BitPrime, U128Conversions},
-    helpers::{stream::TryFlattenItersExt, TotalRecords},
+    helpers::TotalRecords,
     protocol::{
         context::{
             dzkp_field::{DZKPBaseField, UVTupleBlock},
@@ -641,30 +641,34 @@ pub trait DZKPValidator: Clone + Send + Sync {
     /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error>;
 
-    /// `validated_seq_join` in this trait is a validated version of `seq_join`. It splits the input stream into `chunks` where
-    /// the `chunk_size` is specified as part of the input. Each `chunk` is a vector that is independently
-    /// verified using `validator.validate()`, which uses DZKPs. Once the validation fails,
-    /// the output stream will return an error.
+    /// `validated_seq_join` in this trait is a validated version of `seq_join`. Like `seq_join`,
+    /// it performs a sequential join of futures from the provided iterable, but each future is
+    /// augmented to additionally call `validate_record`.
+    ///
+    /// Unlike `seq_join`, the futures being joined are required to return a `Result`, which is
+    /// used to report validation failures.
     ///
     fn validated_seq_join<'st, S, F, O>(
-        &'st self,
-        chunk_size: usize,
+        self,
         source: S,
-    ) -> impl Stream<Item = Result<O, Error>> + 'st
+    ) -> impl Stream<Item = Result<O, Error>> + Send + 'st
     where
+        Self: 'st,
         S: Stream<Item = F> + Send + 'st,
-        F: Future<Output = O> + Send + 'st,
+        F: Future<Output = Result<O, Error>> + Send + 'st,
         O: Send + Sync + 'static,
     {
-        // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
-        // but there is some overhead
-        seq_join::<'st, S, F, O>(self.context().active_work(), source)
-            .chunks(chunk_size)
-            .enumerate()
-            .then(move |(context_counter, chunk)| {
-                self.validate_chunk(context_counter).map_ok(|()| chunk)
-            })
-            .try_flatten_iters()
+        seq_join(
+            self.context().active_work(),
+            source.enumerate().map(move |(index, fut)| {
+                let this = self.clone();
+                fut.then(move |res| async move {
+                    let item = res?;
+                    this.validate_record(RecordId::from(index)).await?;
+                    Ok(item)
+                })
+            }),
+        )
     }
 }
 
@@ -899,7 +903,13 @@ impl<'a> MaliciousDZKPValidator<'a> {
 
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
-        self.is_verified().unwrap();
+        // If we are the last validator referencing this batch, we need to make sure it was
+        // verified.
+        // TODO(1209): Rework validators so this fragile and awkward check is not necessary.
+        let batch_arc = mem::replace(&mut self.batch_ref, Arc::new(Mutex::new(Batch::new(0))));
+        if let Some(batch) = Arc::into_inner(batch_arc) {
+            assert!(batch.lock().unwrap().is_empty());
+        }
     }
 }
 
@@ -936,7 +946,7 @@ mod tests {
             replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
             Vectorizable,
         },
-        seq_join::seq_join,
+        seq_join::{seq_join, SeqJoin},
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 
@@ -1010,7 +1020,6 @@ mod tests {
     /// similar to `complex_circuit` in `validator.rs`
     async fn complex_circuit_dzkp(
         count: usize,
-        chunk_size: usize,
         max_multiplications_per_gate: usize,
     ) -> Result<(), Error> {
         let world = TestWorld::default();
@@ -1038,32 +1047,32 @@ mod tests {
             .into_iter()
             .zip([h1_shares.clone(), h2_shares.clone(), h3_shares.clone()])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(max_multiplications_per_gate);
+                let v = ctx
+                    .set_total_records(count - 1)
+                    .dzkp_validator(ctx.active_work().get());
                 // test whether narrow works
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join(
-                        chunk_size,
-                        iter(
-                            zip(
-                                repeat(m_ctx.set_total_records(count - 1)).enumerate(),
-                                zip(input_shares.iter(), input_shares.iter().skip(1)),
-                            )
-                            .map(
-                                |((i, ctx), (a_malicious, b_malicious))| async move {
-                                    a_malicious
-                                        .multiply(b_malicious, ctx, RecordId::from(i))
-                                        .await
-                                        .unwrap()
-                                },
-                            ),
+                    .validated_seq_join(iter(
+                        zip(
+                            repeat(m_ctx.clone()).enumerate(),
+                            zip(input_shares.iter(), input_shares.iter().skip(1)),
+                        )
+                        .map(
+                            |((i, ctx), (a_malicious, b_malicious))| async move {
+                                a_malicious
+                                    .multiply(b_malicious, ctx, RecordId::from(i))
+                                    .await
+                            },
                         ),
-                    )
+                    ))
                     .try_collect::<Vec<_>>()
                     .await?;
                 // check whether verification was successful
-                v.is_verified().unwrap();
+                // TODO(1209): Removed for now because validated_seq_join consumes the validator, but we
+                // want to change that.
+                //v.is_verified().unwrap();
                 m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });
@@ -1080,26 +1089,24 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .validated_seq_join(
-                        chunk_size,
-                        iter(
-                            zip(
-                                repeat(m_ctx.set_total_records(count - 1)).enumerate(),
-                                zip(input_shares.iter(), input_shares.iter().skip(1)),
-                            )
-                            .map(
-                                |((i, ctx), (a_malicious, b_malicious))| async move {
-                                    a_malicious
-                                        .multiply(b_malicious, ctx, RecordId::from(i))
-                                        .await
-                                        .unwrap()
-                                },
-                            ),
+                    .validated_seq_join(iter(
+                        zip(
+                            repeat(m_ctx.set_total_records(count - 1)).enumerate(),
+                            zip(input_shares.iter(), input_shares.iter().skip(1)),
+                        )
+                        .map(
+                            |((i, ctx), (a_malicious, b_malicious))| async move {
+                                a_malicious
+                                    .multiply(b_malicious, ctx, RecordId::from(i))
+                                    .await
+                            },
                         ),
-                    )
+                    ))
                     .try_collect::<Vec<_>>()
                     .await?;
-                v.is_verified().unwrap();
+                // TODO(1209): Removed for now because validated_seq_join consumes the validator, but we
+                // want to change that.
+                //v.is_verified().unwrap();
                 m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });
@@ -1130,16 +1137,16 @@ mod tests {
     }
 
     prop_compose! {
-        fn arb_count_and_chunk()((log_count, log_chunk_size, log_multiplication_amount) in select(&[(5,5,5),(7,5,5),(5,7,8)])) -> (usize, usize, usize) {
-            (1usize<<log_count, 1usize<<log_chunk_size, 1usize<<log_multiplication_amount)
+        fn arb_count_and_chunk()((log_count, log_multiplication_amount) in select(&[(5,5),(7,5),(5,8)])) -> (usize, usize) {
+            (1usize<<log_count, 1usize<<log_multiplication_amount)
         }
     }
 
     proptest! {
         #[test]
-        fn test_complex_circuit_dzkp((count, chunk_size, multiplication_amount) in arb_count_and_chunk()){
+        fn test_complex_circuit_dzkp((count, multiplication_amount) in arb_count_and_chunk()){
             let future = async {
-            let _ = complex_circuit_dzkp(count, chunk_size, multiplication_amount).await;
+            let _ = complex_circuit_dzkp(count, multiplication_amount).await;
         };
         tokio::runtime::Runtime::new().unwrap().block_on(future);
         }
