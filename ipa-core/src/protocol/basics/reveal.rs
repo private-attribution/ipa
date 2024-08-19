@@ -171,21 +171,25 @@ where
     }
 }
 
-impl<'a, B, V, const N: usize> Reveal<UpgradedSemiHonestContext<'a, B, V>> for Replicated<V, N>
+// Like the impl for `UpgradedMaliciousContext`, this impl uses distinct `V` and `CtxF` type
+// parameters. See the comment on that impl for more details.
+impl<'a, B, V, CtxF, const N: usize> Reveal<UpgradedSemiHonestContext<'a, B, CtxF>>
+    for Replicated<V, N>
 where
     B: ShardBinding,
-    V: SharedValue + Vectorizable<N> + ExtendableField,
+    CtxF: ExtendableField,
+    V: SharedValue + Vectorizable<N>,
 {
     type Output = <V as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
-        ctx: UpgradedSemiHonestContext<'a, B, V>,
+        ctx: UpgradedSemiHonestContext<'a, B, CtxF>,
         record_id: RecordId,
         excluded: Option<Role>,
     ) -> Result<Option<Self::Output>, Error>
     where
-        UpgradedSemiHonestContext<'a, B, V>: 'fut,
+        UpgradedSemiHonestContext<'a, B, CtxF>: 'fut,
     {
         semi_honest_reveal(ctx, record_id, excluded, self).await
     }
@@ -267,20 +271,30 @@ where
     }
 }
 
-impl<'a, F, const N: usize> Reveal<UpgradedMaliciousContext<'a, F>> for Replicated<F, N>
+// This impl uses distinct `V` and `CtxF` type parameters to support the PRF evaluation protocol,
+// which uses `Fp25519` for the malicious context, but needs to reveal `RP25519` values. The
+// malicious reveal protocol must check the shares being revealed for consistency, but doesn't care
+// that they are in the same field as is used for the malicious context. Contrast with
+// multiplication, which can only be supported in the malicious context's field.
+//
+// It also doesn't matter that `V` and `CtxF` support the same vectorization dimension `N`, but the
+// compiler would not be able to infer the value of a decoupled vectorization dimension for `CtxF`
+// from context, so it's easier to make them the same absent a need for them to be different.
+impl<'a, V, const N: usize, CtxF> Reveal<UpgradedMaliciousContext<'a, CtxF>> for Replicated<V, N>
 where
-    F: ExtendableFieldSimd<N>,
+    CtxF: ExtendableField,
+    V: SharedValue + Vectorizable<N>,
 {
-    type Output = <F as Vectorizable<N>>::Array;
+    type Output = <V as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
-        ctx: UpgradedMaliciousContext<'a, F>,
+        ctx: UpgradedMaliciousContext<'a, CtxF>,
         record_id: RecordId,
         excluded: Option<Role>,
-    ) -> Result<Option<<F as Vectorizable<N>>::Array>, Error>
+    ) -> Result<Option<<V as Vectorizable<N>>::Array>, Error>
     where
-        UpgradedMaliciousContext<'a, F>: 'fut,
+        UpgradedMaliciousContext<'a, CtxF>: 'fut,
     {
         malicious_reveal(ctx, record_id, excluded, self).await
     }
@@ -425,7 +439,7 @@ mod tests {
 
         let input = rng.gen::<TestField>();
         let results = world
-            .upgraded_semi_honest(input, |ctx, share| async move {
+            .upgraded_semi_honest::<TestField, _, _, _, _, _>(input, |ctx, share| async move {
                 TestField::from_array(
                     &share
                         .reveal(ctx.set_total_records(1), RecordId::from(0))
@@ -452,7 +466,7 @@ mod tests {
         for &excluded in Role::all() {
             let input = rng.gen::<TestField>();
             let results = world
-                .upgraded_semi_honest(input, |ctx, share| async move {
+                .upgraded_semi_honest::<TestField, _, _, _, _, _>(input, |ctx, share| async move {
                     share
                         .partial_reveal(ctx.set_total_records(1), RecordId::from(0), excluded)
                         .await
@@ -475,16 +489,17 @@ mod tests {
 
     #[tokio::test]
     pub async fn vectorized() -> Result<(), Error> {
-        type TestField = [Fp32BitPrime; 32];
+        type TestField = Fp32BitPrime;
+        type TestFieldArray = [TestField; 32];
 
         let mut rng = thread_rng();
         let world = TestWorld::default();
 
-        let input = rng.gen::<TestField>();
+        let input = rng.gen::<TestFieldArray>();
         let results = world
-            .upgraded_semi_honest(
+            .upgraded_semi_honest::<TestField, _, _, _, _, _>(
                 input,
-                |ctx, share: AdditiveShare<Fp32BitPrime, 32>| async move {
+                |ctx, share: AdditiveShare<TestField, 32>| async move {
                     share
                         .reveal(ctx.set_total_records(1), RecordId::from(0))
                         .await
@@ -701,14 +716,17 @@ mod tests {
     #[tokio::test]
     async fn reveal_empty_vec() {
         let [res0, res1, res2] = TestWorld::default()
-            .upgraded_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
-                reveal(ctx, RecordId::FIRST, &BitDecomposed::new(share))
-                    .await
-                    .unwrap()
-                    .into_iter()
-                    .map(|v| Boolean::from_array(&v))
-                    .collect::<Vec<_>>()
-            })
+            .upgraded_semi_honest::<Boolean, _, _, _, _, _>(
+                iter::empty::<Boolean>(),
+                |ctx, share| async move {
+                    reveal(ctx, RecordId::FIRST, &BitDecomposed::new(share))
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .map(|v| Boolean::from_array(&v))
+                        .collect::<Vec<_>>()
+                },
+            )
             .await;
 
         assert_eq!(res0, vec![]);
@@ -719,11 +737,14 @@ mod tests {
     #[tokio::test]
     async fn reveal_empty_vec_partial() {
         let [res0, res1, res2] = TestWorld::default()
-            .upgraded_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
-                partial_reveal(ctx, RecordId::FIRST, Role::H3, &BitDecomposed::new(share))
-                    .await
-                    .unwrap()
-            })
+            .upgraded_semi_honest::<Boolean, _, _, _, _, _>(
+                iter::empty::<Boolean>(),
+                |ctx, share| async move {
+                    partial_reveal(ctx, RecordId::FIRST, Role::H3, &BitDecomposed::new(share))
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
 
         assert_eq!(res0, Some(vec![]));
