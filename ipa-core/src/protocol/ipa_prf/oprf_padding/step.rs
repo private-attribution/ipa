@@ -13,5 +13,5 @@ pub(crate) enum PaddingDpStep {
 
 #[derive(CompactStep)]
 pub(crate) enum SendTotalRows {
-    SendFakeNumRecords,
+    SendNumFakeRecords,
 }

@@ -65,7 +65,7 @@ Once we can draw samples from a double geometric, we can sample from our desired
 
 The variance of a truncated double geometric distribution is (TODO), but the variance is always less than the variance of the underlying (non-truncated) double geometric distribution.
 
-# Padding Breakdowns Keys for New Aggregation
+# Padding Breakdowns Keys for Reveal Based Aggregation
 A new aggregation protocol reveals the breakdown keys in the clear before aggregating the associated secret
 shared values.   This leaks the number of records for each breakdown key.  We can assume that there is a cap
 enforced on the number of records for any one matchkey in IPA. Using this sensitivity we can then (with a desired epsilon,

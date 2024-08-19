@@ -426,7 +426,8 @@ pub mod tests {
                 test_input(10, 12345, true, 0, 5),
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
-            ]; // trigger value of 2 attributes to earlier source row with breakdown 1.
+            ]; // trigger value of 2 attributes to earlier source row with breakdown 1 and trigger
+               // value of 5 attributes to source row with breakdown 2.
             let dp_params = DpMechanism::NoDp;
             let padding_params = PaddingParameters::relaxed();
 
@@ -449,14 +450,6 @@ pub mod tests {
                 result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
                 EXPECTED,
             );
-
-            for (index, actual) in result.iter().enumerate() {
-                println!(
-                    "actual = {}, expected = {}",
-                    u32::try_from(actual.as_u128()).unwrap(),
-                    EXPECTED[index]
-                );
-            }
         });
     }
 

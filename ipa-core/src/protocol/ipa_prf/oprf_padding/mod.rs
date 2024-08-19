@@ -5,6 +5,7 @@ pub mod step;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use insecure::DiscreteDp as InsecureDiscreteDp;
 use rand::Rng;
+use tokio::try_join;
 
 use crate::{
     error::Error,
@@ -215,48 +216,53 @@ where
         )?;
     }
 
-    // Step 2: h_i and h_i_plus_one will send the send total_number_of_fake_rows to h_out
+    // Step 2: h_i and h_i_plus_one will send the send total_number_of_fake_rows to h_out. h_out will
+    // check that both h_i and h_i_plus_one have sent the same value to prevent any malicious behavior
+    // See oprf_padding/README.md for explanation of why revealing the total number of fake rows is okay.
     let send_ctx = ctx
-        .narrow(&SendTotalRows::SendFakeNumRecords)
+        .narrow(&SendTotalRows::SendNumFakeRecords)
         .set_total_records(TotalRecords::ONE);
-    if ctx.role() == h_i {
-        let send_channel = send_ctx.send_channel::<BA32>(send_ctx.role().peer(Direction::Left));
-        let _ = send_channel
-            .send(
-                RecordId::FIRST,
-                BA32::truncate_from(u128::from(total_number_of_fake_rows)),
-            )
-            .await;
-    }
-    if ctx.role() == h_i_plus_one {
-        let send_channel = send_ctx.send_channel::<BA32>(send_ctx.role().peer(Direction::Right));
-        let _ = send_channel
-            .send(
-                RecordId::FIRST,
-                BA32::truncate_from(u128::from(total_number_of_fake_rows)),
-            )
-            .await;
-    }
-    if ctx.role() == h_out {
-        // receive `total_number_of_fake_rows` from both other helpers and make sure they are the same
-        let recv_channel_right =
-            send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Right));
-        let from_right = match recv_channel_right.receive(RecordId::FIRST).await {
-            Ok(v) => u32::try_from(v.as_u128()).unwrap(),
-            Err(e) => return Err(e.into()),
-        };
+    match ctx.role() {
+        role if role == h_i || role == h_i_plus_one => {
+            let direction = if role == h_i {
+                Direction::Left
+            } else {
+                Direction::Right
+            };
+            let send_channel = send_ctx.send_channel::<BA32>(send_ctx.role().peer(direction));
+            let _ = send_channel
+                .send(
+                    RecordId::FIRST,
+                    BA32::truncate_from(u128::from(total_number_of_fake_rows)),
+                )
+                .await;
+        }
+        _h_out => {
+            let recv_channel_right =
+                send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Right));
+            let recv_channel_left =
+                send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Left));
+            let (from_right, from_left) = try_join!(
+                async {
+                    match recv_channel_right.receive(RecordId::FIRST).await {
+                        Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
+                        Err(e) => Err(e.into()),
+                    }
+                },
+                async {
+                    match recv_channel_left.receive(RecordId::FIRST).await {
+                        Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
+                        Err(e) => Err(e.into()),
+                    }
+                }
+            )?;
 
-        let recv_channel_left =
-            send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Left));
-        let from_left = match recv_channel_left.receive(RecordId::FIRST).await {
-            Ok(v) => u32::try_from(v.as_u128()).unwrap(),
-            Err(e) => return Err(e.into()),
-        };
-        assert_eq!(from_right, from_left);
-        total_number_of_fake_rows = from_right;
+            assert_eq!(from_right, from_left);
+            total_number_of_fake_rows = from_right;
+        }
     }
 
-    // Step 3: `h_out` will generate secret shares of zero for as many rows as the `total_number_of_fake_rows`
+    // Step 3: `h_out` will set its shares to zero for the fake rows
     if ctx.role() == h_out {
         for _ in 0..total_number_of_fake_rows as usize {
             let row = OPRFIPAInputRow {
@@ -291,6 +297,7 @@ where
     TV: BooleanArray,
     TS: BooleanArray,
 {
+    assert!(h_i != h_i_plus_one);
     let mut total_number_of_fake_rows = 0;
     let (mut left, mut right) = ctx.prss_rng();
     // The first is shared with the helper to the "left", the second is shared with the helper to the "right".
@@ -357,7 +364,7 @@ where
                 aggregation_padding_sensitivity,
             )?;
             let num_breakdowns: u32 = u32::try_from(B).unwrap();
-            // // for every breakdown, sample how many dummies will be added
+            // for every breakdown, sample how many dummies will be added
             for breakdownkey in 0..num_breakdowns {
                 let sample = aggregation_padding.sample(rng);
                 total_number_of_fake_rows += sample;
