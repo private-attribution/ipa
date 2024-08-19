@@ -20,7 +20,7 @@ use crate::{
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols},
         context::{
-            Context, DZKPUpgraded, DZKPUpgradedSemiHonestContext, SemiHonestContext,
+            Context, DZKPUpgraded, DZKPUpgradedSemiHonestContext, MacUpgraded, SemiHonestContext,
             UpgradableContext, UpgradedSemiHonestContext,
         },
         ipa_prf::{
@@ -30,6 +30,7 @@ use crate::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
         },
+        prss::FromPrss,
         RecordId,
     },
     secret_sharing::{
@@ -301,7 +302,7 @@ where
     TS: BooleanArray,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
-        PrfSharing<MacUpgraded<C>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
 {
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
