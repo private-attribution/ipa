@@ -1,13 +1,12 @@
 use std::iter::zip;
 
 use futures::future::try_join;
-use futures_util::FutureExt;
 
 use crate::{
     error::Error,
     ff::{curve_points::RP25519, ec_prime_field::Fp25519},
     protocol::{
-        basics::{malicious_reveal, reveal, SecureMul},
+        basics::{reveal, Reveal, SecureMul},
         context::{
             upgrade::Upgradable, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext,
@@ -103,6 +102,7 @@ pub async fn eval_dy_prf<C, const N: usize>(
 where
     C: UpgradedContext<Field = Fp25519>,
     AdditiveShare<Fp25519, N>: PrfSharing<C, N, Field = Fp25519>,
+    AdditiveShare<RP25519, N>: Reveal<C, Output = <RP25519 as Vectorizable<N>>::Array>,
     Fp25519: FieldSimd<N>,
     RP25519: Vectorizable<N>,
 {
@@ -129,10 +129,7 @@ where
         <RP25519 as Vectorizable<N>>::Array,
         <Fp25519 as Vectorizable<N>>::Array,
     ) = try_join(
-        // TODO: these should invoke reveal via the trait when this function
-        // takes a context of an appropriate type.
-        malicious_reveal(ctx.narrow(&Step::RevealR), record_id, None, &sh_gr)
-            .map(|v| v.map(|arr| arr.unwrap())),
+        reveal(ctx.narrow(&Step::RevealR), record_id, &sh_gr),
         reveal(ctx.narrow(&Step::Revealz), record_id, &y),
     )
     .await?;
@@ -155,13 +152,14 @@ mod test {
         ff::{curve_points::RP25519, ec_prime_field::Fp25519},
         helpers::{in_memory_config::MaliciousHelper, Role},
         protocol::{
-            context::{Context, UpgradableContext, Validator},
+            basics::Reveal,
+            context::{Context, MacUpgraded, UpgradableContext, Validator},
             ipa_prf::{
                 prf_eval::{eval_dy_prf, PrfSharing},
                 step::PrfStep,
             },
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares, Vectorizable},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
@@ -179,8 +177,9 @@ mod test {
     ) -> Result<Vec<u64>, Error>
     where
         C: UpgradableContext,
-        AdditiveShare<Fp25519>:
-            PrfSharing<<C::Validator<Fp25519> as Validator<Fp25519>>::Context, 1, Field = Fp25519>,
+        AdditiveShare<Fp25519>: PrfSharing<MacUpgraded<C, Fp25519>, 1, Field = Fp25519>,
+        AdditiveShare<RP25519>:
+            Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<1>>::Array>,
     {
         let ctx = ctx.set_total_records(input_match_keys.len());
         let validator = ctx.validator::<Fp25519>();

@@ -10,6 +10,7 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BooleanArray, BA5, BA64, BA8},
+        curve_points::RP25519,
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
     },
@@ -18,7 +19,7 @@ use crate::{
         TotalRecords,
     },
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols},
+        basics::{BooleanArrayMul, BooleanProtocols, Reveal},
         context::{
             Context, DZKPUpgraded, DZKPUpgradedSemiHonestContext, MacUpgraded, SemiHonestContext,
             UpgradableContext, UpgradedSemiHonestContext,
@@ -35,7 +36,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        SharedValue, TransposeFrom,
+        SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
     sharding::NotSharded,
@@ -303,6 +304,8 @@ where
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+    Replicated<RP25519, PRF_CHUNK>:
+        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
 {
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
