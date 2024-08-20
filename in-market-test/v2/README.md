@@ -2,15 +2,29 @@
 
 The runbook is set up to use [ansible](https://docs.ansible.com/ansible/latest/) to provision the remote machine. You can, of course, decide to run the commands in the ansible scripts manually if you prefer.
 
+Note that these scripts all assume that your ssh config lives at `~/.ssh/config`, which will only work for a Mac or a Linux machine. If on Windows, you'll likely want to use the Windows Subsystem for Linux.
+
 ## Local Install
 
-First, install [pipx](https://github.com/pypa/pipx?tab=readme-ov-file#install-pipx). On a Mac
+You'll need to have `ansible-playbook` available on your local machine (which has `ssh` access to the host we are setting up.) You can test if you have it setup with:
+
+```
+which ansible-playbook
+```
+
+If it's not installed, a good way to install it is with [pipx](https://github.com/pypa/pipx?tab=readme-ov-file#install-pipx). You can check for that with:
+
+```
+which pipx
+```
+
+If not installed, [the pipx install page](https://github.com/pypa/pipx?tab=readme-ov-file#install-pipx) has detailed instructions. On a Mac, you can use:
 
 ```
 brew install pipx
 ```
 
-Then install ansible
+With pipx, you can install ansible with: (if you leave off the `--include-deps`, you won't install the required `ansible-playbook` tool.)
 
 ```
 pipx install --include-deps ansible
@@ -29,6 +43,8 @@ You'll need to provision a host on your cloud provider with roughly the followin
 On AWS, we use c6id.8xlarge with the Amazon Linux 2023 AMI.
 
 The host needs SSH access (from you, if you want to limit the IP range), and HTTPS access from the internet (e.g., port 443 needs to be open.) No other ports need to be opened.
+
+It will also be useful to make sure that your security settings allow for ICMP on all IPs that we can test the ping between each helper.
 
 
 ### SSH access
