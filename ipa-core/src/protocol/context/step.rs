@@ -30,15 +30,13 @@ pub(crate) enum ValidateStep {
 pub(crate) enum ZeroKnowledgeProofValidateStep {
     /// For the execution of the malicious protocol.
     DZKPMaliciousProtocol,
-    /// Step for validating the DZK proof.
-    DZKPValidate,
     /// Step for computing `p * q` between proof verifiers
     PTimesQ,
     /// Step for producing challenge between proof verifiers
     Challenge,
-    /// Steps for creating a single proof per chunk
+    /// Steps for validating the DZK proofs for each batch.
     #[step(count = 256)]
-    ValidationChunk(usize),
+    DZKPValidate(usize),
     /// Step for proof generation
     GenerateProof,
     /// Step for proof verification

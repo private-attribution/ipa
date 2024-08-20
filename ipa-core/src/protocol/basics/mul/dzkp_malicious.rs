@@ -6,7 +6,7 @@ use crate::{
     protocol::{
         basics::{mul::semi_honest::multiplication_protocol, SecureMul},
         context::{
-            dzkp_field::DZKPCompatibleField, dzkp_validator::Segment, Context, DZKPContext,
+            dzkp_field::DZKPCompatibleField, dzkp_validator::Segment, Context,
             DZKPUpgradedMaliciousContext,
         },
         prss::SharedRandomness,
@@ -81,11 +81,10 @@ impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
-        error::Error,
         ff::boolean::Boolean,
         protocol::{
             basics::SecureMul,
-            context::{dzkp_validator::DZKPValidator, Context, DZKPContext, UpgradableContext},
+            context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
             RecordId,
         },
         rand::{thread_rng, Rng},
@@ -109,14 +108,8 @@ mod test {
                     .await
                     .unwrap();
 
-                // batch contains elements
-                assert!(matches!(mctx.is_verified(), Err(Error::ContextUnsafe(_))));
-
                 // validate all elements in the batch
                 validator.validate().await.unwrap();
-
-                // batch is empty now
-                assert!(mctx.is_verified().is_ok());
 
                 result
             })

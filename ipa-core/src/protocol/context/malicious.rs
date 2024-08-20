@@ -13,16 +13,11 @@ use crate::{
     protocol::{
         basics::mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
         context::{
-            batcher::Batcher,
-            dzkp_malicious::DZKPUpgraded,
-            dzkp_validator::{DZKPBatch, MaliciousDZKPValidator},
-            prss::InstrumentedIndexedSharedRandomness,
-            step::UpgradeStep,
-            upgrade::Upgradable,
-            validator,
-            validator::BatchValidator,
-            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
-            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
+            batcher::Batcher, dzkp_validator::MaliciousDZKPValidator,
+            prss::InstrumentedIndexedSharedRandomness, step::UpgradeStep, upgrade::Upgradable,
+            validator, validator::BatchValidator, Base, Context as ContextTrait,
+            InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
+            UpgradableContext, UpgradedContext,
         },
         prss::{Endpoint as PrssEndpoint, FromPrss},
         Gate, RecordId,
@@ -56,21 +51,6 @@ impl<'a> Context<'a> {
                 NotSharded,
             ),
         }
-    }
-
-    /// Upgrade this context to malicious using DZKPs
-    /// `malicious_step` is the step that will be used for malicious protocol execution.
-    /// `DZKPBatch` comes from a `MaliciousDZKPValidator`.
-    #[must_use]
-    pub fn dzkp_upgrade<S: Step + ?Sized>(
-        self,
-        malicious_step: &S,
-        batch: DZKPBatch,
-    ) -> DZKPUpgraded<'a>
-    where
-        Gate: StepNarrow<S>,
-    {
-        DZKPUpgraded::new(&self.inner, malicious_step, batch)
     }
 
     pub(crate) fn validator_context(self) -> Base<'a> {
@@ -161,18 +141,18 @@ impl Debug for Context<'_> {
 
 use crate::sync::{Mutex, Weak};
 
-pub(super) type MacBatch<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F>>>;
+pub(super) type MacBatcher<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F>>>;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone)]
 pub struct Upgraded<'a, F: ExtendableField> {
-    batch: Weak<MacBatch<'a, F>>,
+    batch: Weak<MacBatcher<'a, F>>,
     base_ctx: Context<'a>,
 }
 
 impl<'a, F: ExtendableField> Upgraded<'a, F> {
-    pub(super) fn new(batch: &Arc<MacBatch<'a, F>>, ctx: Context<'a>) -> Self {
+    pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, ctx: Context<'a>) -> Self {
         Self {
             batch: Arc::downgrade(batch),
             base_ctx: ctx,

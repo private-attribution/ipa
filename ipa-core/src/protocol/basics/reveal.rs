@@ -5,7 +5,6 @@ use std::{
 
 use embed_doc_image::embed_doc_image;
 use futures::{FutureExt, TryFutureExt};
-use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
@@ -14,10 +13,10 @@ use crate::{
     protocol::{
         boolean::step::TwoHundredFiftySixBitOpStep,
         context::{
-            dzkp_validator::DZKPValidator, Context, DZKPUpgradedMaliciousContext,
-            DZKPUpgradedSemiHonestContext, UpgradedMaliciousContext, UpgradedSemiHonestContext,
+            Context, DZKPContext, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext,
         },
-        Gate, RecordId,
+        RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -382,21 +381,17 @@ where
     S::generic_reveal(v, ctx, record_id, excluded)
 }
 
-pub async fn validated_partial_reveal<'fut, V, S, STEP>(
-    validator: V,
-    step: &'fut STEP,
+pub async fn validated_partial_reveal<'fut, C, S>(
+    ctx: C,
     record_id: RecordId,
     excluded: Role,
     v: &'fut S,
-) -> Result<Option<<S as Reveal<V::Context>>::Output>, Error>
+) -> Result<Option<<S as Reveal<C>>::Output>, Error>
 where
-    V: DZKPValidator + 'fut,
-    S: Reveal<V::Context> + Send + Sync + ?Sized,
-    STEP: Step + Send + Sync + 'static,
-    Gate: StepNarrow<STEP>,
+    C: DZKPContext + 'fut,
+    S: Reveal<C> + Send + Sync + ?Sized,
 {
-    let ctx = validator.context().narrow(step);
-    validator.validate_record(record_id).await?;
+    ctx.validate_record(record_id).await?;
     partial_reveal(ctx, record_id, excluded, v).await
 }
 

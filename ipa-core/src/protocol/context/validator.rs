@@ -12,7 +12,7 @@ use crate::{
         basics::{check_zero::malicious_check_zero, malicious_reveal},
         context::{
             batcher::Batcher,
-            malicious::MacBatch,
+            malicious::MacBatcher,
             step::{MaliciousProtocolStep as Step, ValidateStep},
             Base, Context, MaliciousContext, UpgradedContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext,
@@ -200,7 +200,7 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
 /// used again. In fact, it gets out of scope after successful validation
 /// so no code can get access to it.
 pub struct BatchValidator<'a, F: ExtendableField> {
-    batches_ref: Arc<MacBatch<'a, F>>,
+    batches_ref: Arc<MacBatcher<'a, F>>,
     protocol_ctx: MaliciousContext<'a>,
 }
 
