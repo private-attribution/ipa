@@ -9,6 +9,39 @@ import numpy as np
 import pyhpke
 from cryptography.hazmat.primitives.asymmetric import x25519
 
+class EventType(Enum):
+    SOURCE = 0
+    TRIGGER = 1
+
+    def to_bytes(self):
+        return self.value.to_bytes(1, "little")
+
+class ShareType(Enum):
+    MATCH_KEY = 0
+    TIMESTAMP = 1
+    BREAKDOWN = 2
+    TRIGGER_VALUE = 3
+
+
+    def bit_count(self) -> int:
+        match self:
+            case ShareType.MATCH_KEY:
+                return 64
+            case ShareType.TIMESTAMP:
+                return 20
+            case ShareType.BREAKDOWN:
+                return 8
+            case ShareType.TRIGGER_VALUE:
+                return 3
+
+        raise Exception("Invalid share type")
+
+
+    def byte_count(self) -> int:
+        return math.ceil(self.bit_count() / 8)
+
+
+
 
 class IPAReportInfo:
     DOMAIN = "private-attribution"
@@ -17,7 +50,7 @@ class IPAReportInfo:
         self,
         key_id: int,
         epoch: int,
-        event_type: int,
+        event_type: EventType,
         helper_domain: str,
         site_domain: str,
     ):
@@ -43,7 +76,7 @@ class IPAReportInfo:
             + b"\x00"
             + self.key_id.to_bytes(1, "little")
             + self.epoch.to_bytes(2, "little")
-            + self.event_type.to_bytes(1, "little")
+            + self.event_type.to_bytes()
         )
         return data
 
@@ -70,7 +103,7 @@ class IPAKeyEncryption:
 
     def ipa_report_info_to_bytes(self):
         return (
-            self.info.event_type.to_bytes(1, "little")
+            self.info.event_type.to_bytes()
             + self.info.key_id.to_bytes(1, "little")
             + self.info.epoch.to_bytes(2, "little")
             + self.info.site_domain.encode("utf-8")
@@ -79,7 +112,7 @@ class IPAKeyEncryption:
 
 def encrypt_share(
     share_data: bytes,
-    event_type: int,
+    event_type: EventType,
     site_domain: str,
     public_key_string: str,
     helper_domain: str,
@@ -112,12 +145,6 @@ def encrypt_share(
         info=report_info_data,
     )
 
-class ShareType(Enum):
-    MATCH_KEY = 0
-    TIMESTAMP = 1
-    BREAKDOWN = 2
-    TRIGGER_VALUE = 3
-
 
 class IPAShare:
     __slots__ = ["left", "right"]
@@ -128,6 +155,33 @@ class IPAShare:
 
     def to_bytes(self) -> bytes:
         return self.left + self.right
+
+    def xor(a: bytes, b: bytes) -> bytes:
+        a_array = np.frombuffer(a, dtype=np.uint8)
+        b_array = np.frombuffer(b, dtype=np.uint8)
+        result_array = a_array ^ b_array
+        return result_array.tobytes()
+
+    def generate_random_share(share_type: ShareType) -> bytes:
+        length = share_type.byte_count()
+        return secrets.token_bytes(length)
+
+    @classmethod
+    def create_shares(
+        cls,
+        value: bytes, 
+        share_type: ShareType
+    ) -> tuple["IPAShare", "IPAShare", "IPAShare"]:
+        first_share = IPAShare.generate_random_share(share_type)
+        second_share = IPAShare.generate_random_share(share_type)
+        third_share = IPAShare.xor(IPAShare.xor(first_share, second_share), value)
+
+        return (
+            IPAShare(left=first_share, right=second_share),
+            IPAShare(left=second_share, right=third_share),
+            IPAShare(left=third_share, right=first_share),
+        )
+
 
 
 class IPAReport:
@@ -165,51 +219,7 @@ class IPAReport:
             + encrypted.encrypted_to_bytes()
             + encrypted.ipa_report_info_to_bytes()
         )
-
-
-def share_type_bit_count(share_type: ShareType) -> int:
-    match share_type:
-        case ShareType.MATCH_KEY:
-            return 64
-        case ShareType.TIMESTAMP:
-            return 20
-        case ShareType.BREAKDOWN:
-            return 8
-        case ShareType.TRIGGER_VALUE:
-            return 3
-
-    raise Exception("Invalid share type")
-
-
-def share_type_byte_count(share_type: ShareType) -> int:
-    return math.ceil(share_type_bit_count(share_type) / 8)
-
-
-def xor(a: bytes, b: bytes) -> bytes:
-    a_array = np.frombuffer(a, dtype=np.uint8)
-    b_array = np.frombuffer(b, dtype=np.uint8)
-    result_array = a_array ^ b_array
-    return result_array.tobytes()
-
-
-def create_shares(
-    value: bytes, share_type: ShareType
-) -> tuple[IPAShare, IPAShare, IPAShare]:
-    first_share = generate_random_share(share_type)
-    second_share = generate_random_share(share_type)
-    third_share = xor(xor(first_share, second_share), value)
-
-    return (
-        IPAShare(left=first_share, right=second_share),
-        IPAShare(left=second_share, right=third_share),
-        IPAShare(left=third_share, right=first_share),
-    )
-
-
-def generate_random_share(share_type: ShareType) -> bytes:
-    length = 1  # TODO: this depends on the share type -> timestamp - 3 byte, breakdown - 1 byte, trigger value - 1 byte
-    return secrets.token_bytes(length)
-
+    
 
 def generate_report_per_helper(
     mk_share: IPAShare,
@@ -217,7 +227,7 @@ def generate_report_per_helper(
     bk_share: IPAShare,
     tv_share: IPAShare,
     site_domain: str,
-    event_type: int,
+    event_type: EventType,
     pub_key: str,
     helper_domain: str,
 ) -> bytes:
@@ -264,14 +274,14 @@ def encrypt_to_file(
             assert len(values) >= 5, f"Corrupted file: line {line_num} has less than 5 values"
             timestamp = int(values[0].strip())
             match_key = int(values[1].strip())
-            event_type = int(values[2].strip())
+            event_type = EventType(int(values[2].strip()))
             breakdown_key = int(values[3].strip())
             trigger_value = int(values[4].strip())
 
-            mk_share = create_shares(match_key.to_bytes(8, "little"), ShareType.MATCH_KEY)
-            ts_share = create_shares(timestamp.to_bytes(3, "little"), ShareType.TIMESTAMP)
-            bk_share = create_shares(breakdown_key.to_bytes(1, "little"), ShareType.BREAKDOWN)
-            tv_share = create_shares(trigger_value.to_bytes(1, "little"), ShareType.TRIGGER_VALUE)
+            mk_share = IPAShare.create_shares(match_key.to_bytes(8, "little"), ShareType.MATCH_KEY)
+            ts_share = IPAShare.create_shares(timestamp.to_bytes(3, "little"), ShareType.TIMESTAMP)
+            bk_share = IPAShare.create_shares(breakdown_key.to_bytes(1, "little"), ShareType.BREAKDOWN)
+            tv_share = IPAShare.create_shares(trigger_value.to_bytes(1, "little"), ShareType.TRIGGER_VALUE)
 
             encrypted_reports_1.append(
                 generate_report_per_helper(
