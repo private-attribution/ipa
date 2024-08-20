@@ -164,8 +164,8 @@ pub async fn apply_dp_padding<C, T, I, V, const B: usize>(
 where
     C: Context,
     T: Paddable<I>, // T is the type of items in the vector, and it is Paddable with input type I
-    I: SecretSharing<V> + U128Conversions, //
-    V: SharedValue,
+    I: SecretSharing<V>,
+    V: SharedValue + U128Conversions,
 {
     let initial_len = input.len();
 
@@ -239,8 +239,8 @@ pub async fn apply_dp_padding_pass<C, T, I, V, const B: usize>(
 where
     C: Context,
     T: Paddable<I>,
-    I: SecretSharing<V> + U128Conversions,
-    V: SharedValue,
+    I: SecretSharing<V>,
+    V: SharedValue + U128Conversions,
 {
     // assert roles are all unique
     assert!(h_i != h_i_plus_one);
@@ -349,8 +349,8 @@ pub fn two_parties_add_dummies<C, T, I, V, const B: usize>(
 where
     C: Context,
     T: Paddable<I>,
-    I: SecretSharing<V> + U128Conversions,
-    V: SharedValue,
+    I: SecretSharing<V>,
+    V: SharedValue + U128Conversions,
 {
     assert!(h_i != h_i_plus_one);
     let mut total_number_of_fake_rows = 0;
@@ -451,8 +451,8 @@ pub fn create_aggregation_fake_row<C, T, I, V, const B: usize>(
 where
     C: Context,
     T: Paddable<I>,
-    I: SecretSharing<V> + U128Conversions,
-    V: SharedValue,
+    I: SecretSharing<V>,
+    V: SharedValue + U128Conversions,
 {
     let mut breakdownkey_shares: AdditiveShare<I> = AdditiveShare::default();
     if ctx.role() == h_i {
