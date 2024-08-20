@@ -55,7 +55,7 @@
 
     - name: Build IPA helper
       shell:
-        cmd: "cargo build --bin helper --features='web-app real-world-infra compact-gate multi-threading disable-metrics' --no-default-features --release"
+        cmd: "cargo build --bin helper --features='web-app real-world-infra compact-gate multi-threading disable-metrics stall-detection' --no-default-features --release"
         chdir: "{{ ansible_env.HOME }}/ipa"
 
     - name: Grant CAP_NET_BIND_SERVICE capability to helper binary
