@@ -2,6 +2,7 @@ mod distributions;
 mod insecure;
 pub mod step;
 
+use bitvec::view::BitViewSized;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use insecure::DiscreteDp as InsecureDiscreteDp;
 use rand::Rng;
@@ -22,13 +23,14 @@ use crate::{
                 insecure::OPRFPaddingDp,
                 step::{PaddingDpStep, SendTotalRows},
             },
+            prf_sharding::AttributionOutputs,
             OPRFIPAInputRow,
         },
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        SharedValue,
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        SecretSharing, SharedValue,
     },
 };
 
@@ -109,53 +111,97 @@ impl PaddingParameters {
     }
 }
 
-/// # Errors
-/// Will propogate errors from `OPRFPaddingDp`
-/// # Panics
-/// Panics may happen in `apply_dp_padding_pass`
-pub async fn apply_dp_padding<C, BK, TV, TS, const B: usize>(
-    ctx: C,
-    mut input: Vec<OPRFIPAInputRow<BK, TV, TS>>,
-    padding_params: PaddingParameters,
-) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
+pub enum PaddingMode {
+    OPRFPadding,
+    RevealBreakdownsAggPadding,
+}
+
+trait Paddable<InputType> {
+    fn new_padded_item(input: InputType) -> Self;
+}
+impl<BK, TV, TS> Paddable<AdditiveShare<BA64>> for OPRFIPAInputRow<BK, TV, TS>
 where
-    C: Context,
     BK: BooleanArray + U128Conversions,
     TV: BooleanArray,
     TS: BooleanArray,
 {
+    fn new_padded_item(match_key_shares: AdditiveShare<BA64>) -> Self
+where {
+        OPRFIPAInputRow {
+            match_key: match_key_shares,
+            is_trigger: AdditiveShare::new(Boolean::FALSE, Boolean::FALSE),
+            breakdown_key: AdditiveShare::new(BK::ZERO, BK::ZERO),
+            trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
+            timestamp: AdditiveShare::new(TS::ZERO, TS::ZERO),
+        }
+    }
+}
+
+impl<BK, TV> Paddable<AdditiveShare<BK>>
+    for AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>
+where
+    BK: BooleanArray + U128Conversions,
+    TV: BooleanArray,
+{
+    fn new_padded_item(breakdown_key_shares: AdditiveShare<BK>) -> Self {
+        AttributionOutputs {
+            attributed_breakdown_key_bits: breakdown_key_shares,
+            capped_attributed_trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
+        }
+    }
+}
+
+/// # Errors
+/// Will propogate errors from `OPRFPaddingDp`
+/// # Panics
+/// Panics may happen in `apply_dp_padding_pass`
+pub async fn apply_dp_padding<C, T, I, V, const B: usize>(
+    ctx: C,
+    mut input: Vec<T>,
+    padding_params: PaddingParameters,
+    padding_mode: PaddingMode,
+) -> Result<Vec<T>, Error>
+where
+    C: Context,
+    T: Paddable<I>, // T is the type of items in the vector, and it is Paddable with input type I
+    I: SecretSharing<V> + U128Conversions, //
+    V: SharedValue,
+{
     let initial_len = input.len();
 
     // H1 and H2 add padding noise
-    input = apply_dp_padding_pass::<C, BK, TV, TS, B>(
+    input = apply_dp_padding_pass::<C, T, I, V, B>(
         ctx.narrow(&PaddingDpStep::PaddingDpPass1),
         input,
         Role::H1,
         Role::H2,
         Role::H3,
         &padding_params,
+        &padding_mode,
     )
     .await?;
 
     // H3 and H1 add padding noise
-    input = apply_dp_padding_pass::<C, BK, TV, TS, B>(
+    input = apply_dp_padding_pass::<C, T, I, V, B>(
         ctx.narrow(&PaddingDpStep::PaddingDpPass2),
         input,
         Role::H3,
         Role::H1,
         Role::H2,
         &padding_params,
+        &padding_mode,
     )
     .await?;
 
     // H2 and H3 add padding noise
-    input = apply_dp_padding_pass::<C, BK, TV, TS, B>(
+    input = apply_dp_padding_pass::<C, T, I, V, B>(
         ctx.narrow(&PaddingDpStep::PaddingDpPass3),
         input,
         Role::H2,
         Role::H3,
         Role::H1,
         &padding_params,
+        &padding_mode,
     )
     .await?;
 
@@ -181,19 +227,20 @@ where
 /// Will propogate errors from `OPRFPaddingDp`
 /// # Panics
 /// Will panic if called with Roles which are not all unique
-pub async fn apply_dp_padding_pass<C, BK, TV, TS, const B: usize>(
+pub async fn apply_dp_padding_pass<C, T, I, V, const B: usize>(
     ctx: C,
-    mut input: Vec<OPRFIPAInputRow<BK, TV, TS>>,
+    mut input: Vec<T>,
     h_i: Role,
     h_i_plus_one: Role,
     h_out: Role,
     padding_params: &PaddingParameters,
-) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
+    padding_mode: &PaddingMode,
+) -> Result<Vec<T>, Error>
 where
     C: Context,
-    BK: BooleanArray + U128Conversions,
-    TV: BooleanArray,
-    TS: BooleanArray,
+    T: Paddable<I>,
+    I: SecretSharing<V> + U128Conversions,
+    V: SharedValue,
 {
     // assert roles are all unique
     assert!(h_i != h_i_plus_one);
@@ -201,18 +248,19 @@ where
     assert!(h_out != h_i_plus_one);
 
     let mut total_number_of_fake_rows = 0;
-    let mut padding_input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>> = Vec::new();
+    let mut padding_input_rows: Vec<T> = Vec::new();
 
     // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
     // and use it to sample the same random noise for padding from OPRFPaddingDp.
     // They will generate secret shares of these fake rows.
     if ctx.role() != h_out {
-        total_number_of_fake_rows = two_parties_add_dummies::<C, BK, TV, TS, B>(
+        total_number_of_fake_rows = two_parties_add_dummies::<C, T, I, V, B>(
             &ctx,
             &mut padding_input_rows,
             h_i,
             h_i_plus_one,
             padding_params,
+            padding_mode,
         )?;
     }
 
@@ -265,14 +313,20 @@ where
     // Step 3: `h_out` will set its shares to zero for the fake rows
     if ctx.role() == h_out {
         for _ in 0..total_number_of_fake_rows as usize {
-            let row = OPRFIPAInputRow {
-                match_key: Replicated::new(BA64::ZERO, BA64::ZERO),
-                is_trigger: Replicated::new(Boolean::FALSE, Boolean::FALSE),
-                breakdown_key: Replicated::new(BK::ZERO, BK::ZERO),
-                trigger_value: Replicated::new(TV::ZERO, TV::ZERO),
-                timestamp: Replicated::new(TS::ZERO, TS::ZERO),
-            };
-            padding_input_rows.push(row);
+            match padding_mode {
+                PaddingMode::OPRFPadding => {
+                    // let mut match_key_shares: AdditiveShare<BA64> =
+                    //     AdditiveShare::default();
+                    let match_key_shares = AdditiveShare::new(BA64::ZERO, BA64::ZERO);
+                    let row = T::new_padded_item(match_key_shares);
+                    padding_input_rows.push(row);
+                }
+                PaddingMode::RevealBreakdownsAggPadding => {
+                    let breakdown_key_shares = AdditiveShare::new(I::ZERO, I::ZERO);
+                    let row = T::new_padded_item(breakdown_key_shares);
+                    padding_input_rows.push(row);
+                }
+            }
         }
     }
 
@@ -284,18 +338,19 @@ where
 /// Will propogate errors from `OPRFPaddingDp`
 /// # Panics
 ///
-pub fn two_parties_add_dummies<C, BK, TV, TS, const B: usize>(
+pub fn two_parties_add_dummies<C, T, I, V, const B: usize>(
     ctx: &C,
-    padding_input_rows: &mut Vec<OPRFIPAInputRow<BK, TV, TS>>,
+    padding_input_rows: &mut Vec<T>,
     h_i: Role,
     h_i_plus_one: Role,
     padding_params: &PaddingParameters,
+    padding_mode: &PaddingMode,
 ) -> Result<u32, Error>
 where
     C: Context,
-    BK: BooleanArray + U128Conversions,
-    TV: BooleanArray,
-    TS: BooleanArray,
+    T: Paddable<I>,
+    I: SecretSharing<V> + U128Conversions,
+    V: SharedValue,
 {
     assert!(h_i != h_i_plus_one);
     let mut total_number_of_fake_rows = 0;
@@ -309,145 +364,106 @@ where
         rng = &mut left;
     }
 
-    // padding for oprf
-    match padding_params.oprf_padding {
-        OPRFPadding::NoOPRFPadding => {}
-        OPRFPadding::Parameters {
-            oprf_epsilon,
-            oprf_delta,
-            matchkey_cardinality_cap,
-            oprf_padding_sensitivity,
-        } => {
-            let oprf_padding =
-                OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity)?;
-            for cardinality in 1..=matchkey_cardinality_cap {
-                let sample = oprf_padding.sample(rng);
-                total_number_of_fake_rows += sample * cardinality;
+    match padding_mode {
+        PaddingMode::OPRFPadding => {
+            // padding for oprf
+            match padding_params.oprf_padding {
+                OPRFPadding::NoOPRFPadding => {}
+                OPRFPadding::Parameters {
+                    oprf_epsilon,
+                    oprf_delta,
+                    matchkey_cardinality_cap,
+                    oprf_padding_sensitivity,
+                } => {
+                    let oprf_padding =
+                        OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity)?;
+                    for cardinality in 1..=matchkey_cardinality_cap {
+                        let sample = oprf_padding.sample(rng);
+                        total_number_of_fake_rows += sample * cardinality;
 
-                // this means there will be `sample` many unique
-                // matchkeys to add each with cardinality = `cardinality`
-                for _ in 0..sample {
-                    let dummy_mk: BA64 = rng.gen();
-                    for _ in 0..cardinality {
-                        let mut match_key_shares: Replicated<BA64> = Replicated::default();
-                        if ctx.role() == h_i {
-                            match_key_shares = Replicated::new(BA64::ZERO, dummy_mk);
+                        // this means there will be `sample` many unique
+                        // matchkeys to add each with cardinality = `cardinality`
+                        for _ in 0..sample {
+                            let dummy_mk: BA64 = rng.gen();
+                            for _ in 0..cardinality {
+                                let mut match_key_shares: AdditiveShare<BA64> =
+                                    AdditiveShare::default();
+                                if ctx.role() == h_i {
+                                    match_key_shares = AdditiveShare::new(BA64::ZERO, dummy_mk);
+                                }
+                                if ctx.role() == h_i_plus_one {
+                                    match_key_shares = AdditiveShare::new(dummy_mk, BA64::ZERO);
+                                }
+                                let row = T::new_padded_item(match_key_shares);
+                                padding_input_rows.push(row);
+                            }
                         }
-                        if ctx.role() == h_i_plus_one {
-                            match_key_shares = Replicated::new(dummy_mk, BA64::ZERO);
-                        }
-                        let row = OPRFIPAInputRow {
-                            match_key: match_key_shares,
-                            is_trigger: Replicated::new(Boolean::FALSE, Boolean::FALSE),
-                            breakdown_key: Replicated::new(BK::ZERO, BK::ZERO),
-                            trigger_value: Replicated::new(TV::ZERO, TV::ZERO),
-                            timestamp: Replicated::new(TS::ZERO, TS::ZERO),
-                        };
-                        padding_input_rows.push(row);
                     }
                 }
             }
         }
-    }
-
-    // padding for aggregation
-    match padding_params.aggregation_padding {
-        AggregationPadding::NoAggPadding => {}
-        AggregationPadding::Parameters {
-            aggregation_epsilon,
-            aggregation_delta,
-            aggregation_padding_sensitivity,
-        } => {
-            let aggregation_padding = OPRFPaddingDp::new(
-                aggregation_epsilon,
-                aggregation_delta,
-                aggregation_padding_sensitivity,
-            )?;
-            let num_breakdowns: u32 = u32::try_from(B).unwrap();
-            // for every breakdown, sample how many dummies will be added
-            for breakdownkey in 0..num_breakdowns {
-                let sample = aggregation_padding.sample(rng);
-                total_number_of_fake_rows += sample;
-
-                // now add `sample` many fake rows with this `breakdownkey`
-                // These fake rows need to have random matchkeys, but we don't want to have any with
-                // cardinality 1 or they may be dropped after matching.  So instead we add with the
-                // following cardinalities:
-                //  - in the case `sample` is even, all matchkeys have cardinality 2
-                //  - in the case `sample` is odd, all matchkeys have cardinality 2 except one set
-                //    of cardinality 3.
-                //  - in the case `sample` = 1, we add a matchkey of cardinality 1.
-                //
-                // consider the division algorithm of sample: sample = 2 q + r such that 0 <= r < 2
-                let (q, r) = (sample / 2, sample % 2);
-                let mut dummy_mk: BA64 = rng.gen();
-                for _ in 0..q {
-                    dummy_mk = rng.gen();
-                    for _ in 0..2 {
-                        let row = create_aggregation_fake_row::<C, BK, TV, TS, B>(
-                            ctx,
-                            h_i,
-                            h_i_plus_one,
-                            dummy_mk,
-                            breakdownkey,
-                        )?;
-                        padding_input_rows.push(row);
-                    }
-                }
-                if r == 1 {
-                    let row = create_aggregation_fake_row::<C, BK, TV, TS, B>(
-                        ctx,
-                        h_i,
-                        h_i_plus_one,
-                        dummy_mk,
-                        breakdownkey,
+        PaddingMode::RevealBreakdownsAggPadding => {
+            // padding for aggregation
+            match padding_params.aggregation_padding {
+                AggregationPadding::NoAggPadding => {}
+                AggregationPadding::Parameters {
+                    aggregation_epsilon,
+                    aggregation_delta,
+                    aggregation_padding_sensitivity,
+                } => {
+                    let aggregation_padding = OPRFPaddingDp::new(
+                        aggregation_epsilon,
+                        aggregation_delta,
+                        aggregation_padding_sensitivity,
                     )?;
-                    padding_input_rows.push(row);
+                    let num_breakdowns: u32 = u32::try_from(B).unwrap();
+                    // for every breakdown, sample how many dummies will be added
+                    for breakdownkey in 0..num_breakdowns {
+                        let sample = aggregation_padding.sample(rng);
+                        total_number_of_fake_rows += sample;
+
+                        // now add `sample` many fake rows with this `breakdownkey`
+                        for _ in 0..sample {
+                            let row = create_aggregation_fake_row::<C, T, I, V, B>(
+                                ctx,
+                                h_i,
+                                h_i_plus_one,
+                                breakdownkey,
+                            )?;
+                            padding_input_rows.push(row);
+                        }
+                    }
                 }
             }
         }
     }
+
     Ok(total_number_of_fake_rows)
 }
 /// # Errors
 /// no unwraps here so unlikely to propagate an error.
-pub fn create_aggregation_fake_row<C, BK, TV, TS, const B: usize>(
+pub fn create_aggregation_fake_row<C, T, I, V, const B: usize>(
     ctx: &C,
     h_i: Role,
     h_i_plus_one: Role,
-    dummy_mk: BA64,
     breakdownkey: u32,
-) -> Result<OPRFIPAInputRow<BK, TV, TS>, Error>
+) -> Result<T, Error>
 where
     C: Context,
-    BK: BooleanArray + U128Conversions,
-    TV: BooleanArray,
-    TS: BooleanArray,
+    T: Paddable<I>,
+    I: SecretSharing<V> + U128Conversions,
+    V: SharedValue,
 {
-    let mut match_key_shares: Replicated<BA64> = Replicated::default();
-    if ctx.role() == h_i {
-        match_key_shares = Replicated::new(BA64::ZERO, dummy_mk);
-    }
-    if ctx.role() == h_i_plus_one {
-        match_key_shares = Replicated::new(dummy_mk, BA64::ZERO);
-    }
-
-    let mut breakdownkey_shares: Replicated<BK> = Replicated::default();
+    let mut breakdownkey_shares: AdditiveShare<I> = AdditiveShare::default();
     if ctx.role() == h_i {
         breakdownkey_shares =
-            Replicated::new(BK::ZERO, BK::truncate_from(u128::from(breakdownkey)));
+            AdditiveShare::new(I::ZERO, I::truncate_from(u128::from(breakdownkey)));
     }
     if ctx.role() == h_i_plus_one {
         breakdownkey_shares =
-            Replicated::new(BK::truncate_from(u128::from(breakdownkey)), BK::ZERO);
+            AdditiveShare::new(I::truncate_from(u128::from(breakdownkey)), I::ZERO);
     }
-    let row = OPRFIPAInputRow {
-        match_key: match_key_shares,
-        is_trigger: Replicated::new(Boolean::FALSE, Boolean::FALSE),
-        breakdown_key: breakdownkey_shares,
-        trigger_value: Replicated::new(TV::ZERO, TV::ZERO),
-        timestamp: Replicated::new(TS::ZERO, TS::ZERO),
-    };
+    let row = T::new_padded_item(breakdownkey_shares);
     Ok(row)
 }
 

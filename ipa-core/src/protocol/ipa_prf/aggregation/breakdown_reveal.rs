@@ -19,8 +19,11 @@ use crate::{
         basics::semi_honest_reveal,
         context::Context,
         ipa_prf::{
-            aggregation::step::AggregationStep, prf_sharding::SecretSharedAttributionOutputs,
-            shuffle::shuffle_attribution_outputs, BreakdownKey,
+            aggregation::step::AggregationStep,
+            oprf_padding::{apply_dp_padding, PaddingMode, PaddingParameters},
+            prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
+            shuffle::shuffle_attribution_outputs,
+            BreakdownKey, OPRFIPAInputRow,
         },
         BooleanProtocols, RecordId,
     },
@@ -59,7 +62,23 @@ where
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
 {
-    let atributions = shuffle_attributions(&ctx, attributed_values).await?;
+    let dp_padding_params = PaddingParameters::relaxed();
+    // Apply DP padding for Breakdown Reveal Aggregation
+    let attributed_values_padded = apply_dp_padding::<
+        _,
+        AttributionOutputs<Replicated<BK>, Replicated<TV>>,
+        Replicated<BK>,
+        BK,
+        B,
+    >(
+        ctx.narrow(&AggregationStep::PaddingDp),
+        attributed_values,
+        dp_padding_params,
+        PaddingMode::RevealBreakdownsAggPadding,
+    )
+    .await?;
+
+    let atributions = shuffle_attributions(&ctx, attributed_values_padded).await?;
     let grouped_tvs = reveal_breakdowns(&ctx, atributions).await?;
     let num_rows = grouped_tvs.max_len;
     aggregate_values::<_, HV, B>(ctx, grouped_tvs.into_stream(), num_rows).await
