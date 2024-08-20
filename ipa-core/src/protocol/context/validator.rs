@@ -211,19 +211,19 @@ impl<'a, F: ExtendableField> BatchValidator<'a, F> {
     /// If total records is not set.
     #[must_use]
     pub fn new(ctx: MaliciousContext<'a>) -> Self {
-        let Some(total_records) = ctx.total_records().count() else {
+        let TotalRecords::Specified(total_records) = ctx.total_records() else {
             panic!("Total records must be specified before creating the validator");
         };
 
         // TODO: Right now we set the batch work to be equal to active_work,
         // but it does not need to be. We can make this configurable if needed.
-        let records_per_batch = ctx.active_work().get().min(total_records);
+        let records_per_batch = ctx.active_work().get().min(total_records.get());
 
         Self {
             protocol_ctx: ctx.narrow(&Step::MaliciousProtocol),
             batches_ref: Batcher::new(
                 records_per_batch,
-                Some(total_records),
+                total_records,
                 Box::new(move |batch_index| Malicious::new(ctx.clone(), batch_index)),
             ),
         }

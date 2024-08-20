@@ -7,6 +7,7 @@ use futures::{stream, Future, FutureExt, Stream, StreamExt};
 use crate::{
     error::{BoxError, Error},
     ff::{Fp61BitPrime, U128Conversions},
+    helpers::TotalRecords,
     protocol::{
         context::{
             batcher::Batcher,
@@ -600,6 +601,11 @@ pub trait DZKPValidator: Send + Sync {
 
     fn context(&self) -> Self::Context;
 
+    /// Sets the validator's total number of records field. This is required when using
+    /// the validate_record API, if it wasn't already set on the context used to create
+    /// the validator.
+    fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T);
+
     /// Validates all of the multiplies associated with this validator.
     ///
     /// Only one of the `DZKPValidator::validate` or the `DZKPContext::validate_record`
@@ -677,6 +683,10 @@ impl<'a, B: ShardBinding> DZKPValidator for SemiHonestDZKPValidator<'a, B> {
         self.context.clone()
     }
 
+    fn set_total_records<T: Into<TotalRecords>>(&mut self, _total_records: T) {
+        // Semi-honest validator doesn't do anything, so doesn't care.
+    }
+
     async fn validate(self) -> Result<(), Error> {
         Ok(())
     }
@@ -703,6 +713,15 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
 
     fn context(&self) -> MaliciousDZKPUpgraded<'a> {
         self.protocol_ctx.clone()
+    }
+
+    fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T) {
+        self.batcher_ref
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .set_total_records(total_records);
     }
 
     async fn validate(mut self) -> Result<(), Error> {
@@ -744,7 +763,7 @@ impl<'a> MaliciousDZKPValidator<'a> {
     pub fn new(ctx: MaliciousContext<'a>, max_multiplications_per_gate: usize) -> Self {
         let batcher = Batcher::new(
             max_multiplications_per_gate,
-            ctx.total_records().count(),
+            ctx.total_records(),
             Box::new(move |batch_index| {
                 Batch::new(
                     RecordId::from(batch_index * max_multiplications_per_gate),

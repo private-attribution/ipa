@@ -293,13 +293,12 @@ where
     )
     .await?;
 
-    let dp_validator = ctx
-        .narrow(&Step::DifferentialPrivacy)
-        .validator::<Boolean>();
-    let dp_ctx = dp_validator.context();
-
-    let noisy_output_histogram =
-        dp_for_histogram::<_, B, HV, SS_BITS>(dp_ctx, output_histogram, dp_params).await?;
+    let noisy_output_histogram = dp_for_histogram::<_, B, HV, SS_BITS>(
+        ctx.narrow(&Step::DifferentialPrivacy),
+        output_histogram,
+        dp_params,
+    )
+    .await?;
     Ok(noisy_output_histogram)
 }
 

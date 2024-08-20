@@ -1,24 +1,30 @@
 use std::{any::type_name, convert::Infallible, iter, pin::Pin};
 
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
+use futures::{stream, FutureExt, Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
+use typenum::Const;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{
-        stream::{process_stream_by_chunks, ChunkBuffer, FixedLength, TryFlattenItersExt},
+        stream::{
+            div_round_up, process_stream_by_chunks, ChunkBuffer, FixedLength, TryFlattenItersExt,
+        },
         TotalRecords,
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::Context,
+        context::{
+            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
+            Context, DZKPContext, UpgradableContext,
+        },
         ipa_prf::{
-            aggregation::step::{AggregateValuesStep, AggregationStep as Step},
+            aggregation::step::{AggregateChunkStep, AggregateValuesStep, AggregationStep as Step},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
-            BreakdownKey,
+            BreakdownKey, AGG_CHUNK,
         },
         RecordId,
     },
@@ -114,36 +120,43 @@ where
 // The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
 // contribution rows, bits of trigger value, and buckets.
 #[tracing::instrument(name = "aggregate", skip_all, fields(streams = contributions_stream_len))]
-pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N: usize>(
+pub async fn aggregate_contributions<'ctx, C, St, BK, TV, HV, const B: usize>(
     ctx: C,
     contributions_stream: St,
-    contributions_stream_len: usize,
+    mut contributions_stream_len: usize,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: Context,
+    C: UpgradableContext + 'ctx,
     St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
-    Boolean: FieldSimd<N> + FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<C, B>,
-    Replicated<Boolean, N>: SecureMul<C>,
-    Replicated<BK>: BooleanArrayMul<C>,
-    Replicated<TV>: BooleanArrayMul<C>,
-    BitDecomposed<Replicated<Boolean, N>>:
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>: BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, B>,
+    Replicated<Boolean, AGG_CHUNK>: SecureMul<<C::DZKPValidator as DZKPValidator>::Context>,
+    Replicated<BK>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
+    Replicated<TV>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
+    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, N>>:
+    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-    Vec<BitDecomposed<Replicated<Boolean, B>>>:
-        for<'a> TransposeFrom<&'a [BitDecomposed<Replicated<Boolean, N>>], Error = Infallible>,
+    Vec<BitDecomposed<Replicated<Boolean, B>>>: for<'a> TransposeFrom<
+        &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
+        Error = Infallible,
+    >,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    // Indeterminate TotalRecords is currently required because aggregation does not poll futures in
-    // parallel (thus cannot reach a batch of records).
-    let bucket_ctx = ctx
+    assert!(contributions_stream_len != 0);
+
+    let move_to_bucket_chunk_size = TARGET_PROOF_SIZE / B / usize::try_from(TV::BITS).unwrap();
+    let move_to_bucket_records =
+        TotalRecords::specified(div_round_up(contributions_stream_len, Const::<AGG_CHUNK>))?;
+    let validator = ctx
         .narrow(&Step::MoveToBucket)
-        .set_total_records(TotalRecords::Indeterminate);
+        .set_total_records(move_to_bucket_records)
+        .dzkp_validator(move_to_bucket_chunk_size);
+    let bucket_ctx = validator.context();
     // move each value to the correct bucket
     let row_contribution_chunk_stream = process_stream_by_chunks(
         contributions_stream,
@@ -151,12 +164,15 @@ where
             attributed_breakdown_key_bits: vec![],
             capped_attributed_trigger_value: vec![],
         },
-        move |idx, chunk: AttributionOutputsChunk<N>| {
+        move |idx, chunk: AttributionOutputsChunk<AGG_CHUNK>| {
             let record_id = RecordId::from(idx);
-            let ctx = bucket_ctx.clone();
+            let validate_ctx = bucket_ctx.clone();
+            let ctx = bucket_ctx
+                .clone()
+                .set_total_records(TotalRecords::Indeterminate);
             async move {
-                bucket::move_single_value_to_bucket::<_, N>(
-                    ctx,
+                let result = bucket::move_single_value_to_bucket::<_, AGG_CHUNK>(
+                    ctx.clone(),
                     record_id,
                     chunk.attributed_breakdown_key_bits,
                     chunk.capped_attributed_trigger_value,
@@ -164,33 +180,78 @@ where
                     false,
                 )
                 .instrument(tracing::debug_span!("move_to_bucket", chunk = idx))
-                .await
+                .await;
+
+                validate_ctx.validate_record(record_id).await?;
+
+                result
             }
         },
     );
 
-    let aggregation_input = Box::pin(
-        row_contribution_chunk_stream
-            // Rather than transpose out of record-vectorized form and then transpose again back
-            // into bucket-vectorized form, we use a special transpose (the "aggregation
-            // intermediate transpose") that combines the two steps.
-            //
-            // Since the bucket-vectorized representation is separable by records, we do the
-            // transpose within the `Chunk` wrapper using `Chunk::map`, and then invoke
-            // `Chunk::into_iter` via `try_flatten_iters` to produce an unchunked stream of
-            // records, vectorized by buckets.
-            .then(|fut| {
-                fut.map(|res| {
-                    res.map(|chunk| {
-                        chunk.map(|data| Vec::transposed_from(data.as_slice()).unwrap_infallible())
-                    })
+    let mut aggregation_input = row_contribution_chunk_stream
+        // Rather than transpose out of record-vectorized form and then transpose again back
+        // into bucket-vectorized form, we use a special transpose (the "aggregation
+        // intermediate transpose") that combines the two steps.
+        //
+        // Since the bucket-vectorized representation is separable by records, we do the
+        // transpose within the `Chunk` wrapper using `Chunk::map`, and then invoke
+        // `Chunk::into_iter` via `try_flatten_iters` to produce an unchunked stream of
+        // records, vectorized by buckets.
+        .then(|fut| {
+            fut.map(|res| {
+                res.map(|chunk| {
+                    chunk.map(|data| Vec::transposed_from(data.as_slice()).unwrap_infallible())
                 })
             })
-            .try_flatten_iters(),
-    );
-    let aggregated_result =
-        aggregate_values::<_, HV, B>(ctx, aggregation_input, contributions_stream_len).await?;
-    Ok(aggregated_result)
+        })
+        .try_flatten_iters()
+        .boxed();
+
+    let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap());
+    let chunks = iter::from_fn(|| {
+        if contributions_stream_len >= agg_proof_chunk {
+            contributions_stream_len -= agg_proof_chunk;
+            Some(agg_proof_chunk)
+        } else if contributions_stream_len > 0 {
+            let chunk = contributions_stream_len;
+            contributions_stream_len = 0;
+            Some(chunk)
+        } else {
+            None
+        }
+    });
+    let mut intermediate_results = Vec::new();
+    let mut chunk_counter = 0;
+    for chunk in chunks {
+        let ctx = ctx.narrow(&Step::AggregateChunk(chunk_counter));
+        chunk_counter += 1;
+        let stream = aggregation_input.by_ref().take(chunk);
+        let validator = ctx.dzkp_validator(agg_proof_chunk);
+        let result =
+            aggregate_values::<_, HV, B>(validator.context(), stream.boxed(), chunk).await?;
+        validator.validate().await?;
+        intermediate_results.push(Ok(result));
+    }
+
+    if intermediate_results.len() > 1 {
+        let ctx = ctx.narrow(&Step::AggregateChunk(chunk_counter));
+        let validator = ctx.dzkp_validator(agg_proof_chunk);
+        let stream_len = intermediate_results.len();
+        let aggregated_result = aggregate_values::<_, HV, B>(
+            validator.context(),
+            stream::iter(intermediate_results).boxed(),
+            stream_len,
+        )
+        .await?;
+        validator.validate().await?;
+        Ok(aggregated_result)
+    } else {
+        intermediate_results
+            .into_iter()
+            .next()
+            .expect("aggregation input must not be empty")
+    }
 }
 
 /// A vector of histogram contributions for each output bucket.
@@ -198,6 +259,17 @@ where
 /// Aggregation is vectorized over histogram buckets, so bit 0 for every histogram bucket is stored
 /// contiguously, followed by bit 1 for each histogram bucket, etc.
 pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>>, Error>;
+
+/// Returns a suitable proof chunk size (in records) for use with `aggregate_values`.
+///
+/// Let $N$ be the number of inputs, $k = \log N$, and $b$ be the input bit width. The
+/// number of multiplies to aggregate a single column (neglecting the effect of
+/// saturating the output) is:
+///
+/// $\sum_{i = 1}^k 2^{k - i} (b + i - 1) \approx 2^k (b + 1) = N (b + 1)$
+pub fn aggregate_values_proof_chunk(input_width: usize, input_item_bits: usize) -> usize {
+    TARGET_PROOF_SIZE / input_width / (input_item_bits + 1)
+}
 
 /// Aggregate output contributions
 ///
@@ -238,11 +310,14 @@ where
 
     let mut depth = 0;
     while num_rows > 1 {
+        // Indeterminate TotalRecords is currently required because aggregation does not poll
+        // futures in parallel (thus cannot reach a batch of records).
+        //
         // We reduce pairwise, passing through the odd record at the end if there is one, so the
         // number of outputs (`next_num_rows`) gets rounded up. If calculating an explicit total
         // records, that would get rounded down.
         let par_agg_ctx = ctx
-            .narrow(&Step::Aggregate(depth))
+            .narrow(&AggregateChunkStep::Aggregate(depth))
             .set_total_records(TotalRecords::Indeterminate);
         let next_num_rows = (num_rows + 1) / 2;
         aggregated_stream = Box::pin(

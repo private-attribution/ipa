@@ -385,23 +385,31 @@ where
     (histogram, ranges)
 }
 
-fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Result<Vec<C>, Error>
+fn set_up_contexts<C>(
+    root_ctx: C,
+    chunk_size: usize,
+    histogram: &[usize],
+) -> Result<(C::DZKPValidator, Vec<DZKPUpgraded<C>>), Error>
 where
-    C: Context,
+    C: UpgradableContext,
 {
+    let mut dzkp_validator = root_ctx.dzkp_validator(chunk_size);
+    let ctx = dzkp_validator.context();
+    dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
+
     let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
         if row_number == 0 {
             // no multiplications needed for each user's row 0. No context needed
         } else {
             let total_records = TotalRecords::specified(*num_users_having_that_row_number)?;
-            let ctx_for_row_number = root_ctx
+            let ctx_for_row_number = ctx
                 .narrow(&UserNthRowStep::from(row_number))
                 .set_total_records(total_records);
             context_per_row_depth.push(ctx_for_row_number);
         }
     }
-    Ok(context_per_row_depth)
+    Ok((dzkp_validator, context_per_row_depth))
 }
 
 ///
@@ -502,14 +510,11 @@ where
     let chunk_size = TARGET_PROOF_SIZE
         / ((histogram.len() - 1)
             * multiplications_per_record::<BK, TV, TS>(attribution_window_seconds));
-    let dzkp_validator = sh_ctx
-        .narrow(&Step::BinaryValidator)
-        .dzkp_validator(chunk_size);
-    let binary_m_ctx = dzkp_validator.context();
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram)?;
+    let (dzkp_validator, ctx_for_row_number) =
+        set_up_contexts(sh_ctx.narrow(&Step::Attribute), chunk_size, histogram)?;
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
@@ -541,8 +546,8 @@ where
         let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
         breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, user_contributions).await
     } else {
-        aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
-            ctx,
+        aggregate_contributions::<_, _, _, _, HV, B>(
+            sh_ctx.narrow(&Step::Aggregate),
             flattened_user_results,
             num_outputs,
         )
@@ -1071,7 +1076,7 @@ pub mod tests {
             let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
 
             let result: [Vec<Replicated<BA16>>; 3] = world
-                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                .malicious(records.into_iter(), |ctx, input_rows| async move {
                     Vec::transposed_from(
                         &attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, 5, 32>(
                             ctx, input_rows, None, &histogram,

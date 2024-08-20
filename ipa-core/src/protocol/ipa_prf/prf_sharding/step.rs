@@ -15,8 +15,7 @@ impl From<usize> for UserNthRowStep {
 #[derive(CompactStep)]
 pub(crate) enum AttributionStep {
     #[step(child = UserNthRowStep)]
-    BinaryValidator,
-    PrimeFieldValidator,
+    Attribute,
     #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
     Aggregate,
 }
