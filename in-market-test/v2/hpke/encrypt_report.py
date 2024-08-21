@@ -4,7 +4,6 @@ import math
 import os
 import secrets
 from typing import Any
-import numpy as np
 
 import pyhpke
 from cryptography.hazmat.primitives.asymmetric import x25519
@@ -157,10 +156,11 @@ class IPAShare:
         return self.left + self.right
 
     def xor(a: bytes, b: bytes) -> bytes:
-        a_array = np.frombuffer(a, dtype=np.uint8)
-        b_array = np.frombuffer(b, dtype=np.uint8)
-        result_array = a_array ^ b_array
-        return result_array.tobytes()
+        _len = max(len(a), len(b))
+        a_int = int.from_bytes(a, "little")
+        b_int = int.from_bytes(b, "little")
+        x = a_int ^ b_int
+        return x.to_bytes(_len, "little")
 
     def generate_random_share(share_type: ShareType) -> bytes:
         length = share_type.byte_count()
