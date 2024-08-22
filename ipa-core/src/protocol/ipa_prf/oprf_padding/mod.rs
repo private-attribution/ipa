@@ -2,7 +2,6 @@ mod distributions;
 mod insecure;
 pub mod step;
 
-use bitvec::view::BitViewSized;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use insecure::DiscreteDp as InsecureDiscreteDp;
 use rand::Rng;
@@ -19,7 +18,6 @@ use crate::{
     protocol::{
         context::{prss::InstrumentedSequentialSharedRandomness, Context},
         ipa_prf::{
-            boolean_ops::step::MultiplicationStep::Add,
             oprf_padding::{
                 insecure::OPRFPaddingDp,
                 step::{PaddingDpStep, SendTotalRows},
@@ -31,7 +29,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        SecretSharing, SharedValue,
+        SharedValue,
     },
 };
 
@@ -112,7 +110,7 @@ impl PaddingParameters {
     }
 }
 
-trait Paddable: Default {
+pub trait Paddable: Default {
     fn add_padding_items<V: Extend<Self>, C, const B: usize>(
         ctx: &C,
         h_i: Role,
@@ -179,7 +177,7 @@ where
                                 trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
                                 timestamp: AdditiveShare::new(TS::ZERO, TS::ZERO),
                             };
-                            padding_input_rows.push(row);
+                            padding_input_rows.extend(std::iter::once(row));
                         }
                     }
                 }
@@ -201,7 +199,7 @@ where
                 timestamp: AdditiveShare::new(TS::ZERO, TS::ZERO),
             };
 
-            padding_input_rows.push(row);
+            padding_input_rows.extend(std::iter::once(row));
         }
     }
 }
@@ -263,7 +261,7 @@ where
                             capped_attributed_trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
                         };
 
-                        padding_input_rows.push(row);
+                        padding_input_rows.extend(std::iter::once(row));
                     }
                 }
             }
@@ -281,7 +279,7 @@ where
                 capped_attributed_trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
             };
 
-            padding_input_rows.push(row);
+            padding_input_rows.extend(std::iter::once(row));
         }
     }
 }
@@ -298,7 +296,6 @@ pub async fn apply_dp_padding<C, T, const B: usize>(
 where
     C: Context,
     T: Paddable,
-    // V: BooleanArray + U128Conversions,
 {
     let initial_len = input.len();
 
@@ -453,7 +450,7 @@ where
 ///
 pub fn two_parties_add_dummies<C, T, const B: usize>(
     ctx: &C,
-    mut padding_input_rows: &mut Vec<T>,
+    padding_input_rows: &mut Vec<T>,
     h_i: Role,
     h_i_plus_one: Role,
     padding_params: &PaddingParameters,
@@ -465,7 +462,6 @@ where
     // V: BooleanArray + U128Conversions,
 {
     assert!(h_i != h_i_plus_one);
-    let mut total_number_of_fake_rows = 0;
     let (mut left, mut right) = ctx.prss_rng();
     // The first is shared with the helper to the "left", the second is shared with the helper to the "right".
     let mut rng = &mut right;
@@ -476,14 +472,14 @@ where
         rng = &mut left;
     }
 
-    total_number_of_fake_rows = T::add_padding_items(
-        &ctx,
+    let total_number_of_fake_rows = T::add_padding_items::<Vec<T>, C, B>(
+        ctx,
         h_i,
         h_i_plus_one,
-        &mut padding_input_rows,
+        padding_input_rows,
         padding_params,
         &mut rng,
-    );
+    )?;
 
     Ok(total_number_of_fake_rows)
 }

@@ -23,7 +23,7 @@ use crate::{
             oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
             shuffle::shuffle_attribution_outputs,
-            BreakdownKey, OPRFIPAInputRow,
+            BreakdownKey,
         },
         BooleanProtocols, RecordId,
     },

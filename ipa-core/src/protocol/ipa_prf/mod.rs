@@ -91,7 +91,6 @@ pub const SORT_CHUNK: usize = 256;
 use step::IpaPrfStep as Step;
 
 use crate::{
-    ff::boolean_array::BA32,
     helpers::query::DpMechanism,
     protocol::{
         context::Validator, dp::dp_for_histogram, ipa_prf::oprf_padding::PaddingParameters,
