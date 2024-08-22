@@ -110,6 +110,8 @@ impl PaddingParameters {
     }
 }
 
+/// Paddable trait to support generation of padding for both `OPRFIPAInputRow`s and `AttributionOutputs`
+/// while reusing the code common to both.
 pub trait Paddable {
     /// # Errors
     /// may propagate errors from `OPRFPaddingDp` distribution setup
@@ -597,13 +599,14 @@ mod tests {
             OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity).unwrap();
 
         let (mean, std_bound) = oprf_padding.mean_and_std_bound();
+        let tolerance_bound = 12.0;
         assert!(std_bound > 1.0); // bound on the std only holds if this is true.
         println!("mean = {mean}, std_bound = {std_bound}");
         for (sample, count) in &distribution_of_samples {
             println!("An OPRFPadding sample value equal to {sample} occurred {count} time(s)",);
             assert!(
-                (f64::from(*sample) - mean).abs() < 5.0 * std_bound,
-                "aggregation noise sample was not within 5 times the standard deviation bound from what was expected."
+                (f64::from(*sample) - mean).abs() < tolerance_bound * std_bound,
+                "aggregation noise sample was not within {tolerance_bound} times the standard deviation bound from what was expected."
             );
         }
     }
@@ -657,7 +660,6 @@ mod tests {
 
         let result_reconstructed: Vec<PreAggregationTestOutputInDecimal> = result.reconstruct();
 
-        // check that attributed value is zero
         let mut sample_per_breakdown: HashMap<u128, u32> = HashMap::new();
         for row in result_reconstructed {
             assert!(row.capped_attributed_trigger_value == 0);
@@ -678,11 +680,18 @@ mod tests {
 
         let (mean, std_bound) = aggregation_padding.mean_and_std_bound();
         assert!(std_bound > 1.0); // bound on the std only holds if this is true.
-        println!("mean = {mean}, std_bound = {std_bound}");
+        let tolerance_factor = 12.0;
+        println!(
+            "mean = {mean}, std_bound = {std_bound}, {tolerance_factor} * std_bound = {}",
+            tolerance_factor * std_bound
+        );
         for sample in sample_per_breakdown.values() {
             assert!(
-                (f64::from(*sample) - mean).abs() < 5.0 * std_bound,
-                "aggregation noise sample was not within 5 times the standard deviation bound from what was expected."
+                (f64::from(*sample) - mean).abs() < tolerance_factor * std_bound,
+                "aggregation noise sample = {} was not within {tolerance_factor} times the standard deviation bound \
+                ({tolerance_factor} * std_bound = {}) from what was expected (mean = {mean}). For Laplace this will fail ~ 0.03% of the time randomly.",
+                *sample,
+                tolerance_factor * std_bound,
             );
         }
     }
@@ -758,7 +767,7 @@ mod tests {
         for epsilon in epsilon_values {
             for delta in delta_values {
                 for matchkey_cardinality_cap in matchkey_cardinality_cap_values {
-                    let aggregation_padding_sensitivity = matchkey_cardinality_cap;
+                    let aggregation_padding_sensitivity = matchkey_cardinality_cap; // TODO not necessary to have this
                     for num_breakdown_keys in num_breakdown_keys_values {
                         let padding_params = PaddingParameters {
                             aggregation_padding: AggregationPadding::Parameters {
@@ -788,6 +797,7 @@ mod tests {
         }
     }
 
+    /// ///////////////////////////////////////////////////////////////////
     /// Below tests are for more foundational components used in building padding.
 
     /// # Errors
