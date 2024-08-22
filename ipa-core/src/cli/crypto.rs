@@ -247,6 +247,7 @@ mod tests {
         sync::Arc,
     };
 
+    use bytes::BufMut;
     use clap::Parser;
     use hpke::Deserializable;
     use rand::thread_rng;
@@ -610,56 +611,52 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
             let reader = BufReader::new(file);
             for line in reader.lines() {
                 let line = line.unwrap();
-                let bytes = hex::decode(&line).unwrap();
-                buffers[i].extend(bytes);
+                let encrypted_report_bytes = hex::decode(line.trim()).unwrap();
+                println!("{}", encrypted_report_bytes.len());
+                buffers[i].put_u16_le(encrypted_report_bytes.len().try_into().unwrap());
+                buffers[i].put_slice(encrypted_report_bytes.as_slice());
             }
         }
 
         let world = TestWorld::default();
         let contexts = world.contexts();
-        let mk_private_key1 =
+
+        let mk_private_keys = vec![
             hex::decode("53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff")
-                .expect("manually provided for test");
-
-        let mk_private_key2 =
+                .expect("manually provided for test"),
             hex::decode("3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569")
-                .expect("manually provided for test");
-
-        let mk_private_key3 =
+                .expect("manually provided for test"),
             hex::decode("1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7")
-                .expect("manually provided for test");
-
-        let private_registry = KeyRegistry::<PrivateKeyOnly>::from_keys([
-            PrivateKeyOnly(
-                IpaPrivateKey::from_bytes(&mk_private_key1).expect("manually constructed for test"),
-            ),
-            PrivateKeyOnly(
-                IpaPrivateKey::from_bytes(&mk_private_key2).expect("manually constructed for test"),
-            ),
-            PrivateKeyOnly(
-                IpaPrivateKey::from_bytes(&mk_private_key3).expect("manually constructed for test"),
-            ),
-        ]);
+                .expect("manually provided for test"),
+        ];
 
         #[allow(clippy::large_futures)]
-        let results = join3v(buffers.into_iter().zip(contexts).map(|(buffer, ctx)| {
-            let query_config = IpaQueryConfig {
-                num_multi_bits: 3,
-                per_user_credit_cap: 8,
-                attribution_window_seconds: None,
-                max_breakdown_key: 3,
-                with_dp: 0,
-                epsilon: 1.0,
-                plaintext_match_keys: false,
-            };
-            let input = BodyStream::from(buffer);
+        let results = join3v(buffers.into_iter().zip(contexts).zip(mk_private_keys).map(
+            |((buffer, ctx), mk_private_key)| {
+                let query_config = IpaQueryConfig {
+                    num_multi_bits: 3,
+                    per_user_credit_cap: 8,
+                    attribution_window_seconds: None,
+                    max_breakdown_key: 3,
+                    with_dp: 0,
+                    epsilon: 1.0,
+                    plaintext_match_keys: false,
+                };
+                let input = BodyStream::from(buffer);
 
-            OprfIpaQuery::<BA16, KeyRegistry<PrivateKeyOnly>>::new(
-                query_config,
-                Arc::new(private_registry),
-            )
-            .execute(ctx, query_size, input)
-        }))
+                let private_registry =
+                    Arc::new(KeyRegistry::<PrivateKeyOnly>::from_keys([PrivateKeyOnly(
+                        IpaPrivateKey::from_bytes(&mk_private_key)
+                            .expect("manually constructed for test"),
+                    )]));
+
+                OprfIpaQuery::<BA16, KeyRegistry<PrivateKeyOnly>>::new(
+                    query_config,
+                    private_registry,
+                )
+                .execute(ctx, query_size, input)
+            },
+        ))
         .await;
 
         assert_eq!(
