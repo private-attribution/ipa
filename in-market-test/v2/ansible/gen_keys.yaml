@@ -35,9 +35,9 @@
 
     - name: Fetch the public keys
       fetch:
-        src: "{{ ansible_env.HOME }}/ipa/{{ key_directory}}/{{ item }}"
-        dest: "{{ local_public_key_directory }}/{{ hostname.stdout }}-{{ item }}"
+        src: "{{ ansible_env.HOME }}/ipa/{{ key_directory}}/{{ timestamp }}-{{ item }}"
+        dest: "{{ local_public_key_directory }}/{{ identity }}-{{ item }}"
         flat: yes
       loop:
-        - "{{ timestamp }}-cert.pem"
-        - "{{ timestamp }}-mk.pub"
+        - "cert.pem"
+        - "mk.pub"
