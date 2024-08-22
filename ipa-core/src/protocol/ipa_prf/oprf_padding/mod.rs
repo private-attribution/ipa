@@ -110,7 +110,9 @@ impl PaddingParameters {
     }
 }
 
-pub trait Paddable: Default {
+pub trait Paddable {
+    /// # Errors
+    /// may propagate errors from `OPRFPaddingDp` distribution setup
     fn add_padding_items<V: Extend<Self>, C, const B: usize>(
         ctx: &C,
         h_i: Role,
@@ -120,9 +122,12 @@ pub trait Paddable: Default {
         rng: &mut InstrumentedSequentialSharedRandomness,
     ) -> Result<u32, Error>
     where
-        C: Context;
+        C: Context,
+        Self: Sized;
 
-    fn add_zero_shares<V: Extend<Self>>(padding_input_rows: &mut V, total_number_of_fake_rows: u32);
+    fn add_zero_shares<V: Extend<Self>>(padding_input_rows: &mut V, total_number_of_fake_rows: u32)
+    where
+        Self: Sized;
 }
 
 impl<BK, TV, TS> Paddable for OPRFIPAInputRow<BK, TV, TS>
@@ -365,8 +370,6 @@ pub async fn apply_dp_padding_pass<C, T, const B: usize>(
 where
     C: Context,
     T: Paddable,
-    // I: SecretSharing<V>,
-    // V: BooleanArray + U128Conversions,
 {
     // assert roles are all unique
     assert!(h_i != h_i_plus_one);
@@ -458,8 +461,6 @@ pub fn two_parties_add_dummies<C, T, const B: usize>(
 where
     C: Context,
     T: Paddable,
-    // I: SecretSharing<V>,
-    // V: BooleanArray + U128Conversions,
 {
     assert!(h_i != h_i_plus_one);
     let (mut left, mut right) = ctx.prss_rng();
@@ -478,7 +479,7 @@ where
         h_i_plus_one,
         padding_input_rows,
         padding_params,
-        &mut rng,
+        rng,
     )?;
 
     Ok(total_number_of_fake_rows)
@@ -502,14 +503,16 @@ mod tests {
                     apply_dp_padding_pass, insecure, insecure::OPRFPaddingDp, AggregationPadding,
                     OPRFPadding, PaddingParameters,
                 },
+                prf_sharding::{tests::PreAggregationTestOutputInDecimal, AttributionOutputs},
                 OPRFIPAInputRow,
             },
             RecordId,
         },
+        secret_sharing::replicated::semi_honest::AdditiveShare,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    pub async fn set_up_apply_dp_padding_pass<C, BK, TV, TS, const B: usize>(
+    pub async fn set_up_apply_dp_padding_pass_for_oprf<C, BK, TV, TS, const B: usize>(
         ctx: C,
         padding_params: PaddingParameters,
     ) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
@@ -520,7 +523,7 @@ mod tests {
         TS: BooleanArray,
     {
         let mut input: Vec<OPRFIPAInputRow<BK, TV, TS>> = Vec::new();
-        input = apply_dp_padding_pass::<C, BK, TV, TS, B>(
+        input = apply_dp_padding_pass::<C, OPRFIPAInputRow<BK, TV, TS>, B>(
             ctx,
             input,
             Role::H1,
@@ -555,7 +558,7 @@ mod tests {
                     },
                     aggregation_padding: AggregationPadding::NoAggPadding,
                 };
-                set_up_apply_dp_padding_pass::<_, BK, TV, TS, B>(ctx, padding_params).await
+                set_up_apply_dp_padding_pass_for_oprf::<_, BK, TV, TS, B>(ctx, padding_params).await
             })
             .await
             .map(Result::unwrap);
@@ -605,11 +608,29 @@ mod tests {
         }
     }
 
+    pub async fn set_up_apply_dp_padding_pass_for_agg<C, BK, TV, const B: usize>(
+        ctx: C,
+        padding_params: PaddingParameters,
+    ) -> Result<Vec<AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>>, Error>
+    where
+        C: Context,
+        BK: BooleanArray + U128Conversions,
+        TV: BooleanArray,
+    {
+        let mut input: Vec<AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>> = Vec::new();
+        input = apply_dp_padding_pass::<
+            C,
+            AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>,
+            B,
+        >(ctx, input, Role::H1, Role::H2, Role::H3, &padding_params)
+        .await?;
+        Ok(input)
+    }
+
     #[tokio::test]
     pub async fn aggregation_noise_in_dp_padding_pass() {
         type BK = BA8;
         type TV = BA3;
-        type TS = BA20;
         const B: usize = 256;
         let world = TestWorld::default();
         let aggregation_epsilon = 1.0;
@@ -626,7 +647,7 @@ mod tests {
                         aggregation_padding_sensitivity,
                     },
                 };
-                set_up_apply_dp_padding_pass::<_, BK, TV, TS, B>(ctx, padding_params).await
+                set_up_apply_dp_padding_pass_for_agg::<_, BK, TV, B>(ctx, padding_params).await
             })
             .await
             .map(Result::unwrap);
@@ -634,33 +655,19 @@ mod tests {
         // check that all three helpers added the same number of dummy shares
         assert!(result[0].len() == result[1].len() && result[0].len() == result[2].len());
 
-        let result_reconstructed = result.reconstruct();
+        let result_reconstructed: Vec<PreAggregationTestOutputInDecimal> = result.reconstruct();
 
-        // check that all fields besides the matchkey and breakdownkey are zero and matchkey is not zero
-        let mut user_id_counts: HashMap<u64, u32> = HashMap::new();
-        let mut sample_per_breakdown: HashMap<u32, u32> = HashMap::new();
+        // check that attributed value is zero
+        let mut sample_per_breakdown: HashMap<u128, u32> = HashMap::new();
         for row in result_reconstructed {
-            assert!(row.timestamp == 0);
-            assert!(row.trigger_value == 0);
-            assert!(!row.is_trigger_report);
-            assert!(row.user_id != 0);
-
-            let count = user_id_counts.entry(row.user_id).or_insert(0);
-            *count += 1;
-
-            let sample = sample_per_breakdown.entry(row.breakdown_key).or_insert(0);
+            assert!(row.capped_attributed_trigger_value == 0);
+            let sample = sample_per_breakdown
+                .entry(row.attributed_breakdown_key)
+                .or_insert(0);
             *sample += 1;
         }
         // check that all breakdowns had noise added
         assert!(B == sample_per_breakdown.len());
-
-        // Now look at now many times a user_id occured
-        let mut number_per_cardinality: BTreeMap<u32, u32> = BTreeMap::new();
-        for cardinality in user_id_counts.values() {
-            let count = number_per_cardinality.entry(*cardinality).or_insert(0);
-            *count += 1;
-            assert!(*cardinality == 1 || *cardinality == 2 || *cardinality == 3);
-        }
 
         let aggregation_padding = OPRFPaddingDp::new(
             aggregation_epsilon,
@@ -680,6 +687,11 @@ mod tests {
         }
     }
 
+    /// ////////////////////////////////////////////////////////////////////////////////////
+    /// Analysis of Parameters
+    ///
+    ///
+    ///
     pub fn expected_number_fake_rows(
         padding_params: PaddingParameters,
         num_breakdown_keys: u32,
