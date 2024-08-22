@@ -20,7 +20,7 @@ use crate::{
         context::Context,
         ipa_prf::{
             aggregation::step::AggregationStep,
-            oprf_padding::{apply_dp_padding, PaddingMode, PaddingParameters},
+            oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
             shuffle::shuffle_attribution_outputs,
             BreakdownKey, OPRFIPAInputRow,
@@ -64,19 +64,13 @@ where
 {
     let dp_padding_params = PaddingParameters::relaxed();
     // Apply DP padding for Breakdown Reveal Aggregation
-    let attributed_values_padded = apply_dp_padding::<
-        _,
-        AttributionOutputs<Replicated<BK>, Replicated<TV>>,
-        Replicated<BK>,
-        BK,
-        B,
-    >(
-        ctx.narrow(&AggregationStep::PaddingDp),
-        attributed_values,
-        dp_padding_params,
-        PaddingMode::RevealBreakdownsAggPadding,
-    )
-    .await?;
+    let attributed_values_padded =
+        apply_dp_padding::<_, AttributionOutputs<Replicated<BK>, Replicated<TV>>, B>(
+            ctx.narrow(&AggregationStep::PaddingDp),
+            attributed_values,
+            dp_padding_params,
+        )
+        .await?;
 
     let atributions = shuffle_attributions(&ctx, attributed_values_padded).await?;
     let grouped_tvs = reveal_breakdowns(&ctx, atributions).await?;

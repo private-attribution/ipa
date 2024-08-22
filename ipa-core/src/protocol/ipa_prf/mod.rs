@@ -94,9 +94,7 @@ use crate::{
     ff::boolean_array::BA32,
     helpers::query::DpMechanism,
     protocol::{
-        context::Validator,
-        dp::dp_for_histogram,
-        ipa_prf::oprf_padding::{PaddingMode, PaddingParameters},
+        context::Validator, dp::dp_for_histogram, ipa_prf::oprf_padding::PaddingParameters,
     },
 };
 
@@ -256,14 +254,12 @@ where
     }
 
     // Apply DP padding for OPRF
-    let padded_input_rows =
-        apply_dp_padding::<_, OPRFIPAInputRow<BK, TV, TS>, Replicated<BA64>, BA64, B>(
-            ctx.narrow(&Step::PaddingDp),
-            input_rows,
-            dp_padding_params,
-            PaddingMode::OPRFPadding,
-        )
-        .await?;
+    let padded_input_rows = apply_dp_padding::<_, OPRFIPAInputRow<BK, TV, TS>, B>(
+        ctx.narrow(&Step::PaddingDp),
+        input_rows,
+        dp_padding_params,
+    )
+    .await?;
 
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), padded_input_rows).await?;
     let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;
