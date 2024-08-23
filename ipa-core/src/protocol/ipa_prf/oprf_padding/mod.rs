@@ -116,16 +116,13 @@ impl PaddingParameters {
 pub trait Paddable {
     /// # Errors
     /// may propagate errors from `OPRFPaddingDp` distribution setup
-    fn add_padding_items<V: Extend<Self>, C, const B: usize>(
-        ctx: &C,
-        h_i: Role,
-        h_i_plus_one: Role,
+    fn add_padding_items<V: Extend<Self>, const B: usize>(
+        direction_to_excluded_helper: Direction,
         padding_input_rows: &mut V,
         padding_params: &PaddingParameters,
         rng: &mut InstrumentedSequentialSharedRandomness,
     ) -> Result<u32, Error>
     where
-        C: Context,
         Self: Sized;
 
     fn add_zero_shares<V: Extend<Self>>(padding_input_rows: &mut V, total_number_of_fake_rows: u32)
@@ -139,17 +136,12 @@ where
     TV: BooleanArray,
     TS: BooleanArray,
 {
-    fn add_padding_items<V: Extend<Self>, C, const B: usize>(
-        ctx: &C,
-        h_i: Role,
-        h_i_plus_one: Role,
+    fn add_padding_items<V: Extend<Self>, const B: usize>(
+        direction_to_excluded_helper: Direction,
         padding_input_rows: &mut V,
         padding_params: &PaddingParameters,
         rng: &mut InstrumentedSequentialSharedRandomness,
-    ) -> Result<u32, Error>
-    where
-        C: Context,
-    {
+    ) -> Result<u32, Error> {
         let mut total_number_of_fake_rows = 0;
         match padding_params.oprf_padding {
             OPRFPadding::NoOPRFPadding => {}
@@ -170,14 +162,10 @@ where
                     for _ in 0..sample {
                         let dummy_mk: BA64 = rng.gen();
                         for _ in 0..cardinality {
-                            let mut match_key_shares: AdditiveShare<BA64> =
-                                AdditiveShare::default();
-                            if ctx.role() == h_i {
-                                match_key_shares = AdditiveShare::new(BA64::ZERO, dummy_mk);
-                            }
-                            if ctx.role() == h_i_plus_one {
-                                match_key_shares = AdditiveShare::new(dummy_mk, BA64::ZERO);
-                            }
+                            let match_key_shares = match direction_to_excluded_helper {
+                                Direction::Left => AdditiveShare::new(BA64::ZERO, dummy_mk),
+                                Direction::Right => AdditiveShare::new(dummy_mk, BA64::ZERO),
+                            };
                             let row = OPRFIPAInputRow {
                                 match_key: match_key_shares,
                                 is_trigger: AdditiveShare::new(Boolean::FALSE, Boolean::FALSE),
@@ -217,17 +205,12 @@ where
     BK: BooleanArray + U128Conversions,
     TV: BooleanArray,
 {
-    fn add_padding_items<V: Extend<Self>, C, const B: usize>(
-        ctx: &C,
-        h_i: Role,
-        h_i_plus_one: Role,
+    fn add_padding_items<V: Extend<Self>, const B: usize>(
+        direction_to_excluded_helper: Direction,
         padding_input_rows: &mut V,
         padding_params: &PaddingParameters,
         rng: &mut InstrumentedSequentialSharedRandomness,
-    ) -> Result<u32, Error>
-    where
-        C: Context,
-    {
+    ) -> Result<u32, Error> {
         // padding for aggregation
         let mut total_number_of_fake_rows = 0;
         match padding_params.aggregation_padding {
@@ -250,19 +233,16 @@ where
 
                     // now add `sample` many fake rows with this `breakdownkey`
                     for _ in 0..sample {
-                        let mut breakdownkey_shares: AdditiveShare<BK> = AdditiveShare::default();
-                        if ctx.role() == h_i {
-                            breakdownkey_shares = AdditiveShare::new(
+                        let breakdownkey_shares = match direction_to_excluded_helper {
+                            Direction::Left => AdditiveShare::new(
                                 BK::ZERO,
                                 BK::truncate_from(u128::from(breakdownkey)),
-                            );
-                        }
-                        if ctx.role() == h_i_plus_one {
-                            breakdownkey_shares = AdditiveShare::new(
+                            ),
+                            Direction::Right => AdditiveShare::new(
                                 BK::truncate_from(u128::from(breakdownkey)),
                                 BK::ZERO,
-                            );
-                        }
+                            ),
+                        };
 
                         let row = AttributionOutputs {
                             attributed_breakdown_key_bits: breakdownkey_shares,
@@ -311,8 +291,6 @@ where
     input = apply_dp_padding_pass::<C, T, B>(
         ctx.narrow(&PaddingDpStep::PaddingDpPass1),
         input,
-        Role::H1,
-        Role::H2,
         Role::H3,
         &padding_params,
     )
@@ -322,8 +300,6 @@ where
     input = apply_dp_padding_pass::<C, T, B>(
         ctx.narrow(&PaddingDpStep::PaddingDpPass2),
         input,
-        Role::H3,
-        Role::H1,
         Role::H2,
         &padding_params,
     )
@@ -333,8 +309,6 @@ where
     input = apply_dp_padding_pass::<C, T, B>(
         ctx.narrow(&PaddingDpStep::PaddingDpPass3),
         input,
-        Role::H2,
-        Role::H3,
         Role::H1,
         &padding_params,
     )
@@ -355,8 +329,8 @@ where
 ///     1.  Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
 ///         and use it to sample the same random noise for padding from `OPRFPaddingDp`.
 ///         They will generate secret shares of these fake rows.
-///     2.  `h_i` and `h_i_plus_one` will send the send `total_number_of_fake_rows` to `h_out`
-///     3.  `h_out` will generate secret shares of zero for as many rows as the `total_number_of_fake_rows`
+///     2.  `h_i` and `h_i_plus_one` will send the send `total_number_of_fake_rows` to `excluded_helper`
+///     3.  `excluded_helper` will generate secret shares of zero for as many rows as the `total_number_of_fake_rows`
 ///
 /// # Errors
 /// Will propogate errors from `OPRFPaddingDp`
@@ -365,42 +339,41 @@ where
 pub async fn apply_dp_padding_pass<C, T, const B: usize>(
     ctx: C,
     mut input: Vec<T>,
-    h_i: Role,
-    h_i_plus_one: Role,
-    h_out: Role,
+    excluded_helper: Role,
     padding_params: &PaddingParameters,
 ) -> Result<Vec<T>, Error>
 where
     C: Context,
     T: Paddable,
 {
-    // assert roles are all unique
-    assert!(h_i != h_i_plus_one);
-    assert!(h_i != h_out);
-    assert!(h_out != h_i_plus_one);
-
     let total_number_of_fake_rows;
     let mut padding_input_rows: Vec<T> = Vec::new();
     let send_ctx = ctx
         .narrow(&SendTotalRows::SendNumFakeRecords)
         .set_total_records(TotalRecords::ONE);
 
-    if let Some(direction) = ctx.role().direction_to(h_out) {
+    if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
         // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
         // and use it to sample the same random noise for padding from OPRFPaddingDp.
         // They will generate secret shares of these fake rows.
-        total_number_of_fake_rows = two_parties_add_dummies::<C, T, B>(
-            &ctx,
+        let (mut left, mut right) = ctx.prss_rng();
+        let rng = match direction_to_excluded_helper {
+            Direction::Left => &mut right,
+            Direction::Right => &mut left,
+        };
+        let total_number_of_fake_rows = T::add_padding_items::<Vec<T>, B>(
+            direction_to_excluded_helper,
             &mut padding_input_rows,
-            h_i,
-            h_i_plus_one,
             padding_params,
+            rng,
         )?;
 
-        // Step 2: h_i and h_i_plus_one will send the send total_number_of_fake_rows to h_out. h_out will
-        // check that both h_i and h_i_plus_one have sent the same value to prevent any malicious behavior
-        // See oprf_padding/README.md for explanation of why revealing the total number of fake rows is okay.
-        let send_channel = send_ctx.send_channel::<BA32>(send_ctx.role().peer(direction));
+        // Step 2: `h_i` and `h_i_plus_one` will send the send `total_number_of_fake_rows` to the `excluded_helper`.
+        // The `excluded_helper` will check that both `h_i` and `h_i_plus_one` have sent the same value
+        // to prevent any malicious behavior. See oprf_padding/README.md for explanation of why revealing
+        // the total number of fake rows is okay.
+        let send_channel =
+            send_ctx.send_channel::<BA32>(send_ctx.role().peer(direction_to_excluded_helper));
         let _ = send_channel
             .send(
                 RecordId::FIRST,
@@ -408,6 +381,8 @@ where
             )
             .await;
     } else {
+        // Step 3: `h_out` will first receive the total_number_of_fake rows from the other
+        // parties and then `h_out` will set its shares to zero for the fake rows
         let recv_channel_right =
             send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Right));
         let recv_channel_left =
@@ -430,50 +405,11 @@ where
             return Err::<Vec<T>, error::Error>(Error::InconsistentPadding);
         }
         total_number_of_fake_rows = from_right;
-        // Step 3: `h_out` will set its shares to zero for the fake rows
         T::add_zero_shares(&mut padding_input_rows, total_number_of_fake_rows);
     }
 
     input.extend(padding_input_rows);
     Ok(input)
-}
-
-/// # Errors
-/// Will propogate errors from `OPRFPaddingDp`
-/// # Panics
-///
-pub fn two_parties_add_dummies<C, T, const B: usize>(
-    ctx: &C,
-    padding_input_rows: &mut Vec<T>,
-    h_i: Role,
-    h_i_plus_one: Role,
-    padding_params: &PaddingParameters,
-) -> Result<u32, Error>
-where
-    C: Context,
-    T: Paddable,
-{
-    assert!(h_i != h_i_plus_one);
-    let (mut left, mut right) = ctx.prss_rng();
-    // The first is shared with the helper to the "left", the second is shared with the helper to the "right".
-    let mut rng = &mut right;
-    if ctx.role() == h_i {
-        rng = &mut right;
-    }
-    if ctx.role() == h_i_plus_one {
-        rng = &mut left;
-    }
-
-    let total_number_of_fake_rows = T::add_padding_items::<Vec<T>, C, B>(
-        ctx,
-        h_i,
-        h_i_plus_one,
-        padding_input_rows,
-        padding_params,
-        rng,
-    )?;
-
-    Ok(total_number_of_fake_rows)
 }
 
 #[cfg(all(test, unit_test))]
@@ -517,8 +453,6 @@ mod tests {
         input = apply_dp_padding_pass::<C, OPRFIPAInputRow<BK, TV, TS>, B>(
             ctx,
             input,
-            Role::H1,
-            Role::H2,
             Role::H3,
             &padding_params,
         )
@@ -614,7 +548,7 @@ mod tests {
             C,
             AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>,
             B,
-        >(ctx, input, Role::H1, Role::H2, Role::H3, &padding_params)
+        >(ctx, input, Role::H3, &padding_params)
         .await?;
         Ok(input)
     }
