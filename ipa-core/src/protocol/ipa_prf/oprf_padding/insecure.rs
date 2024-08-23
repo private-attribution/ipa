@@ -5,12 +5,10 @@ use std::f64::consts::E;
 use rand::distributions::{BernoulliError, Distribution};
 use rand_core::{CryptoRng, RngCore};
 
-use crate::{
-    error,
-    protocol::ipa_prf::oprf_padding::distributions::{
-        BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric,
-    },
+use crate::protocol::ipa_prf::oprf_padding::distributions::{
+    BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric,
 };
+pub use crate::protocol::ipa_prf::oprf_padding::insecure::Error as DpError;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
@@ -42,31 +40,6 @@ pub enum Error {
 impl From<BernoulliError> for Error {
     fn from(_: BernoulliError) -> Self {
         Error::BadGeometricProb(f64::NAN)
-    }
-}
-
-impl From<Error> for error::Error {
-    fn from(err: Error) -> Self {
-        match err {
-            Error::BadEpsilon(value) => {
-                error::Error::DPPaddingError(format!("Epsilon value must be greater than {}, got {}", f64::MIN_POSITIVE, value))
-            },
-            Error::BadDelta(value) => {
-                error::Error::DPPaddingError(format!("Valid values for DP-delta are within {:?}, got: {}", f64::MIN_POSITIVE..1.0 - f64::MIN_POSITIVE, value))
-            },
-            Error::BadS(value) => {
-                error::Error::DPPaddingError(format!("Valid values for TruncatedDoubleGeometric are greater than {:?}, got: {}", f64::MIN_POSITIVE, value))
-            },
-            Error::BadGeometricProb(value) => {
-                error::Error::DPPaddingError(format!("Valid values for success probability in Geometric are greater than {:?}, got: {}", f64::MIN_POSITIVE, value))
-            },
-            Error::BadShiftValue(value) => {
-                error::Error::DPPaddingError(format!("Shift value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow in Double Geometric sample, got: {value}"))
-            },
-            Error::BadSensitivity(value) => {
-                error::Error::DPPaddingError(format!("Sensitivity value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow in Double Geometric sample, got: {value}"))
-            },
-        }
     }
 }
 
@@ -204,7 +177,7 @@ fn right_hand_side(n: u32, big_delta: u32, epsilon: f64) -> f64 {
 fn find_smallest_n(big_delta: u32, epsilon: f64, small_delta: f64) -> u32 {
     // for a fixed set of DP parameters, finds the smallest n that satisfies equation (11)
     // of https://arxiv.org/pdf/2110.08177.pdf.  This gives the narrowest TruncatedDoubleGeometric
-    // that will satisify the disired DP parameters.
+    // that will satisfy the desired DP parameters.
     for n in big_delta.. {
         if small_delta >= right_hand_side(n, big_delta, epsilon) {
             return n;
@@ -215,6 +188,8 @@ fn find_smallest_n(big_delta: u32, epsilon: f64, small_delta: f64) -> u32 {
 
 impl OPRFPaddingDp {
     // See dp/README.md
+    /// # Errors
+    /// will return errors if invalid DP parameters are provided.
     pub fn new(new_epsilon: f64, new_delta: f64, new_sensitivity: u32) -> Result<Self, Error> {
         // make sure delta and epsilon are in range, i.e. >min and delta<1-min
         if new_epsilon < f64::MIN_POSITIVE {
@@ -228,7 +203,7 @@ impl OPRFPaddingDp {
             return Err(Error::BadSensitivity(new_sensitivity));
         }
 
-        // compute smallest shift needed to achieve this delta
+        // compute the smallest shift needed to achieve this delta
         let smallest_n = find_smallest_n(new_sensitivity, new_epsilon, new_delta);
 
         Ok(Self {
@@ -250,6 +225,7 @@ impl OPRFPaddingDp {
     /// Returns the mean and an upper bound on the standard deviation of the `OPRFPaddingDp` distribution
     /// The upper bound is valid if the standard deviation is greater than 1.
     /// see `oprf_padding/README.md`
+    #[must_use]
     pub fn mean_and_std_bound(&self) -> (f64, f64) {
         let mean = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
         let s = 1.0 / self.epsilon;

@@ -1,5 +1,5 @@
 mod distributions;
-mod insecure;
+pub mod insecure;
 pub mod step;
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
@@ -8,6 +8,7 @@ use rand::Rng;
 use tokio::try_join;
 
 use crate::{
+    error,
     error::Error,
     ff::{
         boolean::Boolean,
@@ -378,13 +379,16 @@ where
     assert!(h_i != h_out);
     assert!(h_out != h_i_plus_one);
 
-    let mut total_number_of_fake_rows = 0;
+    let total_number_of_fake_rows;
     let mut padding_input_rows: Vec<T> = Vec::new();
+    let send_ctx = ctx
+        .narrow(&SendTotalRows::SendNumFakeRecords)
+        .set_total_records(TotalRecords::ONE);
 
-    // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
-    // and use it to sample the same random noise for padding from OPRFPaddingDp.
-    // They will generate secret shares of these fake rows.
-    if ctx.role() != h_out {
+    if let Some(direction) = ctx.role().direction_to(h_out) {
+        // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
+        // and use it to sample the same random noise for padding from OPRFPaddingDp.
+        // They will generate secret shares of these fake rows.
         total_number_of_fake_rows = two_parties_add_dummies::<C, T, B>(
             &ctx,
             &mut padding_input_rows,
@@ -392,56 +396,41 @@ where
             h_i_plus_one,
             padding_params,
         )?;
-    }
 
-    // Step 2: h_i and h_i_plus_one will send the send total_number_of_fake_rows to h_out. h_out will
-    // check that both h_i and h_i_plus_one have sent the same value to prevent any malicious behavior
-    // See oprf_padding/README.md for explanation of why revealing the total number of fake rows is okay.
-    let send_ctx = ctx
-        .narrow(&SendTotalRows::SendNumFakeRecords)
-        .set_total_records(TotalRecords::ONE);
-    match ctx.role() {
-        role if role == h_i || role == h_i_plus_one => {
-            let direction = if role == h_i {
-                Direction::Left
-            } else {
-                Direction::Right
-            };
-            let send_channel = send_ctx.send_channel::<BA32>(send_ctx.role().peer(direction));
-            let _ = send_channel
-                .send(
-                    RecordId::FIRST,
-                    BA32::truncate_from(u128::from(total_number_of_fake_rows)),
-                )
-                .await;
-        }
-        _h_out => {
-            let recv_channel_right =
-                send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Right));
-            let recv_channel_left =
-                send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Left));
-            let (from_right, from_left) = try_join!(
-                async {
-                    match recv_channel_right.receive(RecordId::FIRST).await {
-                        Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
-                        Err(e) => Err(e.into()),
-                    }
-                },
-                async {
-                    match recv_channel_left.receive(RecordId::FIRST).await {
-                        Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
-                        Err(e) => Err(e.into()),
-                    }
+        // Step 2: h_i and h_i_plus_one will send the send total_number_of_fake_rows to h_out. h_out will
+        // check that both h_i and h_i_plus_one have sent the same value to prevent any malicious behavior
+        // See oprf_padding/README.md for explanation of why revealing the total number of fake rows is okay.
+        let send_channel = send_ctx.send_channel::<BA32>(send_ctx.role().peer(direction));
+        let _ = send_channel
+            .send(
+                RecordId::FIRST,
+                BA32::truncate_from(u128::from(total_number_of_fake_rows)),
+            )
+            .await;
+    } else {
+        let recv_channel_right =
+            send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Right));
+        let recv_channel_left =
+            send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Left));
+        let (from_right, from_left) = try_join!(
+            async {
+                match recv_channel_right.receive(RecordId::FIRST).await {
+                    Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
+                    Err(e) => Err(e.into()),
                 }
-            )?;
-
-            assert_eq!(from_right, from_left);
-            total_number_of_fake_rows = from_right;
+            },
+            async {
+                match recv_channel_left.receive(RecordId::FIRST).await {
+                    Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
+                    Err(e) => Err(e.into()),
+                }
+            }
+        )?;
+        if from_right != from_left {
+            return Err::<Vec<T>, error::Error>(Error::InconsistentPadding);
         }
-    }
-
-    // Step 3: `h_out` will set its shares to zero for the fake rows
-    if ctx.role() == h_out {
+        total_number_of_fake_rows = from_right;
+        // Step 3: `h_out` will set its shares to zero for the fake rows
         T::add_zero_shares(&mut padding_input_rows, total_number_of_fake_rows);
     }
 

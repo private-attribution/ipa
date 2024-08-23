@@ -234,13 +234,13 @@ pub async fn test_oprf_ipa<F>(
                     16 => oprf_ipa::<BA8, BA3, BA32, BA20, 4, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
-                    32 => oprf_ipa::<BA8, BA3, BA32, BA20, 5, 256>(ctx, input_rows, aws, dp_params,padding_params)
+                    32 => oprf_ipa::<BA8, BA3, BA32, BA20, 5, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
-                    64 => oprf_ipa::<BA8, BA3, BA32, BA20, 6, 256>(ctx, input_rows, aws, dp_params,padding_params)
+                    64 => oprf_ipa::<BA8, BA3, BA32, BA20, 6, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
-                    128 => oprf_ipa::<BA8, BA3, BA32, BA20, 7, 256>(ctx, input_rows, aws, dp_params,padding_params)
+                    128 => oprf_ipa::<BA8, BA3, BA32, BA20, 7, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
                     _ =>
