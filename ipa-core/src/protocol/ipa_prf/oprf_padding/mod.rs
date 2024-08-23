@@ -273,9 +273,7 @@ where
 }
 
 /// # Errors
-/// Will propogate errors from `OPRFPaddingDp`
-/// # Panics
-/// Panics may happen in `apply_dp_padding_pass`
+/// Will propagate errors from `apply_dp_padding_pass`
 pub async fn apply_dp_padding<C, T, const B: usize>(
     ctx: C,
     mut input: Vec<T>,
@@ -333,9 +331,10 @@ where
 ///     3.  `excluded_helper` will generate secret shares of zero for as many rows as the `total_number_of_fake_rows`
 ///
 /// # Errors
-/// Will propogate errors from `OPRFPaddingDp`
+/// Will propogate errors from `OPRFPaddingDp`. Will return an error if the two helpers adding noise
+/// tell the excluded helper to add different numbers of fake rows.
 /// # Panics
-/// Will panic if called with Roles which are not all unique
+/// will panic if not able to fit the received value `v` into a `u32`
 pub async fn apply_dp_padding_pass<C, T, const B: usize>(
     ctx: C,
     mut input: Vec<T>,
