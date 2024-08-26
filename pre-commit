@@ -73,7 +73,7 @@ check() {
         res=$?
         echo "-----------------------"
         echo "$msg: FAILED ($res)"
-        echo "  ${@@Q}"
+        echo "  ${*}"
         exit $res
     fi
 }
