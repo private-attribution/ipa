@@ -9,7 +9,7 @@ pub(super) use add_in_prime_field::execute as test_add_in_prime_field;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 pub(super) use test_multiply::execute_test_multiply;
 
-pub(super) use self::oprf_ipa::OprfIpaQuery;
+pub use self::oprf_ipa::OprfIpaQuery;
 use crate::{error::Error, query::ProtocolResult};
 
 pub(super) type QueryResult = Result<Box<dyn ProtocolResult>, Error>;
