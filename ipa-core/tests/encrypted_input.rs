@@ -1,4 +1,9 @@
-#[cfg(test)]
+#[cfg(all(
+    feature = "test-fixture",
+    feature = "web-app",
+    feature = "cli",
+    feature = "in-memory-infra"
+))]
 mod tests {
 
     use std::{
@@ -65,12 +70,6 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
     }
 
     #[tokio::test]
-    #[cfg(all(
-        feature = "test-fixture",
-        feature = "web-app",
-        feature = "cli",
-        feature = "in-memory-infra"
-    ))]
     async fn encrypt_and_execute_query() {
         const EXPECTED: &[u128] = &[0, 8, 5];
 
