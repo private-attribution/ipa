@@ -249,6 +249,7 @@ impl AsRef<str> for QueryType {
 pub enum DpMechanism {
     NoDp,
     Binomial { epsilon: f64 },
+    DiscreteLaplace { epsilon: f64 },
 }
 
 #[cfg(test)]

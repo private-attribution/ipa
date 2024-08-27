@@ -119,6 +119,7 @@ where
                 epsilon: config.epsilon,
             },
         };
+
         match config.per_user_credit_cap {
             8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params).await,
             16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params).await,

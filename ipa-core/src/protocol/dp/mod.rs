@@ -268,6 +268,13 @@ where
 
             Ok(noisy_histogram)
         }
+        DpMechanism::DiscreteLaplace {epsilon} => {
+            let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
+            // A Discrete Laplace distribution is the same as a Double Geometric distribution.
+
+
+            Ok(non_vectorized_outputs)
+        }
     }
 }
 
