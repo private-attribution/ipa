@@ -670,7 +670,7 @@ mod tests {
                             attribution_window_seconds: None,
                             num_multi_bits: 3,
                             with_dp: 0,
-                            epsilon: 1.0,
+                            epsilon: 5.0,
                             plaintext_match_keys: true,
                         }),
                     },

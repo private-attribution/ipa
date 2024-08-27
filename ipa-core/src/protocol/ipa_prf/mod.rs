@@ -25,6 +25,7 @@ use crate::{
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
+            oprf_padding::apply_dp_padding,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
@@ -91,7 +92,9 @@ use step::IpaPrfStep as Step;
 
 use crate::{
     helpers::query::DpMechanism,
-    protocol::{context::Validator, dp::dp_for_histogram},
+    protocol::{
+        context::Validator, dp::dp_for_histogram, ipa_prf::oprf_padding::PaddingParameters,
+    },
 };
 
 #[derive(Clone, Debug, Default)]
@@ -218,6 +221,7 @@ pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     dp_params: DpMechanism,
+    dp_padding_params: PaddingParameters,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     BK: BreakdownKey<B>,
@@ -247,7 +251,16 @@ where
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
     }
-    let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
+
+    // Apply DP padding for OPRF
+    let padded_input_rows = apply_dp_padding::<_, OPRFIPAInputRow<BK, TV, TS>, B>(
+        ctx.narrow(&Step::PaddingDp),
+        input_rows,
+        dp_padding_params,
+    )
+    .await?;
+
+    let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), padded_input_rows).await?;
     let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
@@ -376,7 +389,10 @@ pub mod tests {
             U128Conversions,
         },
         helpers::query::DpMechanism,
-        protocol::{dp::NoiseParams, ipa_prf::oprf_ipa},
+        protocol::{
+            dp::NoiseParams,
+            ipa_prf::{oprf_ipa, oprf_padding::PaddingParameters},
+        },
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
@@ -410,14 +426,22 @@ pub mod tests {
                 test_input(10, 12345, true, 0, 5),
                 test_input(0, 68362, false, 1, 0),
                 test_input(20, 68362, true, 0, 2),
-            ];
+            ]; // trigger value of 2 attributes to earlier source row with breakdown 1 and trigger
+               // value of 5 attributes to source row with breakdown 2.
             let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::relaxed();
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(ctx, input_rows, None, dp_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -432,6 +456,8 @@ pub mod tests {
     #[test]
     fn semi_honest_with_dp() {
         const SS_BITS: usize = 1;
+        // setting SS_BITS this small will cause clipping in capping
+        // since per_user_credit_cap == 2^SS_BITS
         semi_honest_with_dp_internal::<SS_BITS>();
     }
     #[test]
@@ -451,6 +477,7 @@ pub mod tests {
             let epsilon = 10.0;
             let dp_params = DpMechanism::Binomial { epsilon };
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
+            let padding_params = PaddingParameters::relaxed();
             let world = TestWorld::default();
 
             let records: Vec<TestRawDataRecord> = vec![
@@ -462,9 +489,15 @@ pub mod tests {
             ];
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA16, BA20, SS_BITS, B>(ctx, input_rows, None, dp_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<BA5, BA3, BA16, BA20, SS_BITS, B>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -513,12 +546,19 @@ pub mod tests {
 
             let records: Vec<TestRawDataRecord> = vec![];
             let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::no_padding();
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None, dp_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -542,12 +582,19 @@ pub mod tests {
                 test_input(0, 68362, false, 1, 0),
             ];
             let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::no_padding();
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None, dp_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -590,11 +637,18 @@ pub mod tests {
 
             records.shuffle(&mut thread_rng());
             let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::no_padding();
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None, dp_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
