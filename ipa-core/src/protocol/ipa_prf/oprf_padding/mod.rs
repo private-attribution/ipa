@@ -386,25 +386,6 @@ where
             send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Right));
         let recv_channel_left =
             send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Left));
-        // let (from_right, from_left) = try_join!(
-        //     async {
-        //         match recv_channel_right.receive(RecordId::FIRST).await {
-        //             Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
-        //             Err(e) => Err(e.into()),
-        //         }
-        //     },
-        //     async {
-        //         match recv_channel_left.receive(RecordId::FIRST).await {
-        //             Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
-        //             Err(e) => Err(e.into()),
-        //         }
-        //     }
-        // )?;
-        // if from_right != from_left {
-        //     return Err::<Vec<T>, error::Error>(Error::InconsistentPadding);
-        // }
-        // total_number_of_fake_rows = from_right;
-
         let (from_right, from_left) = try_join!(
             recv_channel_right.receive(RecordId::FIRST),
             recv_channel_left.receive(RecordId::FIRST),
