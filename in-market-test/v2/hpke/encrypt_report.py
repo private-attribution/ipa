@@ -1,12 +1,12 @@
 import argparse
-from enum import Enum
 import math
 import os
 import secrets
-from typing import Any
+from enum import Enum
 
 import pyhpke
 from cryptography.hazmat.primitives.asymmetric import x25519
+
 
 class EventType(Enum):
     SOURCE = 0
@@ -15,12 +15,12 @@ class EventType(Enum):
     def to_bytes(self):
         return self.value.to_bytes(1, "little")
 
+
 class ShareType(Enum):
     MATCH_KEY = 0
     TIMESTAMP = 1
     BREAKDOWN = 2
     TRIGGER_VALUE = 3
-
 
     def bit_count(self) -> int:
         match self:
@@ -35,11 +35,8 @@ class ShareType(Enum):
 
         raise Exception("Invalid share type")
 
-
     def byte_count(self) -> int:
         return math.ceil(self.bit_count() / 8)
-
-
 
 
 class IPAReportInfo:
@@ -169,8 +166,8 @@ class IPAShare:
     @classmethod
     def create_shares(
         cls,
-        value: bytes, 
-        share_type: ShareType
+        value: bytes,
+        share_type: ShareType,
     ) -> tuple["IPAShare", "IPAShare", "IPAShare"]:
         first_share = IPAShare.generate_random_share(share_type)
         second_share = IPAShare.generate_random_share(share_type)
@@ -181,7 +178,6 @@ class IPAShare:
             IPAShare(left=second_share, right=third_share),
             IPAShare(left=third_share, right=first_share),
         )
-
 
 
 class IPAReport:
@@ -213,13 +209,19 @@ class IPAReport:
             + self.breakdown_key.to_bytes()
             + self.trigger_value.to_bytes()
         )
-        encrypted = encrypt_share(share_data, self.info.event_type, self.info.site_domain, public_key_string, self.info.helper_domain)
+        encrypted = encrypt_share(
+            share_data,
+            self.info.event_type,
+            self.info.site_domain,
+            public_key_string,
+            self.info.helper_domain,
+        )
         return (
             self.mk_encap_key_ciphertext
             + encrypted.encrypted_to_bytes()
             + encrypted.ipa_report_info_to_bytes()
         )
-    
+
 
 def generate_report_per_helper(
     mk_share: IPAShare,
@@ -232,11 +234,11 @@ def generate_report_per_helper(
     helper_domain: str,
 ) -> bytes:
     mk_encap_key_ciphertext = encrypt_share(
-        mk_share.to_bytes(), 
-        event_type=event_type, 
-        site_domain=site_domain, 
-        public_key_string=pub_key, 
-        helper_domain=helper_domain
+        mk_share.to_bytes(),
+        event_type=event_type,
+        site_domain=site_domain,
+        public_key_string=pub_key,
+        helper_domain=helper_domain,
     ).encrypted_to_bytes()
 
     return IPAReport(
@@ -271,54 +273,64 @@ def encrypt_to_file(
         for line_num, line in enumerate(f_in):
             # File format: <timestamp>,<match_key>,<event_type>,<breakdown_key>,<trigger_value>
             values = line.split(",")
-            assert len(values) >= 5, f"Corrupted file: line {line_num} has less than 5 values"
+            assert (
+                len(values) >= 5
+            ), f"Corrupted file: line {line_num} has less than 5 values"
             timestamp = int(values[0].strip())
             match_key = int(values[1].strip())
             event_type = EventType(int(values[2].strip()))
             breakdown_key = int(values[3].strip())
             trigger_value = int(values[4].strip())
 
-            mk_share = IPAShare.create_shares(match_key.to_bytes(8, "little"), ShareType.MATCH_KEY)
-            ts_share = IPAShare.create_shares(timestamp.to_bytes(3, "little"), ShareType.TIMESTAMP)
-            bk_share = IPAShare.create_shares(breakdown_key.to_bytes(1, "little"), ShareType.BREAKDOWN)
-            tv_share = IPAShare.create_shares(trigger_value.to_bytes(1, "little"), ShareType.TRIGGER_VALUE)
+            mk_share = IPAShare.create_shares(
+                match_key.to_bytes(8, "little"), ShareType.MATCH_KEY
+            )
+            ts_share = IPAShare.create_shares(
+                timestamp.to_bytes(3, "little"), ShareType.TIMESTAMP
+            )
+            bk_share = IPAShare.create_shares(
+                breakdown_key.to_bytes(1, "little"), ShareType.BREAKDOWN
+            )
+            tv_share = IPAShare.create_shares(
+                trigger_value.to_bytes(1, "little"), ShareType.TRIGGER_VALUE
+            )
 
             encrypted_reports_1.append(
                 generate_report_per_helper(
-                    mk_share=mk_share[0], 
-                    ts_share=ts_share[0], 
-                    bk_share=bk_share[0], 
-                    tv_share=tv_share[0], 
-                    site_domain=site_domain, 
+                    mk_share=mk_share[0],
+                    ts_share=ts_share[0],
+                    bk_share=bk_share[0],
+                    tv_share=tv_share[0],
+                    site_domain=site_domain,
                     event_type=event_type,
-                    pub_key=pub_key, 
-                    helper_domain=helper_domain
+                    pub_key=pub_key,
+                    helper_domain=helper_domain,
                 )
             )
 
             encrypted_reports_2.append(
                 generate_report_per_helper(
-                    mk_share=mk_share[1], 
-                    ts_share=ts_share[1], 
-                    bk_share=bk_share[1], 
-                    tv_share=tv_share[1], 
-                    site_domain=site_domain, 
+                    mk_share=mk_share[1],
+                    ts_share=ts_share[1],
+                    bk_share=bk_share[1],
+                    tv_share=tv_share[1],
+                    site_domain=site_domain,
                     event_type=event_type,
-                    pub_key=pub_key, 
-                    helper_domain=helper_domain
+                    pub_key=pub_key,
+                    helper_domain=helper_domain,
                 )
             )
 
             encrypted_reports_3.append(
                 generate_report_per_helper(
-                    mk_share=mk_share[2], 
-                    ts_share=ts_share[2], 
-                    bk_share=bk_share[2], 
-                    tv_share=tv_share[2], 
-                    site_domain=site_domain, 
+                    mk_share=mk_share[2],
+                    ts_share=ts_share[2],
+                    bk_share=bk_share[2],
+                    tv_share=tv_share[2],
+                    site_domain=site_domain,
                     event_type=event_type,
-                    pub_key=pub_key, 
-                    helper_domain=helper_domain
+                    pub_key=pub_key,
+                    helper_domain=helper_domain,
                 )
             )
 
@@ -335,7 +347,7 @@ def encrypt_to_file(
                 f_out.write(i.hex() + "\n")
                 if verbose:
                     print(i.hex())
-        
+
         file_out_3 = os.path.join(dir_out, file_out_prefix + "_h3")
         with open(file_out_3, "w") as f_out:
             for i in encrypted_reports_3:
