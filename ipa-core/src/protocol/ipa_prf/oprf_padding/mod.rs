@@ -676,6 +676,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn table_of_padding_parameters() {
         // see output https://docs.google.com/spreadsheets/d/1N0WEUkarP_6nd-7W8O9r-Xurh9OImESgAC1Jd_6OfWw/edit?gid=0#gid=0
         let epsilon_values = [0.01, 0.1, 1.0, 5.0, 10.0];

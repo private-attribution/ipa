@@ -62,7 +62,7 @@ where
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
 {
-    let dp_padding_params = PaddingParameters::relaxed();
+    let dp_padding_params = PaddingParameters::default();
     // Apply DP padding for Breakdown Reveal Aggregation
     let attributed_values_padded =
         apply_dp_padding::<_, AttributionOutputs<Replicated<BK>, Replicated<TV>>, B>(
