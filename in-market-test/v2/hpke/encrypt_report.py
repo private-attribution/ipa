@@ -186,6 +186,7 @@ class IPAShare:
     def __str__(self) -> str:
         return f"({self.left})({self.right})"
 
+
 class IPAReport:
     __slots__ = [
         "mk_encap_key_ciphertext",
@@ -223,9 +224,6 @@ class IPAReport:
             self.info.helper_domain,
         )
 
-        print("mk_encap_key_ciphertext: ", len(self.mk_encap_key_ciphertext))
-        print("enc bytes: ", len(encrypted.encrypted_to_bytes()))
-        print("report info: ",len(encrypted.ipa_report_info_to_bytes()))
         return (
             self.mk_encap_key_ciphertext
             + encrypted.encrypted_to_bytes()
@@ -306,11 +304,6 @@ def encrypt_to_file(
             tv_share = IPAShare.create_shares(
                 trigger_value.to_bytes(1, "little"), ShareType.TRIGGER_VALUE
             )
-
-            print("mk: ", mk_share[0])
-            print("ts: ", ts_share[0])
-            print("bk: ", bk_share[0])
-            print("tv: ", tv_share[0])
 
             encrypted_reports_1.append(
                 generate_report_per_helper(
