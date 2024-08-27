@@ -373,12 +373,12 @@ where
         // the total number of fake rows is okay.
         let send_channel =
             send_ctx.send_channel::<BA32>(send_ctx.role().peer(direction_to_excluded_helper));
-        let _ = send_channel
+        send_channel
             .send(
                 RecordId::FIRST,
                 BA32::truncate_from(u128::from(total_number_of_fake_rows)),
             )
-            .await;
+            .await?;
     } else {
         // Step 3: `h_out` will first receive the total_number_of_fake rows from the other
         // parties and then `h_out` will set its shares to zero for the fake rows
@@ -386,24 +386,34 @@ where
             send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Right));
         let recv_channel_left =
             send_ctx.recv_channel::<BA32>(send_ctx.role().peer(Direction::Left));
+        // let (from_right, from_left) = try_join!(
+        //     async {
+        //         match recv_channel_right.receive(RecordId::FIRST).await {
+        //             Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
+        //             Err(e) => Err(e.into()),
+        //         }
+        //     },
+        //     async {
+        //         match recv_channel_left.receive(RecordId::FIRST).await {
+        //             Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
+        //             Err(e) => Err(e.into()),
+        //         }
+        //     }
+        // )?;
+        // if from_right != from_left {
+        //     return Err::<Vec<T>, error::Error>(Error::InconsistentPadding);
+        // }
+        // total_number_of_fake_rows = from_right;
+
         let (from_right, from_left) = try_join!(
-            async {
-                match recv_channel_right.receive(RecordId::FIRST).await {
-                    Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
-                    Err(e) => Err(e.into()),
-                }
-            },
-            async {
-                match recv_channel_left.receive(RecordId::FIRST).await {
-                    Ok(v) => Ok::<u32, Error>(u32::try_from(v.as_u128()).unwrap()),
-                    Err(e) => Err(e.into()),
-                }
-            }
+            recv_channel_right.receive(RecordId::FIRST),
+            recv_channel_left.receive(RecordId::FIRST),
         )?;
         if from_right != from_left {
             return Err::<Vec<T>, error::Error>(Error::InconsistentPadding);
         }
-        total_number_of_fake_rows = from_right;
+        total_number_of_fake_rows = u32::try_from(from_right.as_u128()).unwrap();
+
         T::add_zero_shares(&mut padding_input_rows, total_number_of_fake_rows);
     }
 

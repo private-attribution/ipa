@@ -119,7 +119,7 @@ where
                 epsilon: config.epsilon,
             },
         };
-        let padding_params = PaddingParameters::default();
+        let padding_params = PaddingParameters::relaxed();
         match config.per_user_credit_cap {
             8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,
             16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params, padding_params).await,

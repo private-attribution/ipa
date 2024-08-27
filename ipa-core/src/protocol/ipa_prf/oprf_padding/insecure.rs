@@ -8,7 +8,8 @@ use rand_core::{CryptoRng, RngCore};
 use crate::protocol::ipa_prf::oprf_padding::distributions::{
     BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric,
 };
-pub use crate::protocol::ipa_prf::oprf_padding::insecure::Error as DpError;
+// pub use crate::protocol::ipa_prf::oprf_padding::insecure::Error as DpError;
+pub type DpError = Error;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {

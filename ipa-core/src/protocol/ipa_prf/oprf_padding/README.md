@@ -72,13 +72,13 @@ enforced on the number of records for any one matchkey in IPA. Using this sensit
 delta) generate a random padding number of dummy rows with each breakdown key.
 
 # Generating Padding for Matchkeys and Breakdown keys together
-We need to add fake rows for matchkeys and fake rows for breakdown keys.  It makes sense to try and add the fake breakdown
-keys to the fake rows already being generated for fake matchkeys. But this approach has a couple challenges:
-1. We shouldn't add any fake breakdown keys to fake matchkey rows when the matchkey is being added with cardinality equal to one.
-Because these rows can be dropped after matching and never have the fake breakdowns revealed.
-2. There may need to be some adjustment made to the DP parameters achieved. TODO
-3. We should not be adding fake breakdown keys to matchkeys that have a cardinality larger than the cap we have established for
-the number of breakdowns per user. Otherwise, those breakdown keys would never be revealed as they will be dropped.
-
-Instead of this approach we will the fake rows for matchkey padding first and then the fake rows for breakdown key padding. When
-we generate the fake rows for breakdown key padding, the fake matchkeys generated will all have cardinality two or three (and with small probability one).
+1. Would be to try and add the fake breakdown keys to the fake rows already being generated for fake matchkeys. But this 
+approach has a couple challenges:
+    1. We shouldn't add any fake breakdown keys to fake matchkey rows when the matchkey is being added with cardinality 
+   equal to one. Because these rows can be dropped after matching and never have the fake breakdowns revealed.
+    2. There may need to be some adjustment made to the DP parameters achieved.
+    3. We should not be adding fake breakdown keys to matchkeys that have a cardinality larger than the cap we have established 
+   for the number of breakdowns per user. Otherwise, those breakdown keys would never be revealed as they will be dropped.
+2. The second approach we could consider is to add the fake rows for matchkey padding at the start of the protocol and then later 
+right before Breakdown Reveal Aggregation add the fake rows for breakdown key padding. This approach has the benefit of being more
+efficient in that we do not need to compute the OPRF of these fake rows which are added just-in-time for use in aggregation.
