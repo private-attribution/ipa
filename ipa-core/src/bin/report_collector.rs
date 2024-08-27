@@ -97,8 +97,10 @@ enum ReportCollectorCommand {
     },
     /// Apply differential privacy noise to IPA inputs
     ApplyDpNoise(ApplyDpArgs),
-    /// Execute OPRF IPA in a semi-honest majority setting
-    OprfIpa(IpaQueryConfig),
+    /// Execute OPRF IPA in a semi-honest setting
+    SemiHonestOprfIpa(IpaQueryConfig),
+    /// Execute OPRF IPA in an honest majority (one malicious helper) setting
+    MaliciousOprfIpa(IpaQueryConfig),
 }
 
 #[derive(Debug, clap::Args)]
@@ -129,11 +131,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
-        ReportCollectorCommand::OprfIpa(config) => {
+        ReportCollectorCommand::SemiHonestOprfIpa(config) => {
             ipa(
                 &args,
                 &network,
                 IpaSecurityModel::SemiHonest,
+                config,
+                &clients,
+                IpaQueryStyle::Oprf,
+            )
+            .await?
+        }
+        ReportCollectorCommand::MaliciousOprfIpa(config) => {
+            ipa(
+                &args,
+                &network,
+                IpaSecurityModel::Malicious,
                 config,
                 &clients,
                 IpaQueryStyle::Oprf,

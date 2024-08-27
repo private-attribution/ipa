@@ -447,9 +447,15 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .malicious(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA5, BA3, BA16, BA20, 5, 32>(ctx, input_rows, None, dp_params, padding_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<_, BA5, BA3, BA16, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -499,7 +505,11 @@ pub mod tests {
             let mut result: Vec<_> = world
                 .malicious(records.into_iter(), |ctx, input_rows| async move {
                     oprf_ipa::<_, BA5, BA3, BA16, BA20, SS_BITS, B>(
-                        ctx, input_rows, None, dp_params, padding_params,
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
                     )
                     .await
                     .unwrap()
@@ -555,9 +565,15 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None, dp_params, padding_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<_, BA5, BA3, BA8, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -585,9 +601,15 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA5, BA3, BA8, BA20, 5, 32>(ctx, input_rows, None, dp_params, padding_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<_, BA5, BA3, BA8, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
@@ -633,9 +655,15 @@ pub mod tests {
             let padding_params = PaddingParameters::no_padding();
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None, dp_params, padding_params)
-                        .await
-                        .unwrap()
+                    oprf_ipa::<_, BA8, BA3, BA16, BA20, 5, 256>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();

@@ -29,6 +29,11 @@ fn compact_gate_cap_8_no_window_semi_honest() {
 }
 
 #[test]
+fn compact_gate_cap_8_no_window_malicious() {
+    test_compact_gate(IpaSecurityModel::Malicious, 8, 0);
+}
+
+#[test]
 fn compact_gate_cap_8_with_window_semi_honest() {
     test_compact_gate(IpaSecurityModel::SemiHonest, 8, 86400);
 }
