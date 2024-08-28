@@ -3,6 +3,7 @@ pub mod step;
 use std::f64;
 
 use futures_util::{stream, StreamExt};
+use rand::thread_rng;
 
 use crate::{
     error::{Error, Error::EpsilonOutOfBounds, LengthError},
@@ -268,10 +269,15 @@ where
 
             Ok(noisy_histogram)
         }
-        DpMechanism::DiscreteLaplace {epsilon} => {
+        DpMechanism::DiscreteLaplace { epsilon } => {
             let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
             // A Discrete Laplace distribution is the same as a Double Geometric distribution.
 
+            let s = 1.0 / epsilon;
+            let n = 0;
+            let discret_laplace = DoubleGeometric::new(s, n)?;
+            let mut rng = thread_rng();
+            let sample = discret_laplace.sample(rng);
 
             Ok(non_vectorized_outputs)
         }
