@@ -18,8 +18,9 @@ pub use self::ipa::playbook_oprf_ipa;
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
     ff::boolean_array::{BA20, BA3, BA8},
+    helpers::query::DpMechanism,
     net::{ClientIdentity, MpcHelperClient},
-    protocol::dp::NoiseParams,
+    protocol::{dp::NoiseParams, ipa_prf::oprf_padding::insecure::OPRFPaddingDp},
 };
 
 pub type BreakdownKey = BA8;
@@ -81,7 +82,13 @@ where
 ///
 /// ## Panics
 /// If results don't match.
-pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_credit_cap: u32) {
+pub fn validate_dp(
+    expected: Vec<u32>,
+    actual: Vec<u32>,
+    epsilon: f64,
+    per_user_credit_cap: u32,
+    dp_mechanism: DpMechanism,
+) {
     let mut expected = expected.into_iter().fuse();
     let mut actual = actual.into_iter().fuse();
     let mut mismatch = Vec::new();
@@ -106,18 +113,42 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
 
         let next_expected_f64: f64 = next_expected.unwrap().into();
         let actual_expect_f64: f64 = next_actual.unwrap().into();
+
         let noise_params = NoiseParams {
             epsilon,
+            per_user_credit_cap,
             ell_1_sensitivity: per_user_credit_cap.into(),
             ell_2_sensitivity: per_user_credit_cap.into(),
             ell_infty_sensitivity: per_user_credit_cap.into(),
             dimensions: 256.0, // matches the hard coded number of breakdown keys in oprf_ipa.rs/execute
             ..Default::default()
         };
+        let same = match dp_mechanism {
+            DpMechanism::Binomial { epsilon: _ } => {
+                let (mean, std) = crate::protocol::dp::binomial_noise_mean_std(&noise_params);
+                actual_expect_f64 - mean > next_expected_f64 - 10.0 * std
+                    && actual_expect_f64 - mean < next_expected_f64 + 10.0 * std
+            }
+            DpMechanism::DiscreteLaplace { epsilon: _ } => {
+                let truncated_discrete_laplace = OPRFPaddingDp::new(
+                    noise_params.epsilon,
+                    noise_params.delta,
+                    noise_params.per_user_credit_cap,
+                )
+                .unwrap();
 
-        let (mean, std) = crate::protocol::dp::binomial_noise_mean_std(&noise_params);
-        let same = actual_expect_f64 - mean > next_expected_f64 - 10.0 * std
-            && actual_expect_f64 - mean < next_expected_f64 + 10.0 * std;
+                let (mean, std_bound) = truncated_discrete_laplace.mean_and_std_bound();
+                assert!(std_bound > 1.0); // bound on the std only holds if this is true.
+                let tolerance_factor = 12.0;
+                actual_expect_f64 - mean > next_expected_f64 - tolerance_factor * std_bound
+                    && actual_expect_f64 - mean < next_expected_f64 + tolerance_factor * std_bound
+            }
+            DpMechanism::NoDp => {
+                let tolerance = 0.001;
+                actual_expect_f64 > next_expected_f64 - tolerance
+                    && actual_expect_f64 < next_expected_f64 + tolerance
+            }
+        };
 
         let color = if same { Color::Green } else { Color::Red };
         table.add_row(vec![
