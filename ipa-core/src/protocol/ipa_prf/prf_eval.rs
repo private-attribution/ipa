@@ -1,65 +1,87 @@
 use std::iter::zip;
 
+use futures::future::try_join;
+
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519},
-    helpers::TotalRecords,
+    ff::{curve_points::RP25519, ec_prime_field::Fp25519},
     protocol::{
-        basics::{malicious_reveal, SecureMul},
-        context::Context,
+        basics::{reveal, Reveal, SecureMul},
+        context::{
+            upgrade::Upgradable, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext,
+        },
         ipa_prf::step::PrfStep as Step,
         prss::{FromPrss, SharedRandomness},
-        RecordId,
+        BasicProtocols, RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, Sendable, StdArray, Vectorizable},
+    secret_sharing::{
+        replicated::{malicious, semi_honest::AdditiveShare},
+        FieldSimd, Vectorizable,
+    },
+    sharding::NotSharded,
 };
 
-/// generates match key pseudonyms from match keys (in Fp25519 format) and PRF key
-/// PRF key needs to be generated separately using `gen_prf_key`
-///
-/// `gen_prf_key` is not included such that `compute_match_key_pseudonym` can be tested for correctness
-/// # Errors
-/// Propagates errors from multiplications
-pub async fn compute_match_key_pseudonym<C>(
-    sh_ctx: C,
-    prf_key: AdditiveShare<Fp25519>,
-    input_match_keys: Vec<AdditiveShare<Fp25519>>,
-) -> Result<Vec<u64>, Error>
-where
-    C: Context,
-    AdditiveShare<Boolean, 1>: SecureMul<C>,
-    AdditiveShare<Fp25519>: SecureMul<C>,
+/// This trait defines the requirements to the sharing types and the underlying fields
+/// used to generate PRF values.
+pub trait PrfSharing<C: UpgradedContext, const N: usize>:
+    Upgradable<C, Output = Self::UpgradedSharing> + FromPrss
 {
-    let ctx = sh_ctx.set_total_records(TotalRecords::specified(input_match_keys.len())?);
-    let futures = input_match_keys
-        .into_iter()
-        .enumerate()
-        .map(|(i, x)| eval_dy_prf(ctx.clone(), i.into(), &prf_key, x));
-    Ok(ctx.try_join(futures).await?.into_iter().flatten().collect())
+    /// The type of field used to compute `z`
+    type Field: FieldSimd<N>;
+
+    /// Upgraded sharing type. For semi-honest shares, depending on the context,
+    /// it could be either `Self` or malicious sharings.
+    type UpgradedSharing: BasicProtocols<C, Self::Field, N>;
+}
+
+/// Allow semi-honest shares to be used for PRF generation
+impl<'a, const N: usize> PrfSharing<UpgradedSemiHonestContext<'a, NotSharded, Fp25519>, N>
+    for AdditiveShare<Fp25519, N>
+where
+    Fp25519: FieldSimd<N>,
+    RP25519: Vectorizable<N>,
+    AdditiveShare<Fp25519, N>:
+        BasicProtocols<UpgradedSemiHonestContext<'a, NotSharded, Fp25519>, Fp25519, N> + FromPrss,
+{
+    type Field = Fp25519;
+    type UpgradedSharing = AdditiveShare<Fp25519, N>;
+}
+
+/// Allow MAC-malicious shares to be used for PRF generation
+impl<'a, const N: usize> PrfSharing<UpgradedMaliciousContext<'a, Fp25519>, N>
+    for AdditiveShare<Fp25519, N>
+where
+    Fp25519: FieldSimd<N>,
+    RP25519: Vectorizable<N>,
+    malicious::AdditiveShare<Fp25519, N>:
+        BasicProtocols<UpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>,
+    AdditiveShare<Fp25519, N>: FromPrss,
+{
+    type Field = Fp25519;
+    type UpgradedSharing = malicious::AdditiveShare<Fp25519, N>;
 }
 
 impl<const N: usize> From<AdditiveShare<Fp25519, N>> for AdditiveShare<RP25519, N>
 where
     Fp25519: Vectorizable<N>,
-    RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
-    StdArray<RP25519, N>: Sendable,
+    RP25519: Vectorizable<N>,
 {
     fn from(value: AdditiveShare<Fp25519, N>) -> Self {
-        let (left_arr, right_arr) =
-            StdArray::<RP25519, N>::from_tuple_iter(value.into_unpacking_iter().map(|sh| {
-                let (l, r) = sh.as_tuple();
-                (RP25519::from(l), RP25519::from(r))
-            }));
-        Self::new_arr(left_arr, right_arr)
+        value.transform(RP25519::from)
     }
 }
 
 /// generates PRF key k as secret sharing over Fp25519
-pub fn gen_prf_key<C>(ctx: &C) -> AdditiveShare<Fp25519>
+pub fn gen_prf_key<C, const N: usize>(ctx: &C) -> AdditiveShare<Fp25519, N>
 where
-    C: Context,
+    C: UpgradableContext,
+    Fp25519: Vectorizable<N>,
 {
-    ctx.narrow(&Step::PRFKeyGen).prss().generate(RecordId(0))
+    let ctx = ctx.narrow(&Step::PRFKeyGen);
+    let v: AdditiveShare<Fp25519, 1> = ctx.prss().generate(RecordId::FIRST);
+
+    v.expand()
 }
 
 /// evaluates the Dodis-Yampolski PRF g^(1/(k+x))
@@ -74,39 +96,43 @@ where
 pub async fn eval_dy_prf<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    k: &AdditiveShare<Fp25519>,
+    key: &AdditiveShare<Fp25519>,
     x: AdditiveShare<Fp25519, N>,
 ) -> Result<[u64; N], Error>
 where
-    C: Context,
-    Fp25519: Vectorizable<N>,
-    RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
-    AdditiveShare<Fp25519, N>: SecureMul<C> + FromPrss,
-    StdArray<RP25519, N>: Sendable,
+    C: UpgradedContext<Field = Fp25519>,
+    AdditiveShare<Fp25519, N>: PrfSharing<C, N, Field = Fp25519>,
+    AdditiveShare<RP25519, N>: Reveal<C, Output = <RP25519 as Vectorizable<N>>::Array>,
+    Fp25519: FieldSimd<N>,
+    RP25519: Vectorizable<N>,
 {
-    let sh_r: AdditiveShare<Fp25519, N> =
-        ctx.narrow(&Step::GenRandomMask).prss().generate(record_id);
-
-    //compute x+k
-    let mut y = x + k.expand();
-
-    //compute y <- r*y
-    y = y
-        .multiply(&sh_r, ctx.narrow(&Step::MultMaskWithPRFInput), record_id)
+    // compute x+k (and upgrade the share)
+    let y = (x + key.expand())
+        .upgrade(ctx.narrow(&Step::UpgradeY), record_id)
         .await?;
 
-    //compute (g^left, g^right)
-    let sh_gr = AdditiveShare::<RP25519, N>::from(sh_r);
+    let r: AdditiveShare<Fp25519, N> = ctx.narrow(&Step::GenRandomMask).prss().generate(record_id);
+    // compute (g^left, g^right).
+    // Note that it does not get upgraded because this
+    // value is revealed immediately without any multiplications
+    let sh_gr = AdditiveShare::<RP25519, N>::from(r.clone());
 
-    //reconstruct (z,R)
-    // TODO: these should invoke reveal via the trait when this function
-    // takes a context of an appropriate type.
-    let gr = malicious_reveal(ctx.narrow(&Step::RevealR), record_id, None, &sh_gr)
-        .await?
-        .unwrap();
-    let z = malicious_reveal(ctx.narrow(&Step::Revealz), record_id, None, &y)
-        .await?
-        .unwrap();
+    // upgrade r and compute y <- r*y
+    let r = r.upgrade(ctx.narrow(&Step::UpgradeMask), record_id).await?;
+    let y = y
+        .multiply(&r, ctx.narrow(&Step::MultMaskWithPRFInput), record_id)
+        .await?;
+
+    // validate everything before reveal
+    ctx.validate_record(record_id).await?;
+    let (gr, z): (
+        <RP25519 as Vectorizable<N>>::Array,
+        <Fp25519 as Vectorizable<N>>::Array,
+    ) = try_join(
+        reveal(ctx.narrow(&Step::RevealR), record_id, &sh_gr),
+        reveal(ctx.narrow(&Step::Revealz), record_id, &y),
+    )
+    .await?;
 
     //compute R^(1/z) to u64
     Ok(zip(gr, z)
@@ -118,15 +144,53 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use futures_util::future::try_join_all;
     use rand::Rng;
 
     use crate::{
+        error::Error,
         ff::{curve_points::RP25519, ec_prime_field::Fp25519},
-        protocol::ipa_prf::prf_eval::compute_match_key_pseudonym,
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        helpers::{in_memory_config::MaliciousHelper, Role},
+        protocol::{
+            basics::Reveal,
+            context::{Context, MacUpgraded, UpgradableContext, Validator},
+            ipa_prf::{
+                prf_eval::{eval_dy_prf, PrfSharing},
+                step::PrfStep,
+            },
+        },
+        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares, Vectorizable},
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
+
+    /// generates match key pseudonyms from match keys (in Fp25519 format) and PRF key
+    /// PRF key needs to be generated separately using `gen_prf_key`
+    ///
+    /// `gen_prf_key` is not included such that `compute_match_key_pseudonym` can be tested for correctness
+    /// # Errors
+    /// Propagates errors from multiplications
+    pub async fn compute_match_key_pseudonym<C>(
+        ctx: C,
+        prf_key: AdditiveShare<Fp25519>,
+        input_match_keys: Vec<AdditiveShare<Fp25519>>,
+    ) -> Result<Vec<u64>, Error>
+    where
+        C: UpgradableContext,
+        AdditiveShare<Fp25519>: PrfSharing<MacUpgraded<C, Fp25519>, 1, Field = Fp25519>,
+        AdditiveShare<RP25519>:
+            Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<1>>::Array>,
+    {
+        let ctx = ctx.set_total_records(input_match_keys.len());
+        let validator = ctx.validator::<Fp25519>();
+        let ctx = validator.context();
+        let futures = input_match_keys
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| eval_dy_prf(ctx.clone(), i.into(), &prf_key, x));
+
+        Ok(try_join_all(futures).await?.into_iter().flatten().collect())
+    }
 
     ///defining test input struct
     #[derive(Copy, Clone)]
@@ -164,6 +228,34 @@ mod test {
         }
     }
 
+    /// Generates a sample to test both semi-honest and malicious implementation
+    fn test_case() -> (Vec<ShuffledTestInput>, Vec<TestOutput>, Fp25519) {
+        let u = 3_216_412_445u64;
+        let k: Fp25519 = Fp25519::from(u);
+        let input = vec![
+            //first two need to be identical for tests to succeed
+            test_input(3),
+            test_input(3),
+            test_input(23_443_524_523),
+            test_input(56),
+            test_input(895_764_542),
+            test_input(456_764_576),
+            test_input(56),
+            test_input(3),
+            test_input(56),
+            test_input(23_443_524_523),
+        ];
+
+        let output: Vec<_> = input
+            .iter()
+            .map(|&x| TestOutput {
+                match_key_pseudonym: (RP25519::from((x.match_key + k).invert())).into(),
+            })
+            .collect();
+
+        (input, output, k)
+    }
+
     ///testing correctness of DY PRF evaluation
     /// by checking MPC generated pseudonym with pseudonym generated in the clear
     #[test]
@@ -172,29 +264,7 @@ mod test {
             let world = TestWorld::default();
 
             //first two need to be identical for test to succeed
-            let records: Vec<ShuffledTestInput> = vec![
-                test_input(3),
-                test_input(3),
-                test_input(23_443_524_523),
-                test_input(56),
-                test_input(895_764_542),
-                test_input(456_764_576),
-                test_input(56),
-                test_input(3),
-                test_input(56),
-                test_input(23_443_524_523),
-            ];
-
-            //PRF Key Gen
-            let u = 3_216_412_445u64;
-            let k: Fp25519 = Fp25519::from(u);
-
-            let expected: Vec<TestOutput> = records
-                .iter()
-                .map(|&x| TestOutput {
-                    match_key_pseudonym: (RP25519::from((x.match_key + k).invert())).into(),
-                })
-                .collect();
+            let (records, expected, k) = test_case();
 
             let result: Vec<_> = world
                 .semi_honest(
@@ -209,6 +279,77 @@ mod test {
                 .reconstruct();
             assert_eq!(result, expected);
             assert_eq!(result[0], result[1]);
+        });
+    }
+
+    #[test]
+    fn malicious() {
+        run(|| async move {
+            let world = TestWorld::default();
+            let (records, expected, key) = test_case();
+
+            let result = world
+                .malicious(
+                    (records.into_iter(), key),
+                    |ctx, (match_key_shares, prf_key)| async move {
+                        compute_match_key_pseudonym(ctx, prf_key, match_key_shares)
+                            .await
+                            .unwrap()
+                    },
+                )
+                .await
+                .reconstruct();
+            assert_eq!(result, expected);
+            assert_eq!(result[0], result[1]);
+        });
+    }
+
+    #[test]
+    fn malicious_attack_resistant() {
+        const STEPS: [&PrfStep; 3] = [
+            &PrfStep::UpgradeY,
+            &PrfStep::UpgradeMask,
+            &PrfStep::MultMaskWithPRFInput,
+            // TODO errors during malicious reveal does not terminate the execution, some helpers
+            // make progress and get stuck waiting for messages.
+            // &PrfStep::RevealR,
+            // &PrfStep::Revealz,
+        ];
+        run(|| async move {
+            for attacker_role in Role::all() {
+                for step in STEPS {
+                    let mut config = TestWorldConfig::default();
+                    config.stream_interceptor = MaliciousHelper::new(
+                        *attacker_role,
+                        config.role_assignment(),
+                        |ctx, data| {
+                            if ctx.gate.as_ref().contains(step.as_ref()) {
+                                data[0] = !data[0];
+                            }
+                        },
+                    );
+                    let world = TestWorld::new_with(&config);
+                    let (records, _, key) = test_case();
+                    world
+                        .malicious(
+                            (records.into_iter(), key),
+                            |ctx, (match_key_shares, prf_key)| async move {
+                                let my_role = ctx.role();
+
+                                match compute_match_key_pseudonym(ctx, prf_key, match_key_shares).await {
+                                    Ok(_) if my_role == *attacker_role => {}
+                                    Err(Error::MaliciousSecurityCheckFailed | Error::MaliciousRevealFailed) => {}
+                                    Ok(_) | Err(_) => {
+                                        panic!(
+                                            "Malicious validation check passed when it shouldn't have"
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                        .await;
+                }
+            }
         });
     }
 }
