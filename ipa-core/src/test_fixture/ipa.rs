@@ -8,7 +8,9 @@ use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::{DpMechanism, IpaQueryConfig},
     protocol::{
-        dp::NoiseParams, ipa_prf::oprf_padding::PaddingParameters, ipa_prf::OPRFIPAInputRow,
+        dp::NoiseParams,
+        ipa_prf::oprf_padding::{insecure::OPRFPaddingDp, PaddingParameters},
+        ipa_prf::OPRFIPAInputRow,
     },
     secret_sharing::{
         replicated::{
@@ -182,7 +184,9 @@ where
 /// If any of the IPA protocol modules panic
 #[allow(clippy::too_many_lines)]
 #[cfg(feature = "in-memory-infra")]
-pub async fn test_oprf_ipa<F>(
+pub use crate::protocol::ipa_prf::oprf_padding::insecure;
+
+async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
     records: Vec<TestRawDataRecord>,
     expected_results: &[u32],
@@ -268,17 +272,17 @@ pub async fn test_oprf_ipa<F>(
             assert_eq!(result, expected_results);
         }
         DpMechanism::Binomial { epsilon } => {
-            let per_user_credit_cap_f64 = f64::from(config.per_user_credit_cap);
             let noise_params = NoiseParams {
                 epsilon,
                 delta: 1e-6,
-                ell_1_sensitivity: per_user_credit_cap_f64,
-                ell_2_sensitivity: per_user_credit_cap_f64,
-                ell_infty_sensitivity: per_user_credit_cap_f64,
+                per_user_credit_cap: config.per_user_credit_cap,
+                ell_1_sensitivity: f64::from(config.per_user_credit_cap),
+                ell_2_sensitivity: f64::from(config.per_user_credit_cap),
+                ell_infty_sensitivity: f64::from(config.per_user_credit_cap),
                 dimensions: 256.0, // matches hard coded dimension in oprf_ipa.rs/execute
                 ..Default::default()
             };
-            let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
+            let (mean, std) = crate::protocol::dp::binomial_noise_mean_std(&noise_params);
 
             assert_eq!(result.len(), expected_results.len());
 
@@ -286,6 +290,28 @@ pub async fn test_oprf_ipa<F>(
                 assert!(
                     (f64::from(sample) - mean - f64::from(expected)).abs() < 5.0 * std,
                     "DP result was not within 5 standard deviations from what was expected"
+                );
+            }
+        }
+        DpMechanism::DiscreteLaplace { epsilon } => {
+            let truncated_discrete_laplace =
+                OPRFPaddingDp::new(epsilon, 1e-6, config.per_user_credit_cap).unwrap();
+
+            let (mean, std_bound) = truncated_discrete_laplace.mean_and_std_bound();
+            assert!(std_bound > 1.0); // bound on the std only holds if this is true.
+            let tolerance_factor = 12.0;
+            println!(
+                "mean = {mean}, std_bound = {std_bound}, {tolerance_factor} * std_bound = {}",
+                tolerance_factor * std_bound
+            );
+
+            assert_eq!(result.len(), expected_results.len());
+
+            for (&sample, &expected) in std::iter::zip(result.iter(), expected_results.iter()) {
+                assert!(
+                    (f64::from(sample) - mean - f64::from(expected)).abs() < tolerance_factor * std_bound,
+                    "DP result was not within {tolerance_factor} times the standard deviation bound of a\
+                    Truncated Discrete Laplace from what was expected"
                 );
             }
         }

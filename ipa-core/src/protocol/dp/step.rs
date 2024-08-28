@@ -6,4 +6,7 @@ pub(crate) enum DPStep {
     NoiseGen,
     #[step(child = crate::protocol::boolean::step::ThirtyTwoBitStep)]
     ApplyNoise,
+    LaplacePass1,
+    LaplacePass2,
+    LaplacePass3,
 }

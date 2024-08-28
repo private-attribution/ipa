@@ -3,25 +3,27 @@ pub mod step;
 use std::f64;
 
 use futures_util::{stream, StreamExt};
-use rand::{distributions::Distribution, thread_rng};
 
 use crate::{
     error::{Error, Error::EpsilonOutOfBounds, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::{query::DpMechanism, TotalRecords},
+    helpers::{query::DpMechanism, Direction, Role, TotalRecords},
     protocol::{
         boolean::step::ThirtyTwoBitStep,
         context::Context,
         dp::step::DPStep,
         ipa_prf::{
             aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add,
-            oprf_padding::distributions::DoubleGeometric,
+            oprf_padding::insecure::OPRFPaddingDp,
         },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+        replicated::{
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+            ReplicatedSecretSharing,
+        },
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
 };
@@ -38,7 +40,7 @@ use crate::{
 pub struct NoiseParams {
     pub epsilon: f64,
     pub delta: f64,
-    pub per_user_credit_cap: f64,
+    pub per_user_credit_cap: u32,
     pub success_prob: f64,
     pub dimensions: f64,
     pub quantization_scale: f64,
@@ -52,7 +54,7 @@ impl Default for NoiseParams {
         Self {
             epsilon: 5.0,
             delta: 1e-6,
-            per_user_credit_cap: 1.0,
+            per_user_credit_cap: 1,
             success_prob: 0.5,
             dimensions: 1.0,
             quantization_scale: 1.0,
@@ -73,7 +75,7 @@ impl NoiseParams {
     pub fn new(
         epsilon: f64,
         delta: f64,
-        per_user_credit_cap: f64,
+        per_user_credit_cap: u32,
         success_prob: f64,
         dimensions: f64,
         quantization_scale: f64,
@@ -86,9 +88,6 @@ impl NoiseParams {
         }
         if delta != 0.0 {
             return Err("delta must be > 0.0".to_string());
-        }
-        if per_user_credit_cap <= 0.0 {
-            return Err("per_user_credit_cap must be > 0.0".to_string());
         }
         if !(0.0..=MAX_PROBABILITY).contains(&success_prob) {
             return Err("success_prob must be between 0 and 1".to_string());
@@ -240,15 +239,16 @@ where
                 return Err(EpsilonOutOfBounds);
             }
 
-            let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
+            let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
+
             let dimensions = f64::from(u32::try_from(B).unwrap());
 
             let noise_params = NoiseParams {
                 epsilon,
                 per_user_credit_cap,
-                ell_1_sensitivity: per_user_credit_cap,
-                ell_2_sensitivity: per_user_credit_cap,
-                ell_infty_sensitivity: per_user_credit_cap,
+                ell_1_sensitivity: f64::from(per_user_credit_cap),
+                ell_2_sensitivity: f64::from(per_user_credit_cap),
+                ell_infty_sensitivity: f64::from(per_user_credit_cap),
                 dimensions,
                 ..Default::default()
             };
@@ -273,22 +273,83 @@ where
             Ok(noisy_histogram)
         }
         DpMechanism::DiscreteLaplace { epsilon } => {
+            let noise_params = NoiseParams {
+                epsilon,
+                per_user_credit_cap: 2_u32.pow(u32::try_from(SS_BITS).unwrap()),
+                ..Default::default()
+            };
+
             let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
-            // A Discrete Laplace distribution is the same as a Double Geometric distribution.
+            // let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
+            // let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
 
-            let s = 1.0 / epsilon;
-            let n = 0;
-            let discret_laplace = DoubleGeometric::new(s, n)?;
-            let mut rng = thread_rng();
-            for i in 0..B {
-                let sample = discret_laplace.sample(&mut rng);
-                // convert sample to AdditiveShare<OV>
-                // add to non_vectorized_outputs[i]
-            }
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass1),
+                non_vectorized_outputs,
+                Role::H1,
+                &noise_params,
+            )?;
 
-            Ok(non_vectorized_outputs)
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass2),
+                noised_output,
+                Role::H2,
+                &noise_params,
+            )?;
+
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass3),
+                noised_output,
+                Role::H3,
+                &noise_params,
+            )?;
+
+            Ok(noised_output)
         }
     }
+}
+
+/// # Errors
+/// will propagate errors from constructing a `truncated_discrete_laplace` distribution.
+pub fn apply_laplace_noise_pass<C, OV, const B: usize>(
+    ctx: &C,
+    mut input: Vec<AdditiveShare<OV>>,
+    excluded_helper: Role,
+    noise_params: &NoiseParams,
+) -> Result<Vec<AdditiveShare<OV>>, Error>
+where
+    C: Context,
+    OV: BooleanArray + U128Conversions,
+{
+    if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
+        // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
+        // and use it to sample the same random Laplace noise sample from TruncatedDoubleGeometric.
+        let (mut left, mut right) = ctx.prss_rng();
+        let rng = match direction_to_excluded_helper {
+            Direction::Left => &mut right,
+            Direction::Right => &mut left,
+        };
+        // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
+        // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
+        let truncated_discret_laplace = OPRFPaddingDp::new(
+            noise_params.epsilon,
+            noise_params.delta,
+            noise_params.per_user_credit_cap,
+        )?;
+        for item in input.iter_mut().take(B) {
+            let sample = truncated_discret_laplace.sample(rng);
+            let sample_shares = match direction_to_excluded_helper {
+                Direction::Left => {
+                    AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(sample)))
+                }
+                Direction::Right => {
+                    AdditiveShare::new(OV::truncate_from(u128::from(sample)), OV::ZERO)
+                }
+            };
+            *item += sample_shares;
+        }
+    }
+    Ok(input)
 }
 
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559
@@ -393,9 +454,9 @@ pub fn find_smallest_num_bernoulli(noise_params: &NoiseParams) -> u32 {
 }
 
 /// for a `NoiseParams` struct will return the mean and standard deviation
-/// of the noise
+/// of the binomial noise
 #[must_use]
-pub fn noise_mean_std(noise_params: &NoiseParams) -> (f64, f64) {
+pub fn binomial_noise_mean_std(noise_params: &NoiseParams) -> (f64, f64) {
     let num_bernoulli = find_smallest_num_bernoulli(noise_params);
     let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
     let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
