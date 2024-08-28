@@ -161,7 +161,11 @@ class IPAShare:
 
     def generate_random_share(share_type: ShareType) -> bytes:
         length = share_type.byte_count()
-        return secrets.token_bytes(length)
+
+        bit_length = share_type.bit_count()
+
+        rand_int = secrets.randbelow(2**bit_length)
+        return rand_int.to_bytes(length, "little")
 
     @classmethod
     def create_shares(
@@ -178,6 +182,9 @@ class IPAShare:
             IPAShare(left=second_share, right=third_share),
             IPAShare(left=third_share, right=first_share),
         )
+
+    def __str__(self) -> str:
+        return f"({self.left})({self.right})"
 
 
 class IPAReport:
@@ -216,6 +223,7 @@ class IPAReport:
             public_key_string,
             self.info.helper_domain,
         )
+
         return (
             self.mk_encap_key_ciphertext
             + encrypted.encrypted_to_bytes()
@@ -251,7 +259,7 @@ def generate_report_per_helper(
             epoch=0,
             event_type=event_type,
             helper_domain=helper_domain,
-            site_domain="www.meta.com",  # TODO: move this to a config or const
+            site_domain=site_domain,
         ),
     ).encrypt(pub_key)
 
@@ -262,6 +270,8 @@ def encrypt_to_file(
     file_out_prefix: str,
     site_domain: str,
     pub_key: str,
+    pub_key2: str,
+    pub_key3: str,
     helper_domain: str,
     verbose=bool,
 ):
@@ -316,7 +326,7 @@ def encrypt_to_file(
                     tv_share=tv_share[1],
                     site_domain=site_domain,
                     event_type=event_type,
-                    pub_key=pub_key,
+                    pub_key=pub_key2,
                     helper_domain=helper_domain,
                 )
             )
@@ -329,7 +339,7 @@ def encrypt_to_file(
                     tv_share=tv_share[2],
                     site_domain=site_domain,
                     event_type=event_type,
-                    pub_key=pub_key,
+                    pub_key=pub_key3,
                     helper_domain=helper_domain,
                 )
             )
@@ -365,6 +375,17 @@ def main():
         required=True,
         help="The public key used for encryption, binary in hex encoding",
     )
+    parser.add_argument(
+        "--pub_key2",
+        required=True,
+        help="The public key for helper2 used for encryption, binary in hex encoding",
+    )
+    parser.add_argument(
+        "--pub_key3",
+        required=True,
+        help="The public key for helper 3used for encryption, binary in hex encoding",
+    )
+
     parser.add_argument(
         "--helper_domain",
         required=False,
@@ -426,6 +447,8 @@ def main():
             args.file_out_prefix,
             args.site_domain,
             args.pub_key,
+            args.pub_key2,
+            args.pub_key3,
             args.helper_domain,
             args.verbose,
         )
