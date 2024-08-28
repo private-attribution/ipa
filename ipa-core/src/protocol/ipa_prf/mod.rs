@@ -458,7 +458,7 @@ pub mod tests {
         const SS_BITS: usize = 1;
         // setting SS_BITS this small will cause clipping in capping
         // since per_user_credit_cap == 2^SS_BITS
-        semi_honest_with_dp_internal::<SS_BITS>();
+        semi_honest_with_dp_internal::<SS_BITS>(DpMechanism::DiscreteLaplace { epsilon: 5.0 });
     }
     #[test]
     fn semi_honest_with_dp_slow() {
@@ -466,10 +466,11 @@ pub mod tests {
         if std::env::var("EXEC_SLOW_TESTS").is_err() {
             return;
         }
-        semi_honest_with_dp_internal::<SS_BITS>();
+        semi_honest_with_dp_internal::<SS_BITS>(DpMechanism::Binomial { epsilon: 10.0 });
     }
 
-    fn semi_honest_with_dp_internal<const SS_BITS: usize>() {
+    fn semi_honest_with_dp_internal<const SS_BITS: usize>(_dp_mechanism: DpMechanism) {
+        // TODO match on DpMechanism but get error if try to move into run
         println!("Running semi_honest_with_dp");
         run(move || async {
             const B: usize = 32; // number of histogram bins
@@ -511,7 +512,7 @@ pub mod tests {
                 dimensions: f64::from(u32::try_from(B).unwrap()),
                 ..Default::default()
             };
-            let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
+            let (mean, std) = crate::protocol::dp::binomial_noise_mean_std(&noise_params);
             println!("In semi_honest_with_dp:  mean = {mean}, standard_deviation = {std}");
             let result_u32: Vec<u32> = result
                 .iter()

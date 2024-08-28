@@ -184,9 +184,8 @@ where
 /// If any of the IPA protocol modules panic
 #[allow(clippy::too_many_lines)]
 #[cfg(feature = "in-memory-infra")]
-pub use crate::protocol::ipa_prf::oprf_padding::insecure;
 
-async fn test_oprf_ipa<F>(
+pub async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
     records: Vec<TestRawDataRecord>,
     expected_results: &[u32],
