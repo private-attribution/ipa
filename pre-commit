@@ -73,10 +73,15 @@ check() {
         res=$?
         echo "-----------------------"
         echo "$msg: FAILED ($res)"
-        echo "  ${*}"
+        if [[ "$BASH_VERSINFO" -ge 4 ]]; then
+            echo " ${@@Q}"
+        fi
         exit $res
     fi
 }
+
+check "Fail fast" \
+    python fail_fast.py --foo "bar"
 
 check "Benchmark compilation" \
     cargo build --benches --no-default-features --features "enable-benches compact-gate"
