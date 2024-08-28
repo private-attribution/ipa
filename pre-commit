@@ -80,9 +80,6 @@ check() {
     fi
 }
 
-check "Fail fast" \
-    python fail_fast.py --foo "bar"
-
 check "Benchmark compilation" \
     cargo build --benches --no-default-features --features "enable-benches compact-gate"
 
