@@ -115,7 +115,7 @@ pub fn validate_dp(expected: Vec<u32>, actual: Vec<u32>, epsilon: f64, per_user_
             ..Default::default()
         };
 
-        let (mean, std) = crate::protocol::dp::noise_mean_std(&noise_params);
+        let (mean, std) = crate::protocol::dp::binomial_noise_mean_std(&noise_params);
         let same = actual_expect_f64 - mean > next_expected_f64 - 10.0 * std
             && actual_expect_f64 - mean < next_expected_f64 + 10.0 * std;
 

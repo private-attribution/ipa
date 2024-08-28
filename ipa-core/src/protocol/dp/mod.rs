@@ -257,7 +257,7 @@ where
             let epsilon = noise_params.epsilon;
             let delta = noise_params.delta;
             tracing::info!(
-                "In dp_for_histogram: \
+                "In dp_for_histogram with Binomial noise: \
                 epsilon = {epsilon}, \
                 delta = {delta}, \
                 num_breakdowns (dimension) = {dimensions}, \
@@ -278,6 +278,23 @@ where
                 per_user_credit_cap: 2_u32.pow(u32::try_from(SS_BITS).unwrap()),
                 ..Default::default()
             };
+
+            let truncated_discret_laplace = OPRFPaddingDp::new(
+                noise_params.epsilon,
+                noise_params.delta,
+                noise_params.per_user_credit_cap,
+            )?;
+            let (mean, _) = truncated_discret_laplace.mean_and_std_bound();
+            tracing::info!(
+                "In dp_for_histogram with Truncated Discrete Laplace noise: \
+                epsilon = {epsilon}, \
+                delta = {}, \
+                per_user_credit_cap = {}, \
+                noise mean (including all three pairs of noise) = {}",
+                noise_params.delta,
+                noise_params.per_user_credit_cap,
+                mean * 3.0,
+            );
 
             let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
             // let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
