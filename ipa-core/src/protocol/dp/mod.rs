@@ -3,7 +3,7 @@ pub mod step;
 use std::f64;
 
 use futures_util::{stream, StreamExt};
-use rand::thread_rng;
+use rand::{distributions::Distribution, thread_rng};
 
 use crate::{
     error::{Error, Error::EpsilonOutOfBounds, LengthError},
@@ -13,7 +13,10 @@ use crate::{
         boolean::step::ThirtyTwoBitStep,
         context::Context,
         dp::step::DPStep,
-        ipa_prf::{aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add},
+        ipa_prf::{
+            aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add,
+            oprf_padding::distributions::DoubleGeometric,
+        },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
     },
@@ -277,7 +280,11 @@ where
             let n = 0;
             let discret_laplace = DoubleGeometric::new(s, n)?;
             let mut rng = thread_rng();
-            let sample = discret_laplace.sample(rng);
+            for i in 0..B {
+                let sample = discret_laplace.sample(&mut rng);
+                // convert sample to AdditiveShare<OV>
+                // add to non_vectorized_outputs[i]
+            }
 
             Ok(non_vectorized_outputs)
         }
