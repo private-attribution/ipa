@@ -75,6 +75,8 @@ check() {
         echo "$msg: FAILED ($res)"
         if [[ "$BASH_VERSINFO" -ge 4 ]]; then
             echo " ${@@Q}"
+        else
+            echo "$*"
         fi
         exit $res
     fi
