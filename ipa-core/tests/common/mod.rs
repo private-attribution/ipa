@@ -93,12 +93,18 @@ pub trait CommandExt {
 }
 
 impl CommandExt for Command {
+    // Have the `silent` function return self and comment out the
+    // rest of the function to see printing from tests that run all
+    // the binaries. e.g. when running: `cargo test --test compact_gate --lib
+    // compact_gate_cap_8_no_window_semi_honest -p ipa-core --no-default-features
+    // --features "cli web-app real-world-infra test-fixture compact-gate"`
     fn silent(&mut self) -> &mut Self {
         if std::env::var("VERBOSE").ok().is_none() {
             self.arg("--quiet")
         } else {
             self.arg("-vv")
         }
+        // return self;
     }
 }
 

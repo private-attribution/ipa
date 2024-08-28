@@ -21,6 +21,7 @@ track_steps!(
             prf_sharding::step,
             shuffle::step,
             aggregation::step,
+            oprf_padding::step,
             step,
         },
         dp::step,

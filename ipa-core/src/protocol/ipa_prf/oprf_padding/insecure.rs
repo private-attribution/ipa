@@ -9,6 +9,8 @@ use crate::protocol::ipa_prf::oprf_padding::distributions::{
     BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric,
 };
 
+pub type DpError = Error;
+
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
     #[error("Epsilon value must be greater than {}, got {0}", f64::MIN_POSITIVE)]
@@ -176,7 +178,7 @@ fn right_hand_side(n: u32, big_delta: u32, epsilon: f64) -> f64 {
 fn find_smallest_n(big_delta: u32, epsilon: f64, small_delta: f64) -> u32 {
     // for a fixed set of DP parameters, finds the smallest n that satisfies equation (11)
     // of https://arxiv.org/pdf/2110.08177.pdf.  This gives the narrowest TruncatedDoubleGeometric
-    // that will satisify the disired DP parameters.
+    // that will satisfy the desired DP parameters.
     for n in big_delta.. {
         if small_delta >= right_hand_side(n, big_delta, epsilon) {
             return n;
@@ -187,6 +189,8 @@ fn find_smallest_n(big_delta: u32, epsilon: f64, small_delta: f64) -> u32 {
 
 impl OPRFPaddingDp {
     // See dp/README.md
+    /// # Errors
+    /// will return errors if invalid DP parameters are provided.
     pub fn new(new_epsilon: f64, new_delta: f64, new_sensitivity: u32) -> Result<Self, Error> {
         // make sure delta and epsilon are in range, i.e. >min and delta<1-min
         if new_epsilon < f64::MIN_POSITIVE {
@@ -200,7 +204,7 @@ impl OPRFPaddingDp {
             return Err(Error::BadSensitivity(new_sensitivity));
         }
 
-        // compute smallest shift needed to achieve this delta
+        // compute the smallest shift needed to achieve this delta
         let smallest_n = find_smallest_n(new_sensitivity, new_epsilon, new_delta);
 
         Ok(Self {
@@ -218,10 +222,24 @@ impl OPRFPaddingDp {
     pub fn sample<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
         self.truncated_double_geometric.sample(rng)
     }
+
+    /// Returns the mean and an upper bound on the standard deviation of the `OPRFPaddingDp` distribution
+    /// The upper bound is valid if the standard deviation is greater than 1.
+    /// see `oprf_padding/README.md`
+    #[must_use]
+    pub fn mean_and_std_bound(&self) -> (f64, f64) {
+        let mean = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let s = 1.0 / self.epsilon;
+        let p = 1.0 - E.powf(-1.0 / s);
+        let std_bound = (2.0 * (1.0 - p) / pow_u32(p, 2)).sqrt();
+        (mean, std_bound)
+    }
 }
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::collections::BTreeMap;
+
     use proptest::{prelude::ProptestConfig, proptest};
     use rand::{rngs::StdRng, thread_rng, Rng};
     use rand_core::SeedableRng;
@@ -408,11 +426,21 @@ mod test {
     }
     #[test]
     fn test_oprf_padding_dp() {
-        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6, 10);
+        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6, 10).unwrap();
 
         let mut rng = rand::thread_rng();
 
-        oprf_padding.unwrap().sample(&mut rng);
+        let num_samples = 1000;
+        let mut count_sample_values: BTreeMap<u32, u32> = BTreeMap::new();
+
+        for _ in 0..num_samples {
+            let sample = oprf_padding.sample(&mut rng);
+            let sample_count = count_sample_values.entry(sample).or_insert(0);
+            *sample_count += 1;
+        }
+        for (sample, count) in &count_sample_values {
+            println!("A sample value equal to {sample} occurred {count} time(s)",);
+        }
     }
     fn test_oprf_padding_dp_constructor() {
         let mut actual = OPRFPaddingDp::new(-1.0, 1e-6, 10); // (epsilon, delta, sensitivity)
