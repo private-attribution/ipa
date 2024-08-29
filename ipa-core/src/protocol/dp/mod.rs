@@ -5,6 +5,7 @@ use std::f64;
 use futures_util::{stream, StreamExt};
 
 use crate::{
+    error,
     error::{Error, Error::EpsilonOutOfBounds, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{query::DpMechanism, Direction, Role, TotalRecords},
@@ -20,6 +21,7 @@ use crate::{
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
+        replicated,
         replicated::{
             semi_honest::{AdditiveShare as Replicated, AdditiveShare},
             ReplicatedSecretSharing,
@@ -300,47 +302,54 @@ where
                 OV::BITS,
             );
 
-            let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
+            // let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
             // let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
             // let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
 
             let noised_output = apply_laplace_noise_pass::<C, OV, B>(
                 &ctx.narrow(&DPStep::LaplacePass1),
-                non_vectorized_outputs,
+                histogram_bin_values,
                 Role::H1,
                 &noise_params,
-            )?;
+            )
+            .await?;
 
-            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-            //     &ctx.narrow(&DPStep::LaplacePass2),
-            //     noised_output,
-            //     Role::H2,
-            //     &noise_params,
-            // )?;
-            //
-            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-            //     &ctx.narrow(&DPStep::LaplacePass3),
-            //     noised_output,
-            //     Role::H3,
-            //     &noise_params,
-            // )?;
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass2),
+                noised_output,
+                Role::H2,
+                &noise_params,
+            )
+            .await?;
 
-            Ok(noised_output)
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass3),
+                noised_output,
+                Role::H3,
+                &noise_params,
+            )
+            .await?;
+
+            Ok(Vec::transposed_from(&noised_output)?)
         }
     }
 }
 
 /// # Errors
 /// will propagate errors from constructing a `truncated_discrete_laplace` distribution.
-pub fn apply_laplace_noise_pass<C, OV, const B: usize>(
+pub async fn apply_laplace_noise_pass<C, OV, const B: usize>(
     ctx: &C,
-    mut input: Vec<AdditiveShare<OV>>,
+    mut histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
     excluded_helper: Role,
     noise_params: &NoiseParams,
-) -> Result<Vec<AdditiveShare<OV>>, Error>
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: Context,
     OV: BooleanArray + U128Conversions,
+    Boolean: Vectorizable<B> + FieldSimd<B>,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
+    Vec<Replicated<OV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
         // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
@@ -357,30 +366,48 @@ where
             noise_params.delta,
             noise_params.per_user_credit_cap,
         )?;
-        // for item in input.iter_mut().take(B) {
-        #[deny(clippy::pedantic)]
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..B {
+        let mut noise_values = vec![];
+        let mut zeros = vec![];
+        // sample in the clear to get a vector of
+
+        for _i in 0..B {
             let sample = truncated_discrete_laplace.sample(rng);
-            println!("Role is {:?}, i = {i}, sample = {sample}", ctx.role());
-            let sample_shares = match direction_to_excluded_helper {
-                Direction::Left => {
-                    AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(sample)))
-                }
-                Direction::Right => {
-                    AdditiveShare::new(OV::truncate_from(u128::from(sample)), OV::ZERO)
-                }
-            };
-            // *item += sample_shares;
-            println!(
-                "input[{i}] = {:?}, sample_shares = {:?}",
-                input[i], sample_shares
-            );
-            input[i] += sample_shares;
-            println!("after adding: input[{i}] = {:?}", input[i]);
+            noise_values.push(sample);
+            zeros.push(0_u32);
         }
+        let noise_vec_vectorized = vectorize_input::<B>(OV::BITS as usize, noise_values.as_slice());
+        let zeros_vectorized = vectorize_input::<B>(OV::BITS as usize, zeros.as_slice());
+
+        let noise_shares_vectorized = match direction_to_excluded_helper {
+            Direction::Left => AdditiveShare::new_arr(zeros_vectorized, noise_vec_vectorized),
+            Direction::Right => AdditiveShare::new_arr(noise_vec_vectorized, zeros_vectorized),
+        };
+
+        //  Add DP noise to output values
+        let apply_noise_ctx = ctx
+            .narrow(&DPStep::ApplyNoise)
+            .set_total_records(TotalRecords::ONE);
+        let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
+            apply_noise_ctx,
+            RecordId::FIRST,
+            &noise_shares_vectorized,
+            &histogram_bin_values,
+        )
+        .await
+        .unwrap();
+        return Ok(histogram_noised);
     }
-    Ok(input)
+    Ok(histogram_bin_values)
+}
+
+fn vectorize_input<const B: usize>(
+    bit_width: usize,
+    values: &[u32],
+) -> BitDecomposed<[Boolean; B]> {
+    let values = <&[u32; B]>::try_from(values).unwrap();
+    BitDecomposed::decompose(bit_width, |i| {
+        values.map(|v| Boolean::from((v >> i) & 1 == 1))
+    })
 }
 
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559
@@ -664,15 +691,7 @@ mod test {
             );
         }
     }
-    fn vectorize_input<const B: usize>(
-        bit_width: usize,
-        values: &[u32],
-    ) -> BitDecomposed<[Boolean; B]> {
-        let values = <&[u32; B]>::try_from(values).unwrap();
-        BitDecomposed::decompose(bit_width, |i| {
-            values.map(|v| Boolean::from((v >> i) & 1 == 1))
-        })
-    }
+
     // Tests for gen_binomial_noise
     #[tokio::test]
     pub async fn gen_binomial_noise_16_breakdowns() {
