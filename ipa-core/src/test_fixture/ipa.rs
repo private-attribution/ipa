@@ -297,7 +297,7 @@ pub async fn test_oprf_ipa<F>(
                 OPRFPaddingDp::new(epsilon, 1e-6, config.per_user_credit_cap).unwrap();
 
             let (mean, std_bound) = truncated_discrete_laplace.mean_and_std_bound();
-            assert!(std_bound > 1.0); // bound on the std only holds if this is true.
+            assert!(std_bound > 1.0, "in test_oprf_ipa, std_bound = {std_bound}"); // bound on the std only holds if this is true.
             let tolerance_factor = 12.0;
             println!(
                 "mean = {mean}, std_bound = {std_bound}, {tolerance_factor} * std_bound = {}",

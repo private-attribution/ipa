@@ -284,16 +284,20 @@ where
                 noise_params.delta,
                 noise_params.per_user_credit_cap,
             )?;
+
+            assert!((epsilon - noise_params.epsilon).abs() < 0.001);
             let (mean, _) = truncated_discret_laplace.mean_and_std_bound();
             tracing::info!(
                 "In dp_for_histogram with Truncated Discrete Laplace noise: \
                 epsilon = {epsilon}, \
                 delta = {}, \
                 per_user_credit_cap = {}, \
-                noise mean (including all three pairs of noise) = {}",
+                noise mean (including all three pairs of noise) = {}, \
+                OV::BITS = {}",
                 noise_params.delta,
                 noise_params.per_user_credit_cap,
                 mean * 3.0,
+                OV::BITS,
             );
 
             let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
@@ -307,19 +311,19 @@ where
                 &noise_params,
             )?;
 
-            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-                &ctx.narrow(&DPStep::LaplacePass2),
-                noised_output,
-                Role::H2,
-                &noise_params,
-            )?;
-
-            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-                &ctx.narrow(&DPStep::LaplacePass3),
-                noised_output,
-                Role::H3,
-                &noise_params,
-            )?;
+            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+            //     &ctx.narrow(&DPStep::LaplacePass2),
+            //     noised_output,
+            //     Role::H2,
+            //     &noise_params,
+            // )?;
+            //
+            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+            //     &ctx.narrow(&DPStep::LaplacePass3),
+            //     noised_output,
+            //     Role::H3,
+            //     &noise_params,
+            // )?;
 
             Ok(noised_output)
         }
@@ -348,13 +352,17 @@ where
         };
         // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
         // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
-        let truncated_discret_laplace = OPRFPaddingDp::new(
+        let truncated_discrete_laplace = OPRFPaddingDp::new(
             noise_params.epsilon,
             noise_params.delta,
             noise_params.per_user_credit_cap,
         )?;
-        for item in input.iter_mut().take(B) {
-            let sample = truncated_discret_laplace.sample(rng);
+        // for item in input.iter_mut().take(B) {
+        #[deny(clippy::pedantic)]
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..B {
+            let sample = truncated_discrete_laplace.sample(rng);
+            println!("Role is {:?}, i = {i}, sample = {sample}", ctx.role());
             let sample_shares = match direction_to_excluded_helper {
                 Direction::Left => {
                     AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(sample)))
@@ -363,7 +371,13 @@ where
                     AdditiveShare::new(OV::truncate_from(u128::from(sample)), OV::ZERO)
                 }
             };
-            *item += sample_shares;
+            // *item += sample_shares;
+            println!(
+                "input[{i}] = {:?}, sample_shares = {:?}",
+                input[i], sample_shares
+            );
+            input[i] += sample_shares;
+            println!("after adding: input[{i}] = {:?}", input[i]);
         }
     }
     Ok(input)
@@ -486,19 +500,81 @@ mod test {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA16, BA32},
+            boolean_array::{BA16, BA32, BA8},
             U128Conversions,
         },
-        protocol::dp::{
-            apply_dp_noise, delta_constraint, epsilon_constraint, error,
-            find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
+        helpers::query::DpMechanism,
+        protocol::{
+            dp::{
+                apply_dp_noise, delta_constraint, dp_for_histogram, epsilon_constraint, error,
+                find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
+            },
+            ipa_prf::oprf_padding::insecure::OPRFPaddingDp,
         },
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
+            TransposeFrom,
         },
         telemetry::metrics::BYTES_SENT,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
+
+    /// Test for discrete truncated laplace
+    // pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
+    //     ctx: C,
+    //     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
+    //     dp_params: DpMechanism,
+    // ) -> Result<Vec<Replicated<OV>>, Error>
+    #[tokio::test]
+    pub async fn test_laplace_noise() {
+        type OV = BA8;
+        const NUM_BREAKDOWNS: u32 = 16;
+        const SS_BITS: usize = 3;
+        let epsilon = 2.0;
+        let dp_params = DpMechanism::DiscreteLaplace { epsilon };
+        let world = TestWorld::default();
+        // let input_values = [10000, 8, 6, 41, 0, 0, 0, 0, 10, 8, 6, 41, 0, 0, 0, 0];
+        // let input_values = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // let input_values = [1, 1, 1, 1,1, 1, 1, 1,1, 1, 1, 1,1, 1, 1, 1];
+        let input_values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+        let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> =
+            vectorize_input(OV::BITS as usize, &input_values); // bit_width passed here needs to match OV::BITS
+        let result = world
+            .upgraded_semi_honest(input, |ctx, input| async move {
+                dp_for_histogram::<_, { NUM_BREAKDOWNS as usize }, OV, SS_BITS>(
+                    ctx, input, dp_params,
+                )
+                .await
+                .unwrap()
+            })
+            .await;
+        let result_reconstructed: Vec<OV> = result.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed
+            .iter()
+            .map(|&v| u32::try_from(v.as_u128()).unwrap())
+            .collect::<Vec<_>>();
+        let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
+        let truncated_discrete_laplace = OPRFPaddingDp::new(epsilon, 1e-6, per_user_credit_cap);
+        let (mean, std) = truncated_discrete_laplace.unwrap().mean_and_std();
+        assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
+        let tolerance_factor = 20.0;
+        for i in 0..result_u32.len() {
+            println!(
+                "i = {i}, original = {}, with noise is = {}",
+                f64::from(input_values[i]),
+                f64::from(result_u32[i])
+            );
+            assert!(
+                f64::from(result_u32[i]) - f64::from(input_values[i])
+                    > mean - tolerance_factor * std
+                    && f64::from(result_u32[i]) - f64::from(input_values[i])
+                    < mean + tolerance_factor * std
+                , "test failed because noised result is more than {tolerance_factor} standard deviations of the noise distribution \
+                from the original input values. This will fail with a small chance of failure"
+            );
+        }
+    }
 
     #[test]
     fn test_epsilon_simple_aggregation_case() {

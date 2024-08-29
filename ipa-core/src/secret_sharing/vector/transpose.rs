@@ -607,6 +607,7 @@ impl_transpose_shares_bool_to_ba!(BA256, 256, 256, test_transpose_shares_bool_to
 // Usage: Aggregation output. M = HV bits, N = number of breakdowns.
 // (for feature_label_dot_product, N = number of features)
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 256, test_transpose_shares_bool_to_ba_8x256);
+
 impl_transpose_shares_bool_to_ba!(BA16, 16, 256, test_transpose_shares_bool_to_ba_16x256);
 impl_transpose_shares_bool_to_ba!(BA16, 16, 32, test_transpose_shares_bool_to_ba_16x32);
 impl_transpose_shares_bool_to_ba!(BA32, 32, 256, test_transpose_shares_bool_to_ba_32x256);
@@ -619,6 +620,9 @@ impl_transpose_shares_bool_to_ba_small!(BA8, 8, 8, test_transpose_shares_bool_to
 
 // Usage: Binomial Noise Gen
 impl_transpose_shares_bool_to_ba!(BA16, 16, 16, test_transpose_shares_bool_to_ba_16x16);
+
+// Usage: to support OutputValue (HV) of BA8 while having 16 breakdowns
+impl_transpose_shares_bool_to_ba_small!(BA8, 8, 16, test_transpose_shares_bool_to_ba_8x16);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<BA<N>>; M]` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.

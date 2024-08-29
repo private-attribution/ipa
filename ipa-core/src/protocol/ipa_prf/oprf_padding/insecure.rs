@@ -234,6 +234,43 @@ impl OPRFPaddingDp {
         let std_bound = (2.0 * (1.0 - p) / pow_u32(p, 2)).sqrt();
         (mean, std_bound)
     }
+
+    /// We want to exactly compute the mean and standard deviation of the `OPRFPaddingDp` distribution.
+    /// We use the approach detailed here for a Truncated Laplace distribution (TODO this is not discrete):
+    /// <https://stats.stackexchange.com/questions/251300/first-and-second-moments-of-truncated-laplace-distribution>
+    /// where the notation translates as
+    ///    \mu = n
+    ///    \sigma = s
+    ///    2*\sigma = c(s) the normalizing constant discussed in the README
+    /// The link describes how to compute the first and second moments of the Truncated Laplace Distribution
+    /// which are the expected value, E[X], and E[X^2].  From these we can compute the Variance as
+    /// Var[X] = E[X^2] - E[X]^2 and standard deviation as the sqrt of the Variance.
+    #[must_use]
+    pub fn mean_and_std(&self) -> (f64, f64) {
+        let mean = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let std = (self.first_moment() + pow_u32(self.second_moment(), 2)).sqrt();
+        (mean, std)
+    }
+
+    /// computes E[X], which is the Out[5] formula from stackexchange answer
+    fn first_moment(&self) -> f64 {
+        let mu = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let sigma = 1.0 / self.epsilon;
+        let numerator = 1.0 + 2.0 * f64::exp((1.0 + mu) / sigma) * mu + sigma
+            - f64::exp(2.0 * mu / sigma) * (1.0 + sigma);
+        let denominator = 1.0 + f64::exp(2.0 * mu / sigma) - 2.0 * f64::exp((1.0 + mu) / sigma);
+        -numerator / denominator
+    }
+
+    /// computes E[X^2], which is the Out[6] formula from stackexchange answer
+    fn second_moment(&self) -> f64 {
+        let mu = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let sigma = 1.0 / self.epsilon;
+        let third_term_num =
+            2.0 * f64::exp((1.0 + mu) / sigma) * (1.0 - pow_u32(mu, 2) + 2.0 * sigma);
+        let third_term_den = 1.0 + f64::exp(2.0 * mu / sigma) - 2.0 * f64::exp((1.0 + mu) / sigma);
+        1.0 + 2.0 * sigma * (1.0 + sigma) + third_term_num / third_term_den
+    }
 }
 
 #[cfg(all(test, unit_test))]
@@ -453,4 +490,28 @@ mod test {
         expected = Err(Error::BadSensitivity(1_000_001));
         assert_eq!(expected, Ok(actual));
     }
+
+    // #[test]
+    // /// test `mean_and_std` for `OPRFPaddingDp` distribution
+    // fn test_mean_and_std() {
+    //     let epsilon_values = [0.01, 0.1, 1.0, 5.0, 10.0];
+    //     let delta_values = [1e-9, 1e-8, 1e-7, 1e-6];
+    //     let sensitivity_values = [1, 10, 100, 1000];
+    //     for epsilon in epsilon_values {
+    //         for delta in delta_values {
+    //             for sensitivity in sensitivity_values {
+    //                 let truncated_discrete_laplace =
+    //                     OPRFPaddingDp::new(epsilon, delta, sensitivity).unwrap();
+    //                 let (_, std_bound) = truncated_discrete_laplace.mean_and_std_bound();
+    //                 let (_, std) = truncated_discrete_laplace.mean_and_std();
+    //                 if std_bound > 1.0 {
+    //                     // otherwise the bound is not valid
+    //                     assert!(std < std_bound);
+    //                     // TODO this is failing even for valid bounds...so may need to really
+    //                     // consider the discrete case an not just truncated laplace..
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }

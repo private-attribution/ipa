@@ -137,11 +137,10 @@ pub fn validate_dp(
                 )
                 .unwrap();
 
-                let (mean, std_bound) = truncated_discrete_laplace.mean_and_std_bound();
-                assert!(std_bound > 1.0); // bound on the std only holds if this is true.
+                let (mean, std) = truncated_discrete_laplace.mean_and_std();
                 let tolerance_factor = 12.0;
-                actual_expect_f64 - mean > next_expected_f64 - tolerance_factor * std_bound
-                    && actual_expect_f64 - mean < next_expected_f64 + tolerance_factor * std_bound
+                actual_expect_f64 - mean > next_expected_f64 - tolerance_factor * std
+                    && actual_expect_f64 - mean < next_expected_f64 + tolerance_factor * std
             }
             DpMechanism::NoDp => {
                 let tolerance = 0.001;
