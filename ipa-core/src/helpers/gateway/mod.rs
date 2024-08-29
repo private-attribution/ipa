@@ -4,7 +4,10 @@ mod send;
 pub(super) mod stall_detection;
 mod transport;
 
-use std::num::NonZeroUsize;
+use std::{
+    cmp::{max, min},
+    num::NonZeroUsize,
+};
 
 pub(super) use receive::{MpcReceivingEnd, ShardReceivingEnd};
 pub(super) use send::SendingEnd;
@@ -20,6 +23,7 @@ use crate::{
             send::GatewaySenders,
             transport::Transports,
         },
+        query::QueryConfig,
         HelperChannelId, LogErrors, Message, MpcMessage, RecordsStream, Role, RoleAssignment,
         ShardChannelId, TotalRecords, Transport,
     },
@@ -98,6 +102,7 @@ impl Gateway {
         mpc_transport: MpcTransportImpl,
         shard_transport: ShardTransportImpl,
     ) -> Self {
+        tracing::info!("active_work = {}", config.active);
         #[allow(clippy::useless_conversion)] // not useless in stall-detection build
         Self {
             query_id,
@@ -253,6 +258,26 @@ impl GatewayConfig {
     #[must_use]
     pub fn active_work(&self) -> NonZeroUsize {
         self.active
+    }
+
+    /// # Panics
+    /// If 2 == 0.
+    pub fn set_active_work_from_query_config(&mut self, value: &QueryConfig) {
+        // Minimum size for active work is 2 because:
+        // * `UnorderedReceiver` wants capacity to be greater than 1
+        // * 1 is better represented by not using seq_join and/or indeterminate total records
+        let active = max(
+            2,
+            min(
+                Self::default().active.get(),
+                // It makes sense to start with active work set to input size, but some protocols
+                // may want to change that, if their fanout factor per input row is greater than 1.
+                // we don't have capabilities (see #ipa/1171) to allow that currently.
+                usize::from(value.size),
+            ),
+        );
+        // we set active to be at least 2, so unwrap is fine.
+        self.active = NonZeroUsize::new(active).unwrap();
     }
 }
 
