@@ -1,45 +1,44 @@
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::mem;
-use std::num::{NonZeroU64, NonZeroUsize};
+
 use hashbrown::hash_map::RawEntryMut;
-use rustc_hash::{FxBuildHasher, FxHasher};
-use crate::key::OwnedMetricName;
-use crate::kind::CounterValue;
-use crate::MetricName;
+use rustc_hash::FxBuildHasher;
+
+use crate::{key::OwnedMetricName, kind::CounterValue, MetricName};
 
 /// A basic store. Currently only supports counters.
 #[derive(Default)]
 struct Store {
-    counters: hashbrown::HashMap<OwnedMetricName, CounterValue, FxBuildHasher>
+    counters: hashbrown::HashMap<OwnedMetricName, CounterValue, FxBuildHasher>,
 }
 
-
 impl Store {
-    pub fn counter<const LABELS: usize, N: Into<MetricName<LABELS>>>(&mut self, key: N) -> CounterHandle<'_, LABELS> {
+    pub fn counter<const LABELS: usize, N: for<'a> Into<MetricName<'a, LABELS>>>(
+        &mut self,
+        key: N,
+    ) -> CounterHandle<'_, LABELS> {
         let key = key.into();
         let hash = compute_hash(self.counters.hasher(), &key);
-        let entry= self.counters.raw_entry_mut().from_hash(hash, |key_found| key_found.eq(&key));
+        let entry = self
+            .counters
+            .raw_entry_mut()
+            .from_hash(hash, |key_found| key_found.eq(&key));
         match entry {
-            RawEntryMut::Occupied(slot) => {
-                CounterHandle {
-                    val: slot.into_mut()
-                }
-            }
+            RawEntryMut::Occupied(slot) => CounterHandle {
+                val: slot.into_mut(),
+            },
             RawEntryMut::Vacant(slot) => {
                 let (_, val) = slot.insert_hashed_nocheck(hash, key.to_owned(), Default::default());
-                CounterHandle {
-                    val
-                }
+                CounterHandle { val }
             }
         }
     }
 }
 
 struct CounterHandle<'a, const LABELS: usize> {
-    val: &'a mut CounterValue
+    val: &'a mut CounterValue,
 }
 
-impl <const LABELS: usize> CounterHandle<'_, LABELS> {
+impl<const LABELS: usize> CounterHandle<'_, LABELS> {
     pub fn inc(&mut self, inc: CounterValue) {
         *self.val += inc;
     }
@@ -57,7 +56,7 @@ fn compute_hash<B: BuildHasher, K: Hash + ?Sized>(hash_builder: &B, key: &K) -> 
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU64;
+
     use crate::store::Store;
 
     #[test]
