@@ -10,9 +10,7 @@ considers their use for d-dimension queries (such as we will need for WALR).
 
 To achieve a desired $(\varepsilon, \delta)$-DP guarantee, we generate $num\\_bernoulli$ secret shared samples of a 
 Bernoulli having probability $0.5$ using PRSS.  Next we aggregate them to get a Binomial sample. The result of the 2018 
-paper above is that for small epsilon (TODO, how small required?), we require the following number of samples:
-
-$$ num\\_bernoulli \geq \frac{8 \log \left( \frac{2}{\delta}\right)}{\varepsilon^2}$$
+paper above is that for small epsilon.
 
 This [spreadsheet](https://docs.google.com/spreadsheets/d/1sMgqkMw3-yNBp6f8ctyv4Hdfx9Ei7muj0ZhP9i1DHrw/edit#gid=0) 
 looks at the calculation for different parameter choices and confirms that this approach does lead to a better final 
