@@ -62,6 +62,8 @@ pub enum Error {
     ShardInfraError(#[from] crate::helpers::Error<ShardIndex>),
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
+    #[error("The field element size is too small: {0}")]
+    FieldConversion(String),
     #[error("Invalid query parameter: {0}")]
     InvalidQueryParameter(BoxError),
     #[error("invalid report: {0}")]

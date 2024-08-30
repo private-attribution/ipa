@@ -266,7 +266,7 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
+                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable, Gf32Bit},
                 impl_shared_value_common,
                 secret_sharing::{
                     replicated::semi_honest::{BAASIterator, AdditiveShare},
@@ -497,6 +497,28 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            /// This function converts an `BA` type into a vector of `32 bit` Galois field elements.
+            ///
+            /// ##Errors
+            /// Outputs an error when conversion from raw slice to Galois field element fails.
+            impl TryFrom<$name> for Vec<Gf32Bit> {
+                type Error = crate::error::Error;
+
+                fn try_from(value: $name) -> Result<Self, Self::Error> {
+                    // len() returns bits, so divide by 8
+                    // further divide by 4 since Gf32Bit has 4 byte
+                    // add 31 to round up
+                    let length = (value.0.len() + 31) / 32;
+                    let mut chunks = Vec::<Gf32Bit>::with_capacity(length);
+                    let last_chunk_start = length-1;
+                    for i in 0..last_chunk_start {
+                        chunks.push(Gf32Bit::try_from(&value.0.as_raw_slice()[4 * i..4 * (i + 1)])?);
+                    }
+                    chunks.push(Gf32Bit::try_from(&value.0.as_raw_slice()[4 * last_chunk_start..])?);
+                    Ok(chunks)
+                }
+            }
+
             impl SharedValueArray<Boolean> for $name {
                 const ZERO_ARRAY: Self = <$name as SharedValue>::ZERO;
 
@@ -655,6 +677,23 @@ macro_rules! boolean_array_impl {
                     let mut ba = rng.gen::<$name>();
                     ba.set(i, a);
                     assert_eq!(ba.get(i), Some(a));
+                }
+
+                #[test]
+                fn convert_to_galois_field(){
+                    let mut rng = thread_rng();
+                    let ba = rng.gen::<$name>();
+                    let mut vec = ba.as_raw_slice().to_vec();
+                    // append with zeros when necessary
+                    for _ in 0..(4-vec.len()%4)%4 {
+                        vec.push(0u8);
+                    }
+                    let converted = <Vec<Gf32Bit>>::try_from(ba).unwrap();
+                    for (i,element) in converted.iter().enumerate() {
+                        let temp = element.as_raw_slice().to_vec();
+                        assert_eq!(vec[4*i..4*(i+1)],temp);
+                    }
+
                 }
 
                 proptest! {

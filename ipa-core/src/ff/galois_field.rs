@@ -3,7 +3,10 @@ use std::{
     ops::Index,
 };
 
-use bitvec::prelude::{bitarr, BitArr, Lsb0};
+use bitvec::{
+    array::BitArray,
+    prelude::{bitarr, BitArr, Lsb0},
+};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
@@ -133,7 +136,7 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $deser_type: tt, $({$($extra:item)*})? ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $bytes:expr, $one:expr, $polynomial:expr, $deser_type: tt, $({$($extra:item)*})? ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -150,6 +153,15 @@ macro_rules! bit_array_impl {
             impl Default for $name {
                 fn default() -> Self {
                     Self::ZERO
+                }
+            }
+
+            impl $name {
+
+                #[inline]
+                #[must_use]
+                pub fn as_raw_slice(&self) -> &[u8] {
+                    self.0.as_raw_slice()
                 }
             }
 
@@ -184,6 +196,34 @@ macro_rules! bit_array_impl {
                     const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
                     let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
+                }
+            }
+
+            /// This function generates a Galois field element from a raw slice.
+            /// When the length of the slice is smaller than the byte length
+            /// of an element, the remaining bytes are filled with Zeros.
+            ///
+            /// ## Errors
+            /// Returns an error when the slice is too long.
+            ///
+            /// ## Panics
+            /// Panics when `u32` to `usize` conversion fails
+            impl TryFrom<&[u8]> for $name {
+
+                type Error = crate::error::Error;
+
+                fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+                    if value.len()<=usize::try_from(Self::BITS/8).unwrap() {
+                        let mut bitarray = [0u8;$bytes];
+                        bitarray[0..value.len()].copy_from_slice(value);
+                        Ok($name(BitArray::<[u8;$bytes],Lsb0>::new(bitarray)))
+                    } else {
+                        Err(crate::error::Error::FieldConversion(format!(
+                            "Element bit size {} is too small to hold {} bytes.",
+                            Self::BITS,
+                            value.len()
+                        )))
+                    }
                 }
             }
 
@@ -583,6 +623,22 @@ macro_rules! bit_array_impl {
 
                     assert_eq!(a, $name::deserialize(&buf).unwrap(), "failed to serialize/deserialize {a:?}");
                 }
+
+                #[test]
+                fn element_from_raw_slice(){
+                    // initialize array with 1s
+                    let mut a = [255;$bytes];
+                    for i in (0usize..$bytes).rev() {
+                        // check when inserting elements 0..i
+                        // try_from implementation sets elements i..$bytes to 0
+                        // check whether there are enough bits to insert a byte
+                        if usize::try_from(<$name>::BITS).unwrap() >= (i+1)*8 {
+                            assert_eq!($name(BitArray::<[u8;$bytes],Lsb0>::new(a)),$name::try_from(vec![255u8;i+1].as_slice()).unwrap());
+                        }
+                        // set last element to 0 to be consistent with try_from for next iteration
+                        a[i] = 0;
+                    }
+                }
             }
 
             $( $( $extra )* )?
@@ -597,6 +653,7 @@ bit_array_impl!(
     Gf40Bit,
     U8_5,
     40,
+    5,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^40 + x^5 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128,
@@ -608,6 +665,7 @@ bit_array_impl!(
     Gf32Bit,
     U8_4,
     32,
+    4,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^32 + x^7 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128,
@@ -619,6 +677,7 @@ bit_array_impl!(
     Gf20Bit,
     U8_3,
     20,
+    3,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^20 + x^7 + x^3 + x^2 + 1
     0b1_0000_0000_0000_1000_1101_u128,
@@ -630,6 +689,7 @@ bit_array_impl!(
     Gf8Bit,
     U8_1,
     8,
+    1,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128,
@@ -641,6 +701,7 @@ bit_array_impl!(
     Gf9Bit,
     U8_2,
     9,
+    2,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^9 + x^4 + x^3 + x + 1
     0b10_0001_1011_u128,
@@ -652,6 +713,7 @@ bit_array_impl!(
     Gf3Bit,
     U8_1,
     3,
+    1,
     bitarr!(const u8, Lsb0; 1, 0, 0),
     // x^3 + x + 1
     0b1_011_u128,
@@ -662,6 +724,7 @@ bit_array_impl!(
     bit_array_1,
     Gf2,
     U8_1,
+    1,
     1,
     bitarr!(const u8, Lsb0; 1),
     // x
