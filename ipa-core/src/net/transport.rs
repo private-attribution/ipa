@@ -290,7 +290,7 @@ mod tests {
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::Reconstruct,
-        AppSetup, HelperApp,
+        AppConfig, AppSetup, HelperApp,
     };
 
     static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
@@ -352,7 +352,7 @@ mod tests {
                     } else {
                         get_test_identity(id)
                     };
-                    let (setup, handler) = AppSetup::new();
+                    let (setup, handler) = AppSetup::new(AppConfig::default());
                     let clients = MpcHelperClient::from_conf(network_config, &identity);
                     let (transport, server) = HttpTransport::new(
                         id,
