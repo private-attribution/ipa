@@ -355,10 +355,8 @@ where
         for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
     AdditiveShare<OV>: ReplicatedSecretSharing<OV>,
 {
-    println!(
-        "in apply_laplace_noise_pass. excluded_helper = {:?}",
-        excluded_helper
-    );
+    let mut noise_values = vec![];
+
     if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
         // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
         // and use it to sample the same random Laplace noise sample from TruncatedDoubleGeometric.
@@ -375,13 +373,9 @@ where
             noise_params.delta,
             noise_params.per_user_credit_cap,
         )?;
-        println!("in apply_laplace_noise_pass. setup truncated_discrete_laplace");
 
-        let mut noise_values = vec![];
         for _i in 0..B {
             let sample = truncated_discrete_laplace.sample(rng);
-            println!("for i = {_i}, sample = {sample}");
-
             let sample_shares = match direction_to_excluded_helper {
                 Direction::Left => {
                     AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(sample)))
@@ -392,28 +386,32 @@ where
             };
             noise_values.push(sample_shares);
         }
-        // TODO before we can do integer_add we need the excluded Helper to set its shares to zero
+    } else {
+        //  before we can do integer_add we need the excluded Helper to set its shares to zero
         // for these noise values.
-        let noise_values_array: [AdditiveShare<OV>; B] = TryFrom::try_from(noise_values).unwrap();
-
-        let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
-            BitDecomposed::transposed_from(&noise_values_array).unwrap();
-
-        //  Add DP noise to output values
-        let apply_noise_ctx = ctx
-            .narrow(&ApplyDpNoise::ApplyNoise)
-            .set_total_records(TotalRecords::ONE);
-        let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
-            apply_noise_ctx,
-            RecordId::FIRST,
-            &noise_shares_vectorized,
-            &histogram_bin_values,
-        )
-        .await
-        .unwrap();
-        return Ok(histogram_noised);
+        for _i in 0..B {
+            let sample_shares = AdditiveShare::new(OV::ZERO, OV::ZERO);
+            noise_values.push(sample_shares);
+        }
     }
-    Ok(histogram_bin_values)
+    let noise_values_array: [AdditiveShare<OV>; B] = TryFrom::try_from(noise_values).unwrap();
+
+    let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
+        BitDecomposed::transposed_from(&noise_values_array).unwrap();
+
+    //  Add DP noise to output values
+    let apply_noise_ctx = ctx
+        .narrow(&ApplyDpNoise::ApplyNoise)
+        .set_total_records(TotalRecords::ONE);
+    let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
+        apply_noise_ctx,
+        RecordId::FIRST,
+        &noise_shares_vectorized,
+        &histogram_bin_values,
+    )
+    .await
+    .unwrap();
+    Ok(histogram_noised)
 }
 
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559
