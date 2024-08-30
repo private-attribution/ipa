@@ -90,7 +90,7 @@ mod tests {
     async fn create_test_ipa_no_attr_window() {
         create_test(
             QueryConfig::new(
-                QueryType::OprfIpa(IpaQueryConfig {
+                QueryType::OprfIpaRelaxedDpPadding(IpaQueryConfig {
                     per_user_credit_cap: 1,
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
@@ -110,7 +110,7 @@ mod tests {
     async fn create_test_ipa_no_attr_window_with_dp() {
         create_test(
             QueryConfig::new(
-                QueryType::OprfIpa(IpaQueryConfig {
+                QueryType::OprfIpaRelaxedDpPadding(IpaQueryConfig {
                     per_user_credit_cap: 8,
                     max_breakdown_key: 20,
                     attribution_window_seconds: None,
@@ -131,7 +131,7 @@ mod tests {
         create_test(QueryConfig {
             size: 1.try_into().unwrap(),
             field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::OprfIpa(IpaQueryConfig {
+            query_type: QueryType::OprfIpaRelaxedDpPadding(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
@@ -238,7 +238,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 field_type: format!("{:?}", FieldType::Fp32BitPrime),
-                query_type: QueryType::OPRF_IPA_STR.to_string(),
+                query_type: QueryType::OPRF_IPA_RELAXED_DP_PADDING_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
