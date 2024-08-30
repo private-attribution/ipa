@@ -1,6 +1,7 @@
 // DP in MPC
 pub mod step;
-use std::f64;
+
+use std::{convert::Infallible, f64};
 
 use futures_util::{stream, StreamExt};
 
@@ -232,8 +233,7 @@ where
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
     BitDecomposed<AdditiveShare<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = LengthError>,
-    AdditiveShare<Boolean, B>: ReplicatedSecretSharing<Boolean>,
+        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
 {
     match dp_params {
         DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
@@ -350,8 +350,8 @@ where
     Boolean: Vectorizable<B> + FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     BitDecomposed<AdditiveShare<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = LengthError>,
-    AdditiveShare<Boolean, B>: ReplicatedSecretSharing<Boolean>,
+        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
+    AdditiveShare<OV>: ReplicatedSecretSharing<OV>,
 {
     if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
         // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
@@ -369,10 +369,10 @@ where
             noise_params.per_user_credit_cap,
         )?;
         let mut noise_values = vec![];
-        for i in 0..B {
+        for _i in 0..B {
             let sample = truncated_discrete_laplace.sample(rng);
 
-            let sample_shares: AdditiveShare<OV> = match direction_to_excluded_helper {
+            let sample_shares = match direction_to_excluded_helper {
                 Direction::Left => {
                     AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(sample)))
                 }
@@ -385,21 +385,21 @@ where
         let noise_values_array: [AdditiveShare<OV>; B] = TryFrom::try_from(noise_values).unwrap();
 
         let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
-            BitDecomposed::transposed_from(&noise_values_array)?;
+            BitDecomposed::transposed_from(&noise_values_array).unwrap();
 
         //  Add DP noise to output values
-        let apply_noise_ctx = ctx
-            .narrow(&DPStep::ApplyNoise)
-            .set_total_records(TotalRecords::ONE);
-        let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
-            apply_noise_ctx,
-            RecordId::FIRST,
-            &noise_shares_vectorized,
-            &histogram_bin_values,
-        )
-        .await
-        .unwrap();
-        return Ok(histogram_noised);
+        // let apply_noise_ctx = ctx
+        //     .narrow(&DPStep::ApplyNoise)
+        //     .set_total_records(TotalRecords::ONE);
+        // let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
+        //     apply_noise_ctx,
+        //     RecordId::FIRST,
+        //     &noise_shares_vectorized,
+        //     &histogram_bin_values,
+        // )
+        // .await
+        // .unwrap();
+        // return Ok(histogram_noised);
     }
     Ok(histogram_bin_values)
 }

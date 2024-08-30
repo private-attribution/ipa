@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{convert::Infallible, marker::PhantomData};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
 use futures_util::stream::repeat;
@@ -57,7 +57,7 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
     BitDecomposed<AdditiveShare<Boolean, 256>>:
-        for<'a> TransposeFrom<&'a [AdditiveShare<HV>; 256], Error = LengthError>,
+        for<'a> TransposeFrom<&'a [AdditiveShare<HV>; 256], Error = Infallible>,
 {
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(

@@ -249,8 +249,7 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
     BitDecomposed<AdditiveShare<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [AdditiveShare<HV>; B], Error = LengthError>,
-    AdditiveShare<Boolean, B>: ReplicatedSecretSharing<Boolean>,
+        for<'a> TransposeFrom<&'a [AdditiveShare<HV>; B], Error = Infallible>,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
