@@ -5,7 +5,6 @@ use std::f64;
 use futures_util::{stream, StreamExt};
 
 use crate::{
-    error,
     error::{Error, Error::EpsilonOutOfBounds, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{query::DpMechanism, Direction, Role, TotalRecords},
@@ -21,7 +20,6 @@ use crate::{
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated,
         replicated::{
             semi_honest::{AdditiveShare as Replicated, AdditiveShare},
             ReplicatedSecretSharing,
@@ -233,6 +231,9 @@ where
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    BitDecomposed<AdditiveShare<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = LengthError>,
+    AdditiveShare<Boolean, B>: ReplicatedSecretSharing<Boolean>,
 {
     match dp_params {
         DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
@@ -339,7 +340,7 @@ where
 /// will propagate errors from constructing a `truncated_discrete_laplace` distribution.
 pub async fn apply_laplace_noise_pass<C, OV, const B: usize>(
     ctx: &C,
-    mut histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
+    histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
     excluded_helper: Role,
     noise_params: &NoiseParams,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
@@ -348,8 +349,9 @@ where
     OV: BooleanArray + U128Conversions,
     Boolean: Vectorizable<B> + FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
-    Vec<Replicated<OV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    BitDecomposed<AdditiveShare<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = LengthError>,
+    AdditiveShare<Boolean, B>: ReplicatedSecretSharing<Boolean>,
 {
     if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
         // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
@@ -367,21 +369,23 @@ where
             noise_params.per_user_credit_cap,
         )?;
         let mut noise_values = vec![];
-        let mut zeros = vec![];
-        // sample in the clear to get a vector of
-
-        for _i in 0..B {
+        for i in 0..B {
             let sample = truncated_discrete_laplace.sample(rng);
-            noise_values.push(sample);
-            zeros.push(0_u32);
-        }
-        let noise_vec_vectorized = vectorize_input::<B>(OV::BITS as usize, noise_values.as_slice());
-        let zeros_vectorized = vectorize_input::<B>(OV::BITS as usize, zeros.as_slice());
 
-        let noise_shares_vectorized = match direction_to_excluded_helper {
-            Direction::Left => AdditiveShare::new_arr(zeros_vectorized, noise_vec_vectorized),
-            Direction::Right => AdditiveShare::new_arr(noise_vec_vectorized, zeros_vectorized),
-        };
+            let sample_shares: AdditiveShare<OV> = match direction_to_excluded_helper {
+                Direction::Left => {
+                    AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(sample)))
+                }
+                Direction::Right => {
+                    AdditiveShare::new(OV::truncate_from(u128::from(sample)), OV::ZERO)
+                }
+            };
+            noise_values.push(sample_shares);
+        }
+        let noise_values_array: [AdditiveShare<OV>; B] = TryFrom::try_from(noise_values).unwrap();
+
+        let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
+            BitDecomposed::transposed_from(&noise_values_array)?;
 
         //  Add DP noise to output values
         let apply_noise_ctx = ctx
@@ -398,16 +402,6 @@ where
         return Ok(histogram_noised);
     }
     Ok(histogram_bin_values)
-}
-
-fn vectorize_input<const B: usize>(
-    bit_width: usize,
-    values: &[u32],
-) -> BitDecomposed<[Boolean; B]> {
-    let values = <&[u32; B]>::try_from(values).unwrap();
-    BitDecomposed::decompose(bit_width, |i| {
-        values.map(|v| Boolean::from((v >> i) & 1 == 1))
-    })
 }
 
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559

@@ -95,6 +95,7 @@ use crate::{
     protocol::{
         context::Validator, dp::dp_for_histogram, ipa_prf::oprf_padding::PaddingParameters,
     },
+    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -247,6 +248,9 @@ where
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    BitDecomposed<AdditiveShare<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<HV>; B], Error = LengthError>,
+    AdditiveShare<Boolean, B>: ReplicatedSecretSharing<Boolean>,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);

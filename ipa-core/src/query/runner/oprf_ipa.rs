@@ -23,8 +23,11 @@ use crate::{
     },
     report::{EncryptedOprfReport, EventType},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
-        TransposeFrom,
+        replicated::{
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+            ReplicatedSecretSharing,
+        },
+        BitDecomposed, SharedValue, TransposeFrom,
     },
     sync::Arc,
 };
@@ -53,6 +56,8 @@ where
     Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'ctx>, Boolean>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+    BitDecomposed<AdditiveShare<Boolean, 256>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<HV>; 256], Error = LengthError>,
 {
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(

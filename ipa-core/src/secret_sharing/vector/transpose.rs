@@ -621,9 +621,6 @@ impl_transpose_shares_bool_to_ba_small!(BA8, 8, 8, test_transpose_shares_bool_to
 // Usage: Binomial Noise Gen
 impl_transpose_shares_bool_to_ba!(BA16, 16, 16, test_transpose_shares_bool_to_ba_16x16);
 
-// Usage: to support OutputValue (HV) of BA8 while having 16 breakdowns
-impl_transpose_shares_bool_to_ba_small!(BA8, 8, 16, test_transpose_shares_bool_to_ba_8x16);
-
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<BA<N>>; M]` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
 ///
@@ -789,6 +786,9 @@ impl_transpose_shares_ba_to_bool_small!(BA8, 32, 8, test_transpose_shares_ba_to_
 
 // Usage tests for aggregation based on reveal
 impl_transpose_shares_ba_to_bool_small!(BA3, 32, 3, test_transpose_shares_ba_to_bool_32x3);
+
+// Usage: Laplace noise mechanism. M = number of breakdowns (2^|bk|), N = OV bits.
+impl_transpose_shares_ba_to_bool!(BA32, 32, 32, test_transpose_shares_ba_to_bool_32x32);
 
 // Special transpose used for "aggregation intermediate". See [`aggregate_contributions`] for
 // additional details.
