@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         boolean::step::ThirtyTwoBitStep,
         context::Context,
-        dp::step::DPStep,
+        dp::step::{ApplyDpNoise, DPStep},
         ipa_prf::{
             aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add,
             oprf_padding::insecure::OPRFPaddingDp,
@@ -193,7 +193,7 @@ where
         .unwrap();
     // Step 4:  Add DP noise to output values
     let apply_noise_ctx = ctx
-        .narrow(&DPStep::ApplyNoise)
+        .narrow(&ApplyDpNoise::ApplyNoise)
         .set_total_records(TotalRecords::ONE);
     let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
         apply_noise_ctx,
@@ -315,21 +315,21 @@ where
             )
             .await?;
 
-            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-                &ctx.narrow(&DPStep::LaplacePass2),
-                noised_output,
-                Role::H2,
-                &noise_params,
-            )
-            .await?;
-
-            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-                &ctx.narrow(&DPStep::LaplacePass3),
-                noised_output,
-                Role::H3,
-                &noise_params,
-            )
-            .await?;
+            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+            //     &ctx.narrow(&DPStep::LaplacePass2),
+            //     noised_output,
+            //     Role::H2,
+            //     &noise_params,
+            // )
+            // .await?;
+            //
+            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+            //     &ctx.narrow(&DPStep::LaplacePass3),
+            //     noised_output,
+            //     Role::H3,
+            //     &noise_params,
+            // )
+            // .await?;
 
             Ok(Vec::transposed_from(&noised_output)?)
         }
@@ -355,6 +355,10 @@ where
         for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
     AdditiveShare<OV>: ReplicatedSecretSharing<OV>,
 {
+    println!(
+        "in apply_laplace_noise_pass. excluded_helper = {:?}",
+        excluded_helper
+    );
     if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
         // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
         // and use it to sample the same random Laplace noise sample from TruncatedDoubleGeometric.
@@ -365,14 +369,18 @@ where
         };
         // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
         // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
+
         let truncated_discrete_laplace = OPRFPaddingDp::new(
             noise_params.epsilon,
             noise_params.delta,
             noise_params.per_user_credit_cap,
         )?;
+        println!("in apply_laplace_noise_pass. setup truncated_discrete_laplace");
+
         let mut noise_values = vec![];
         for _i in 0..B {
             let sample = truncated_discrete_laplace.sample(rng);
+            println!("for i = {_i}, sample = {sample}");
 
             let sample_shares = match direction_to_excluded_helper {
                 Direction::Left => {
@@ -384,6 +392,8 @@ where
             };
             noise_values.push(sample_shares);
         }
+        // TODO before we can do integer_add we need the excluded Helper to set its shares to zero
+        // for these noise values.
         let noise_values_array: [AdditiveShare<OV>; B] = TryFrom::try_from(noise_values).unwrap();
 
         let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
@@ -391,7 +401,7 @@ where
 
         //  Add DP noise to output values
         let apply_noise_ctx = ctx
-            .narrow(&DPStep::ApplyNoise)
+            .narrow(&ApplyDpNoise::ApplyNoise)
             .set_total_records(TotalRecords::ONE);
         let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
             apply_noise_ctx,
