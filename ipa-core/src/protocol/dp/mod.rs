@@ -338,6 +338,8 @@ where
 
 /// # Errors
 /// will propagate errors from constructing a `truncated_discrete_laplace` distribution.
+/// # Panics
+///
 pub async fn apply_laplace_noise_pass<C, OV, const B: usize>(
     ctx: &C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
@@ -388,18 +390,18 @@ where
             BitDecomposed::transposed_from(&noise_values_array).unwrap();
 
         //  Add DP noise to output values
-        // let apply_noise_ctx = ctx
-        //     .narrow(&DPStep::ApplyNoise)
-        //     .set_total_records(TotalRecords::ONE);
-        // let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
-        //     apply_noise_ctx,
-        //     RecordId::FIRST,
-        //     &noise_shares_vectorized,
-        //     &histogram_bin_values,
-        // )
-        // .await
-        // .unwrap();
-        // return Ok(histogram_noised);
+        let apply_noise_ctx = ctx
+            .narrow(&DPStep::ApplyNoise)
+            .set_total_records(TotalRecords::ONE);
+        let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
+            apply_noise_ctx,
+            RecordId::FIRST,
+            &noise_shares_vectorized,
+            &histogram_bin_values,
+        )
+        .await
+        .unwrap();
+        return Ok(histogram_noised);
     }
     Ok(histogram_bin_values)
 }
@@ -539,6 +541,15 @@ mod test {
         telemetry::metrics::BYTES_SENT,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
+    fn vectorize_input<const B: usize>(
+        bit_width: usize,
+        values: &[u32],
+    ) -> BitDecomposed<[Boolean; B]> {
+        let values = <&[u32; B]>::try_from(values).unwrap();
+        BitDecomposed::decompose(bit_width, |i| {
+            values.map(|v| Boolean::from((v >> i) & 1 == 1))
+        })
+    }
 
     /// Test for discrete truncated laplace
     // pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(

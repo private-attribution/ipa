@@ -95,7 +95,7 @@ use crate::{
     protocol::{
         context::Validator, dp::dp_for_histogram, ipa_prf::oprf_padding::PaddingParameters,
     },
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 
 #[derive(Clone, Debug, Default)]

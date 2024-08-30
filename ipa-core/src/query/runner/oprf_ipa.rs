@@ -23,10 +23,7 @@ use crate::{
     },
     report::{EncryptedOprfReport, EventType},
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-            ReplicatedSecretSharing,
-        },
+        replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
         BitDecomposed, SharedValue, TransposeFrom,
     },
     sync::Arc,
