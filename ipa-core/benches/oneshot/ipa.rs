@@ -57,10 +57,6 @@ struct Args {
         help = "The size of the attribution window, in seconds. Pass 0 for an infinite window."
     )]
     attribution_window: u32,
-    /// The number of sequential bits of breakdown key and match key to process in parallel
-    /// while doing modulus conversion and attribution
-    #[arg(long, default_value = "3")]
-    num_multi_bits: u32,
     /// DP parameters. Will run with DP by default. Can only be run without DP if `with_dp` == 0.
     /// in which case the value of `epsilon` is ignored.
     #[arg(short = 'd', long, default_value = "1")]
@@ -97,7 +93,6 @@ impl Args {
             per_user_credit_cap: self.per_user_cap,
             max_breakdown_key: self.breakdown_keys,
             attribution_window_seconds: self.attribution_window(),
-            num_multi_bits: self.num_multi_bits,
             with_dp: self.with_dp,
             epsilon: self.epsilon,
             plaintext_match_keys: true,

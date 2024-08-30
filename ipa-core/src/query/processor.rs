@@ -668,7 +668,6 @@ mod tests {
                             per_user_credit_cap: 8,
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
-                            num_multi_bits: 3,
                             with_dp: 0,
                             epsilon: 5.0,
                             plaintext_match_keys: true,
