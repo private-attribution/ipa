@@ -122,25 +122,11 @@ async fn run(args: Args) -> Result<(), Error> {
         q = args.query_size
     );
     let rng = StdRng::seed_from_u64(seed);
-    let event_gen_config = if cfg!(feature = "step-trace") {
-        // For the steps collection, compact gate requires:
-        // * At least one user with the same number of dynamic steps as defined for `UserNthRowStep::Row`.
-        // * Enough records to exercise the saturating addition case in aggregation.
-        EventGeneratorConfig {
-            user_count: NonZeroU64::new(5).unwrap(),
-            max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
-            max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
-            min_events_per_user: NonZeroU32::new(64).unwrap(),
-            max_events_per_user: NonZeroU32::new(64).unwrap(),
-            ..Default::default()
-        }
-    } else {
-        EventGeneratorConfig {
-            max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
-            max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
-            max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
-            ..Default::default()
-        }
+    let event_gen_config = EventGeneratorConfig {
+        max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
+        max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
+        max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
+        ..Default::default()
     };
     let raw_data = EventGenerator::with_config(rng, event_gen_config)
         .take(args.query_size)
