@@ -8,6 +8,9 @@ use crate::{key::OwnedMetricName, kind::CounterValue, MetricName};
 /// A basic store. Currently only supports counters.
 #[derive(Default)]
 struct Store {
+    // Counters and other metrics are stored to optimize writes. That means, one lookup
+    // per write. The cost of assembling the total count across all dimensions is absorbed
+    // by readers
     counters: hashbrown::HashMap<OwnedMetricName, CounterValue, FxBuildHasher>,
 }
 
@@ -15,7 +18,12 @@ impl Store {
     pub(crate) fn merge(&mut self, other: Self) {
         for (k, v) in other.counters {
             let hash = compute_hash(self.counters.hasher(), &k);
-            *self.counters.raw_entry_mut().from_hash(hash, |other| other.eq(&k)).or_insert(k, 0).1 += v;
+            *self
+                .counters
+                .raw_entry_mut()
+                .from_hash(hash, |other| other.eq(&k))
+                .or_insert(k, 0)
+                .1 += v;
         }
     }
 }
@@ -39,6 +47,23 @@ impl Store {
                 CounterHandle { val }
             }
         }
+    }
+
+    /// Returns the value for the specified metric across all dimensions.
+    /// The cost of this operation is `O(N*M)` where `N` - number of unique metrics
+    /// and `M` - number of all dimensions across all metrics.
+    ///
+    /// Note that the cost can be improved if it ever becomes a bottleneck by
+    /// creating a specialized two-level map (metric -> label -> value).
+    pub fn counter_value(&self, key: &MetricName<'_>) -> CounterValue {
+        let mut answer = 0;
+        for (metric, value) in &self.counters {
+            if metric.key == key.key {
+                answer += value
+            }
+        }
+
+        answer
     }
 }
 
@@ -65,8 +90,8 @@ fn compute_hash<B: BuildHasher, K: Hash + ?Sized>(hash_builder: &B, key: &K) -> 
 #[cfg(test)]
 mod tests {
     use std::hash::{DefaultHasher, Hash, Hasher};
-    use crate::{metric_name, LabelValue};
-    use crate::store::Store;
+
+    use crate::{metric_name, store::Store, LabelValue};
 
     impl LabelValue for &'static str {
         fn hash(&self) -> u64 {
@@ -130,5 +155,22 @@ mod tests {
         assert_eq!(3, store1.counter(&baz).get());
     }
 
-    // test that checks label values hash colliding does not lead to collision in keys
+    #[test]
+    fn counter_value() {
+        let mut store = Store::default();
+        store
+            .counter(&metric_name!("foo", "h1" => &1, "h2" => &"1"))
+            .inc(1);
+        store
+            .counter(&metric_name!("foo", "h1" => &1, "h2" => &"2"))
+            .inc(1);
+        store
+            .counter(&metric_name!("foo", "h1" => &2, "h2" => &"1"))
+            .inc(1);
+        store
+            .counter(&metric_name!("foo", "h1" => &2, "h2" => &"2"))
+            .inc(1);
+
+        assert_eq!(4, store.counter_value(&metric_name!("foo")));
+    }
 }

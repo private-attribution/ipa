@@ -2,6 +2,7 @@ use std::{
     fmt::{Debug, Display},
     hash::{Hash, Hasher},
 };
+
 pub use Value as LabelValue;
 
 pub const MAX_LABELS: usize = 5;
@@ -29,7 +30,6 @@ impl LabelValue for u32 {
         Box::new(*self)
     }
 }
-
 
 #[derive(Debug)]
 pub struct Label<'lv> {

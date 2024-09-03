@@ -28,9 +28,7 @@ use std::{
 pub use Name as MetricName;
 pub(super) use OwnedName as OwnedMetricName;
 
-use crate::{
-    label::{Label, OwnedLabel, MAX_LABELS},
-};
+use crate::label::{Label, OwnedLabel, MAX_LABELS};
 
 #[macro_export]
 macro_rules! metric_name {
@@ -63,10 +61,7 @@ macro_rules! metric_name {
     }};
     // Match when no key-value pairs are provided
     ($metric:expr) => {{
-        crate::key::Name::from_parts(
-            $metric,
-            [],
-        )
+        crate::key::Name::from_parts($metric, [])
     }};
 }
 
@@ -75,7 +70,7 @@ macro_rules! metric_name {
 /// whatever it can from callee stack.
 #[derive(Debug)]
 pub struct Name<'lv, const LABELS: usize = 0> {
-    key: &'static str,
+    pub(super) key: &'static str,
     labels: [Label<'lv>; LABELS],
 }
 
@@ -83,7 +78,6 @@ pub type NameWithLabel<'lv> = Name<'lv, 1>;
 pub type NameWithTwoLabels<'lv> = Name<'lv, 2>;
 
 impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
-
     pub const fn from_parts(key: &'static str, labels: [Label<'lv>; LABELS]) -> Self {
         assert!(
             LABELS <= MAX_LABELS,
@@ -116,7 +110,7 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 /// This is the key inside metric stores which are simple hashmaps.
 #[derive(Debug)]
 pub(super) struct OwnedName {
-    key: &'static str,
+    pub(super) key: &'static str,
     labels: [Option<OwnedLabel>; 5],
 }
 
@@ -170,21 +164,21 @@ impl PartialEq<OwnedName> for OwnedName {
         // TODO: how to avoid copy paste here?
         self.key == other.key
             && iter::zip(&self.labels, &other.labels).all(|(a, b)| {
-            match (a, b) {
-                (Some(a), Some(b)) => a == b,
-                (None, None) => true,
-                _ => false
-            }
-            // if let Some(a) = a {
-            //     a.name == b.name && a.val.hash() == b.val.hash()
-            // } else {
-            //     false
-            // }
-        })
+                match (a, b) {
+                    (Some(a), Some(b)) => a == b,
+                    (None, None) => true,
+                    _ => false,
+                }
+                // if let Some(a) = a {
+                //     a.name == b.name && a.val.hash() == b.val.hash()
+                // } else {
+                //     false
+                // }
+            })
     }
 }
 
-impl Eq for OwnedName { }
+impl Eq for OwnedName {}
 
 impl Hash for OwnedName {
     fn hash<H: Hasher>(&self, state: &mut H) {
