@@ -296,20 +296,15 @@ pub async fn test_oprf_ipa<F>(
             let truncated_discrete_laplace =
                 OPRFPaddingDp::new(epsilon, 1e-6, config.per_user_credit_cap).unwrap();
 
-            let (mean, std_bound) = truncated_discrete_laplace.mean_and_std_bound();
-            assert!(std_bound > 1.0, "in test_oprf_ipa, std_bound = {std_bound}"); // bound on the std only holds if this is true.
+            let (_, std) = truncated_discrete_laplace.mean_and_std();
             let tolerance_factor = 12.0;
-            println!(
-                "mean = {mean}, std_bound = {std_bound}, {tolerance_factor} * std_bound = {}",
-                tolerance_factor * std_bound
-            );
 
             assert_eq!(result.len(), expected_results.len());
 
             for (&sample, &expected) in std::iter::zip(result.iter(), expected_results.iter()) {
                 assert!(
-                    (f64::from(sample) - mean - f64::from(expected)).abs() < tolerance_factor * std_bound,
-                    "DP result was not within {tolerance_factor} times the standard deviation bound of a\
+                    (f64::from(sample) - f64::from(expected)).abs() < tolerance_factor * std,
+                    "DP result was not within {tolerance_factor} times the standard deviation of a\
                     Truncated Discrete Laplace from what was expected"
                 );
             }

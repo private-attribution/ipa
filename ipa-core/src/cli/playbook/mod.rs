@@ -137,10 +137,10 @@ pub fn validate_dp(
                 )
                 .unwrap();
 
-                let (mean, std) = truncated_discrete_laplace.mean_and_std();
+                let (_, std) = truncated_discrete_laplace.mean_and_std();
                 let tolerance_factor = 12.0;
-                actual_expect_f64 - mean > next_expected_f64 - tolerance_factor * std
-                    && actual_expect_f64 - mean < next_expected_f64 + tolerance_factor * std
+                // println!("mean = {mean}, std = {std}, tolerance_factor * std = {}",tolerance_factor * std);
+                (actual_expect_f64 - next_expected_f64).abs() < tolerance_factor * std
             }
             DpMechanism::NoDp => {
                 let tolerance = 0.001;
@@ -171,9 +171,12 @@ pub fn validate_dp(
         "Expected and actual results don't match: {mismatch:?}",
     );
 
-    // make sure DP noise actually changed the results
-    assert!(!all_equal,
-    "Expected and actual results match exactly...probably DP noise is not being added when it should be");
+    // make sure DP noise actually changed the results. For large epsilon and few breakdowns keys
+    // we might end up not adding any noise
+    if epsilon <= 1.0 {
+        assert!(!all_equal,
+                "Expected and actual results match exactly...probably DP noise is not being added when it should be");
+    }
 }
 
 /// Creates 3 clients to talk to MPC helpers.

@@ -289,7 +289,7 @@ where
             )?;
 
             assert!((epsilon - noise_params.epsilon).abs() < 0.001);
-            let (mean, _) = truncated_discret_laplace.mean_and_std_bound();
+            let (mean, _) = truncated_discret_laplace.mean_and_std();
             tracing::info!(
                 "In dp_for_histogram with Truncated Discrete Laplace noise: \
                 epsilon = {epsilon}, \
@@ -303,10 +303,6 @@ where
                 OV::BITS,
             );
 
-            // let non_vectorized_outputs = Vec::transposed_from(&histogram_bin_values)?;
-            // let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
-            // let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
-
             let noised_output = apply_laplace_noise_pass::<C, OV, B>(
                 &ctx.narrow(&DPStep::LaplacePass1),
                 histogram_bin_values,
@@ -315,21 +311,21 @@ where
             )
             .await?;
 
-            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-            //     &ctx.narrow(&DPStep::LaplacePass2),
-            //     noised_output,
-            //     Role::H2,
-            //     &noise_params,
-            // )
-            // .await?;
-            //
-            // let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-            //     &ctx.narrow(&DPStep::LaplacePass3),
-            //     noised_output,
-            //     Role::H3,
-            //     &noise_params,
-            // )
-            // .await?;
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass2),
+                noised_output,
+                Role::H2,
+                &noise_params,
+            )
+            .await?;
+
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass3),
+                noised_output,
+                Role::H3,
+                &noise_params,
+            )
+            .await?;
 
             Ok(Vec::transposed_from(&noised_output)?)
         }
@@ -373,15 +369,23 @@ where
             noise_params.delta,
             noise_params.per_user_credit_cap,
         )?;
-
+        let shift = truncated_discrete_laplace.get_shift();
         for _i in 0..B {
             let sample = truncated_discrete_laplace.sample(rng);
+            assert!(OV::BITS <= 32);
+            let symmetric_sample = if OV::BITS < 32 {
+                let modulus = 2_u32.pow(OV::BITS);
+                sample.wrapping_sub(shift) % modulus
+            } else {
+                sample.wrapping_sub(shift)
+            };
+            // println!("sample = {sample}, symmetric sample = {symmetric_sample}");
             let sample_shares = match direction_to_excluded_helper {
                 Direction::Left => {
-                    AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(sample)))
+                    AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(symmetric_sample)))
                 }
                 Direction::Right => {
-                    AdditiveShare::new(OV::truncate_from(u128::from(sample)), OV::ZERO)
+                    AdditiveShare::new(OV::truncate_from(u128::from(symmetric_sample)), OV::ZERO)
                 }
             };
             noise_values.push(sample_shares);
@@ -596,7 +600,8 @@ mod test {
             .collect::<Vec<_>>();
         let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
         let truncated_discrete_laplace = OPRFPaddingDp::new(epsilon, 1e-6, per_user_credit_cap);
-        let (mean, std) = truncated_discrete_laplace.unwrap().mean_and_std();
+        let (_, std) = truncated_discrete_laplace.unwrap().mean_and_std();
+        let three_std = 3.0 * std;
         assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
         let tolerance_factor = 20.0;
         for i in 0..result_u32.len() {
@@ -607,9 +612,9 @@ mod test {
             );
             assert!(
                 f64::from(result_u32[i]) - f64::from(input_values[i])
-                    > mean - tolerance_factor * std
+                    > - tolerance_factor * three_std
                     && f64::from(result_u32[i]) - f64::from(input_values[i])
-                    < mean + tolerance_factor * std
+                    <  tolerance_factor * three_std
                 , "test failed because noised result is more than {tolerance_factor} standard deviations of the noise distribution \
                 from the original input values. This will fail with a small chance of failure"
             );
