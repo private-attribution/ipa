@@ -39,11 +39,11 @@ macro_rules! metric_name {
     ($metric:expr, $l1:expr => $v1:expr, $l2:expr => $v2:expr) => {{
         let labels = {
             crate::key::UniqueElements::enforce_unique([
-                Label {
+                crate::label::Label {
                     name: $l1,
                     val: $v1,
                 },
-                Label {
+                crate::label::Label {
                     name: $l2,
                     val: $v2,
                 },
@@ -55,17 +55,19 @@ macro_rules! metric_name {
     ($metric:expr, $l1:expr => $v1:expr) => {{
         crate::key::NameWithLabel::from_parts(
             $metric,
-            [Label {
+            [crate::label::Label {
                 name: $l1,
                 val: $v1,
             }],
         )
-    }}; // // Match when no key-value pairs are provided
-        // ($metric:expr) => {{
-        //     debug!("{}", $metric);
-        //     // Here you can call the actual function that increments the counter
-        //     // increment_counter($metric);
-        // }};
+    }};
+    // Match when no key-value pairs are provided
+    ($metric:expr) => {{
+        crate::key::Name::from_parts(
+            $metric,
+            [],
+        )
+    }};
 }
 
 /// Metric name that is created at callsite on each metric invocation.
@@ -81,7 +83,7 @@ pub type NameWithLabel<'lv> = Name<'lv, 1>;
 pub type NameWithTwoLabels<'lv> = Name<'lv, 2>;
 
 impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
-    const _NAME: () = assert!(LABELS <= MAX_LABELS);
+
     pub const fn from_parts(key: &'static str, labels: [Label<'lv>; LABELS]) -> Self {
         assert!(
             LABELS <= MAX_LABELS,
@@ -150,8 +152,8 @@ impl UniqueElements for [Label<'_>; 2] {
     }
 }
 
-impl<'a, 'b, const LABELS: usize> PartialEq<Name<'a, LABELS>> for &'b OwnedName {
-    fn eq(&self, other: &Name<LABELS>) -> bool {
+impl<'a, const LABELS: usize> PartialEq<Name<'a, LABELS>> for OwnedName {
+    fn eq(&self, other: &Name<'a, LABELS>) -> bool {
         self.key == other.key
             && iter::zip(&self.labels, &other.labels).all(|(a, b)| {
                 if let Some(a) = a {
@@ -162,6 +164,27 @@ impl<'a, 'b, const LABELS: usize> PartialEq<Name<'a, LABELS>> for &'b OwnedName 
             })
     }
 }
+
+impl PartialEq<OwnedName> for OwnedName {
+    fn eq(&self, other: &OwnedName) -> bool {
+        // TODO: how to avoid copy paste here?
+        self.key == other.key
+            && iter::zip(&self.labels, &other.labels).all(|(a, b)| {
+            match (a, b) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => true,
+                _ => false
+            }
+            // if let Some(a) = a {
+            //     a.name == b.name && a.val.hash() == b.val.hash()
+            // } else {
+            //     false
+            // }
+        })
+    }
+}
+
+impl Eq for OwnedName { }
 
 impl Hash for OwnedName {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -193,7 +216,7 @@ mod tests {
     #[test]
     fn eq() {
         let name = Name::from("foo");
-        assert_eq!(&name.to_owned(), name);
+        assert_eq!(name.to_owned(), name);
     }
 
     #[test]
@@ -208,7 +231,7 @@ mod tests {
     fn not_eq() {
         let foo = Name::from("foo");
         let bar = Name::from("bar");
-        assert_ne!(&foo.to_owned(), bar);
+        assert_ne!(foo.to_owned(), bar);
     }
 
     #[test]

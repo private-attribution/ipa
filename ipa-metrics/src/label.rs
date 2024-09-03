@@ -2,7 +2,6 @@ use std::{
     fmt::{Debug, Display},
     hash::{Hash, Hasher},
 };
-
 pub use Value as LabelValue;
 
 pub const MAX_LABELS: usize = 5;
@@ -20,6 +19,17 @@ pub trait Value: Debug + Display + Send {
     /// that can't be specialized for value types.
     fn boxed(&self) -> Box<dyn LabelValue>;
 }
+
+impl LabelValue for u32 {
+    fn hash(&self) -> u64 {
+        u64::from(*self)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
+    }
+}
+
 
 #[derive(Debug)]
 pub struct Label<'lv> {
@@ -64,29 +74,25 @@ impl Hash for OwnedLabel {
     }
 }
 
+impl PartialEq for OwnedLabel {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.val.hash() == other.val.hash()
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
-    use crate::{key::compute_hash, label::Label, metric_name, LabelValue};
-
-    impl LabelValue for u32 {
-        fn hash(&self) -> u64 {
-            u64::from(*self)
-        }
-
-        fn boxed(&self) -> Box<dyn LabelValue> {
-            Box::new(*self)
-        }
-    }
+    use crate::{key::compute_hash, metric_name};
 
     #[test]
     fn one_label() {
         let foo_1 = metric_name!("foo", "l1" => &1);
         let foo_2 = metric_name!("foo", "l1" => &2);
 
-        assert_ne!(&foo_1.to_owned(), foo_2);
+        assert_ne!(foo_1.to_owned(), foo_2);
         assert_ne!(compute_hash(&foo_1), compute_hash(&foo_2));
-        assert_ne!(&foo_2.to_owned(), foo_1);
+        assert_ne!(foo_2.to_owned(), foo_1);
 
         assert_eq!(compute_hash(&foo_1), compute_hash(foo_1.to_owned()))
     }

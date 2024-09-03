@@ -12,16 +12,24 @@ struct Store {
 }
 
 impl Store {
-    pub fn counter<const LABELS: usize, N: for<'a> Into<MetricName<'a, LABELS>>>(
+    pub(crate) fn merge(&mut self, other: Self) {
+        for (k, v) in other.counters {
+            let hash = compute_hash(self.counters.hasher(), &k);
+            *self.counters.raw_entry_mut().from_hash(hash, |other| other.eq(&k)).or_insert(k, 0).1 += v;
+        }
+    }
+}
+
+impl Store {
+    pub fn counter<const LABELS: usize>(
         &mut self,
-        key: N,
+        key: &MetricName<'_, LABELS>,
     ) -> CounterHandle<'_, LABELS> {
-        let key = key.into();
         let hash = compute_hash(self.counters.hasher(), &key);
         let entry = self
             .counters
             .raw_entry_mut()
-            .from_hash(hash, |key_found| key_found.eq(&key));
+            .from_hash(hash, |key_found| key_found.eq(key));
         match entry {
             RawEntryMut::Occupied(slot) => CounterHandle {
                 val: slot.into_mut(),
@@ -56,24 +64,70 @@ fn compute_hash<B: BuildHasher, K: Hash + ?Sized>(hash_builder: &B, key: &K) -> 
 
 #[cfg(test)]
 mod tests {
-
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    use crate::{metric_name, LabelValue};
     use crate::store::Store;
+
+    impl LabelValue for &'static str {
+        fn hash(&self) -> u64 {
+            // TODO: use fast hashing here
+            let mut hasher = DefaultHasher::default();
+            Hash::hash(self, &mut hasher);
+
+            hasher.finish()
+        }
+
+        fn boxed(&self) -> Box<dyn LabelValue> {
+            Box::new(*self)
+        }
+    }
 
     #[test]
     fn counter() {
         let mut store = Store::default();
-        let name = "foo";
+        let name = metric_name!("foo");
         {
-            let mut handle = store.counter(name);
+            let mut handle = store.counter(&name);
             assert_eq!(0, handle.get());
             handle.inc(3);
             assert_eq!(3, handle.get());
         }
 
         {
-            store.counter(name).inc(0);
-            assert_eq!(3, store.counter(name).get());
+            store.counter(&name).inc(0);
+            assert_eq!(3, store.counter(&name).get());
         }
+    }
+
+    #[test]
+    fn with_labels() {
+        let mut store = Store::default();
+        let valid_name = metric_name!("foo", "h1" => &1, "h2" => &"2");
+        let wrong_name = metric_name!("foo", "h1" => &2, "h2" => &"2");
+        store.counter(&valid_name).inc(2);
+
+        assert_eq!(2, store.counter(&valid_name).get());
+        assert_eq!(0, store.counter(&wrong_name).get());
+    }
+
+    #[test]
+    fn merge() {
+        let mut store1 = Store::default();
+        let mut store2 = Store::default();
+        let foo = metric_name!("foo", "h1" => &1, "h2" => &"2");
+        let bar = metric_name!("bar", "h2" => &"2");
+        let baz = metric_name!("baz");
+        store1.counter(&foo).inc(2);
+        store2.counter(&foo).inc(1);
+
+        store1.counter(&bar).inc(7);
+        store2.counter(&baz).inc(3);
+
+        store1.merge(store2);
+
+        assert_eq!(3, store1.counter(&foo).get());
+        assert_eq!(7, store1.counter(&bar).get());
+        assert_eq!(3, store1.counter(&baz).get());
     }
 
     // test that checks label values hash colliding does not lead to collision in keys
