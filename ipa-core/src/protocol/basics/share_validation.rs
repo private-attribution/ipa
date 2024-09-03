@@ -35,7 +35,7 @@ where
     S: SharedValue,
 {
     // compute hash of `left`
-    let hash_left = compute_hash(input_left);
+    let hash_left = compute_hash::<_, _, S>(input_left);
 
     // set up context
     let ctx_new = &(ctx.set_total_records(TotalRecords::ONE));
@@ -45,7 +45,7 @@ where
 
     let ((), hash_received) = try_join(
         // send hash
-        send_channel.send(RecordId::FIRST, compute_hash(input_right)),
+        send_channel.send(RecordId::FIRST, compute_hash::<_, _, S>(input_right)),
         receive_channel.receive(RecordId::FIRST),
     )
     .await?;

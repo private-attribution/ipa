@@ -157,8 +157,8 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         B: Borrow<([F; L], [F; L])>,
     {
         let r: F = hash_to_field(
-            &compute_hash(proof_left),
-            &compute_hash(proof_right),
+            &compute_hash::<_, _, F>(proof_left),
+            &compute_hash::<_, _, F>(proof_right),
             L.try_into().unwrap(),
         );
 
