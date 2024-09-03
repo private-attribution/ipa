@@ -302,8 +302,17 @@ pub async fn test_oprf_ipa<F>(
             assert_eq!(result.len(), expected_results.len());
 
             for (&sample, &expected) in std::iter::zip(result.iter(), expected_results.iter()) {
+                // This needs to be kept in sync with histogram values being BA32.
+                // Here we are shifting the representation of negative noise values
+                // from being large values close to 2^32 to being negative when we look
+                // at them as floats.
+                let sample_shifted = if f64::from(sample) > 2.0_f64.powf(31.0) {
+                    f64::from(sample) - 2.0_f64.powf(32.0)
+                } else {
+                    f64::from(sample)
+                };
                 assert!(
-                    (f64::from(sample) - f64::from(expected)).abs() < tolerance_factor * std,
+                    (sample_shifted - f64::from(expected)).abs() < tolerance_factor * std,
                     "DP result was not within {tolerance_factor} times the standard deviation of a\
                     Truncated Discrete Laplace from what was expected"
                 );

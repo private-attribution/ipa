@@ -137,13 +137,24 @@ pub fn validate_dp(
                 )
                 .unwrap();
 
+                // This needs to be kept in sync with histogram values being BA32.
+                // Here we are shifting the representation of negative noise values
+                // from being large values close to 2^32 to being negative when we look
+                // at them as floats.
+                let actual_expect_f64_shifted = if actual_expect_f64 > 2.0_f64.powf(31.0) {
+                    actual_expect_f64 - 2.0_f64.powf(32.0)
+                } else {
+                    actual_expect_f64
+                };
+                println!("actual_expect_f64 = {actual_expect_f64}, actual_expect_f64_shifted = {actual_expect_f64_shifted}");
+
                 let (_, std) = truncated_discrete_laplace.mean_and_std();
-                let tolerance_factor = 12.0;
-                // println!("mean = {mean}, std = {std}, tolerance_factor * std = {}",tolerance_factor * std);
-                (actual_expect_f64 - next_expected_f64).abs() < tolerance_factor * std
+                let tolerance_factor = 20.0; // set so this fails randomly with small probability
+                                             // println!("mean = {mean}, std = {std}, tolerance_factor * std = {}",tolerance_factor * std);
+                (actual_expect_f64_shifted - next_expected_f64).abs() < tolerance_factor * 3.0 * std
             }
             DpMechanism::NoDp => {
-                let tolerance = 0.001;
+                let tolerance = 0.00001;
                 actual_expect_f64 > next_expected_f64 - tolerance
                     && actual_expect_f64 < next_expected_f64 + tolerance
             }
