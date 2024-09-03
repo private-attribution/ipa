@@ -154,9 +154,10 @@ pub fn validate_dp(
                 (actual_expect_f64_shifted - next_expected_f64).abs() < tolerance_factor * 3.0 * std
             }
             DpMechanism::NoDp => {
-                let tolerance = 0.00001;
-                actual_expect_f64 > next_expected_f64 - tolerance
-                    && actual_expect_f64 < next_expected_f64 + tolerance
+                // let tolerance = 0.00001;
+                // actual_expect_f64 > next_expected_f64 - tolerance
+                //     && actual_expect_f64 < next_expected_f64 + tolerance
+                next_expected == next_actual
             }
         };
 
