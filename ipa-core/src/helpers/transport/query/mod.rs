@@ -263,8 +263,6 @@ pub struct IpaQueryConfig {
     pub max_breakdown_key: u32,
     #[cfg_attr(feature = "clap", arg(long))]
     pub attribution_window_seconds: Option<NonZeroU32>,
-    #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
-    pub num_multi_bits: u32,
     #[arg(short = 'd', long, default_value = "1")]
     pub with_dp: u32,
     #[arg(short = 'e', long, default_value = "5.0")]
@@ -285,7 +283,6 @@ impl Default for IpaQueryConfig {
             per_user_credit_cap: 8,
             max_breakdown_key: 20,
             attribution_window_seconds: None,
-            num_multi_bits: 3,
             with_dp: 1,
             epsilon: 5.0,
             plaintext_match_keys: false,
@@ -301,7 +298,6 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
-        num_multi_bits: u32,
         with_dp: u32,
         epsilon: f64,
     ) -> Self {
@@ -312,7 +308,6 @@ impl IpaQueryConfig {
                 NonZeroU32::new(attribution_window_seconds)
                     .expect("attribution window must be a positive value > 0"),
             ),
-            num_multi_bits,
             with_dp,
             epsilon,
             // dp_params,
@@ -328,7 +323,6 @@ impl IpaQueryConfig {
     pub fn no_window(
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
-        num_multi_bits: u32,
         with_dp: u32,
         epsilon: f64,
     ) -> Self {
@@ -336,7 +330,6 @@ impl IpaQueryConfig {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds: None,
-            num_multi_bits,
             with_dp,
             epsilon,
             plaintext_match_keys: false,

@@ -5,6 +5,8 @@ pub(crate) enum AggregationStep {
     /// key. Aggregation based on move to bucket approach does not need them.
     /// When reveal-based aggregation is the default, other steps (such as `MoveToBucket`)
     /// should be deleted
+    #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="padding_dp")]
+    PaddingDp,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
     RevealStep,

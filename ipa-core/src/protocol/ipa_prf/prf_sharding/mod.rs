@@ -307,6 +307,9 @@ where
 ///
 /// The `aggregation` module also uses this type to hold chunks of attribution output records by
 /// specifying vectorized types for `BK` and `TV`.
+///
+///
+
 #[derive(Clone, Debug, Default)]
 pub struct AttributionOutputs<BK, TV> {
     pub attributed_breakdown_key_bits: BK,
