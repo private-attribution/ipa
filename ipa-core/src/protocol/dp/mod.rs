@@ -4,6 +4,7 @@ pub mod step;
 use std::{convert::Infallible, f64};
 
 use futures_util::{stream, StreamExt};
+use rand_core::{CryptoRng, RngCore};
 
 use crate::{
     error::{Error, Error::EpsilonOutOfBounds, LengthError},
@@ -332,6 +333,59 @@ where
     }
 }
 
+struct ShiftedTruncatedDiscreteLaplace {
+    truncated_discrete_laplace: OPRFPaddingDp,
+    shift: u32,
+    modulus: u32,
+}
+
+impl ShiftedTruncatedDiscreteLaplace {
+    pub fn new(noise_params: &NoiseParams, modulus: u32) -> Result<Self, Error> {
+        // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
+        // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
+        let truncated_discrete_laplace = OPRFPaddingDp::new(
+            noise_params.epsilon,
+            noise_params.delta,
+            noise_params.per_user_credit_cap,
+        )?;
+        let shift = truncated_discrete_laplace.get_shift();
+        Ok(Self {
+            truncated_discrete_laplace,
+            shift,
+            modulus,
+        })
+    }
+
+    fn sample<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
+        self.truncated_discrete_laplace.sample(rng)
+    }
+
+    pub fn sample_shares<R, OV>(
+        &self,
+        rng: &mut R,
+        direction_to_excluded_helper: Direction,
+    ) -> AdditiveShare<OV>
+    where
+        R: RngCore + CryptoRng,
+        OV: BooleanArray + U128Conversions,
+    {
+        let sample = self.sample(rng);
+        let symmetric_sample = if OV::BITS < 32 {
+            sample.wrapping_sub(self.shift) % self.modulus
+        } else {
+            sample.wrapping_sub(self.shift)
+        };
+        match direction_to_excluded_helper {
+            Direction::Left => {
+                AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(symmetric_sample)))
+            }
+            Direction::Right => {
+                AdditiveShare::new(OV::truncate_from(u128::from(symmetric_sample)), OV::ZERO)
+            }
+        }
+    }
+}
+
 /// # Errors
 /// will propagate errors from constructing a `truncated_discrete_laplace` distribution.
 /// # Panics
@@ -351,54 +405,27 @@ where
         for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
     AdditiveShare<OV>: ReplicatedSecretSharing<OV>,
 {
-    let mut noise_values = vec![];
-
-    if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
-        // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
-        // and use it to sample the same random Laplace noise sample from TruncatedDoubleGeometric.
-        let (mut left, mut right) = ctx.prss_rng();
-        let rng = match direction_to_excluded_helper {
-            Direction::Left => &mut right,
-            Direction::Right => &mut left,
+    assert!(OV::BITS <= 32);
+    let noise_values_array: [AdditiveShare<OV>; B] =
+        if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
+            // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
+            // and use it to sample the same random Laplace noise sample from TruncatedDoubleGeometric.
+            let (mut left, mut right) = ctx.prss_rng();
+            let rng = match direction_to_excluded_helper {
+                Direction::Left => &mut right,
+                Direction::Right => &mut left,
+            };
+            let modulus = 2_u32.pow(OV::BITS);
+            let shifted_truncated_discrete_laplace =
+                ShiftedTruncatedDiscreteLaplace::new(noise_params, modulus)?;
+            std::array::from_fn(|_i| {
+                shifted_truncated_discrete_laplace.sample_shares(rng, direction_to_excluded_helper)
+            })
+        } else {
+            //  before we can do integer_add we need the excluded Helper to set its shares to zero
+            // for these noise values.
+            std::array::from_fn(|_i| AdditiveShare::new(OV::ZERO, OV::ZERO))
         };
-        // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
-        // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
-
-        let truncated_discrete_laplace = OPRFPaddingDp::new(
-            noise_params.epsilon,
-            noise_params.delta,
-            noise_params.per_user_credit_cap,
-        )?;
-        let shift = truncated_discrete_laplace.get_shift();
-        for _i in 0..B {
-            let sample = truncated_discrete_laplace.sample(rng);
-            assert!(OV::BITS <= 32);
-            let symmetric_sample = if OV::BITS < 32 {
-                let modulus = 2_u32.pow(OV::BITS);
-                sample.wrapping_sub(shift) % modulus
-            } else {
-                sample.wrapping_sub(shift)
-            };
-            // println!("sample = {sample}, symmetric sample = {symmetric_sample}");
-            let sample_shares = match direction_to_excluded_helper {
-                Direction::Left => {
-                    AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(symmetric_sample)))
-                }
-                Direction::Right => {
-                    AdditiveShare::new(OV::truncate_from(u128::from(symmetric_sample)), OV::ZERO)
-                }
-            };
-            noise_values.push(sample_shares);
-        }
-    } else {
-        //  before we can do integer_add we need the excluded Helper to set its shares to zero
-        // for these noise values.
-        for _i in 0..B {
-            let sample_shares = AdditiveShare::new(OV::ZERO, OV::ZERO);
-            noise_values.push(sample_shares);
-        }
-    }
-    let noise_values_array: [AdditiveShare<OV>; B] = TryFrom::try_from(noise_values).unwrap();
 
     let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
         BitDecomposed::transposed_from(&noise_values_array).unwrap();
