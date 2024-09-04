@@ -22,6 +22,8 @@ use crate::{
 };
 
 pub mod base;
+#[allow(dead_code)]
+pub mod malicious;
 #[cfg(descriptive_gate)]
 mod sharded;
 pub(crate) mod step;
@@ -42,7 +44,7 @@ where
         .map(|item| oprfreport_to_shuffle_input::<BA112, BK, TV, TS>(&item))
         .collect::<Vec<_>>();
 
-    let shuffled = shuffle(ctx, shuffle_input).await?;
+    let (shuffled, _) = shuffle(ctx, shuffle_input).await?;
 
     Ok(shuffled
         .into_iter()
@@ -69,7 +71,7 @@ where
         .map(|item| attribution_outputs_to_shuffle_input::<BK, TV, R>(&item))
         .collect::<Vec<_>>();
 
-    let shuffled = shuffle(ctx, shuffle_input).await?;
+    let (shuffled, _) = shuffle(ctx, shuffle_input).await?;
 
     Ok(shuffled
         .into_iter()

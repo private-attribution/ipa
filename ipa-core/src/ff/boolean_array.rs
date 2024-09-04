@@ -9,7 +9,7 @@ use typenum::{U14, U2, U32, U8};
 
 use crate::{
     error::LengthError,
-    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable, U128Conversions},
+    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Gf32Bit, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
@@ -32,7 +32,11 @@ macro_rules! store_impl {
 }
 
 pub trait BooleanArray:
-    SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean> + FromIterator<Boolean>
+    SharedValue
+    + ArrayAccess<Output = Boolean>
+    + Expand<Input = Boolean>
+    + FromIterator<Boolean>
+    + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
 {
 }
 
@@ -41,6 +45,7 @@ impl<A> BooleanArray for A where
         + ArrayAccess<Output = Boolean>
         + Expand<Input = Boolean>
         + FromIterator<Boolean>
+        + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
 {
 }
 

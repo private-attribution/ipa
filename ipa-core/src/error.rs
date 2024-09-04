@@ -96,6 +96,8 @@ pub enum Error {
     EpsilonOutOfBounds,
     #[error("Missing total records in {0}")]
     MissingTotalRecords(String),
+    #[error("The verification of the shuffle failed: {0}")]
+    ShuffleValidationFailed(String),
 }
 
 impl Default for Error {
