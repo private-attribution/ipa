@@ -565,17 +565,22 @@ mod test {
             boolean_array::{BA16, BA32, BA8},
             U128Conversions,
         },
-        helpers::query::DpMechanism,
+        helpers::{query::DpMechanism, Direction},
         protocol::{
             dp::{
                 apply_dp_noise, delta_constraint, dp_for_histogram, epsilon_constraint, error,
                 find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
+                ShiftedTruncatedDiscreteLaplace,
             },
             ipa_prf::oprf_padding::insecure::OPRFPaddingDp,
         },
+        rand::thread_rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
-            TransposeFrom,
+            replicated::{
+                semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+                ReplicatedSecretSharing,
+            },
+            BitDecomposed, SharedValue, TransposeFrom,
         },
         telemetry::metrics::BYTES_SENT,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
@@ -588,6 +593,35 @@ mod test {
         BitDecomposed::decompose(bit_width, |i| {
             values.map(|v| Boolean::from((v >> i) & 1 == 1))
         })
+    }
+
+    #[test]
+    pub fn test_shifted_truncated_discrete_laplace() {
+        let noise_params = NoiseParams {
+            success_prob: 0.5,
+            epsilon: 0.01,
+            delta: 1e-6,
+            dimensions: 1.0,
+            quantization_scale: 1.0,
+            ell_1_sensitivity: 1.0,
+            ell_2_sensitivity: 1.0,
+            ell_infty_sensitivity: 1.0,
+            ..Default::default()
+        };
+        type OV = BA8;
+        let mut rng = thread_rng();
+        let modulus = 2_u32.pow(OV::BITS);
+        let shifted_truncated_discrete_laplace =
+            ShiftedTruncatedDiscreteLaplace::new(&noise_params, modulus)
+                .expect("Fail test on Error");
+        let left_noise_shares: AdditiveShare<OV> =
+            shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Left);
+        assert_eq!(left_noise_shares.left(), OV::ZERO);
+        assert_ne!(left_noise_shares.right(), OV::ZERO);
+        let right_noise_shares: AdditiveShare<OV> =
+            shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Right);
+        assert_ne!(right_noise_shares.left(), OV::ZERO);
+        assert_eq!(right_noise_shares.right(), OV::ZERO);
     }
 
     /// Test for discrete truncated laplace
