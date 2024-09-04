@@ -629,6 +629,10 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
                 let v = ctx.validator::<F>();
                 let m_ctx = v.context();
                 let r_share = m_ctx.clone().r(RecordId::FIRST).clone();
+
+                // Clippy doesn't like join_all, as it can spawn too many futures.
+                // This only spawns 3, so it's OK.
+                #[allow(clippy::disallowed_methods)]
                 let m_shares: Vec<_> =
                     join_all(zip(shares, iter::repeat(m_ctx.clone())).enumerate().map(
                         |(i, (share, m_ctx))| async move {

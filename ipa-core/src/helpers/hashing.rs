@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{borrow::Borrow, convert::Infallible};
 
 use generic_array::GenericArray;
 use sha2::{
@@ -35,10 +35,11 @@ impl MpcMessage for Hash {}
 ///
 /// ## Panics
 /// Panics when Iterator is empty.
-pub fn compute_hash<'a, I, S>(input: I) -> Hash
+pub fn compute_hash<I, T, S>(input: I) -> Hash
 where
-    I: IntoIterator<Item = &'a S>,
-    S: Serializable + 'a,
+    I: IntoIterator<Item = T>,
+    T: Borrow<S>,
+    S: Serializable,
 {
     // set up hash
     let mut sha = Sha256::new();
@@ -48,7 +49,7 @@ where
     // set state
     for x in input {
         is_empty = false;
-        x.serialize(&mut buf);
+        x.borrow().serialize(&mut buf);
         sha.update(&buf);
     }
 
@@ -90,7 +91,7 @@ where
     );
 
     // set state
-    let combine = compute_hash([left, right]);
+    let combine = compute_hash::<_, _, Hash>([left, right]);
     let mut buf = GenericArray::default();
     combine.serialize(&mut buf);
 
@@ -121,7 +122,7 @@ mod test {
         let mut rng = thread_rng();
         let list: GenericArray<Fp32BitPrime, U8> =
             GenericArray::generate(|_| rng.gen::<Fp32BitPrime>());
-        let hash: Hash = compute_hash(&list);
+        let hash: Hash = compute_hash::<_, _, Fp32BitPrime>(&list);
         let mut buf: GenericArray<u8, _> = GenericArray::default();
         hash.serialize(&mut buf);
         let deserialized_hash = Hash::deserialize(&buf);
@@ -138,7 +139,7 @@ mod test {
         for _ in 0..LIST_LENGTH {
             list.push(rng.gen::<Fp31>());
         }
-        let hash_1 = compute_hash(&list);
+        let hash_1 = compute_hash::<_, _, Fp31>(&list);
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -148,7 +149,7 @@ mod test {
         }
         list[random_index] = different_field_element;
 
-        let hash_2 = compute_hash(&list);
+        let hash_2 = compute_hash::<_, _, Fp31>(&list);
 
         assert_ne!(
             hash_1, hash_2,
@@ -170,7 +171,7 @@ mod test {
         }
         list.swap(index_1, index_2);
 
-        let hash_3 = compute_hash(&list);
+        let hash_3 = compute_hash::<_, _, Fp31>(&list);
 
         assert_ne!(
             hash_2, hash_3,
@@ -191,7 +192,11 @@ mod test {
             left.push(rng.gen::<Fp32BitPrime>());
             right.push(rng.gen::<Fp32BitPrime>());
         }
-        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
+        let r1: Fp32BitPrime = hash_to_field(
+            &compute_hash::<_, _, Fp32BitPrime>(&left),
+            &compute_hash::<_, _, Fp32BitPrime>(&right),
+            EXCLUDE,
+        );
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -203,11 +208,22 @@ mod test {
             right[random_index] = modified_value;
         }
 
-        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
+        let r2: Fp32BitPrime = hash_to_field(
+            &compute_hash::<_, _, Fp32BitPrime>(&left),
+            &compute_hash::<_, _, Fp32BitPrime>(&right),
+            EXCLUDE,
+        );
 
         assert_ne!(
             r1, r2,
             "any modification to either list should change the hashed field element"
         );
+    }
+
+    #[test]
+    fn check_hash_from_owned_values() {
+        let mut rng = thread_rng();
+        let vec = (0..100).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
+        assert_eq!(compute_hash::<_, _, Fp31>(&vec), compute_hash(vec));
     }
 }

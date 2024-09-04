@@ -18,7 +18,7 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{Context, SemiHonestContext},
-        ipa_prf::{oprf_ipa, OPRFIPAInputRow},
+        ipa_prf::{oprf_ipa, oprf_padding::PaddingParameters, OPRFIPAInputRow},
         step::ProtocolStep::IpaPrf,
     },
     report::{EncryptedOprfReport, EventType},
@@ -119,12 +119,13 @@ where
                 epsilon: config.epsilon,
             },
         };
+        let padding_params = PaddingParameters::relaxed();
         match config.per_user_credit_cap {
-            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params).await,
-            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params).await,
-            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws, dp_params).await,
-            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws, dp_params).await,
-            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws, dp_params).await,
+            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,
+            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params, padding_params).await,
+            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws, dp_params, padding_params).await,
+            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws, dp_params, padding_params).await,
+            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws, dp_params, padding_params).await,
             _ => panic!(
                 "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap
@@ -227,12 +228,11 @@ mod tests {
         #[allow(clippy::large_futures)]
         let results = join3v(buffers.into_iter().zip(contexts).map(|(buffer, ctx)| {
             let query_config = IpaQueryConfig {
-                num_multi_bits: 3,
                 per_user_credit_cap: 8,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
                 with_dp: 0,
-                epsilon: 1.0,
+                epsilon: 5.0,
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);

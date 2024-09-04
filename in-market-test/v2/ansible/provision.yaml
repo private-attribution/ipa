@@ -1,12 +1,51 @@
 - name: Setup IPA Helper
   hosts: all
+  vars:
+    # Define packages to install based on OS family
+    packages_by_os_family:
+      RedHat:
+        - gcc
+        - git
+      Debian:
+        - build-essential
+        - git-all
+
   tasks:
     - name: Store HOME directory
       debug:
         var: ansible_env.HOME
 
+    - name: Display the OS family
+      debug:
+        msg: "The OS family is {{ ansible_facts['os_family'] }}"
+
+    - name: Update apt package cache
+      apt:
+        update_cache: yes
+      when: ansible_facts['os_family'] == 'Debian'
+      become: yes
+
+    - name: Update dnf package cache
+      dnf:
+        update_cache: yes
+      when: ansible_facts['os_family'] == 'RedHat'
+      become: yes
+
+    - name: Set the list of packages to install based on OS family
+      set_fact:
+        packages_to_install: "{{ packages_by_os_family[ansible_facts['os_family']] }}"
+
+    - name: Ensure the packages are installed
+      package:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ packages_to_install }}"
+      when: packages_to_install is defined
+      become: yes
+
+
     - name: Check if rust toolchain is installed
-      command: rustup --version
+      command: "{{ ansible_env.HOME }}/.cargo/bin/rustup --version"
       register: rustup_installed
       failed_when: false
       changed_when: false
@@ -18,29 +57,10 @@
       when: rustup_installed.rc != 0
 
     - name: Update Rust to 1.80
-      command: rustup update 1.80.0
+      command: "{{ ansible_env.HOME }}/.cargo/bin/rustup update 1.80.0"
 
     - name: Set default to 1.80
-      command: rustup default 1.80.0
-
-    - name: Check if Git is installed
-      command: git --version
-      register: git_installed
-      failed_when: false
-      changed_when: false
-
-    - name: Install GCC
-      yum:
-        name: gcc
-        state: latest
-      become: yes
-
-    - name: Install Git
-      yum:
-        name: git
-        state: latest
-      become: yes
-      when: git_installed.rc != 0
+      command: "{{ ansible_env.HOME }}/.cargo/bin/rustup default 1.80.0"
 
     - name: Clone repository and check out specified commit
       git:
@@ -55,7 +75,7 @@
 
     - name: Build IPA helper
       shell:
-        cmd: "cargo build --bin helper --features='web-app real-world-infra compact-gate multi-threading disable-metrics stall-detection' --no-default-features --release"
+        cmd: "{{ ansible_env.HOME }}/.cargo/bin/cargo build --bin helper --features='web-app real-world-infra compact-gate multi-threading disable-metrics stall-detection' --no-default-features --release"
         chdir: "{{ ansible_env.HOME }}/ipa"
 
     - name: Grant CAP_NET_BIND_SERVICE capability to helper binary

@@ -303,6 +303,18 @@ impl Role {
     pub const fn eq(self, other: Self) -> bool {
         matches!((self, other), (H1, H1) | (H2, H2) | (H3, H3))
     }
+
+    /// Returns the direction to the peer with the specified role.
+    ///
+    /// If `self == role`, returns `None`.
+    #[must_use]
+    pub const fn direction_to(&self, role: Role) -> Option<Direction> {
+        match (self, role) {
+            (H1, H2) | (H2, H3) | (H3, H1) => Some(Direction::Right),
+            (H1, H3) | (H2, H1) | (H3, H2) => Some(Direction::Left),
+            (H1, H1) | (H2, H2) | (H3, H3) => None,
+        }
+    }
 }
 
 impl From<Role> for &'static str {

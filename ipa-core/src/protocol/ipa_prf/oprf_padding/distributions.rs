@@ -139,7 +139,7 @@ impl Distribution<i32> for DoubleGeometric {
 /// Truncated Double Geometric distribution.
 #[derive(Debug, PartialEq)]
 pub struct TruncatedDoubleGeometric {
-    shift_doubled: u32, // move 2 * shift to constructor instead of sample
+    pub shift_doubled: u32, // move 2 * shift to constructor instead of sample
     double_geometric: DoubleGeometric,
 }
 

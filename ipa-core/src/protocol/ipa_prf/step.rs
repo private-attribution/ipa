@@ -2,6 +2,8 @@ use ipa_step_derive::CompactStep;
 
 #[derive(CompactStep)]
 pub(crate) enum IpaPrfStep {
+    #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="padding_dp")]
+    PaddingDp,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
     // ConvertInputRowsToPrf,
@@ -35,6 +37,8 @@ pub(crate) enum QuicksortPassStep {
 pub(crate) enum PrfStep {
     PRFKeyGen,
     GenRandomMask,
+    UpgradeY,
+    UpgradeMask,
     MultMaskWithPRFInput,
     RevealR,
     Revealz,

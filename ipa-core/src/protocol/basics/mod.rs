@@ -23,13 +23,14 @@ use crate::{
     protocol::{
         context::{
             Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
-            UpgradedSemiHonestContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext,
         },
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
         prss::FromPrss,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare, FieldSimd, SecretSharing, SharedValue, Vectorizable,
+        replicated::{malicious, semi_honest::AdditiveShare},
+        FieldSimd, SecretSharing, SharedValue, Vectorizable,
     },
     sharding::ShardBinding,
 };
@@ -41,7 +42,7 @@ use crate::{
 /// difficulty of resolving `V` vs. `[V; 1]` issues for the known value type. `Reshare` hasn't been
 /// attempted.)
 pub trait BasicProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N: usize = 1>:
-    SecretSharing<V> + Reveal<C, Output = <V as Vectorizable<N>>::Array> + SecureMul<C> + FromPrss
+    SecretSharing<V> + Reveal<C, Output = <V as Vectorizable<N>>::Array> + SecureMul<C>
 {
 }
 
@@ -54,6 +55,14 @@ impl<'a, B: ShardBinding> BasicProtocols<UpgradedSemiHonestContext<'a, B, Fp2551
 impl<'a, B: ShardBinding>
     BasicProtocols<UpgradedSemiHonestContext<'a, B, Fp25519>, Fp25519, PRF_CHUNK>
     for AdditiveShare<Fp25519, PRF_CHUNK>
+{
+}
+
+impl<'a, const N: usize> BasicProtocols<UpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>
+    for malicious::AdditiveShare<Fp25519, N>
+where
+    Fp25519: FieldSimd<N>,
+    AdditiveShare<Fp25519, N>: FromPrss,
 {
 }
 

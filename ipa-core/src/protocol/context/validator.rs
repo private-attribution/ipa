@@ -36,7 +36,7 @@ use crate::{
 };
 
 pub trait Validator<F: ExtendableField> {
-    type Context: UpgradedContext;
+    type Context: UpgradedContext<Field = F>;
 
     fn context(&self) -> Self::Context;
 }
