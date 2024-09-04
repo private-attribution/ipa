@@ -7,7 +7,7 @@ use crate::{
     ff::{boolean_array::BooleanArray, Field, Gf32Bit},
     helpers::{
         hashing::{compute_hash, Hash},
-        Direction, Role,
+        Direction, Role, TotalRecords,
     },
     protocol::{
         basics::malicious_reveal,
@@ -33,7 +33,9 @@ async fn verify_shuffle<C: Context, S: BooleanArray>(
     messages: IntermediateShuffleMessages<S>,
 ) -> Result<(), Error> {
     // reveal keys
-    let k_ctx = ctx.narrow(&OPRFShuffleStep::RevealMACKey).set_total_records(key_shares.len());
+    let k_ctx = ctx
+        .narrow(&OPRFShuffleStep::RevealMACKey)
+        .set_total_records(TotalRecords::specified(key_shares.len())?);
     let keys = reveal_keys(&k_ctx, key_shares).await?;
 
     // verify messages and shares
@@ -70,10 +72,10 @@ async fn h1_verify<C: Context, S: BooleanArray>(
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for x1
-    let hash_x1 = compute_row_hash::<S, _, _>(&keys, x1);
+    let hash_x1 = compute_row_hash::<S, _, _>(keys, x1);
     // compute hash for A xor B
     let hash_a_xor_b = compute_row_hash::<S, _, _>(
-        &keys,
+        keys,
         share_a_and_b
             .iter()
             .map(|share| share.left() + share.right()),
@@ -82,17 +84,17 @@ async fn h1_verify<C: Context, S: BooleanArray>(
     // setup channels
     let h3_ctx = ctx
         .narrow(&OPRFShuffleStep::HashesH3toH1)
-        .set_total_records(2);
+        .set_total_records(TotalRecords::specified(2)?);
     let h2_ctx = ctx
         .narrow(&OPRFShuffleStep::HashH2toH1)
-        .set_total_records(1);
+        .set_total_records(TotalRecords::specified(1)?);
     let channel_h3 = &h3_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Left));
     let channel_h2 = &h2_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right));
 
     // receive hashes
     let (hashes_h3, hash_h2) = try_join(
         h3_ctx.parallel_join(
-            (0..=1).map(|i| async move { channel_h3.receive(RecordId::from(i)).await }),
+            (0usize..=1).map(|i| async move { channel_h3.receive(RecordId::from(i)).await }),
         ),
         channel_h2.receive(RecordId::FIRST),
     )
@@ -101,24 +103,23 @@ async fn h1_verify<C: Context, S: BooleanArray>(
     // check y1
     if hash_x1 != hashes_h3[0] {
         return Err(Error::ShuffleValidationFailed(format!(
-            "Y1 is inconsistent: hash of x1: {:?}, hash of y1: {:?}",
-            hash_x1, hashes_h3[0]
+            "Y1 is inconsistent: hash of x1: {hash_x1:?}, hash of y1: {:?}",
+            hashes_h3[0]
         )));
     }
 
     // check c from h3
     if hash_a_xor_b != hashes_h3[1] {
         return Err(Error::ShuffleValidationFailed(format!(
-            "C from H3 is inconsistent: hash of a_xor_b: {:?}, hash of C: {:?}",
-            hash_a_xor_b, hashes_h3[1]
+            "C from H3 is inconsistent: hash of a_xor_b: {hash_a_xor_b:?}, hash of C: {:?}",
+            hashes_h3[1]
         )));
     }
 
     // check h2
     if hash_a_xor_b != hash_h2 {
         return Err(Error::ShuffleValidationFailed(format!(
-            "C from H2 is inconsistent: hash of a_xor_b: {:?}, hash of C: {:?}",
-            hash_a_xor_b, hash_h2
+            "C from H2 is inconsistent: hash of a_xor_b: {hash_a_xor_b:?}, hash of C: {hash_h2:?}"
         )));
     }
 
@@ -141,23 +142,25 @@ async fn h2_verify<C: Context, S: BooleanArray>(
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for x2
-    let hash_x2 = compute_row_hash::<S, _, _>(&keys, x2);
+    let hash_x2 = compute_row_hash::<S, _, _>(keys, x2);
     // compute hash for C
-    let hash_c =
-        compute_row_hash::<S, _, _>(&keys, share_b_and_c.iter().map(|share| share.right()));
+    let hash_c = compute_row_hash::<S, _, _>(
+        keys,
+        share_b_and_c.iter().map(ReplicatedSecretSharing::right),
+    );
 
     // setup channels
     let h1_ctx = ctx
         .narrow(&OPRFShuffleStep::HashH2toH1)
-        .set_total_records(1);
+        .set_total_records(TotalRecords::specified(1)?);
     let h3_ctx = ctx
         .narrow(&OPRFShuffleStep::HashH3toH2)
-        .set_total_records(1);
+        .set_total_records(TotalRecords::specified(1)?);
     let channel_h1 = &h1_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left));
     let channel_h3 = &h3_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right));
 
     // send and receive hash
-    let (_, hash_h3) = try_join(
+    let ((), hash_h3) = try_join(
         channel_h1.send(RecordId::FIRST, hash_c),
         channel_h3.receive(RecordId::FIRST),
     )
@@ -166,8 +169,7 @@ async fn h2_verify<C: Context, S: BooleanArray>(
     // check x2
     if hash_x2 != hash_h3 {
         return Err(Error::ShuffleValidationFailed(format!(
-            "X2 is inconsistent: hash of x2: {:?}, hash of y2: {:?}",
-            hash_x2, hash_h3
+            "X2 is inconsistent: hash of x2: {hash_x2:?}, hash of y2: {hash_h3:?}"
         )));
     }
 
@@ -189,19 +191,22 @@ async fn h3_verify<C: Context, S: BooleanArray>(
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for y1
-    let hash_y1 = compute_row_hash::<S, _, _>(&keys, y1);
+    let hash_y1 = compute_row_hash::<S, _, _>(keys, y1);
     // compute hash for y2
-    let hash_y2 = compute_row_hash::<S, _, _>(&keys, y2);
+    let hash_y2 = compute_row_hash::<S, _, _>(keys, y2);
     // compute hash for C
-    let hash_c = compute_row_hash::<S, _, _>(&keys, share_c_and_a.iter().map(|share| share.left()));
+    let hash_c = compute_row_hash::<S, _, _>(
+        keys,
+        share_c_and_a.iter().map(ReplicatedSecretSharing::left),
+    );
 
     // setup channels
     let h1_ctx = ctx
         .narrow(&OPRFShuffleStep::HashesH3toH1)
-        .set_total_records(2);
+        .set_total_records(TotalRecords::specified(2)?);
     let h2_ctx = ctx
         .narrow(&OPRFShuffleStep::HashH3toH2)
-        .set_total_records(1);
+        .set_total_records(TotalRecords::specified(1)?);
     let channel_h1 = &h1_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Right));
     let channel_h2 = &h2_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left));
 
@@ -261,20 +266,21 @@ async fn reveal_keys<C: Context>(
         .flatten()
         .collect::<Vec<_>>();
     // add a one, since last row element is tag which is not multiplied with a key
-    keys.push(StdArray::from_iter(iter::once(Gf32Bit::ONE)));
+    keys.push(iter::once(Gf32Bit::ONE).collect());
     Ok(keys)
 }
 
-
 #[cfg(all(test, unit_test))]
 mod tests {
-    use rand::{Rng, thread_rng};
-    use crate::ff::boolean_array::{BA64};
-    use crate::ff::Serializable;
-    use crate::protocol::ipa_prf::shuffle::base::shuffle;
-    use crate::test_executor::run;
-    use crate::test_fixture::{Runner, TestWorld};
+    use rand::{thread_rng, Rng};
+
     use super::*;
+    use crate::{
+        ff::{boolean_array::BA64, Serializable},
+        protocol::ipa_prf::shuffle::base::shuffle,
+        test_executor::run,
+        test_fixture::{Runner, TestWorld},
+    };
 
     /// This test checks the correctness of the malicious shuffle
     /// when all parties behave honestly
@@ -288,8 +294,8 @@ mod tests {
             let mut rng = thread_rng();
             let records = (0..RECORD_AMOUNT)
                 .map(|_| {
-                    let entry = rng.gen::<[u8;4]>();
-                    let mut entry_and_tag = [0u8;8];
+                    let entry = rng.gen::<[u8; 4]>();
+                    let mut entry_and_tag = [0u8; 8];
                     entry_and_tag[0..4].copy_from_slice(&entry);
                     entry_and_tag[4..8].copy_from_slice(&entry);
                     BA64::deserialize_from_slice(&entry_and_tag)
@@ -297,18 +303,17 @@ mod tests {
                 .collect::<Vec<BA64>>();
 
             let _ = world
-                .semi_honest(
-                    records.into_iter(),
-                    |ctx, rows, | async move {
-                        // trivial shares of Gf32Bit::ONE
-                        let key_shares = vec![AdditiveShare::new(Gf32Bit::ONE,Gf32Bit::ONE);1];
-                        // run shuffle
-                        let (shares,messages) = shuffle(ctx.narrow("shuffle"), rows).await.unwrap();
-                        // verify it
-                        verify_shuffle(ctx.narrow("verify"),&key_shares,&shares, messages).await.unwrap();
+                .semi_honest(records.into_iter(), |ctx, rows| async move {
+                    // trivial shares of Gf32Bit::ONE
+                    let key_shares = vec![AdditiveShare::new(Gf32Bit::ONE, Gf32Bit::ONE); 1];
+                    // run shuffle
+                    let (shares, messages) = shuffle(ctx.narrow("shuffle"), rows).await.unwrap();
+                    // verify it
+                    verify_shuffle(ctx.narrow("verify"), &key_shares, &shares, messages)
+                        .await
+                        .unwrap();
                 })
                 .await;
         });
     }
 }
-
