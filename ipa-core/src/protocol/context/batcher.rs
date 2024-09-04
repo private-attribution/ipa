@@ -9,14 +9,15 @@ use crate::{
     sync::{Arc, Mutex},
 };
 
-#[derive(Debug)]
-pub(super) struct BatchState<B> {
-    pub(super) batch: B,
-    validation_result: watch::Sender<bool>,
-    pending_count: usize,
-    pending_records: BitVec,
-}
-
+/// Manages validation of batches of records for malicious protocols.
+///
+/// `Batcher` is utilized as follows:
+/// 1. Construct with `Batcher::new`.
+/// 2. Record information in the batch via `Batcher::get_batch` and
+///    some protocol-defined mechanism.
+/// 3. Either:
+///    a. Call `Batcher::validate_record` for each record.
+///    b. Call `Batcher::into_single_batch` once.
 pub(super) struct Batcher<'a, B> {
     batches: VecDeque<BatchState<B>>,
     first_batch: usize,
@@ -25,10 +26,23 @@ pub(super) struct Batcher<'a, B> {
     batch_constructor: Box<dyn Fn(usize) -> B + Send + 'a>,
 }
 
-// Helper for `Batcher::validate_record`.
-enum Validate<B> {
-    Wait(watch::Receiver<bool>),
-    Now {
+/// State associated with a batch.
+///
+/// `batch` holds state defined by a particular malicious protocol. The other fields
+/// hold state that is defined and used by the `Batcher` implementation for all
+/// protocols.
+#[derive(Debug)]
+pub(super) struct BatchState<B> {
+    pub(super) batch: B,
+    validation_result: watch::Sender<bool>,
+    pending_count: usize,
+    pending_records: BitVec,
+}
+
+// Helper for `Batcher::validate_record` and `Batcher::is_ready_for_validation`.
+enum Ready<B> {
+    No(watch::Receiver<bool>),
+    Yes {
         batch_index: usize,
         batch: BatchState<B>,
     },
@@ -83,7 +97,7 @@ impl<'a, B> Batcher<'a, B> {
         self.get_batch_by_offset(self.batch_offset(record_id))
     }
 
-    fn validate_record_action(&mut self, record_id: RecordId) -> Result<Validate<B>, Error> {
+    fn is_ready_for_validation(&mut self, record_id: RecordId) -> Result<Ready<B>, Error> {
         let Some(total_records) = self.total_records else {
             return Err(Error::MissingTotalRecords(String::from("validate_record")));
         };
@@ -118,9 +132,9 @@ impl<'a, B> Batcher<'a, B> {
             tracing::info!("batch {batch_index} is ready for validation");
             let batch = self.batches.pop_front().unwrap();
             self.first_batch += 1;
-            Ok(Validate::Now { batch_index, batch })
+            Ok(Ready::Yes { batch_index, batch })
         } else {
-            Ok(Validate::Wait(batch.validation_result.subscribe()))
+            Ok(Ready::No(batch.validation_result.subscribe()))
         }
     }
 
@@ -135,14 +149,14 @@ impl<'a, B> Batcher<'a, B> {
     {
         tracing::trace!("validate record {record_id}");
 
-        let validate = self.validate_record_action(record_id);
+        let ready = self.is_ready_for_validation(record_id);
 
         // At this point we are done with `self`. Capturing `self` in the future is
         // problematic when it is inside a mutex.
 
         async move {
-            match validate? {
-                Validate::Wait(mut validation_result_rx) => {
+            match ready? {
+                Ready::No(mut validation_result_rx) => {
                     validation_result_rx
                         .changed()
                         .await
@@ -157,7 +171,7 @@ impl<'a, B> Batcher<'a, B> {
                         Err(Error::ParallelDZKPValidationFailed)
                     }
                 }
-                Validate::Now {
+                Ready::Yes {
                     batch_index,
                     batch: state,
                 } => {
