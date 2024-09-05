@@ -3,6 +3,8 @@ name: Publish Helper Image CI
 on:
   workflow_dispatch:
   push:
+    branches:
+      - master
     paths:
       - "docker/ci/**"
       - ".github/workflows/docker.yml"
