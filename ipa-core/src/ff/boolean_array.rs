@@ -8,10 +8,13 @@ use generic_array::GenericArray;
 use typenum::{U14, U2, U32, U8};
 
 use crate::{
-    error::LengthError,
-    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable, U128Conversions},
+    error::{Error, LengthError},
+    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Gf32Bit, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        Block, SharedValue, StdArray, Vectorizable,
+    },
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -32,7 +35,11 @@ macro_rules! store_impl {
 }
 
 pub trait BooleanArray:
-    SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean> + FromIterator<Boolean>
+    SharedValue
+    + ArrayAccess<Output = Boolean>
+    + Expand<Input = Boolean>
+    + FromIterator<Boolean>
+    + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
 {
 }
 
@@ -41,7 +48,26 @@ impl<A> BooleanArray for A where
         + ArrayAccess<Output = Boolean>
         + Expand<Input = Boolean>
         + FromIterator<Boolean>
+        + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
 {
+}
+
+impl<A> TryInto<Vec<AdditiveShare<Gf32Bit>>> for &AdditiveShare<A>
+where
+    A: BooleanArray,
+    AdditiveShare<A>: Sized,
+{
+    type Error = Error;
+
+    fn try_into(self) -> Result<Vec<AdditiveShare<Gf32Bit>>, Self::Error> {
+        let left_shares: Vec<Gf32Bit> = self.left().try_into()?;
+        let right_shares: Vec<Gf32Bit> = self.right().try_into()?;
+        Ok(left_shares
+            .into_iter()
+            .zip(right_shares)
+            .map(|(left, right)| AdditiveShare::new(left, right))
+            .collect())
+    }
 }
 
 /// Iterator returned by `.iter()` on Boolean arrays
