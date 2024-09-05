@@ -340,6 +340,8 @@ struct ShiftedTruncatedDiscreteLaplace {
 }
 
 impl ShiftedTruncatedDiscreteLaplace {
+    /// # Panics
+    /// if `bit_size > 32`
     pub fn new(noise_params: &NoiseParams, bit_size: u32) -> Result<Self, Error> {
         // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
         // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
@@ -392,7 +394,7 @@ impl ShiftedTruncatedDiscreteLaplace {
 /// # Errors
 /// will propagate errors from constructing a `truncated_discrete_laplace` distribution.
 /// # Panics
-///
+/// if `OV::BITS > 32`
 pub async fn apply_laplace_noise_pass<C, OV, const B: usize>(
     ctx: &C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
