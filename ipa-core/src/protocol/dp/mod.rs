@@ -336,10 +336,11 @@ where
 struct ShiftedTruncatedDiscreteLaplace {
     truncated_discrete_laplace: OPRFPaddingDp,
     shift: u32,
+    modulus: u32,
 }
 
 impl ShiftedTruncatedDiscreteLaplace {
-    pub fn new(noise_params: &NoiseParams) -> Result<Self, Error> {
+    pub fn new(noise_params: &NoiseParams, bit_size: u32) -> Result<Self, Error> {
         // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
         // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
         let truncated_discrete_laplace = OPRFPaddingDp::new(
@@ -348,9 +349,17 @@ impl ShiftedTruncatedDiscreteLaplace {
             noise_params.per_user_credit_cap,
         )?;
         let shift = truncated_discrete_laplace.get_shift();
+        assert!(bit_size <= 32);
+        let modulus = if bit_size < 32 {
+            2_u32.pow(bit_size)
+        } else {
+            u32::MAX
+        };
+
         Ok(Self {
             truncated_discrete_laplace,
             shift,
+            modulus,
         })
     }
 
@@ -368,11 +377,7 @@ impl ShiftedTruncatedDiscreteLaplace {
         OV: BooleanArray + U128Conversions,
     {
         let sample = self.sample(rng);
-        let symmetric_sample = if OV::BITS < 32 {
-            sample.wrapping_sub(self.shift) % 2_u32.pow(OV::BITS)
-        } else {
-            sample.wrapping_sub(self.shift)
-        };
+        let symmetric_sample = sample.wrapping_sub(self.shift) % self.modulus;
         match direction_to_excluded_helper {
             Direction::Left => {
                 AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(symmetric_sample)))
@@ -403,7 +408,6 @@ where
         for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
     AdditiveShare<OV>: ReplicatedSecretSharing<OV>,
 {
-    assert!(OV::BITS <= 32);
     let noise_values_array: [AdditiveShare<OV>; B] =
         if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
             // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
@@ -414,7 +418,7 @@ where
                 Direction::Right => &mut left,
             };
             let shifted_truncated_discrete_laplace =
-                ShiftedTruncatedDiscreteLaplace::new(noise_params)?;
+                ShiftedTruncatedDiscreteLaplace::new(noise_params, OV::BITS)?;
             std::array::from_fn(|_i| {
                 shifted_truncated_discrete_laplace.sample_shares(rng, direction_to_excluded_helper)
             })
@@ -559,7 +563,9 @@ mod test {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA16, BA32, BA8},
+            boolean_array::{
+                BooleanArray, BA112, BA16, BA20, BA3, BA32, BA4, BA5, BA6, BA64, BA7, BA8,
+            },
             U128Conversions,
         },
         helpers::{query::DpMechanism, Direction},
@@ -592,9 +598,10 @@ mod test {
         })
     }
 
-    #[test]
-    pub fn test_shifted_truncated_discrete_laplace() {
-        type OV = BA32;
+    fn build_shifted_truncated_discrete_laplace_test<OV>()
+    where
+        OV: BooleanArray + U128Conversions,
+    {
         let noise_params = NoiseParams {
             success_prob: 0.5,
             epsilon: 0.01,
@@ -608,15 +615,60 @@ mod test {
         };
         let mut rng = thread_rng();
         let shifted_truncated_discrete_laplace =
-            ShiftedTruncatedDiscreteLaplace::new(&noise_params).expect("Fail test on Error");
-        let left_noise_shares: AdditiveShare<OV> =
-            shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Left);
+            ShiftedTruncatedDiscreteLaplace::new(&noise_params, OV::BITS)
+                .expect("Fail test on Error");
+        // there is some chance we add 0 noise, especially in smaller fields
+        // (e.g., in BA3, and multiple of 3 will also be 3 noise)
+        // we attempt this multiple times to try and make sure some noise is being added
+
+        let attempts = 10;
+
+        let mut left_noise_shares: AdditiveShare<OV> = AdditiveShare::new(OV::ZERO, OV::ZERO);
+        for _i in 1..attempts {
+            left_noise_shares =
+                shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Left);
+            if left_noise_shares.right() != OV::ZERO {
+                break;
+            }
+        }
         assert_eq!(left_noise_shares.left(), OV::ZERO);
         assert_ne!(left_noise_shares.right(), OV::ZERO);
-        let right_noise_shares: AdditiveShare<OV> =
-            shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Right);
+
+        let mut right_noise_shares: AdditiveShare<OV> = AdditiveShare::new(OV::ZERO, OV::ZERO);
+        for _i in 1..attempts {
+            right_noise_shares =
+                shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Right);
+            if right_noise_shares.left() != OV::ZERO {
+                break;
+            }
+        }
         assert_ne!(right_noise_shares.left(), OV::ZERO);
         assert_eq!(right_noise_shares.right(), OV::ZERO);
+    }
+
+    #[test]
+    fn test_shifted_truncated_discrete_laplace() {
+        build_shifted_truncated_discrete_laplace_test::<BA3>();
+        build_shifted_truncated_discrete_laplace_test::<BA4>();
+        build_shifted_truncated_discrete_laplace_test::<BA5>();
+        build_shifted_truncated_discrete_laplace_test::<BA6>();
+        build_shifted_truncated_discrete_laplace_test::<BA7>();
+        build_shifted_truncated_discrete_laplace_test::<BA8>();
+        build_shifted_truncated_discrete_laplace_test::<BA16>();
+        build_shifted_truncated_discrete_laplace_test::<BA20>();
+        build_shifted_truncated_discrete_laplace_test::<BA32>();
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed: bit_size <= 32")]
+    fn test_shifted_truncated_discrete_laplace_ba64() {
+        build_shifted_truncated_discrete_laplace_test::<BA64>();
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed: bit_size <= 32")]
+    fn test_shifted_truncated_discrete_laplace_ba112() {
+        build_shifted_truncated_discrete_laplace_test::<BA112>();
     }
 
     /// Test for discrete truncated laplace
