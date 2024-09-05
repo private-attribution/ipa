@@ -102,7 +102,7 @@ impl Gateway {
         mpc_transport: MpcTransportImpl,
         shard_transport: ShardTransportImpl,
     ) -> Self {
-        tracing::info!("active_work = {}", config.active);
+        tracing::debug!("active_work = {}", config.active);
         #[allow(clippy::useless_conversion)] // not useless in stall-detection build
         Self {
             query_id,
@@ -270,9 +270,10 @@ impl GatewayConfig {
             2,
             min(
                 Self::default().active.get(),
-                // It makes sense to start with active work set to input size, but some protocols
-                // may want to change that, if their fanout factor per input row is greater than 1.
-                // we don't have capabilities (see #ipa/1171) to allow that currently.
+                // We limit active work to the input size because our CI is too slow for
+                // very large active work sizes. Some protocols may want to change this,
+                // if their fanout factor per input row is greater than 1. We don't have
+                // capabilities (see #ipa/1171) to allow that currently.
                 usize::from(value.size),
             ),
         );
