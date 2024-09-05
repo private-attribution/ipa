@@ -165,7 +165,7 @@ fn gen_inputs(
 
     for event in event_gen {
         event.to_csv(&mut writer)?;
-        writer.write_all(&[b"\n"])?;
+        writer.write_all(b"\n")?;
     }
 
     Ok(())
