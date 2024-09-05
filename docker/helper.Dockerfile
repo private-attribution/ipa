@@ -16,4 +16,5 @@ ENV CONF_DIR=/etc/ipa
 ARG SOURCES_DIR
 
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder ${SOURCES_DIR}/target/release/helper $HELPER_BIN_PATH
