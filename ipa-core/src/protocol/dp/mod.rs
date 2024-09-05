@@ -336,11 +336,10 @@ where
 struct ShiftedTruncatedDiscreteLaplace {
     truncated_discrete_laplace: OPRFPaddingDp,
     shift: u32,
-    modulus: u32,
 }
 
 impl ShiftedTruncatedDiscreteLaplace {
-    pub fn new(noise_params: &NoiseParams, modulus: u32) -> Result<Self, Error> {
+    pub fn new(noise_params: &NoiseParams) -> Result<Self, Error> {
         // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
         // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
         let truncated_discrete_laplace = OPRFPaddingDp::new(
@@ -352,7 +351,6 @@ impl ShiftedTruncatedDiscreteLaplace {
         Ok(Self {
             truncated_discrete_laplace,
             shift,
-            modulus,
         })
     }
 
@@ -371,7 +369,7 @@ impl ShiftedTruncatedDiscreteLaplace {
     {
         let sample = self.sample(rng);
         let symmetric_sample = if OV::BITS < 32 {
-            sample.wrapping_sub(self.shift) % self.modulus
+            sample.wrapping_sub(self.shift) % 2_u32.pow(OV::BITS)
         } else {
             sample.wrapping_sub(self.shift)
         };
@@ -415,9 +413,8 @@ where
                 Direction::Left => &mut right,
                 Direction::Right => &mut left,
             };
-            let modulus = 2_u32.pow(OV::BITS);
             let shifted_truncated_discrete_laplace =
-                ShiftedTruncatedDiscreteLaplace::new(noise_params, modulus)?;
+                ShiftedTruncatedDiscreteLaplace::new(noise_params)?;
             std::array::from_fn(|_i| {
                 shifted_truncated_discrete_laplace.sample_shares(rng, direction_to_excluded_helper)
             })
@@ -597,6 +594,7 @@ mod test {
 
     #[test]
     pub fn test_shifted_truncated_discrete_laplace() {
+        type OV = BA32;
         let noise_params = NoiseParams {
             success_prob: 0.5,
             epsilon: 0.01,
@@ -608,12 +606,9 @@ mod test {
             ell_infty_sensitivity: 1.0,
             ..Default::default()
         };
-        type OV = BA8;
         let mut rng = thread_rng();
-        let modulus = 2_u32.pow(OV::BITS);
         let shifted_truncated_discrete_laplace =
-            ShiftedTruncatedDiscreteLaplace::new(&noise_params, modulus)
-                .expect("Fail test on Error");
+            ShiftedTruncatedDiscreteLaplace::new(&noise_params).expect("Fail test on Error");
         let left_noise_shares: AdditiveShare<OV> =
             shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Left);
         assert_eq!(left_noise_shares.left(), OV::ZERO);
