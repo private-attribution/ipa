@@ -9,4 +9,7 @@ pub(crate) enum OPRFShuffleStep {
     TransferCHat,
     TransferX2,
     TransferY1,
+    GenerateTags,
+    ShuffleProtocol,
+    VerifyShuffle,
 }
