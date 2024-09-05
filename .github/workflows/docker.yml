@@ -6,10 +6,9 @@ on:
     paths:
       - "docker/ci/**"
       - ".github/workflows/docker.yml"
-      - "Cargo.toml"
-  schedule:
-    # Once monthly at a randomly selected time.
-    - cron: "24 2 3,18 * *"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "ipa-*/src/**/*"
 
 jobs:
   build:
