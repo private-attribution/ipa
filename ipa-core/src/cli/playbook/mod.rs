@@ -112,7 +112,7 @@ pub fn validate_dp(
         }
 
         let next_expected_f64: f64 = next_expected.unwrap().into();
-        let actual_expect_f64: f64 = next_actual.unwrap().into();
+        let next_actual_f64: f64 = next_actual.unwrap().into();
 
         let noise_params = NoiseParams {
             epsilon,
@@ -126,8 +126,8 @@ pub fn validate_dp(
         let same = match dp_mechanism {
             DpMechanism::Binomial { epsilon: _ } => {
                 let (mean, std) = crate::protocol::dp::binomial_noise_mean_std(&noise_params);
-                actual_expect_f64 - mean > next_expected_f64 - 10.0 * std
-                    && actual_expect_f64 - mean < next_expected_f64 + 10.0 * std
+                next_actual_f64 - mean > next_expected_f64 - 10.0 * std
+                    && next_actual_f64 - mean < next_expected_f64 + 10.0 * std
             }
             DpMechanism::DiscreteLaplace { epsilon: _ } => {
                 let truncated_discrete_laplace = OPRFPaddingDp::new(
@@ -141,24 +141,19 @@ pub fn validate_dp(
                 // Here we are shifting the representation of negative noise values
                 // from being large values close to 2^32 to being negative when we look
                 // at them as floats.
-                let actual_expect_f64_shifted = if actual_expect_f64 > 2.0_f64.powf(31.0) {
-                    actual_expect_f64 - 2.0_f64.powf(32.0)
+                let next_actual_f64_shifted = if next_actual_f64 > 2.0_f64.powf(31.0) {
+                    next_actual_f64 - 2.0_f64.powf(32.0)
                 } else {
-                    actual_expect_f64
+                    next_actual_f64
                 };
-                println!("actual_expect_f64 = {actual_expect_f64}, actual_expect_f64_shifted = {actual_expect_f64_shifted}");
+                println!("next_actual_f64 = {next_actual_f64}, next_actual_f64_shifted = {next_actual_f64_shifted}");
 
                 let (_, std) = truncated_discrete_laplace.mean_and_std();
                 let tolerance_factor = 20.0; // set so this fails randomly with small probability
                                              // println!("mean = {mean}, std = {std}, tolerance_factor * std = {}",tolerance_factor * std);
-                (actual_expect_f64_shifted - next_expected_f64).abs() < tolerance_factor * 3.0 * std
+                (next_actual_f64_shifted - next_expected_f64).abs() < tolerance_factor * 3.0 * std
             }
-            DpMechanism::NoDp => {
-                // let tolerance = 0.00001;
-                // actual_expect_f64 > next_expected_f64 - tolerance
-                //     && actual_expect_f64 < next_expected_f64 + tolerance
-                next_expected == next_actual
-            }
+            DpMechanism::NoDp => next_expected == next_actual,
         };
 
         let color = if same { Color::Green } else { Color::Red };

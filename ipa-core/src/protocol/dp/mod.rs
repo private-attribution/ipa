@@ -633,10 +633,7 @@ mod test {
         let epsilon = 2.0;
         let dp_params = DpMechanism::DiscreteLaplace { epsilon };
         let world = TestWorld::default();
-        // let input_values = [10000, 8, 6, 41, 0, 0, 0, 0, 10, 8, 6, 41, 0, 0, 0, 0];
-        // let input_values = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        // let input_values = [1, 1, 1, 1,1, 1, 1, 1,1, 1, 1, 1,1, 1, 1, 1];
-        let input_values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let input_values = [0, 0, 0, 0, 1, 1, 1, 1, 100, 100, 100, 100, 10, 20, 30, 40];
 
         let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> =
             vectorize_input(OV::BITS as usize, &input_values); // bit_width passed here needs to match OV::BITS
@@ -661,16 +658,21 @@ mod test {
         assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
         let tolerance_factor = 20.0;
         for i in 0..result_u32.len() {
+            let next_result_f64 = f64::from(result_u32[i]);
+            let next_result_f64_shifted = if next_result_f64 > 2.0_f64.powf((OV::BITS - 1).into()) {
+                next_result_f64 - 2.0_f64.powf(OV::BITS.into())
+            } else {
+                next_result_f64
+            };
+
             println!(
-                "i = {i}, original = {}, with noise is = {}",
+                "i = {i}, original = {}, result = {}, shifted is = {next_result_f64_shifted}",
                 f64::from(input_values[i]),
-                f64::from(result_u32[i])
+                result_u32[i],
             );
             assert!(
-                f64::from(result_u32[i]) - f64::from(input_values[i])
-                    > - tolerance_factor * three_std
-                    && f64::from(result_u32[i]) - f64::from(input_values[i])
-                    <  tolerance_factor * three_std
+                (next_result_f64_shifted - f64::from(input_values[i])).abs() <
+                    tolerance_factor * three_std
                 , "test failed because noised result is more than {tolerance_factor} standard deviations of the noise distribution \
                 from the original input values. This will fail with a small chance of failure"
             );
