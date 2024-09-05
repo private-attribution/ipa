@@ -231,7 +231,6 @@ mod tests {
         #[allow(clippy::large_futures)]
         let results = join3v(buffers.into_iter().zip(contexts).map(|(buffer, ctx)| {
             let query_config = IpaQueryConfig {
-                num_multi_bits: 3,
                 per_user_credit_cap: 8,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,

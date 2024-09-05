@@ -37,6 +37,8 @@ pub(crate) enum QuicksortPassStep {
 pub(crate) enum PrfStep {
     PRFKeyGen,
     GenRandomMask,
+    UpgradeY,
+    UpgradeMask,
     MultMaskWithPRFInput,
     RevealR,
     Revealz,

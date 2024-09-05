@@ -165,7 +165,6 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
         let results = join3v(buffers.into_iter().zip(contexts).zip(mk_private_keys).map(
             |((buffer, ctx), mk_private_key)| {
                 let query_config = IpaQueryConfig {
-                    num_multi_bits: 3,
                     per_user_credit_cap: 8,
                     attribution_window_seconds: None,
                     max_breakdown_key: 3,
