@@ -60,7 +60,6 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
-step-trace = ["ipa-step/trace"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
 # Enable tokio task profiling. Requires tokio_unstable flag to be passed to the compiler.

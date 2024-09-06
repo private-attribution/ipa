@@ -517,9 +517,13 @@ macro_rules! boolean_array_impl {
                     let mut chunks = Vec::<Gf32Bit>::with_capacity(length);
                     let last_chunk_start = length-1;
                     for i in 0..last_chunk_start {
-                        chunks.push(Gf32Bit::try_from(&value.0.as_raw_slice()[4 * i..4 * (i + 1)])?);
+                        chunks.push(Gf32Bit::try_from(
+                            &value.0.as_raw_slice()[4 * i..4 * (i + 1)],
+                        )?);
                     }
-                    chunks.push(Gf32Bit::try_from(&value.0.as_raw_slice()[4 * last_chunk_start..])?);
+                    chunks.push(Gf32Bit::try_from(
+                        &value.0.as_raw_slice()[4 * last_chunk_start..],
+                    )?);
                     Ok(chunks)
                 }
             }
@@ -685,7 +689,7 @@ macro_rules! boolean_array_impl {
                 }
 
                 #[test]
-                fn convert_to_galois_field(){
+                fn convert_to_galois_field() {
                     let mut rng = thread_rng();
                     let ba = rng.gen::<$name>();
                     let mut vec = ba.as_raw_slice().to_vec();
@@ -695,8 +699,9 @@ macro_rules! boolean_array_impl {
                     }
                     let converted = <Vec<Gf32Bit>>::try_from(ba).unwrap();
                     for (i,element) in converted.iter().enumerate() {
-                        let temp = element.as_raw_slice().to_vec();
-                        assert_eq!(vec[4*i..4*(i+1)],temp);
+                        let mut buf = GenericArray::default();
+                        element.serialize(&mut buf);
+                        assert_eq!(vec[4*i..4*(i+1)],buf.to_vec());
                     }
 
                 }

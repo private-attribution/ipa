@@ -1,4 +1,4 @@
-use std::sync::Weak;
+use std::{num::NonZeroUsize, sync::Weak};
 
 use async_trait::async_trait;
 
@@ -14,6 +14,26 @@ use crate::{
     query::{NewQueryError, QueryProcessor, QueryStatus},
     sync::Arc,
 };
+
+#[derive(Default)]
+pub struct AppConfig {
+    active_work: Option<NonZeroUsize>,
+    key_registry: Option<KeyRegistry<PrivateKeyOnly>>,
+}
+
+impl AppConfig {
+    #[must_use]
+    pub fn with_active_work(mut self, active_work: Option<NonZeroUsize>) -> Self {
+        self.active_work = active_work;
+        self
+    }
+
+    #[must_use]
+    pub fn with_key_registry(mut self, key_registry: KeyRegistry<PrivateKeyOnly>) -> Self {
+        self.key_registry = Some(key_registry);
+        self
+    }
+}
 
 pub struct Setup {
     query_processor: QueryProcessor,
@@ -38,13 +58,9 @@ struct Inner {
 
 impl Setup {
     #[must_use]
-    pub fn new() -> (Self, HandlerRef) {
-        Self::with_key_registry(KeyRegistry::<PrivateKeyOnly>::empty())
-    }
-
-    #[must_use]
-    pub fn with_key_registry(key_registry: KeyRegistry<PrivateKeyOnly>) -> (Self, HandlerRef) {
-        let query_processor = QueryProcessor::new(key_registry);
+    pub fn new(config: AppConfig) -> (Self, HandlerRef) {
+        let key_registry = config.key_registry.unwrap_or_else(KeyRegistry::empty);
+        let query_processor = QueryProcessor::new(key_registry, config.active_work);
         let handler = HandlerBox::empty();
         let this = Self {
             query_processor,
@@ -53,6 +69,11 @@ impl Setup {
 
         // TODO: weak reference to query processor to prevent mem leak
         (this, handler)
+    }
+
+    #[must_use]
+    pub fn with_key_registry(key_registry: KeyRegistry<PrivateKeyOnly>) -> (Self, HandlerRef) {
+        Self::new(AppConfig::default().with_key_registry(key_registry))
     }
 
     /// Instantiate [`HelperApp`] by connecting it to the provided transport implementation

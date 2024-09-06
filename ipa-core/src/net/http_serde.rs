@@ -122,6 +122,11 @@ pub mod query {
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::OPRF_IPA_RELAXED_DP_PADDING_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::OprfIpaRelaxedDpPadding(q))
+                }
                 QueryType::OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::OprfIpa(q))
@@ -148,6 +153,27 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply | QueryType::TestAddInPrimeField => Ok(()),
+                #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+                QueryType::OprfIpaRelaxedDpPadding(config) => {
+                    write!(
+                        f,
+                        "&per_user_credit_cap={}&max_breakdown_key={}&with_dp={}&epsilon={}",
+                        config.per_user_credit_cap,
+                        config.max_breakdown_key,
+                        config.with_dp,
+                        config.epsilon,
+                    )?;
+
+                    if config.plaintext_match_keys {
+                        write!(f, "&plaintext_match_keys=true")?;
+                    }
+
+                    if let Some(window) = config.attribution_window_seconds {
+                        write!(f, "&attribution_window_seconds={}", window.get())?;
+                    }
+
+                    Ok(())
+                }
                 QueryType::OprfIpa(config) => {
                     write!(
                         f,

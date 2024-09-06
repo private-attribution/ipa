@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, convert::Infallible};
+use std::convert::Infallible;
 
 use generic_array::GenericArray;
 use sha2::{
@@ -29,6 +29,27 @@ impl Serializable for Hash {
     }
 }
 
+/// This trait works similar to `Borrow` in the sense
+/// that it is implemented for owned values and references.
+///
+/// The advantage over `Borrow` is that types can be
+/// inferred by the compiler when using references.
+pub trait SerializeAs<T: Serializable> {
+    fn serialize(self, buf: &mut GenericArray<u8, T::Size>);
+}
+
+impl<T: Serializable> SerializeAs<T> for T {
+    fn serialize(self, buf: &mut GenericArray<u8, <T as Serializable>::Size>) {
+        <T as Serializable>::serialize(&self, buf);
+    }
+}
+
+impl<'a, T: Serializable> SerializeAs<T> for &'a T {
+    fn serialize(self, buf: &mut GenericArray<u8, <T as Serializable>::Size>) {
+        <T as Serializable>::serialize(self, buf);
+    }
+}
+
 impl MpcMessage for Hash {}
 
 /// Computes Hash of serializable values from an iterator
@@ -38,7 +59,7 @@ impl MpcMessage for Hash {}
 pub fn compute_hash<I, T, S>(input: I) -> Hash
 where
     I: IntoIterator<Item = T>,
-    T: Borrow<S>,
+    T: SerializeAs<S>,
     S: Serializable,
 {
     // set up hash
@@ -49,7 +70,7 @@ where
     // set state
     for x in input {
         is_empty = false;
-        x.borrow().serialize(&mut buf);
+        x.serialize(&mut buf);
         sha.update(&buf);
     }
 
@@ -91,7 +112,7 @@ where
     );
 
     // set state
-    let combine = compute_hash::<_, _, Hash>([left, right]);
+    let combine = compute_hash([left, right]);
     let mut buf = GenericArray::default();
     combine.serialize(&mut buf);
 
@@ -122,7 +143,7 @@ mod test {
         let mut rng = thread_rng();
         let list: GenericArray<Fp32BitPrime, U8> =
             GenericArray::generate(|_| rng.gen::<Fp32BitPrime>());
-        let hash: Hash = compute_hash::<_, _, Fp32BitPrime>(&list);
+        let hash: Hash = compute_hash(list);
         let mut buf: GenericArray<u8, _> = GenericArray::default();
         hash.serialize(&mut buf);
         let deserialized_hash = Hash::deserialize(&buf);
@@ -139,7 +160,7 @@ mod test {
         for _ in 0..LIST_LENGTH {
             list.push(rng.gen::<Fp31>());
         }
-        let hash_1 = compute_hash::<_, _, Fp31>(&list);
+        let hash_1 = compute_hash(&list);
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -149,7 +170,7 @@ mod test {
         }
         list[random_index] = different_field_element;
 
-        let hash_2 = compute_hash::<_, _, Fp31>(&list);
+        let hash_2 = compute_hash(&list);
 
         assert_ne!(
             hash_1, hash_2,
@@ -171,7 +192,7 @@ mod test {
         }
         list.swap(index_1, index_2);
 
-        let hash_3 = compute_hash::<_, _, Fp31>(&list);
+        let hash_3 = compute_hash(&list);
 
         assert_ne!(
             hash_2, hash_3,
@@ -192,11 +213,7 @@ mod test {
             left.push(rng.gen::<Fp32BitPrime>());
             right.push(rng.gen::<Fp32BitPrime>());
         }
-        let r1: Fp32BitPrime = hash_to_field(
-            &compute_hash::<_, _, Fp32BitPrime>(&left),
-            &compute_hash::<_, _, Fp32BitPrime>(&right),
-            EXCLUDE,
-        );
+        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -208,11 +225,7 @@ mod test {
             right[random_index] = modified_value;
         }
 
-        let r2: Fp32BitPrime = hash_to_field(
-            &compute_hash::<_, _, Fp32BitPrime>(&left),
-            &compute_hash::<_, _, Fp32BitPrime>(&right),
-            EXCLUDE,
-        );
+        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         assert_ne!(
             r1, r2,
@@ -224,6 +237,6 @@ mod test {
     fn check_hash_from_owned_values() {
         let mut rng = thread_rng();
         let vec = (0..100).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
-        assert_eq!(compute_hash::<_, _, Fp31>(&vec), compute_hash(vec));
+        assert_eq!(compute_hash(&vec), compute_hash(vec));
     }
 }

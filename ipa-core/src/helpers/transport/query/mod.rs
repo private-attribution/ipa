@@ -1,7 +1,6 @@
 use std::{
-    cmp::{max, min},
     fmt::{Debug, Display, Formatter},
-    num::{NonZeroU32, NonZeroUsize},
+    num::NonZeroU32,
 };
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -10,7 +9,7 @@ use crate::{
     ff::FieldType,
     helpers::{
         transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
-        GatewayConfig, RoleAssignment, RouteParams,
+        RoleAssignment, RouteParams,
     },
     protocol::QueryId,
 };
@@ -140,29 +139,6 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
     }
 }
 
-impl From<&QueryConfig> for GatewayConfig {
-    fn from(value: &QueryConfig) -> Self {
-        let mut config = Self::default();
-        // Minimum size for active work is 2 because:
-        // * `UnorderedReceiver` wants capacity to be greater than 1
-        // * 1 is better represented by not using seq_join and/or indeterminate total records
-        let active = max(
-            2,
-            min(
-                config.active.get(),
-                // It makes sense to start with active work set to input size, but some protocols
-                // may want to change that, if their fanout factor per input row is greater than 1.
-                // we don't have capabilities (see #ipa/1171) to allow that currently.
-                usize::try_from(value.size.0).expect("u32 fits into usize"),
-            ),
-        );
-        // we set active to be at least 2, so unwrap is fine.
-        config.active = NonZeroUsize::new(active).unwrap();
-
-        config
-    }
-}
-
 impl QueryConfig {
     /// Initialize new query configuration.
     ///
@@ -222,6 +198,8 @@ pub enum QueryType {
     TestMultiply,
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestAddInPrimeField,
+    #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+    OprfIpaRelaxedDpPadding(IpaQueryConfig),
     OprfIpa(IpaQueryConfig),
 }
 
@@ -229,6 +207,7 @@ impl QueryType {
     /// TODO: strum
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
     pub const TEST_ADD_STR: &'static str = "test-add";
+    pub const OPRF_IPA_RELAXED_DP_PADDING_STR: &'static str = "oprf_ipa_relaxed_dp_padding";
     pub const OPRF_IPA_STR: &'static str = "oprf_ipa";
 }
 
@@ -240,6 +219,8 @@ impl AsRef<str> for QueryType {
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestAddInPrimeField => Self::TEST_ADD_STR,
+            #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+            QueryType::OprfIpaRelaxedDpPadding(_) => Self::OPRF_IPA_RELAXED_DP_PADDING_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
         }
     }
@@ -249,6 +230,7 @@ impl AsRef<str> for QueryType {
 pub enum DpMechanism {
     NoDp,
     Binomial { epsilon: f64 },
+    DiscreteLaplace { epsilon: f64 },
 }
 
 #[cfg(test)]
@@ -284,7 +266,7 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             with_dp: 1,
-            epsilon: 5.0,
+            epsilon: 0.10,
             plaintext_match_keys: false,
         }
     }

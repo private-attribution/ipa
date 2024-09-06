@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::{
     helpers::{Role, ZeroRecordsError},
+    protocol::RecordId,
     report::InvalidReportError,
     sharding::ShardIndex,
     task::JoinError,
@@ -96,6 +97,11 @@ pub enum Error {
     EpsilonOutOfBounds,
     #[error("Missing total records in {0}")]
     MissingTotalRecords(String),
+    #[error("Record ID {record_id:?} is out of range (expected {total_records} records)")]
+    RecordIdOutOfRange {
+        record_id: RecordId,
+        total_records: usize,
+    },
     #[error("The verification of the shuffle failed: {0}")]
     ShuffleValidationFailed(String),
 }

@@ -2,6 +2,7 @@ use std::{
     fs,
     io::BufReader,
     net::TcpListener,
+    num::NonZeroUsize,
     os::fd::{FromRawFd, RawFd},
     path::{Path, PathBuf},
     process,
@@ -17,7 +18,7 @@ use ipa_core::{
     error::BoxError,
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpShardTransport, HttpTransport, MpcHelperClient},
-    AppSetup,
+    AppConfig, AppSetup,
 };
 use tracing::{error, info};
 
@@ -89,6 +90,10 @@ struct ServerArgs {
     /// Private key for decrypting match keys
     #[arg(long, requires = "mk_public_key")]
     mk_private_key: Option<PathBuf>,
+
+    /// Override the amount of active work processed in parallel
+    #[arg(long)]
+    active_work: Option<NonZeroUsize>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -129,8 +134,10 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         private_key_file: sk_path,
     });
 
-    let key_registry = hpke_registry(mk_encryption.as_ref()).await?;
-    let (setup, handler) = AppSetup::with_key_registry(key_registry);
+    let app_config = AppConfig::default()
+        .with_key_registry(hpke_registry(mk_encryption.as_ref()).await?)
+        .with_active_work(args.active_work);
+    let (setup, handler) = AppSetup::new(app_config);
 
     let server_config = ServerConfig {
         port: args.port,
