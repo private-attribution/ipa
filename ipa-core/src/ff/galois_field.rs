@@ -156,15 +156,6 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            impl $name {
-
-                #[inline]
-                #[must_use]
-                pub fn as_raw_slice(&self) -> &[u8] {
-                    self.0.as_raw_slice()
-                }
-            }
-
             impl SharedValue for $name {
                 type Storage = $store;
                 const BITS: u32 = $bits;
@@ -622,22 +613,6 @@ macro_rules! bit_array_impl {
                     a.clone().serialize(&mut buf);
 
                     assert_eq!(a, $name::deserialize(&buf).unwrap(), "failed to serialize/deserialize {a:?}");
-                }
-
-                #[test]
-                fn element_from_raw_slice(){
-                    // initialize array with 1s
-                    let mut a = [255;{($bits+7)/8}];
-                    for i in (0usize..{($bits+7)/8}).rev() {
-                        // check when inserting elements 0..i
-                        // try_from implementation sets elements i..bytes to 0
-                        // check whether there are enough bits to insert a byte
-                        if usize::try_from(<$name>::BITS).unwrap() >= (i+1)*8 {
-                            assert_eq!($name(BitArray::<[u8;{($bits+7)/8}],Lsb0>::new(a)),$name::try_from(vec![255u8;i+1].as_slice()).unwrap());
-                        }
-                        // set last element to 0 to be consistent with try_from for next iteration
-                        a[i] = 0;
-                    }
                 }
 
                 #[test]
