@@ -237,8 +237,8 @@ struct MultiplicationInputsBatch {
 }
 
 impl MultiplicationInputsBatch {
-    /// Creates a new store.
-    /// `first_record` and `last_record` are initialized to `0`. The size of the allocated vector is
+    /// Creates a new store for multiplication intermediates for records starting from
+    /// `first_record`. The size of the allocated vector is
     /// `ceil((max_multiplications * multiplication_bit_size) / BIT_ARRAY_LEN)`.
     fn new(
         first_record: RecordId,
