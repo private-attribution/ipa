@@ -20,7 +20,7 @@ use ipa_core::{
     },
     config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
-    helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+    helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     net::MpcHelperClient,
     report::DEFAULT_KEY_ID,
     test_fixture::{
@@ -288,6 +288,9 @@ async fn ipa(
                 actual.breakdowns,
                 ipa_query_config.epsilon,
                 ipa_query_config.per_user_credit_cap,
+                DpMechanism::DiscreteLaplace {
+                    epsilon: ipa_query_config.epsilon,
+                },
             );
         }
     }

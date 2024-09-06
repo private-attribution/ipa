@@ -225,6 +225,7 @@ impl AsRef<str> for QueryType {
 pub enum DpMechanism {
     NoDp,
     Binomial { epsilon: f64 },
+    DiscreteLaplace { epsilon: f64 },
 }
 
 #[cfg(test)]
@@ -260,7 +261,7 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             with_dp: 1,
-            epsilon: 5.0,
+            epsilon: 0.10,
             plaintext_match_keys: false,
         }
     }
