@@ -102,6 +102,9 @@ check "Tests" \
 check "Web tests" \
     cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
+check "Web tests (descriptive gate)" \
+    cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture"
+
 check "Concurrency tests" \
     cargo test -p ipa-core --release --features "shuttle multi-threading"
 

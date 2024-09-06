@@ -33,7 +33,7 @@ mod serde;
 pub mod sharding;
 mod utils;
 
-pub use app::{HelperApp, Setup as AppSetup};
+pub use app::{AppConfig, HelperApp, Setup as AppSetup};
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]
