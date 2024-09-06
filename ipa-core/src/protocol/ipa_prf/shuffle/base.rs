@@ -72,8 +72,8 @@ impl<S: SharedValue> IntermediateShuffleMessages<S> {
     ///
     /// ## Panics
     /// Panics when `Role = H2`, i.e. `x1_or_y1` is `None`.
-    pub fn get_x1_or_y1(&self) -> &Vec<S> {
-        self.x1_or_y1.as_ref().unwrap()
+    pub fn get_x1_or_y1(self) -> Vec<S> {
+        self.x1_or_y1.unwrap()
     }
 
     /// When `IntermediateShuffleMessages` is initialized correctly,
@@ -82,8 +82,18 @@ impl<S: SharedValue> IntermediateShuffleMessages<S> {
     ///
     /// ## Panics
     /// Panics when `Role = H1`, i.e. `x2_or_y2` is `None`.
-    pub fn get_x2_or_y2(&self) -> &Vec<S> {
-        self.x2_or_y2.as_ref().unwrap()
+    pub fn get_x2_or_y2(self) -> Vec<S> {
+        self.x2_or_y2.unwrap()
+    }
+
+    /// When `IntermediateShuffleMessages` is initialized correctly,
+    /// this function returns `y1` and `y2` when `Role = H3`.
+    ///
+    /// ## Panics
+    /// Panics when `Role = H1`, i.e. `x2_or_y2` is `None` or
+    /// when `Role = H2`, i.e. `x1_or_y1` is `None`.
+    pub fn get_both_x_or_ys(self) -> (Vec<S>, Vec<S>) {
+        (self.x1_or_y1.unwrap(), self.x2_or_y2.unwrap())
     }
 }
 
