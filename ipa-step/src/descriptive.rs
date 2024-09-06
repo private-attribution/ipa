@@ -87,16 +87,7 @@ impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
             assert!(!s.contains('/'), "The string for a step cannot contain '/'");
         }
 
-        let mut id = self.id.clone() + "/";
-        #[cfg(feature = "trace")]
-        {
-            id += [std::any::type_name::<S>(), "::"].concat().as_ref();
-        }
-        id += step.as_ref();
-        #[cfg(feature = "trace")]
-        {
-            metrics::increment_counter!(STEP_NARROWED, STEP => id.clone());
-        }
+        let id = format!("{}/{}", self.id, step.as_ref());
 
         Self { id }
     }

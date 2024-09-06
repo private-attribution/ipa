@@ -250,7 +250,7 @@ impl TestWorld<NotSharded> {
 
 impl<S: ShardingScheme> Drop for TestWorld<S> {
     fn drop(&mut self) {
-        if tracing::span_enabled!(Level::DEBUG) || cfg!(feature = "step-trace") {
+        if tracing::span_enabled!(Level::DEBUG) {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
         }
@@ -266,7 +266,6 @@ impl<S: ShardingScheme> TestWorld<S> {
     pub fn with_config(config: &TestWorldConfig) -> Self {
         logging::setup();
         // Print to stdout so that it appears in test runs only on failure.
-        // scripts/collect_steps.py must be updated if the message text changes.
         println!("TestWorld random seed {seed}", seed = config.seed);
 
         let shard_count = ShardIndex::try_from(S::SHARDS).unwrap();
@@ -629,6 +628,10 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
                 let v = ctx.validator::<F>();
                 let m_ctx = v.context();
                 let r_share = m_ctx.clone().r(RecordId::FIRST).clone();
+
+                // Clippy doesn't like join_all, as it can spawn too many futures.
+                // This only spawns 3, so it's OK.
+                #[allow(clippy::disallowed_methods)]
                 let m_shares: Vec<_> =
                     join_all(zip(shares, iter::repeat(m_ctx.clone())).enumerate().map(
                         |(i, (share, m_ctx))| async move {

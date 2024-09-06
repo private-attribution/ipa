@@ -91,6 +91,16 @@ cargo bench --bench oneshot_arithmetic --no-default-features --features="enable-
 ```
 You can adjust the width and depth of the gates at the expense of a longer benchmarking run.
 
+**Varying the DP Parameters**:
+You can run with DP for outputs and a custom epsilon. 
+```
+cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- --with-dp 1 --epsilon 3.0
+```
+You can run without DP for outputs. 
+```
+cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- --with-dp 0 
+```
+
 **Other**:
 ```
 cargo bench --bench criterion_arithmetic --no-default-features --features="enable-benches compact-gate"

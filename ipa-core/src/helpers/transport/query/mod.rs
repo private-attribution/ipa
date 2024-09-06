@@ -1,7 +1,6 @@
 use std::{
-    cmp::{max, min},
     fmt::{Debug, Display, Formatter},
-    num::{NonZeroU32, NonZeroUsize},
+    num::NonZeroU32,
 };
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -10,7 +9,7 @@ use crate::{
     ff::FieldType,
     helpers::{
         transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
-        GatewayConfig, RoleAssignment, RouteParams,
+        RoleAssignment, RouteParams,
     },
     protocol::QueryId,
 };
@@ -140,29 +139,6 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
     }
 }
 
-impl From<&QueryConfig> for GatewayConfig {
-    fn from(value: &QueryConfig) -> Self {
-        let mut config = Self::default();
-        // Minimum size for active work is 2 because:
-        // * `UnorderedReceiver` wants capacity to be greater than 1
-        // * 1 is better represented by not using seq_join and/or indeterminate total records
-        let active = max(
-            2,
-            min(
-                config.active.get(),
-                // It makes sense to start with active work set to input size, but some protocols
-                // may want to change that, if their fanout factor per input row is greater than 1.
-                // we don't have capabilities (see #ipa/1171) to allow that currently.
-                usize::try_from(value.size.0).expect("u32 fits into usize"),
-            ),
-        );
-        // we set active to be at least 2, so unwrap is fine.
-        config.active = NonZeroUsize::new(active).unwrap();
-
-        config
-    }
-}
-
 impl QueryConfig {
     /// Initialize new query configuration.
     ///
@@ -263,8 +239,6 @@ pub struct IpaQueryConfig {
     pub max_breakdown_key: u32,
     #[cfg_attr(feature = "clap", arg(long))]
     pub attribution_window_seconds: Option<NonZeroU32>,
-    #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
-    pub num_multi_bits: u32,
     #[arg(short = 'd', long, default_value = "1")]
     pub with_dp: u32,
     #[arg(short = 'e', long, default_value = "5.0")]
@@ -285,7 +259,6 @@ impl Default for IpaQueryConfig {
             per_user_credit_cap: 8,
             max_breakdown_key: 20,
             attribution_window_seconds: None,
-            num_multi_bits: 3,
             with_dp: 1,
             epsilon: 5.0,
             plaintext_match_keys: false,
@@ -301,7 +274,6 @@ impl IpaQueryConfig {
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
-        num_multi_bits: u32,
         with_dp: u32,
         epsilon: f64,
     ) -> Self {
@@ -312,7 +284,6 @@ impl IpaQueryConfig {
                 NonZeroU32::new(attribution_window_seconds)
                     .expect("attribution window must be a positive value > 0"),
             ),
-            num_multi_bits,
             with_dp,
             epsilon,
             // dp_params,
@@ -328,7 +299,6 @@ impl IpaQueryConfig {
     pub fn no_window(
         per_user_credit_cap: u32,
         max_breakdown_key: u32,
-        num_multi_bits: u32,
         with_dp: u32,
         epsilon: f64,
     ) -> Self {
@@ -336,7 +306,6 @@ impl IpaQueryConfig {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds: None,
-            num_multi_bits,
             with_dp,
             epsilon,
             plaintext_match_keys: false,

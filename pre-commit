@@ -73,7 +73,11 @@ check() {
         res=$?
         echo "-----------------------"
         echo "$msg: FAILED ($res)"
-        echo "  ${@@Q}"
+        if [[ "$BASH_VERSINFO" -ge 4 ]]; then
+            echo " ${@@Q}"
+        else
+            echo "$*"
+        fi
         exit $res
     fi
 }
@@ -98,8 +102,14 @@ check "Tests" \
 check "Web tests" \
     cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
+check "Web tests (descriptive gate)" \
+    cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture"
+
 check "Concurrency tests" \
     cargo test -p ipa-core --release --features "shuttle multi-threading"
+
+check "Encrypted Input Tests" \
+    cargo test --test encrypted_input --features "cli test-fixture web-app in-memory-infra"
 
 check "IPA benchmark" \
     cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- -n 62 -c 16

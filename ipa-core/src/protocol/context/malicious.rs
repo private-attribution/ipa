@@ -13,7 +13,7 @@ use crate::{
     protocol::{
         basics::mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
         context::{
-            batcher::{Batcher, Either},
+            batcher::Batcher,
             dzkp_malicious::DZKPUpgraded,
             dzkp_validator::{DZKPBatch, MaliciousDZKPValidator},
             prss::InstrumentedIndexedSharedRandomness,
@@ -226,26 +226,15 @@ impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
     type Field = F;
 
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
-        let r = {
-            self.batch
-                .upgrade()
-                .expect("Validation batch is active")
-                .lock()
-                .unwrap()
-                .validate_record(record_id)
-        };
-        match r {
-            Either::Left((_, batch)) => {
-                // TODO: fix naming (batch.batch)
-                batch.batch.validate().await?;
-                batch.notify.notify_waiters();
-                Ok(())
-            }
-            Either::Right(notify) => {
-                notify.notified().await;
-                Ok(())
-            }
-        }
+        let validation_future = self
+            .batch
+            .upgrade()
+            .expect("Validation batch is active")
+            .lock()
+            .unwrap()
+            .validate_record(record_id, |_batch_idx, batch| batch.validate());
+
+        validation_future.await
     }
 }
 

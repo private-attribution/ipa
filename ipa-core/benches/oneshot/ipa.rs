@@ -1,6 +1,6 @@
 use std::{
     env,
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
+    num::{NonZeroU32, NonZeroUsize},
     time::Instant,
 };
 
@@ -57,10 +57,6 @@ struct Args {
         help = "The size of the attribution window, in seconds. Pass 0 for an infinite window."
     )]
     attribution_window: u32,
-    /// The number of sequential bits of breakdown key and match key to process in parallel
-    /// while doing modulus conversion and attribution
-    #[arg(long, default_value = "3")]
-    num_multi_bits: u32,
     /// DP parameters. Will run with DP by default. Can only be run without DP if `with_dp` == 0.
     /// in which case the value of `epsilon` is ignored.
     #[arg(short = 'd', long, default_value = "1")]
@@ -97,7 +93,6 @@ impl Args {
             per_user_credit_cap: self.per_user_cap,
             max_breakdown_key: self.breakdown_keys,
             attribution_window_seconds: self.attribution_window(),
-            num_multi_bits: self.num_multi_bits,
             with_dp: self.with_dp,
             epsilon: self.epsilon,
             plaintext_match_keys: true,
@@ -127,25 +122,11 @@ async fn run(args: Args) -> Result<(), Error> {
         q = args.query_size
     );
     let rng = StdRng::seed_from_u64(seed);
-    let event_gen_config = if cfg!(feature = "step-trace") {
-        // For the steps collection, compact gate requires:
-        // * At least one user with the same number of dynamic steps as defined for `UserNthRowStep::Row`.
-        // * Enough records to exercise the saturating addition case in aggregation.
-        EventGeneratorConfig {
-            user_count: NonZeroU64::new(5).unwrap(),
-            max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
-            max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
-            min_events_per_user: NonZeroU32::new(64).unwrap(),
-            max_events_per_user: NonZeroU32::new(64).unwrap(),
-            ..Default::default()
-        }
-    } else {
-        EventGeneratorConfig {
-            max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
-            max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
-            max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
-            ..Default::default()
-        }
+    let event_gen_config = EventGeneratorConfig {
+        max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
+        max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
+        max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
+        ..Default::default()
     };
     let raw_data = EventGenerator::with_config(rng, event_gen_config)
         .take(args.query_size)

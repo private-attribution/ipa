@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::{
     helpers::{Role, ZeroRecordsError},
+    protocol::RecordId,
     report::InvalidReportError,
     sharding::ShardIndex,
     task::JoinError,
@@ -84,14 +85,23 @@ pub enum Error {
     ParallelDZKPValidationFailed,
     #[error("Inconsistent shares")]
     InconsistentShares,
+    #[error("Inconsistent padding")]
+    InconsistentPadding,
     #[error("The Masks cannot be set safely, i.e. without deleting non-zero field elements")]
     DZKPMasks,
     #[error("Attempt to operate on zero records")]
     ZeroRecords,
+    #[error("DP related error: {0}")]
+    DPPaddingError(#[from] crate::protocol::ipa_prf::oprf_padding::insecure::DpError),
     #[error("Epsilon submitted to query is out of bounds")]
     EpsilonOutOfBounds,
     #[error("Missing total records in {0}")]
     MissingTotalRecords(String),
+    #[error("Record ID {record_id:?} is out of range (expected {total_records} records)")]
+    RecordIdOutOfRange {
+        record_id: RecordId,
+        total_records: usize,
+    },
 }
 
 impl Default for Error {

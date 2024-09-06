@@ -35,7 +35,6 @@ pub struct CounterDetails {
 pub struct Metrics {
     pub counters: HashMap<KeyName, CounterDetails>,
     pub metric_description: HashMap<KeyName, SharedString>,
-    pub print_header: bool,
 }
 
 impl CounterDetails {
@@ -81,7 +80,6 @@ impl Metrics {
         let mut this = Metrics {
             counters: HashMap::new(),
             metric_description: HashMap::new(),
-            print_header: !cfg!(feature = "step-trace"),
         };
 
         let snapshot = snapshot.into_vec();

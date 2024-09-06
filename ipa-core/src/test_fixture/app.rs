@@ -4,6 +4,7 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
+    app::AppConfig,
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
@@ -61,7 +62,8 @@ fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
 
 impl Default for TestApp {
     fn default() -> Self {
-        let (setup, handlers) = unzip_tuple_array(array::from_fn(|_| AppSetup::new()));
+        let (setup, handlers) =
+            unzip_tuple_array(array::from_fn(|_| AppSetup::new(AppConfig::default())));
 
         let mpc_network = InMemoryMpcNetwork::new(handlers.map(Some));
         let shard_network = InMemoryShardNetwork::with_shards(1);

@@ -36,7 +36,7 @@ use crate::{
 };
 
 pub trait Validator<F: ExtendableField> {
-    type Context: UpgradedContext;
+    type Context: UpgradedContext<Field = F>;
 
     fn context(&self) -> Self::Context;
 }
@@ -223,7 +223,7 @@ impl<'a, F: ExtendableField> BatchValidator<'a, F> {
             protocol_ctx: ctx.narrow(&Step::MaliciousProtocol),
             batches_ref: Batcher::new(
                 records_per_batch,
-                total_records,
+                Some(total_records),
                 Box::new(move |batch_index| Malicious::new(ctx.clone(), batch_index)),
             ),
         }
