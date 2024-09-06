@@ -108,8 +108,8 @@ check "Web tests (descriptive gate)" \
 check "Concurrency tests" \
     cargo test -p ipa-core --release --features "shuttle multi-threading"
 
-check "Encrypted Input Tests" \
-    cargo test --test encrypted_input --features "cli test-fixture web-app in-memory-infra"
+check "CLI tests" \
+    cargo test cli:: -p ipa-core --no-default-features --features "cli test-fixture web-app in-memory-infra"
 
 check "IPA benchmark" \
     cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- -n 62 -c 16

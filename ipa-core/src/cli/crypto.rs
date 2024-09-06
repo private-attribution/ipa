@@ -247,7 +247,6 @@ mod tests {
         sync::Arc,
     };
 
-    use bytes::BufMut;
     use clap::Parser;
     use hpke::Deserializable;
     use rand::thread_rng;
@@ -262,7 +261,7 @@ mod tests {
         helpers::query::{IpaQueryConfig, QuerySize},
         hpke::{IpaPrivateKey, KeyRegistry, PrivateKeyOnly},
         query::OprfIpaQuery,
-        report::EncryptedOprfReportSteams,
+        report::EncryptedOprfReportStreams,
         test_fixture::{
             ipa::TestRawDataRecord, join3v, EventGenerator, EventGeneratorConfig, Reconstruct,
             TestWorld,
@@ -538,7 +537,6 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
 
     #[tokio::test]
     async fn encrypt_and_execute_query() {
-        panic!("is this run?");
         const EXPECTED: &[u128] = &[0, 8, 5];
 
         let records: Vec<TestRawDataRecord> = vec![
@@ -601,9 +599,9 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
         let _ = encrypt(&encrypt_args);
 
         let files = [
-            output_dir.path().join("helper1.enc"),
-            output_dir.path().join("helper2.enc"),
-            output_dir.path().join("helper3.enc"),
+            &output_dir.path().join("helper1.enc"),
+            &output_dir.path().join("helper2.enc"),
+            &output_dir.path().join("helper3.enc"),
         ];
         let encrypted_oprf_report_files = EncryptedOprfReportStreams::from(files);
 
