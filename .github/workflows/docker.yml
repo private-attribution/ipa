@@ -27,7 +27,7 @@ jobs:
       uses: docker/metadata-action@v5
       with:
         images: |
-          name/app
+          ghcr.io/${{ github.repository }}/ipa-helper
         tags: |
           type=ref,event=branch
           type=ref,event=pr
