@@ -305,12 +305,8 @@ impl ProofHashes {
         };
 
         Self {
-            hashes: once(compute_hash::<_, _, Fp61BitPrime>(first_proof))
-                .chain(
-                    other_proofs
-                        .iter()
-                        .map(|proof| compute_hash::<_, _, Fp61BitPrime>(proof.iter())),
-                )
+            hashes: once(compute_hash(first_proof))
+                .chain(other_proofs.iter().map(|proof| compute_hash(proof.iter())))
                 .collect::<Vec<_>>(),
         }
     }
