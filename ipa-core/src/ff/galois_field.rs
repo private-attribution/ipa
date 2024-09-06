@@ -3,7 +3,10 @@ use std::{
     ops::Index,
 };
 
-use bitvec::prelude::{bitarr, BitArr, Lsb0};
+use bitvec::{
+    array::BitArray,
+    prelude::{bitarr, BitArr, Lsb0},
+};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
@@ -184,6 +187,34 @@ macro_rules! bit_array_impl {
                     const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
                     let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
+                }
+            }
+
+            /// This function generates a Galois field element from a raw slice.
+            /// When the length of the slice is smaller than the byte length
+            /// of an element, the remaining bytes are filled with Zeros.
+            ///
+            /// ## Errors
+            /// Returns an error when the slice is too long.
+            ///
+            /// ## Panics
+            /// Panics when `u32` to `usize` conversion fails
+            impl TryFrom<&[u8]> for $name {
+
+                type Error = crate::error::Error;
+
+                fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+                    if value.len()<=usize::try_from(Self::BITS/8).unwrap() {
+                        let mut bitarray = [0u8;{($bits+7)/8}];
+                        bitarray[0..value.len()].copy_from_slice(value);
+                        Ok($name(BitArray::<[u8;{($bits+7)/8}],Lsb0>::new(bitarray)))
+                    } else {
+                        Err(crate::error::Error::FieldConversion(format!(
+                            "Element bit size {} is too small to hold {} bytes.",
+                            Self::BITS,
+                            value.len()
+                        )))
+                    }
                 }
             }
 
@@ -582,6 +613,17 @@ macro_rules! bit_array_impl {
                     a.clone().serialize(&mut buf);
 
                     assert_eq!(a, $name::deserialize(&buf).unwrap(), "failed to serialize/deserialize {a:?}");
+                }
+
+                #[test]
+                fn slice_to_galois_err() {
+                    let mut rng = thread_rng();
+                    let vec = (0..{(<$name>::BITS+7)/8+1}).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                    let element = <$name>::try_from(vec.as_slice());
+                    assert!(matches!(
+                        element,
+                        Err(crate::error::Error::FieldConversion(_))
+                    ));
                 }
             }
 

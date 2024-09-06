@@ -20,7 +20,7 @@ use ipa_core::{
     },
     config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
-    helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+    helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     net::MpcHelperClient,
     report::DEFAULT_KEY_ID,
     test_fixture::{
@@ -165,7 +165,7 @@ fn gen_inputs(
 
     for event in event_gen {
         event.to_csv(&mut writer)?;
-        writer.write_all(&[b'\n'])?;
+        writer.write_all(b"\n")?;
     }
 
     Ok(())
@@ -183,7 +183,7 @@ async fn ipa(
     let query_type: QueryType;
     match (security_model, &query_style) {
         (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            query_type = QueryType::OprfIpa(ipa_query_config);
+            query_type = QueryType::OprfIpaRelaxedDpPadding(ipa_query_config);
         }
         (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
             panic!("OPRF for malicious is not implemented as yet")
@@ -288,6 +288,9 @@ async fn ipa(
                 actual.breakdowns,
                 ipa_query_config.epsilon,
                 ipa_query_config.per_user_credit_cap,
+                DpMechanism::DiscreteLaplace {
+                    epsilon: ipa_query_config.epsilon,
+                },
             );
         }
     }

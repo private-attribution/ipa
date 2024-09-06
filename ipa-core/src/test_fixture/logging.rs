@@ -1,5 +1,7 @@
 use std::sync::Once;
 
+use tracing_subscriber::fmt::format::FmtSpan;
+
 /// Set up logging for IPA
 ///
 /// ## Panics
@@ -30,12 +32,9 @@ pub fn setup() {
                 Level::INFO.into()
             };
 
-            let fmt_layer = fmt::layer().with_test_writer();
-            #[cfg(not(feature = "step-trace"))]
-            let fmt_layer = {
-                use tracing_subscriber::fmt::format::FmtSpan;
-                fmt_layer.with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-            };
+            let fmt_layer = fmt::layer()
+                .with_test_writer()
+                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE);
 
             tracing_subscriber::registry()
                 .with(

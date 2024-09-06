@@ -38,12 +38,10 @@ impl CsvExporter for Metrics {
         // then dump them to the provided Write interface
         // TODO: include role dimension. That requires rethinking `Metrics` implementation
         // because it does not allow such breakdown atm.
-        if self.print_header {
-            writeln!(
-                w,
-                "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS,Step narrowed"
-            )?;
-        }
+        writeln!(
+            w,
+            "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS,Step narrowed"
+        )?;
         for (step, stats) in steps_stats.all_steps() {
             writeln!(
                 w,

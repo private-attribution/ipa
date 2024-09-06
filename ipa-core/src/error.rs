@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::{
     helpers::{Role, ZeroRecordsError},
+    protocol::RecordId,
     report::InvalidReportError,
     sharding::ShardIndex,
     task::JoinError,
@@ -62,6 +63,8 @@ pub enum Error {
     ShardInfraError(#[from] crate::helpers::Error<ShardIndex>),
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
+    #[error("The field element size is too small: {0}")]
+    FieldConversion(String),
     #[error("Invalid query parameter: {0}")]
     InvalidQueryParameter(BoxError),
     #[error("invalid report: {0}")]
@@ -94,6 +97,13 @@ pub enum Error {
     EpsilonOutOfBounds,
     #[error("Missing total records in {0}")]
     MissingTotalRecords(String),
+    #[error("Record ID {record_id:?} is out of range (expected {total_records} records)")]
+    RecordIdOutOfRange {
+        record_id: RecordId,
+        total_records: usize,
+    },
+    #[error("The verification of the shuffle failed: {0}")]
+    ShuffleValidationFailed(String),
 }
 
 impl Default for Error {

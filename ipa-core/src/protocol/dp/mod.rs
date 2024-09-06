@@ -1,23 +1,31 @@
 // DP in MPC
 pub mod step;
-use std::f64;
+
+use std::{convert::Infallible, f64};
 
 use futures_util::{stream, StreamExt};
+use rand_core::{CryptoRng, RngCore};
 
 use crate::{
     error::{Error, Error::EpsilonOutOfBounds, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::{query::DpMechanism, TotalRecords},
+    helpers::{query::DpMechanism, Direction, Role, TotalRecords},
     protocol::{
         boolean::step::ThirtyTwoBitStep,
         context::Context,
-        dp::step::DPStep,
-        ipa_prf::{aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add},
+        dp::step::{ApplyDpNoise, DPStep},
+        ipa_prf::{
+            aggregation::aggregate_values, boolean_ops::addition_sequential::integer_add,
+            oprf_padding::insecure::OPRFPaddingDp,
+        },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+        replicated::{
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+            ReplicatedSecretSharing,
+        },
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
 };
@@ -34,7 +42,7 @@ use crate::{
 pub struct NoiseParams {
     pub epsilon: f64,
     pub delta: f64,
-    pub per_user_credit_cap: f64,
+    pub per_user_credit_cap: u32,
     pub success_prob: f64,
     pub dimensions: f64,
     pub quantization_scale: f64,
@@ -48,7 +56,7 @@ impl Default for NoiseParams {
         Self {
             epsilon: 5.0,
             delta: 1e-6,
-            per_user_credit_cap: 1.0,
+            per_user_credit_cap: 1,
             success_prob: 0.5,
             dimensions: 1.0,
             quantization_scale: 1.0,
@@ -69,7 +77,7 @@ impl NoiseParams {
     pub fn new(
         epsilon: f64,
         delta: f64,
-        per_user_credit_cap: f64,
+        per_user_credit_cap: u32,
         success_prob: f64,
         dimensions: f64,
         quantization_scale: f64,
@@ -82,9 +90,6 @@ impl NoiseParams {
         }
         if delta != 0.0 {
             return Err("delta must be > 0.0".to_string());
-        }
-        if per_user_credit_cap <= 0.0 {
-            return Err("per_user_credit_cap must be > 0.0".to_string());
         }
         if !(0.0..=MAX_PROBABILITY).contains(&success_prob) {
             return Err("success_prob must be between 0 and 1".to_string());
@@ -189,7 +194,7 @@ where
         .unwrap();
     // Step 4:  Add DP noise to output values
     let apply_noise_ctx = ctx
-        .narrow(&DPStep::ApplyNoise)
+        .narrow(&ApplyDpNoise::ApplyNoise)
         .set_total_records(TotalRecords::ONE);
     let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
         apply_noise_ctx,
@@ -228,6 +233,8 @@ where
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    BitDecomposed<AdditiveShare<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
 {
     match dp_params {
         DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
@@ -236,15 +243,16 @@ where
                 return Err(EpsilonOutOfBounds);
             }
 
-            let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
+            let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
+
             let dimensions = f64::from(u32::try_from(B).unwrap());
 
             let noise_params = NoiseParams {
                 epsilon,
                 per_user_credit_cap,
-                ell_1_sensitivity: per_user_credit_cap,
-                ell_2_sensitivity: per_user_credit_cap,
-                ell_infty_sensitivity: per_user_credit_cap,
+                ell_1_sensitivity: f64::from(per_user_credit_cap),
+                ell_2_sensitivity: f64::from(per_user_credit_cap),
+                ell_infty_sensitivity: f64::from(per_user_credit_cap),
                 dimensions,
                 ..Default::default()
             };
@@ -253,7 +261,7 @@ where
             let epsilon = noise_params.epsilon;
             let delta = noise_params.delta;
             tracing::info!(
-                "In dp_for_histogram: \
+                "In dp_for_histogram with Binomial noise: \
                 epsilon = {epsilon}, \
                 delta = {delta}, \
                 num_breakdowns (dimension) = {dimensions}, \
@@ -268,7 +276,176 @@ where
 
             Ok(noisy_histogram)
         }
+        DpMechanism::DiscreteLaplace { epsilon } => {
+            let noise_params = NoiseParams {
+                epsilon,
+                per_user_credit_cap: 2_u32.pow(u32::try_from(SS_BITS).unwrap()),
+                ..Default::default()
+            };
+
+            let truncated_discret_laplace = OPRFPaddingDp::new(
+                noise_params.epsilon,
+                noise_params.delta,
+                noise_params.per_user_credit_cap,
+            )?;
+
+            assert!((epsilon - noise_params.epsilon).abs() < 0.001);
+            let (mean, _) = truncated_discret_laplace.mean_and_std();
+            tracing::info!(
+                "In dp_for_histogram with Truncated Discrete Laplace noise: \
+                epsilon = {epsilon}, \
+                delta = {}, \
+                per_user_credit_cap = {}, \
+                noise mean (including all three pairs of noise) = {}, \
+                OV::BITS = {}",
+                noise_params.delta,
+                noise_params.per_user_credit_cap,
+                mean * 3.0,
+                OV::BITS,
+            );
+
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass1),
+                histogram_bin_values,
+                Role::H1,
+                &noise_params,
+            )
+            .await?;
+
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass2),
+                noised_output,
+                Role::H2,
+                &noise_params,
+            )
+            .await?;
+
+            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
+                &ctx.narrow(&DPStep::LaplacePass3),
+                noised_output,
+                Role::H3,
+                &noise_params,
+            )
+            .await?;
+
+            Ok(Vec::transposed_from(&noised_output)?)
+        }
     }
+}
+
+struct ShiftedTruncatedDiscreteLaplace {
+    truncated_discrete_laplace: OPRFPaddingDp,
+    shift: u32,
+    modulus: u32,
+}
+
+impl ShiftedTruncatedDiscreteLaplace {
+    /// # Panics
+    /// if `bit_size > 32`
+    pub fn new(noise_params: &NoiseParams, bit_size: u32) -> Result<Self, Error> {
+        // A truncated Discrete Laplace distribution is the same as a truncated Double Geometric distribution.
+        // OPRFPaddingDP is currently just a poorly named wrapper on a Truncated Double Geometric
+        let truncated_discrete_laplace = OPRFPaddingDp::new(
+            noise_params.epsilon,
+            noise_params.delta,
+            noise_params.per_user_credit_cap,
+        )?;
+        let shift = truncated_discrete_laplace.get_shift();
+        assert!(bit_size <= 32);
+        let modulus = if bit_size < 32 {
+            2_u32.pow(bit_size)
+        } else {
+            u32::MAX
+        };
+
+        Ok(Self {
+            truncated_discrete_laplace,
+            shift,
+            modulus,
+        })
+    }
+
+    fn sample<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
+        self.truncated_discrete_laplace.sample(rng)
+    }
+
+    pub fn sample_shares<R, OV>(
+        &self,
+        rng: &mut R,
+        direction_to_excluded_helper: Direction,
+    ) -> AdditiveShare<OV>
+    where
+        R: RngCore + CryptoRng,
+        OV: BooleanArray + U128Conversions,
+    {
+        let sample = self.sample(rng);
+        let symmetric_sample = sample.wrapping_sub(self.shift) % self.modulus;
+        match direction_to_excluded_helper {
+            Direction::Left => {
+                AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(symmetric_sample)))
+            }
+            Direction::Right => {
+                AdditiveShare::new(OV::truncate_from(u128::from(symmetric_sample)), OV::ZERO)
+            }
+        }
+    }
+}
+
+/// # Errors
+/// will propagate errors from constructing a `truncated_discrete_laplace` distribution.
+/// # Panics
+/// if `OV::BITS > 32`
+pub async fn apply_laplace_noise_pass<C, OV, const B: usize>(
+    ctx: &C,
+    histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
+    excluded_helper: Role,
+    noise_params: &NoiseParams,
+) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
+where
+    C: Context,
+    OV: BooleanArray + U128Conversions,
+    Boolean: Vectorizable<B> + FieldSimd<B>,
+    Replicated<Boolean, B>: BooleanProtocols<C, B>,
+    BitDecomposed<AdditiveShare<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
+    AdditiveShare<OV>: ReplicatedSecretSharing<OV>,
+{
+    let noise_values_array: [AdditiveShare<OV>; B] =
+        if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
+            // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
+            // and use it to sample the same random Laplace noise sample from TruncatedDoubleGeometric.
+            let (mut left, mut right) = ctx.prss_rng();
+            let rng = match direction_to_excluded_helper {
+                Direction::Left => &mut right,
+                Direction::Right => &mut left,
+            };
+            let shifted_truncated_discrete_laplace =
+                ShiftedTruncatedDiscreteLaplace::new(noise_params, OV::BITS)?;
+            std::array::from_fn(|_i| {
+                shifted_truncated_discrete_laplace.sample_shares(rng, direction_to_excluded_helper)
+            })
+        } else {
+            //  before we can do integer_add we need the excluded Helper to set its shares to zero
+            // for these noise values.
+            std::array::from_fn(|_i| AdditiveShare::new(OV::ZERO, OV::ZERO))
+        };
+
+    let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
+        BitDecomposed::transposed_from(&noise_values_array).unwrap();
+
+    //  Add DP noise to output values
+    let apply_noise_ctx = ctx
+        .narrow(&ApplyDpNoise::ApplyNoise)
+        .set_total_records(TotalRecords::ONE);
+    let (histogram_noised, _) = integer_add::<_, ThirtyTwoBitStep, B>(
+        apply_noise_ctx,
+        RecordId::FIRST,
+        &noise_shares_vectorized,
+        &histogram_bin_values,
+    )
+    .await
+    .unwrap();
+    Ok(histogram_noised)
 }
 
 // implement calculations to instantiation Thm 1 of https://arxiv.org/pdf/1805.10559
@@ -373,9 +550,9 @@ pub fn find_smallest_num_bernoulli(noise_params: &NoiseParams) -> u32 {
 }
 
 /// for a `NoiseParams` struct will return the mean and standard deviation
-/// of the noise
+/// of the binomial noise
 #[must_use]
-pub fn noise_mean_std(noise_params: &NoiseParams) -> (f64, f64) {
+pub fn binomial_noise_mean_std(noise_params: &NoiseParams) -> (f64, f64) {
     let num_bernoulli = find_smallest_num_bernoulli(noise_params);
     let mean: f64 = f64::from(num_bernoulli) * 0.5; // n * p
     let standard_deviation: f64 = (f64::from(num_bernoulli) * 0.5 * 0.5).sqrt(); //  sqrt(n * (p) * (1-p))
@@ -388,19 +565,173 @@ mod test {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA16, BA32},
+            boolean_array::{
+                BooleanArray, BA112, BA16, BA20, BA3, BA32, BA4, BA5, BA6, BA64, BA7, BA8,
+            },
             U128Conversions,
         },
-        protocol::dp::{
-            apply_dp_noise, delta_constraint, epsilon_constraint, error,
-            find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
+        helpers::{query::DpMechanism, Direction},
+        protocol::{
+            dp::{
+                apply_dp_noise, delta_constraint, dp_for_histogram, epsilon_constraint, error,
+                find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
+                ShiftedTruncatedDiscreteLaplace,
+            },
+            ipa_prf::oprf_padding::insecure::OPRFPaddingDp,
         },
+        rand::thread_rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+            replicated::{
+                semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+                ReplicatedSecretSharing,
+            },
+            BitDecomposed, SharedValue, TransposeFrom,
         },
         telemetry::metrics::BYTES_SENT,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
+    fn vectorize_input<const B: usize>(
+        bit_width: usize,
+        values: &[u32],
+    ) -> BitDecomposed<[Boolean; B]> {
+        let values = <&[u32; B]>::try_from(values).unwrap();
+        BitDecomposed::decompose(bit_width, |i| {
+            values.map(|v| Boolean::from((v >> i) & 1 == 1))
+        })
+    }
+
+    fn build_shifted_truncated_discrete_laplace_test<OV>()
+    where
+        OV: BooleanArray + U128Conversions,
+    {
+        let noise_params = NoiseParams {
+            success_prob: 0.5,
+            epsilon: 0.01,
+            delta: 1e-6,
+            dimensions: 1.0,
+            quantization_scale: 1.0,
+            ell_1_sensitivity: 1.0,
+            ell_2_sensitivity: 1.0,
+            ell_infty_sensitivity: 1.0,
+            ..Default::default()
+        };
+        let mut rng = thread_rng();
+        let shifted_truncated_discrete_laplace =
+            ShiftedTruncatedDiscreteLaplace::new(&noise_params, OV::BITS)
+                .expect("Fail test on Error");
+        // there is some chance we add 0 noise, especially in smaller fields
+        // (e.g., in BA3, and multiple of 3 will also be 3 noise)
+        // we attempt this multiple times to try and make sure some noise is being added
+
+        let attempts = 10;
+
+        let mut left_noise_shares: AdditiveShare<OV> = AdditiveShare::new(OV::ZERO, OV::ZERO);
+        for _i in 1..attempts {
+            left_noise_shares =
+                shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Left);
+            if left_noise_shares.right() != OV::ZERO {
+                break;
+            }
+        }
+        assert_eq!(left_noise_shares.left(), OV::ZERO);
+        assert_ne!(left_noise_shares.right(), OV::ZERO);
+
+        let mut right_noise_shares: AdditiveShare<OV> = AdditiveShare::new(OV::ZERO, OV::ZERO);
+        for _i in 1..attempts {
+            right_noise_shares =
+                shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Right);
+            if right_noise_shares.left() != OV::ZERO {
+                break;
+            }
+        }
+        assert_ne!(right_noise_shares.left(), OV::ZERO);
+        assert_eq!(right_noise_shares.right(), OV::ZERO);
+    }
+
+    #[test]
+    fn test_shifted_truncated_discrete_laplace() {
+        build_shifted_truncated_discrete_laplace_test::<BA3>();
+        build_shifted_truncated_discrete_laplace_test::<BA4>();
+        build_shifted_truncated_discrete_laplace_test::<BA5>();
+        build_shifted_truncated_discrete_laplace_test::<BA6>();
+        build_shifted_truncated_discrete_laplace_test::<BA7>();
+        build_shifted_truncated_discrete_laplace_test::<BA8>();
+        build_shifted_truncated_discrete_laplace_test::<BA16>();
+        build_shifted_truncated_discrete_laplace_test::<BA20>();
+        build_shifted_truncated_discrete_laplace_test::<BA32>();
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed: bit_size <= 32")]
+    fn test_shifted_truncated_discrete_laplace_ba64() {
+        build_shifted_truncated_discrete_laplace_test::<BA64>();
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed: bit_size <= 32")]
+    fn test_shifted_truncated_discrete_laplace_ba112() {
+        build_shifted_truncated_discrete_laplace_test::<BA112>();
+    }
+
+    /// Test for discrete truncated laplace
+    // pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
+    //     ctx: C,
+    //     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
+    //     dp_params: DpMechanism,
+    // ) -> Result<Vec<Replicated<OV>>, Error>
+    #[tokio::test]
+    pub async fn test_laplace_noise() {
+        type OV = BA8;
+        const NUM_BREAKDOWNS: u32 = 16;
+        const SS_BITS: usize = 3;
+        let epsilon = 2.0;
+        let dp_params = DpMechanism::DiscreteLaplace { epsilon };
+        let world = TestWorld::default();
+        let input_values = [0, 0, 0, 0, 1, 1, 1, 1, 100, 100, 100, 100, 10, 20, 30, 40];
+
+        let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> =
+            vectorize_input(OV::BITS as usize, &input_values); // bit_width passed here needs to match OV::BITS
+        let result = world
+            .upgraded_semi_honest(input, |ctx, input| async move {
+                dp_for_histogram::<_, { NUM_BREAKDOWNS as usize }, OV, SS_BITS>(
+                    ctx, input, dp_params,
+                )
+                .await
+                .unwrap()
+            })
+            .await;
+        let result_reconstructed: Vec<OV> = result.reconstruct();
+        let result_u32: Vec<u32> = result_reconstructed
+            .iter()
+            .map(|&v| u32::try_from(v.as_u128()).unwrap())
+            .collect::<Vec<_>>();
+        let per_user_credit_cap = 2_u32.pow(u32::try_from(SS_BITS).unwrap());
+        let truncated_discrete_laplace = OPRFPaddingDp::new(epsilon, 1e-6, per_user_credit_cap);
+        let (_, std) = truncated_discrete_laplace.unwrap().mean_and_std();
+        let three_std = 3.0 * std;
+        assert_eq!(NUM_BREAKDOWNS as usize, result_u32.len());
+        let tolerance_factor = 20.0;
+        for i in 0..result_u32.len() {
+            let next_result_f64 = f64::from(result_u32[i]);
+            let next_result_f64_shifted = if next_result_f64 > 2.0_f64.powf((OV::BITS - 1).into()) {
+                next_result_f64 - 2.0_f64.powf(OV::BITS.into())
+            } else {
+                next_result_f64
+            };
+
+            println!(
+                "i = {i}, original = {}, result = {}, shifted is = {next_result_f64_shifted}",
+                f64::from(input_values[i]),
+                result_u32[i],
+            );
+            assert!(
+                (next_result_f64_shifted - f64::from(input_values[i])).abs() <
+                    tolerance_factor * three_std
+                , "test failed because noised result is more than {tolerance_factor} standard deviations of the noise distribution \
+                from the original input values. This will fail with a small chance of failure"
+            );
+        }
+    }
 
     #[test]
     fn test_epsilon_simple_aggregation_case() {
@@ -490,15 +821,7 @@ mod test {
             );
         }
     }
-    fn vectorize_input<const B: usize>(
-        bit_width: usize,
-        values: &[u32],
-    ) -> BitDecomposed<[Boolean; B]> {
-        let values = <&[u32; B]>::try_from(values).unwrap();
-        BitDecomposed::decompose(bit_width, |i| {
-            values.map(|v| Boolean::from((v >> i) & 1 == 1))
-        })
-    }
+
     // Tests for gen_binomial_noise
     #[tokio::test]
     pub async fn gen_binomial_noise_16_breakdowns() {

@@ -1,4 +1,4 @@
-mod distributions;
+pub(crate) mod distributions;
 pub mod insecure;
 pub mod step;
 

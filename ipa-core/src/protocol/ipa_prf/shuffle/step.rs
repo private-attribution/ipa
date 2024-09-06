@@ -12,4 +12,8 @@ pub(crate) enum OPRFShuffleStep {
     GenerateTags,
     ShuffleProtocol,
     VerifyShuffle,
+    RevealMACKey,
+    HashesH3toH1,
+    HashH2toH1,
+    HashH3toH2,
 }

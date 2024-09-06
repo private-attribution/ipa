@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{convert::Infallible, marker::PhantomData};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
 use futures_util::stream::repeat;
@@ -23,8 +23,8 @@ use crate::{
     },
     report::{EncryptedOprfReport, EventType},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
-        TransposeFrom,
+        replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+        BitDecomposed, SharedValue, TransposeFrom,
     },
     sync::Arc,
 };
@@ -53,6 +53,8 @@ where
     Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'ctx>, Boolean>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+    BitDecomposed<AdditiveShare<Boolean, 256>>:
+        for<'a> TransposeFrom<&'a [AdditiveShare<HV>; 256], Error = Infallible>,
 {
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
@@ -115,11 +117,15 @@ where
         let aws = config.attribution_window_seconds;
         let dp_params: DpMechanism = match config.with_dp {
             0 => DpMechanism::NoDp,
-            _ => DpMechanism::Binomial {
+            _ => DpMechanism::DiscreteLaplace {
                 epsilon: config.epsilon,
             },
         };
+
+        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
         let padding_params = PaddingParameters::relaxed();
+        #[cfg(not(any(test, feature = "cli", feature = "test-fixture")))]
+        let padding_params = PaddingParameters::default();
         match config.per_user_credit_cap {
             8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,
             16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params, padding_params).await,

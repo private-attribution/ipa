@@ -5,13 +5,16 @@ use bitvec::{
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{U14, U2, U32, U8};
+use typenum::{U14, U18, U2, U32, U8};
 
 use crate::{
-    error::LengthError,
-    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable, U128Conversions},
+    error::{Error, LengthError},
+    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Gf32Bit, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        Block, SharedValue, StdArray, Vectorizable,
+    },
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -32,7 +35,11 @@ macro_rules! store_impl {
 }
 
 pub trait BooleanArray:
-    SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean> + FromIterator<Boolean>
+    SharedValue
+    + ArrayAccess<Output = Boolean>
+    + Expand<Input = Boolean>
+    + FromIterator<Boolean>
+    + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
 {
 }
 
@@ -41,7 +48,23 @@ impl<A> BooleanArray for A where
         + ArrayAccess<Output = Boolean>
         + Expand<Input = Boolean>
         + FromIterator<Boolean>
+        + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
 {
+}
+
+impl<A> AdditiveShare<A>
+where
+    A: BooleanArray,
+    AdditiveShare<A>: Sized,
+{
+    pub(crate) fn to_gf32bit(&self) -> Result<impl Iterator<Item = AdditiveShare<Gf32Bit>>, Error> {
+        let left_shares: Vec<Gf32Bit> = self.left().try_into()?;
+        let right_shares: Vec<Gf32Bit> = self.right().try_into()?;
+        Ok(left_shares
+            .into_iter()
+            .zip(right_shares)
+            .map(|(left, right)| AdditiveShare::new(left, right)))
+    }
 }
 
 /// Iterator returned by `.iter()` on Boolean arrays
@@ -266,7 +289,7 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
+                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable, Gf32Bit},
                 impl_shared_value_common,
                 secret_sharing::{
                     replicated::semi_honest::{BAASIterator, AdditiveShare},
@@ -497,6 +520,32 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            /// This function converts an `BA` type into a vector of `32 bit` Galois field elements.
+            ///
+            /// ##Errors
+            /// Outputs an error when conversion from raw slice to Galois field element fails.
+            impl TryFrom<$name> for Vec<Gf32Bit> {
+                type Error = crate::error::Error;
+
+                fn try_from(value: $name) -> Result<Self, Self::Error> {
+                    // len() returns bits, so divide by 8
+                    // further divide by 4 since Gf32Bit has 4 byte
+                    // add 31 to round up
+                    let length = (value.0.len() + 31) / 32;
+                    let mut chunks = Vec::<Gf32Bit>::with_capacity(length);
+                    let last_chunk_start = length-1;
+                    for i in 0..last_chunk_start {
+                        chunks.push(Gf32Bit::try_from(
+                            &value.0.as_raw_slice()[4 * i..4 * (i + 1)],
+                        )?);
+                    }
+                    chunks.push(Gf32Bit::try_from(
+                        &value.0.as_raw_slice()[4 * last_chunk_start..],
+                    )?);
+                    Ok(chunks)
+                }
+            }
+
             impl SharedValueArray<Boolean> for $name {
                 const ZERO_ARRAY: Self = <$name as SharedValue>::ZERO;
 
@@ -657,6 +706,24 @@ macro_rules! boolean_array_impl {
                     assert_eq!(ba.get(i), Some(a));
                 }
 
+                #[test]
+                fn convert_to_galois_field() {
+                    let mut rng = thread_rng();
+                    let ba = rng.gen::<$name>();
+                    let mut vec = ba.as_raw_slice().to_vec();
+                    // append with zeros when necessary
+                    for _ in 0..(4-vec.len()%4)%4 {
+                        vec.push(0u8);
+                    }
+                    let converted = <Vec<Gf32Bit>>::try_from(ba).unwrap();
+                    for (i,element) in converted.iter().enumerate() {
+                        let mut buf = GenericArray::default();
+                        element.serialize(&mut buf);
+                        assert_eq!(vec[4*i..4*(i+1)],buf.to_vec());
+                    }
+
+                }
+
                 proptest! {
                     #[test]
                     fn iterate_boolean_array(a: $name) {
@@ -750,6 +817,46 @@ macro_rules! boolean_array_impl {
     };
 }
 
+macro_rules! boolean_array_impl_large {
+    ($modname:ident, $name:ident, $bits:tt, $deser_type:tt, $arraylength:ty) => {
+        boolean_array_impl!($modname, $name, $bits, $deser_type);
+
+        $crate::const_assert!(
+            $bits <= 256,
+            "Large BooleanArrays only support up to 256 bits."
+        );
+
+        // used to convert into Fp25519
+        impl From<(u128, u128)> for $name {
+            fn from(value: (u128, u128)) -> Self {
+                use typenum::Unsigned;
+                let iter = value
+                    .0
+                    .to_le_bytes()
+                    .into_iter()
+                    .chain(value.1.to_le_bytes())
+                    .take(<$arraylength>::USIZE);
+                let arr = GenericArray::<u8, $arraylength>::try_from_iter(iter).unwrap();
+                $name::deserialize_infallible(&arr)
+            }
+        }
+
+        impl FromRandom for $name {
+            type SourceLength = U2;
+
+            fn from_random(src: GenericArray<u128, U2>) -> Self {
+                (src[0], src[1]).into()
+            }
+        }
+
+        impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
+            fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
+                (rng.gen(), rng.gen()).into()
+            }
+        }
+    };
+}
+
 // Other store impls can be found in `galois_field.rs`. Each storage type must have only one impl.
 
 //impl store for U8
@@ -757,6 +864,9 @@ store_impl!(U8, 64);
 
 //impl store for U14
 store_impl!(U14, 112);
+
+//impl store for U18
+store_impl!(U18, 144);
 
 //impl store for U32
 store_impl!(U32, 256);
@@ -781,7 +891,8 @@ boolean_array_impl_small!(boolean_array_20, BA20, 20, fallible);
 boolean_array_impl_small!(boolean_array_32, BA32, 32, infallible);
 boolean_array_impl_small!(boolean_array_64, BA64, 64, infallible);
 boolean_array_impl_small!(boolean_array_112, BA112, 112, infallible);
-boolean_array_impl!(boolean_array_256, BA256, 256, infallible);
+boolean_array_impl_large!(boolean_array_144, BA144, 144, infallible, U18);
+boolean_array_impl_large!(boolean_array_256, BA256, 256, infallible, U32);
 
 impl Vectorizable<256> for BA64 {
     type Array = StdArray<BA64, 256>;
@@ -789,32 +900,6 @@ impl Vectorizable<256> for BA64 {
 
 impl Vectorizable<256> for BA256 {
     type Array = StdArray<BA256, 256>;
-}
-
-// used to convert into Fp25519
-impl From<(u128, u128)> for BA256 {
-    fn from(value: (u128, u128)) -> Self {
-        let iter = value
-            .0
-            .to_le_bytes()
-            .into_iter()
-            .chain(value.1.to_le_bytes());
-        let arr = GenericArray::<u8, U32>::try_from_iter(iter).unwrap();
-        BA256::deserialize_infallible(&arr)
-    }
-}
-
-impl FromRandom for BA256 {
-    type SourceLength = U2;
-    fn from_random(src: GenericArray<u128, U2>) -> Self {
-        (src[0], src[1]).into()
-    }
-}
-
-impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
-    fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
-        (rng.gen(), rng.gen()).into()
-    }
 }
 
 #[cfg(all(test, unit_test))]
