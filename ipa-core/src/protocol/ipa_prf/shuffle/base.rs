@@ -64,6 +64,39 @@ pub struct IntermediateShuffleMessages<S: SharedValue> {
     x2_or_y2: Option<Vec<S>>,
 }
 
+#[allow(dead_code)]
+impl<S: SharedValue> IntermediateShuffleMessages<S> {
+    /// When `IntermediateShuffleMessages` is initialized correctly,
+    /// this function returns `x1` when `Role = H1`
+    /// and `y1` when `Role = H3`.
+    ///
+    /// ## Panics
+    /// Panics when `Role = H2`, i.e. `x1_or_y1` is `None`.
+    pub fn get_x1_or_y1(self) -> Vec<S> {
+        self.x1_or_y1.unwrap()
+    }
+
+    /// When `IntermediateShuffleMessages` is initialized correctly,
+    /// this function returns `x2` when `Role = H2`
+    /// and `y2` when `Role = H3`.
+    ///
+    /// ## Panics
+    /// Panics when `Role = H1`, i.e. `x2_or_y2` is `None`.
+    pub fn get_x2_or_y2(self) -> Vec<S> {
+        self.x2_or_y2.unwrap()
+    }
+
+    /// When `IntermediateShuffleMessages` is initialized correctly,
+    /// this function returns `y1` and `y2` when `Role = H3`.
+    ///
+    /// ## Panics
+    /// Panics when `Role = H1`, i.e. `x2_or_y2` is `None` or
+    /// when `Role = H2`, i.e. `x1_or_y1` is `None`.
+    pub fn get_both_x_or_ys(self) -> (Vec<S>, Vec<S>) {
+        (self.x1_or_y1.unwrap(), self.x2_or_y2.unwrap())
+    }
+}
+
 async fn run_h1<C, I, S, Zl, Zr>(
     ctx: &C,
     batch_size: NonZeroUsize,

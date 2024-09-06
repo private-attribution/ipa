@@ -102,6 +102,8 @@ pub enum Error {
         record_id: RecordId,
         total_records: usize,
     },
+    #[error("The verification of the shuffle failed: {0}")]
+    ShuffleValidationFailed(String),
 }
 
 impl Default for Error {
