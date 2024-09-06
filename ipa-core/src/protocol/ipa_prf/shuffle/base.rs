@@ -97,6 +97,8 @@ where
     x_1.shuffle(&mut rng_perm_r);
 
     // need to output x_1
+    // call to clone causes allocation
+    // ideally in the semi honest setting, we would not clone
     let mut x_2 = x_1.clone();
     add_single_shares_in_place(&mut x_2, z_31);
     x_2.shuffle(&mut rng_perm_l);
@@ -156,6 +158,8 @@ where
     .await?;
 
     // we need to output x_2
+    // call to clone causes allocation
+    // ideally in the semi honest setting, we would not clone
     let mut x_3 = x_2.clone();
     add_single_shares_in_place(&mut x_3, z_23);
     x_3.shuffle(&mut rng_perm_r);
@@ -223,6 +227,8 @@ where
     .await?;
 
     // need to output y_1
+    // call to clone causes allocation
+    // ideally in the semi honest setting, we would not clone
     let mut y_2 = y_1.clone();
     add_single_shares_in_place(&mut y_2, z_31);
 
@@ -231,6 +237,8 @@ where
     y_2.shuffle(&mut rng_perm_r);
 
     // need to output y_2
+    // call to clone causes allocation
+    // ideally in the semi honest setting, we would not clone
     let mut y_3 = y_2.clone();
     add_single_shares_in_place(&mut y_3, z_23);
     y_3.shuffle(&mut rng_perm_l);
