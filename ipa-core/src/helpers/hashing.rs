@@ -29,6 +29,11 @@ impl Serializable for Hash {
     }
 }
 
+/// This trait works similar to `Borrow` in the sense
+/// that it is implemented for owned values and references.
+///
+/// The advantage over `Borrow` is that types can be
+/// inferred by the compiler when using references.
 pub trait SerializeAs<T: Serializable> {
     fn serialize(self, buf: &mut GenericArray<u8, T::Size>);
 }
