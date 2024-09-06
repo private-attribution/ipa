@@ -1,7 +1,6 @@
 use std::{
-    cmp::{max, min},
     fmt::{Debug, Display, Formatter},
-    num::{NonZeroU32, NonZeroUsize},
+    num::NonZeroU32,
 };
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -10,7 +9,7 @@ use crate::{
     ff::FieldType,
     helpers::{
         transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
-        GatewayConfig, RoleAssignment, RouteParams,
+        RoleAssignment, RouteParams,
     },
     protocol::QueryId,
 };
@@ -137,29 +136,6 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
 
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
-    }
-}
-
-impl From<&QueryConfig> for GatewayConfig {
-    fn from(value: &QueryConfig) -> Self {
-        let mut config = Self::default();
-        // Minimum size for active work is 2 because:
-        // * `UnorderedReceiver` wants capacity to be greater than 1
-        // * 1 is better represented by not using seq_join and/or indeterminate total records
-        let active = max(
-            2,
-            min(
-                config.active.get(),
-                // It makes sense to start with active work set to input size, but some protocols
-                // may want to change that, if their fanout factor per input row is greater than 1.
-                // we don't have capabilities (see #ipa/1171) to allow that currently.
-                usize::try_from(value.size.0).expect("u32 fits into usize"),
-            ),
-        );
-        // we set active to be at least 2, so unwrap is fine.
-        config.active = NonZeroUsize::new(active).unwrap();
-
-        config
     }
 }
 

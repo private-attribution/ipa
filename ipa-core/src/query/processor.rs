@@ -1,6 +1,7 @@
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
+    num::NonZeroUsize,
 };
 
 use futures::{future::try_join, stream};
@@ -42,6 +43,7 @@ use crate::{
 pub struct Processor {
     queries: RunningQueries,
     key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
+    active_work: Option<NonZeroUsize>,
 }
 
 impl Default for Processor {
@@ -49,6 +51,7 @@ impl Default for Processor {
         Self {
             queries: RunningQueries::default(),
             key_registry: Arc::new(KeyRegistry::<PrivateKeyOnly>::empty()),
+            active_work: None,
         }
     }
 }
@@ -112,10 +115,14 @@ impl Debug for Processor {
 
 impl Processor {
     #[must_use]
-    pub fn new(key_registry: KeyRegistry<PrivateKeyOnly>) -> Self {
+    pub fn new(
+        key_registry: KeyRegistry<PrivateKeyOnly>,
+        active_work: Option<NonZeroUsize>,
+    ) -> Self {
         Self {
             queries: RunningQueries::default(),
             key_registry: Arc::new(key_registry),
+            active_work,
         }
     }
 
@@ -225,9 +232,15 @@ impl Processor {
                         input.query_id, query_id,
                         "received inputs for a different query"
                     );
+                    let mut gateway_config = GatewayConfig::default();
+                    if let Some(active_work) = self.active_work {
+                        gateway_config.active = active_work;
+                    } else {
+                        gateway_config.set_active_work_from_query_config(&config);
+                    }
                     let gateway = Gateway::new(
                         query_id,
-                        GatewayConfig::from(&config),
+                        gateway_config,
                         role_assignment,
                         mpc_transport,
                         shard_transport,
