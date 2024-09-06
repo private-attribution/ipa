@@ -198,6 +198,8 @@ pub enum QueryType {
     TestMultiply,
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestAddInPrimeField,
+    #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+    OprfIpaRelaxedDpPadding(IpaQueryConfig),
     OprfIpa(IpaQueryConfig),
 }
 
@@ -205,6 +207,7 @@ impl QueryType {
     /// TODO: strum
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
     pub const TEST_ADD_STR: &'static str = "test-add";
+    pub const OPRF_IPA_RELAXED_DP_PADDING_STR: &'static str = "oprf_ipa_relaxed_dp_padding";
     pub const OPRF_IPA_STR: &'static str = "oprf_ipa";
 }
 
@@ -216,6 +219,8 @@ impl AsRef<str> for QueryType {
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestAddInPrimeField => Self::TEST_ADD_STR,
+            #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+            QueryType::OprfIpaRelaxedDpPadding(_) => Self::OPRF_IPA_RELAXED_DP_PADDING_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
         }
     }
