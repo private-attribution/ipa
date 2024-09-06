@@ -234,6 +234,85 @@ impl OPRFPaddingDp {
         let std_bound = (2.0 * (1.0 - p) / pow_u32(p, 2)).sqrt();
         (mean, std_bound)
     }
+
+    #[must_use]
+    pub fn get_shift(&self) -> u32 {
+        self.truncated_double_geometric.shift_doubled / 2
+    }
+
+    /// We want to exactly compute the mean and standard deviation of the `OPRFPaddingDp` distribution.
+    /// This the calculation for a Truncated Laplace distribution (TODO this is not discrete):
+    /// <https://stats.stackexchange.com/questions/251300/first-and-second-moments-of-truncated-laplace-distribution>
+    /// where the notation translates as
+    ///    \mu = n
+    ///    \sigma = s
+    ///    2*\sigma = c(s) the normalizing constant discussed in the README
+    /// The link describes how to compute the first and second moments of the Truncated Laplace Distribution
+    /// which are the expected value, E[X], and E[X^2].  From these we can compute the Variance as
+    /// Var[X] = E[X^2] - E[X]^2 and standard deviation as the sqrt of the Variance.
+    /// TODO is the std of a Truncated Laplace distribution an upper bound on the std of a
+    /// Discrete Truncated Laplace distribution with matching parameters?
+    #[must_use]
+    pub fn mean_and_std_truncated_laplace(&self) -> (f64, f64) {
+        let mean = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let std = (self.first_moment() + pow_u32(self.second_moment(), 2)).sqrt();
+        (mean, std)
+    }
+
+    /// computes E[X], which is the Out[5] formula from stackexchange answer
+    fn first_moment(&self) -> f64 {
+        let mu = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let sigma = 1.0 / self.epsilon;
+        let numerator = 1.0 + 2.0 * f64::exp((1.0 + mu) / sigma) * mu + sigma
+            - f64::exp(2.0 * mu / sigma) * (1.0 + sigma);
+        let denominator = 1.0 + f64::exp(2.0 * mu / sigma) - 2.0 * f64::exp((1.0 + mu) / sigma);
+        -numerator / denominator
+    }
+
+    /// computes E[X^2], which is the Out[6] formula from stackexchange answer
+    fn second_moment(&self) -> f64 {
+        let mu = f64::from(self.truncated_double_geometric.shift_doubled) / 2.0;
+        let sigma = 1.0 / self.epsilon;
+        let third_term_num =
+            2.0 * f64::exp((1.0 + mu) / sigma) * (1.0 - pow_u32(mu, 2) + 2.0 * sigma);
+        let third_term_den = 1.0 + f64::exp(2.0 * mu / sigma) - 2.0 * f64::exp((1.0 + mu) / sigma);
+        1.0 + 2.0 * sigma * (1.0 + sigma) + third_term_num / third_term_den
+    }
+
+    /// Mean and std of a Discrete Truncated Laplace
+    ///
+    ///
+    /// The pdf of a discrete truncated laplace is given in eqs (9) and (10) in <https://arxiv.org/pdf/2110.08177>
+    fn pdf_discrete_truncated_laplace(&self, x: u32) -> f64 {
+        let r = E.powf(-self.epsilon);
+        let n = self.truncated_double_geometric.shift_doubled / 2;
+        let a = (1.0 - r) / (1.0 + r - 2.0 * (pow_u32(r, n + 1)));
+        a * E.powf(-self.epsilon * (f64::from(n) - f64::from(x)).abs())
+    }
+
+    /// Returns the first and second moments (E[X], E[X^2]) for X a discrete truncated Laplace
+    /// E[X] = sum_{k=0}^{2 * n} k * f(k)
+    /// E[X^2] = sum_{k=0}^{2 * n} k^2 * f(k)
+    fn first_second_moments_discrete_truncated_laplace(&self) -> (f64, f64) {
+        let mut first_moment = 0.0;
+        let mut second_moment = 0.0;
+
+        let n = self.truncated_double_geometric.shift_doubled / 2;
+        for k in 0..=2 * n {
+            first_moment += f64::from(k) * self.pdf_discrete_truncated_laplace(k);
+            second_moment += f64::from(k.pow(2)) * self.pdf_discrete_truncated_laplace(k);
+        }
+        (first_moment, second_moment)
+    }
+
+    #[must_use]
+    pub fn mean_and_std(&self) -> (f64, f64) {
+        let (first_moment, second_moment) = self.first_second_moments_discrete_truncated_laplace();
+        (
+            first_moment,
+            (second_moment - first_moment.powf(2.0)).sqrt(),
+        )
+    }
 }
 
 #[cfg(all(test, unit_test))]
@@ -452,5 +531,30 @@ mod test {
         actual = OPRFPaddingDp::new(1.0, -1e-6, 1_000_001); // (epsilon, delta, sensitivity)
         expected = Err(Error::BadSensitivity(1_000_001));
         assert_eq!(expected, Ok(actual));
+    }
+
+    #[test]
+    /// test `mean_and_std` for `OPRFPaddingDp` distribution
+    fn test_mean_and_std() {
+        let epsilon_values = [0.01, 0.1, 1.0, 5.0, 10.0];
+        let delta_values = [1e-9, 1e-8, 1e-7, 1e-6];
+        let sensitivity_values = [1, 10, 100, 1000];
+        for epsilon in epsilon_values {
+            for delta in delta_values {
+                for sensitivity in sensitivity_values {
+                    let truncated_discrete_laplace =
+                        OPRFPaddingDp::new(epsilon, delta, sensitivity).unwrap();
+                    let (_, std_bound) = truncated_discrete_laplace.mean_and_std_bound();
+                    let (_, std) = truncated_discrete_laplace.mean_and_std();
+                    let (first_moment, second_moment) = truncated_discrete_laplace
+                        .first_second_moments_discrete_truncated_laplace();
+                    println!("std = {std}, std_bound = {std_bound}, first_moment = {first_moment}, second_moment = {second_moment}");
+                    if std_bound > 1.0 {
+                        // otherwise the bound is not valid
+                        assert!(std < std_bound + 0.00001);
+                    }
+                }
+            }
+        }
     }
 }

@@ -29,16 +29,38 @@ impl Serializable for Hash {
     }
 }
 
+/// This trait works similar to `Borrow` in the sense
+/// that it is implemented for owned values and references.
+///
+/// The advantage over `Borrow` is that types can be
+/// inferred by the compiler when using references.
+pub trait SerializeAs<T: Serializable> {
+    fn serialize(self, buf: &mut GenericArray<u8, T::Size>);
+}
+
+impl<T: Serializable> SerializeAs<T> for T {
+    fn serialize(self, buf: &mut GenericArray<u8, <T as Serializable>::Size>) {
+        <T as Serializable>::serialize(&self, buf);
+    }
+}
+
+impl<'a, T: Serializable> SerializeAs<T> for &'a T {
+    fn serialize(self, buf: &mut GenericArray<u8, <T as Serializable>::Size>) {
+        <T as Serializable>::serialize(self, buf);
+    }
+}
+
 impl MpcMessage for Hash {}
 
 /// Computes Hash of serializable values from an iterator
 ///
 /// ## Panics
 /// Panics when Iterator is empty.
-pub fn compute_hash<'a, I, S>(input: I) -> Hash
+pub fn compute_hash<I, T, S>(input: I) -> Hash
 where
-    I: IntoIterator<Item = &'a S>,
-    S: Serializable + 'a,
+    I: IntoIterator<Item = T>,
+    T: SerializeAs<S>,
+    S: Serializable,
 {
     // set up hash
     let mut sha = Sha256::new();
@@ -121,7 +143,7 @@ mod test {
         let mut rng = thread_rng();
         let list: GenericArray<Fp32BitPrime, U8> =
             GenericArray::generate(|_| rng.gen::<Fp32BitPrime>());
-        let hash: Hash = compute_hash(&list);
+        let hash: Hash = compute_hash(list);
         let mut buf: GenericArray<u8, _> = GenericArray::default();
         hash.serialize(&mut buf);
         let deserialized_hash = Hash::deserialize(&buf);
@@ -209,5 +231,12 @@ mod test {
             r1, r2,
             "any modification to either list should change the hashed field element"
         );
+    }
+
+    #[test]
+    fn check_hash_from_owned_values() {
+        let mut rng = thread_rng();
+        let vec = (0..100).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
+        assert_eq!(compute_hash(&vec), compute_hash(vec));
     }
 }
