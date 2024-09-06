@@ -52,21 +52,18 @@ impl<A> BooleanArray for A where
 {
 }
 
-impl<A> TryInto<Vec<AdditiveShare<Gf32Bit>>> for &AdditiveShare<A>
+impl<A> AdditiveShare<A>
 where
     A: BooleanArray,
     AdditiveShare<A>: Sized,
 {
-    type Error = Error;
-
-    fn try_into(self) -> Result<Vec<AdditiveShare<Gf32Bit>>, Self::Error> {
+    pub(crate) fn to_gf32bit(&self) -> Result<impl Iterator<Item = AdditiveShare<Gf32Bit>>, Error> {
         let left_shares: Vec<Gf32Bit> = self.left().try_into()?;
         let right_shares: Vec<Gf32Bit> = self.right().try_into()?;
         Ok(left_shares
             .into_iter()
             .zip(right_shares)
-            .map(|(left, right)| AdditiveShare::new(left, right))
-            .collect())
+            .map(|(left, right)| AdditiveShare::new(left, right)))
     }
 }
 
@@ -823,6 +820,11 @@ macro_rules! boolean_array_impl {
 macro_rules! boolean_array_impl_large {
     ($modname:ident, $name:ident, $bits:tt, $deser_type:tt, $arraylength:ty) => {
         boolean_array_impl!($modname, $name, $bits, $deser_type);
+
+        $crate::const_assert!(
+            $bits <= 256,
+            "Large BooleanArrays only support up to 256 bits."
+        );
 
         // used to convert into Fp25519
         impl From<(u128, u128)> for $name {

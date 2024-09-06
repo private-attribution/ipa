@@ -1,4 +1,4 @@
-use futures::stream::StreamExt;
+use futures::stream::TryStreamExt;
 use futures_util::stream::iter;
 use generic_array::GenericArray;
 
@@ -24,7 +24,8 @@ use crate::{
 /// Propagates MPC multiplication errors.
 ///
 /// ## Panics
-/// When conversion fails or when `S::Bits + 32 != B::Bits`.
+/// When conversion fails, when `S::Bits + 32 != B::Bits`
+/// or when `rows` is empty or elements in `rows` have length `0`.
 async fn compute_and_add_tags<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
     keys: &[AdditiveShare<Gf32Bit>],
@@ -32,35 +33,36 @@ async fn compute_and_add_tags<C: Context, S: BooleanArray, B: BooleanArray>(
 ) -> Result<Vec<AdditiveShare<B>>, Error> {
     let length = rows.len();
     let row_length = keys.len();
+    // make sure total records is not 0
+    debug_assert!(length * row_length != 0);
     let tag_ctx = ctx.set_total_records(TotalRecords::specified(length * row_length)?);
     let p_ctx = &tag_ctx;
 
     let futures = rows.iter().enumerate().map(|(i, row)| async move {
-        let row_entries: Vec<AdditiveShare<Gf32Bit>> = row.try_into().unwrap();
+        let row_entries_iterator = row.to_gf32bit()?;
         // compute tags via inner product between row and keys
         let row_tag = p_ctx
-            .parallel_join(row_entries.iter().zip(keys).enumerate().map(
+            .parallel_join(row_entries_iterator.zip(keys).enumerate().map(
                 |(j, (row_entry, key))| async move {
                     semi_honest_multiply(
                         p_ctx.clone(),
                         RecordId::from(i * row_length + j),
-                        row_entry,
+                        &row_entry,
                         key,
                     )
                     .await
                 },
             ))
-            .await
-            .unwrap()
+            .await?
             .iter()
             .fold(AdditiveShare::<Gf32Bit>::ZERO, |acc, x| acc + x);
         // combine row and row_tag
-        concatenate_row_and_tag::<S, B>(row, &row_tag)
+        Ok::<AdditiveShare<B>, Error>(concatenate_row_and_tag::<S, B>(row, &row_tag))
     });
 
-    Ok(seq_join(ctx.active_work(), iter(futures))
-        .collect::<Vec<_>>()
-        .await)
+    seq_join(ctx.active_work(), iter(futures))
+        .try_collect::<Vec<_>>()
+        .await
 }
 
 /// This helper function concatenates `row` and `row_tag`
@@ -191,7 +193,7 @@ mod tests {
                     |ctx, (row_shares, key_shares)| async move {
                         // convert key
                         let mac_key: Vec<AdditiveShare<Gf32Bit>> =
-                            (&key_shares).try_into().unwrap();
+                            key_shares.to_gf32bit().unwrap().collect::<Vec<_>>();
                         compute_and_add_tags(ctx, &mac_key, &row_shares)
                             .await
                             .unwrap()
