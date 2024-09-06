@@ -238,7 +238,7 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "in-memory-infra"))]
 mod tests {
     use std::{
         fs::File,

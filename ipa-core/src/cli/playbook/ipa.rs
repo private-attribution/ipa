@@ -95,6 +95,8 @@ where
     run_query_and_validate::<HV>(inputs, query_size, clients, query_id, query_config).await
 }
 
+/// # Panics
+/// if results are invalid
 #[allow(clippy::disallowed_methods)] // allow try_join_all
 pub async fn run_query_and_validate<HV>(
     inputs: [BodyStream; 3],

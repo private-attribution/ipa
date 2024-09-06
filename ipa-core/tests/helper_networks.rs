@@ -45,13 +45,13 @@ fn http_network_large_input() {
 #[test]
 #[cfg(all(test, web_test))]
 fn http_semi_honest_ipa() {
-    test_ipa(IpaSecurityModel::SemiHonest, false);
+    test_ipa(IpaSecurityModel::SemiHonest, false, false);
 }
 
 #[test]
 #[cfg(all(test, web_test))]
 fn https_semi_honest_ipa() {
-    test_ipa(IpaSecurityModel::SemiHonest, true);
+    test_ipa(IpaSecurityModel::SemiHonest, true, true);
 }
 
 #[test]

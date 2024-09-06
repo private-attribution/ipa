@@ -4,23 +4,30 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io,
-    io::{stdout, Write},
+    io::{stdout, BufRead, BufReader, Write},
     ops::Deref,
     path::{Path, PathBuf},
 };
 
+use bytes::BufMut;
 use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
         noise::{apply, ApplyDpArgs},
-        playbook::{make_clients, playbook_oprf_ipa, validate, validate_dp, InputSource},
+        playbook::{
+            make_clients, playbook_oprf_ipa, run_query_and_validate, validate, validate_dp,
+            InputSource,
+        },
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
-    helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+    helpers::{
+        query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+        BodyStream,
+    },
     net::MpcHelperClient,
     report::DEFAULT_KEY_ID,
     test_fixture::{
@@ -54,7 +61,7 @@ struct Args {
     input: CommandInput,
 
     /// The destination file for output.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "OUTPUT_FILE")]
     output_file: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -97,11 +104,27 @@ enum ReportCollectorCommand {
     },
     /// Apply differential privacy noise to IPA inputs
     ApplyDpNoise(ApplyDpArgs),
-    /// Execute OPRF IPA in a semi-honest setting
+    /// Execute OPRF IPA in a semi-honest majority setting with known test data
+    /// and compare results against expectation
+    OprfIpaTest(IpaQueryConfig),
+    /// Execute OPRF IPA in a semi-honest majority setting with unknown encrypted data
     #[command(visible_alias = "oprf-ipa")]
-    SemiHonestOprfIpa(IpaQueryConfig),
+    SemiHonestOprfIpa {
+        #[clap(flatten)]
+        encrypted_inputs: EncryptedInputs,
+
+        #[clap(flatten)]
+        ipa_query_config: IpaQueryConfig,
+    },
     /// Execute OPRF IPA in an honest majority (one malicious helper) setting
-    MaliciousOprfIpa(IpaQueryConfig),
+    /// with unknown encrypted data
+    MaliciousOprfIpa {
+        #[clap(flatten)]
+        encrypted_inputs: EncryptedInputs,
+
+        #[clap(flatten)]
+        ipa_query_config: IpaQueryConfig,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -111,6 +134,21 @@ struct GenInputArgs {
     max_per_user: u32,
     /// number of breakdowns
     breakdowns: u32,
+}
+
+#[derive(Debug, Parser)]
+struct EncryptedInputs {
+    /// The encrypted input for H1
+    #[arg(long, value_name = "H1_ENCRYPTED_INPUT_FILE")]
+    enc_input_file1: PathBuf,
+
+    /// The encrypted input for H2
+    #[arg(long, value_name = "H2_ENCRYPTED_INPUT_FILE")]
+    enc_input_file2: PathBuf,
+
+    /// The encrypted input for H3
+    #[arg(long, value_name = "H3_ENCRYPTED_INPUT_FILE")]
+    enc_input_file3: PathBuf,
 }
 
 #[tokio::main]
@@ -132,8 +170,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
-        ReportCollectorCommand::SemiHonestOprfIpa(config) => {
-            ipa(
+        ReportCollectorCommand::OprfIpaTest(config) => {
+            ipa_test(
                 &args,
                 &network,
                 IpaSecurityModel::SemiHonest,
@@ -143,14 +181,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
             )
             .await?
         }
-        ReportCollectorCommand::MaliciousOprfIpa(config) => {
+        ReportCollectorCommand::MaliciousOprfIpa {
+            ref encrypted_inputs,
+            ipa_query_config,
+        } => {
             ipa(
                 &args,
-                &network,
                 IpaSecurityModel::Malicious,
-                config,
+                ipa_query_config,
                 &clients,
                 IpaQueryStyle::Oprf,
+                encrypted_inputs,
+            )
+            .await?
+        }
+        ReportCollectorCommand::SemiHonestOprfIpa {
+            ref encrypted_inputs,
+            ipa_query_config,
+        } => {
+            ipa(
+                &args,
+                IpaSecurityModel::SemiHonest,
+                ipa_query_config,
+                &clients,
+                IpaQueryStyle::Oprf,
+                encrypted_inputs,
             )
             .await?
         }
@@ -185,7 +240,134 @@ fn gen_inputs(
     Ok(())
 }
 
+/// Panics
+/// if (security_model, query_style) tuple is undefined
+fn get_query_type(
+    security_model: IpaSecurityModel,
+    query_style: &IpaQueryStyle,
+    ipa_query_config: IpaQueryConfig,
+) -> QueryType {
+    match (security_model, query_style) {
+        (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
+            QueryType::OprfIpaRelaxedDpPadding(ipa_query_config)
+        }
+        (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
+            QueryType::MaliciousOprfIpa(ipa_query_config)
+        }
+    }
+}
+
+fn write_ipa_output_file(
+    path: &PathBuf,
+    query_result: &IpaQueryResult,
+) -> Result<(), Box<dyn Error>> {
+    // it will be sad to lose the results if file already exists.
+    let path = if Path::is_file(path) {
+        let mut new_file_name = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(5)
+            .map(char::from)
+            .collect::<String>();
+        let file_name = path.file_stem().ok_or("not a file")?;
+
+        new_file_name.insert(0, '-');
+        new_file_name.insert_str(0, &file_name.to_string_lossy());
+        tracing::warn!(
+            "{} file exists, renaming to {:?}",
+            path.display(),
+            new_file_name
+        );
+
+        // it will not be 100% accurate until file_prefix API is stabilized
+        Cow::Owned(
+            path.with_file_name(&new_file_name)
+                .with_extension(path.extension().unwrap_or("".as_ref())),
+        )
+    } else {
+        Cow::Borrowed(path)
+    };
+    let mut file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(path.deref())
+        .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
+
+    write!(file, "{}", serde_json::to_string_pretty(query_result)?)?;
+    Ok(())
+}
+
 async fn ipa(
+    args: &Args,
+    security_model: IpaSecurityModel,
+    ipa_query_config: IpaQueryConfig,
+    helper_clients: &[MpcHelperClient; 3],
+    query_style: IpaQueryStyle,
+    encrypted_inputs: &EncryptedInputs,
+) -> Result<(), Box<dyn Error>> {
+    let query_type = get_query_type(security_model, &query_style, ipa_query_config);
+
+    let enc1 = &encrypted_inputs.enc_input_file1;
+    let enc2 = &encrypted_inputs.enc_input_file2;
+    let enc3 = &encrypted_inputs.enc_input_file3;
+
+    let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+    let mut query_sizes: [usize; 3] = [0, 0, 0];
+    for (i, path) in [enc1, enc2, enc3].iter().enumerate() {
+        let file = File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let encrypted_report_bytes = hex::decode(line?.trim())?;
+            buffers[i].put_u16_le(encrypted_report_bytes.len().try_into()?);
+            buffers[i].put_slice(encrypted_report_bytes.as_slice());
+            query_sizes[i] += 1;
+        }
+    }
+    // Panic if input sizes are not the same
+    // Panic instead of returning an Error as this is non-recoverable
+    assert_eq!(query_sizes[0], query_sizes[1]);
+    assert_eq!(query_sizes[1], query_sizes[2]);
+
+    // without loss of generality, set query length to length of first input size
+    let query_size = query_sizes[0];
+
+    let query_config = QueryConfig {
+        size: QuerySize::try_from(query_size).unwrap(),
+        field_type: FieldType::Fp32BitPrime,
+        query_type,
+    };
+
+    let query_id = helper_clients[0]
+        .create_query(query_config)
+        .await
+        .expect("Unable to create query!");
+
+    let inputs = buffers.map(BodyStream::from);
+    tracing::info!("Starting query for OPRF");
+    let actual = match query_style {
+        IpaQueryStyle::Oprf => {
+            // the value for histogram values (BA32) must be kept in sync with the server-side
+            // implementation, otherwise a runtime reconstruct error will be generated.
+            // see ipa-core/src/query/executor.rs
+            run_query_and_validate::<BA32>(
+                inputs,
+                query_size,
+                helper_clients,
+                query_id,
+                ipa_query_config,
+            )
+            .await
+        }
+    };
+
+    if let Some(ref path) = args.output_file {
+        write_ipa_output_file(path, &actual)?;
+    } else {
+        println!("{}", serde_json::to_string_pretty(&actual)?);
+    }
+    Ok(())
+}
+
+async fn ipa_test(
     args: &Args,
     network: &NetworkConfig,
     security_model: IpaSecurityModel,
@@ -194,14 +376,7 @@ async fn ipa(
     query_style: IpaQueryStyle,
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
-    let query_type = match (security_model, &query_style) {
-        (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            QueryType::SemiHonestOprfIpa(ipa_query_config)
-        }
-        (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
-            QueryType::MaliciousOprfIpa(ipa_query_config)
-        }
-    };
+    let query_type = get_query_type(security_model, &query_style, ipa_query_config);
 
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
     let query_config = QueryConfig {
@@ -255,38 +430,7 @@ async fn ipa(
     };
 
     if let Some(ref path) = args.output_file {
-        // it will be sad to lose the results if file already exists.
-        let path = if Path::is_file(path) {
-            let mut new_file_name = thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(5)
-                .map(char::from)
-                .collect::<String>();
-            let file_name = path.file_stem().ok_or("not a file")?;
-
-            new_file_name.insert(0, '-');
-            new_file_name.insert_str(0, &file_name.to_string_lossy());
-            tracing::warn!(
-                "{} file exists, renaming to {:?}",
-                path.display(),
-                new_file_name
-            );
-
-            // it will not be 100% accurate until file_prefix API is stabilized
-            Cow::Owned(
-                path.with_file_name(&new_file_name)
-                    .with_extension(path.extension().unwrap_or("".as_ref())),
-            )
-        } else {
-            Cow::Borrowed(path)
-        };
-        let mut file = File::options()
-            .write(true)
-            .create_new(true)
-            .open(path.deref())
-            .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
-
-        write!(file, "{}", serde_json::to_string_pretty(&actual)?)?;
+        write_ipa_output_file(path, &actual)?;
     }
 
     tracing::info!("{m:?}", m = ipa_query_config);
