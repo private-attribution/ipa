@@ -22,6 +22,8 @@ use crate::{
 };
 
 pub mod base;
+#[allow(dead_code)]
+pub mod malicious;
 #[cfg(descriptive_gate)]
 mod sharded;
 pub(crate) mod step;
