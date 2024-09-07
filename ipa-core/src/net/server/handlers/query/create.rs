@@ -127,10 +127,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_test_ipa_no_attr_window_with_dp_default_padding() {
+    async fn create_test_semi_honest_ipa_no_attr_window_with_dp_default_padding() {
         create_test(
             QueryConfig::new(
-                QueryType::OprfIpa(IpaQueryConfig {
+                QueryType::SemiHonestOprfIpa(IpaQueryConfig {
+                    per_user_credit_cap: 8,
+                    max_breakdown_key: 20,
+                    attribution_window_seconds: None,
+                    with_dp: 1,
+                    epsilon: 5.0,
+                    plaintext_match_keys: true,
+                }),
+                FieldType::Fp32BitPrime,
+                1,
+            )
+            .unwrap(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn create_test_malicious_ipa_no_attr_window_with_dp_default_padding() {
+        create_test(
+            QueryConfig::new(
+                QueryType::MaliciousOprfIpa(IpaQueryConfig {
                     per_user_credit_cap: 8,
                     max_breakdown_key: 20,
                     attribution_window_seconds: None,

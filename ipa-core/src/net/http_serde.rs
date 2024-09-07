@@ -127,9 +127,13 @@ pub mod query {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::OprfIpaRelaxedDpPadding(q))
                 }
-                QueryType::OPRF_IPA_STR => {
+                QueryType::SEMI_HONEST_OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
-                    Ok(QueryType::OprfIpa(q))
+                    Ok(QueryType::SemiHonestOprfIpa(q))
+                }
+                QueryType::MALICIOUS_OPRF_IPA_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::MaliciousOprfIpa(q))
                 }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
@@ -174,7 +178,7 @@ pub mod query {
 
                     Ok(())
                 }
-                QueryType::OprfIpa(config) => {
+                QueryType::SemiHonestOprfIpa(config) | QueryType::MaliciousOprfIpa(config) => {
                     write!(
                         f,
                         "&per_user_credit_cap={}&max_breakdown_key={}&with_dp={}&epsilon={}",

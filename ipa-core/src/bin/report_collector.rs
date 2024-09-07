@@ -193,13 +193,12 @@ async fn ipa(
     query_style: IpaQueryStyle,
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
-    let query_type: QueryType;
-    match (security_model, &query_style) {
+    let query_type = match (security_model, &query_style) {
         (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            query_type = QueryType::OprfIpaRelaxedDpPadding(ipa_query_config);
+            QueryType::OprfIpaRelaxedDpPadding(ipa_query_config)
         }
         (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
-            panic!("OPRF for malicious is not implemented as yet")
+            QueryType::MaliciousOprfIpa(ipa_query_config)
         }
     };
 

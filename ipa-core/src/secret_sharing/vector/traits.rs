@@ -108,7 +108,7 @@ pub trait SharedValueArray<V>:
 pub trait FieldArray<F: SharedValue>:
     SharedValueArray<F>
     + FromRandom
-    + for<'a> Mul<F, Output = Self>
+    + Mul<F, Output = Self>
     + for<'a> Mul<&'a F, Output = Self>
     + for<'a> Mul<&'a Self, Output = Self>
 {
