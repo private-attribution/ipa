@@ -442,7 +442,7 @@ where
                 current_chunk = vec![row];
             }
         }
-        Some((current_chunk, None))
+        (current_chunk.len() > 1).then_some((current_chunk, None))
     })
 }
 

@@ -153,10 +153,24 @@ impl<'a, B> Batcher<'a, B> {
         let total_count = min(self.records_per_batch, remaining_records);
         let record_offset_in_batch = usize::from(record_id) - first_record_in_batch;
         let batch = self.get_batch_by_offset(batch_offset);
+        assert!(
+            !batch.pending_records[record_offset_in_batch],
+            "validate_record called twice for record {record_id}",
+        );
+        // This assertion is stricter than the bounds check in `BitVec::set` when the
+        // batch size is not a multiple of 8, or for a partial final batch.
+        assert!(
+            record_offset_in_batch < total_count,
+            "record offset {record_offset_in_batch} exceeds batch size {total_count}",
+        );
         batch.pending_records.set(record_offset_in_batch, true);
         batch.pending_count += 1;
         if batch.pending_count == total_count {
-            assert!(batch.pending_records[0..total_count].all());
+            assert!(
+                batch.pending_records[0..total_count].all(),
+                "Expected batch of {total_count} records to be ready for validation, but only have {:?}.",
+                &batch.pending_records[0..total_count],
+            );
             tracing::info!("batch {batch_index} is ready for validation");
             let batch;
             if batch_offset == 0 {
