@@ -183,7 +183,7 @@ async fn ipa(
     let query_type: QueryType;
     match (security_model, &query_style) {
         (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            query_type = QueryType::OprfIpaRelaxedDpPadding(ipa_query_config);
+            query_type = QueryType::OprfIpa(ipa_query_config);
         }
         (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
             panic!("OPRF for malicious is not implemented as yet")

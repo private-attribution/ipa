@@ -677,7 +677,7 @@ mod tests {
                     QueryConfig {
                         size: record_count.try_into().unwrap(),
                         field_type: FieldType::Fp31,
-                        query_type: QueryType::OprfIpaRelaxedDpPadding(IpaQueryConfig {
+                        query_type: QueryType::OprfIpa(IpaQueryConfig {
                             per_user_credit_cap: 8,
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
