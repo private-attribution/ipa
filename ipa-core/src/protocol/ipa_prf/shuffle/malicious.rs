@@ -34,65 +34,82 @@ use crate::{
 ///
 /// ## Errors
 /// Propagates network, multiplication and conversion errors from sub functions.
-pub async fn malicious_shuffle<C, I, S>(ctx: C, shares: I) -> Result<Vec<AdditiveShare<S>>, Error>
+///
+/// ## Panics
+/// Panics when `S::Bits + 32 != B::Bits` or type conversions fail.
+pub async fn malicious_shuffle<C, S, B, I>(
+    ctx: C,
+    shares: I,
+) -> Result<Vec<AdditiveShare<S>>, Error>
 where
     C: Context,
+    S: BooleanArray,
+    B: BooleanArray,
     I: IntoIterator<Item = AdditiveShare<S>>,
     I::IntoIter: ExactSizeIterator,
-    S: BooleanArray,
-    for<'a> &'a S: Add<S, Output = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
+    <I as IntoIterator>::IntoIter: Send,
+    for<'a> &'a B: Add<B, Output = B>,
+    for<'a> &'a B: Add<&'a B, Output = B>,
+    Standard: Distribution<B>,
 {
     // compute amount of MAC keys
     let amount_of_keys: usize = usize::try_from(S::BITS).unwrap() + 31 / 32;
-    // generate MAC keys
-    let keys = (0..amount_of_keys)
-        .map(|i| ctx.prss().generate_fields(RecordId::from(i)))
-        .map(|(left, right)| AdditiveShare::new(left, right))
-        .collect::<Vec<AdditiveShare<Gf32Bit>>>();
+    // // generate MAC keys
+    let keys = vec![AdditiveShare::ZERO; amount_of_keys];
+    // = (0..amount_of_keys)
+    //     .map(|i| ctx.prss().generate_fields(RecordId::from(i)))
+    //     .map(|(left, right)| AdditiveShare::new(left, right))
+    //     .collect::<Vec<AdditiveShare<Gf32Bit>>>();
 
-    // call
-    // async fn compute_tags<C: Context, S: BooleanArray>(
-    //     ctx: C,
-    //     keys: &[AdditiveShare<Gf32Bit>],
-    //     rows: &[AdditiveShare<S>],
-    // ) -> Result<Vec<AdditiveShare<Gf32Bit>>, Error>
+    // compute and append tags to rows
+    let shares_and_tags: Vec<AdditiveShare<B>> =
+        compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares).await?;
+
+    // // shuffle
+    // let (shuffled_shares, messages) = shuffle(
+    //     ctx.narrow(&OPRFShuffleStep::ShuffleProtocol),
+    //     shares_and_tags,
+    // )
+    // .await?;
     //
-    // i.e. let shares_and_tags = compute_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags, keys, shares).await?
-    // placeholder
-    let shares_and_tags =
-        vec![vec![AdditiveShare::<Gf32Bit>::ZERO; amount_of_keys + 1]; shares.into_iter().len()];
-
-    // call
-    // pub async fn shuffle<C, I, S>(
-    //     ctx: C,
-    //     shares: I,
-    // ) -> Result<(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>), Error>
+    // // verify the shuffle
+    // verify_shuffle(
+    //     ctx.narrow(&OPRFShuffleStep::VerifyShuffle),
+    //     &keys,
+    //     &shuffled_shares,
+    //     messages,
+    // )
+    // .await?;
     //
-    // i.e. let (output_shares, messages) = shuffle(ctx.narrow(&OPRFShuffleStep::ShuffleProtocol, shares_and_tags).await?
-    // placeholder
-    let output_shares = shuffle(
-        ctx.narrow(&OPRFShuffleStep::ShuffleProtocol),
-        shares_and_tags,
-    )
-    .await?;
+    // // truncate tags from output_shares
+    // Ok(truncate_tags(&shuffled_shares))
 
-    // call
-    // async fn verify_shuffle<C: Context, S: BooleanArray>(
-    //     ctx: C,
-    //     key_shares: &[AdditiveShare<Gf32Bit>],
-    //     shuffled_shares: &[AdditiveShare<S>],
-    //     messages: IntermediateShuffleMessages<S>,
-    // ) -> Result<(), Error>
-    //
-    // i.e. verify_shuffle(ctx.narrow(&OPRFShuffleStep::VerifyShuffle), keys, output_shares, messages).await?
-
-    // truncate tags from output_shares
-    // create function to do this
-
-    // placeholder
     Ok(vec![AdditiveShare::ZERO; 1])
+}
+
+/// This function truncates the tags from the output shares of the shuffle protocol
+///
+/// ## Panics
+/// Panics when `S::Bits > B::Bits`.
+fn truncate_tags<S, B>(shares_and_tags: &[AdditiveShare<B>]) -> Vec<AdditiveShare<S>>
+where
+    S: BooleanArray,
+    B: BooleanArray,
+{
+    let tag_offset = usize::try_from((S::BITS + 7) / 8).unwrap();
+    shares_and_tags
+        .into_iter()
+        .map(|row_with_tag| {
+            let mut buf_left = GenericArray::default();
+            let mut buf_right = GenericArray::default();
+            row_with_tag.left().serialize(&mut buf_left);
+            row_with_tag.right().serialize(&mut buf_right);
+            AdditiveShare::new(
+                S::deserialize(GenericArray::from_slice(&buf_left[0..tag_offset])).unwrap(),
+                S::deserialize(GenericArray::from_slice(&buf_right[0..tag_offset])).unwrap(),
+            )
+        })
+        .collect()
 }
 
 /// This function verifies the `shuffled_shares` and the `IntermediateShuffleMessages`.
@@ -350,19 +367,28 @@ async fn reveal_keys<C: Context>(
 /// ## Panics
 /// When conversion fails, when `S::Bits + 32 != B::Bits`
 /// or when `rows` is empty or elements in `rows` have length `0`.
-async fn compute_and_add_tags<C: Context, S: BooleanArray, B: BooleanArray>(
+async fn compute_and_add_tags<C, S, B, I>(
     ctx: C,
     keys: &[AdditiveShare<Gf32Bit>],
-    rows: &[AdditiveShare<S>],
-) -> Result<Vec<AdditiveShare<B>>, Error> {
-    let length = rows.len();
+    rows: I,
+) -> Result<Vec<AdditiveShare<B>>, Error>
+where
+    C: Context,
+    S: BooleanArray,
+    B: BooleanArray,
+    I: IntoIterator<Item = AdditiveShare<S>>,
+    I::IntoIter: ExactSizeIterator,
+    <I as IntoIterator>::IntoIter: Send,
+{
+    let row_iterator = rows.into_iter();
+    let length = row_iterator.len();
     let row_length = keys.len();
     // make sure total records is not 0
     debug_assert!(length * row_length != 0);
     let tag_ctx = ctx.set_total_records(TotalRecords::specified(length * row_length)?);
     let p_ctx = &tag_ctx;
 
-    let futures = rows.iter().enumerate().map(|(i, row)| async move {
+    let futures = row_iterator.enumerate().map(|(i, row)| async move {
         let row_entries_iterator = row.to_gf32bit()?;
         // compute tags via inner product between row and keys
         let row_tag = p_ctx
@@ -381,7 +407,7 @@ async fn compute_and_add_tags<C: Context, S: BooleanArray, B: BooleanArray>(
             .iter()
             .fold(AdditiveShare::<Gf32Bit>::ZERO, |acc, x| acc + x);
         // combine row and row_tag
-        Ok::<AdditiveShare<B>, Error>(concatenate_row_and_tag::<S, B>(row, &row_tag))
+        Ok::<AdditiveShare<B>, Error>(concatenate_row_and_tag::<S, B>(&row, &row_tag))
     });
 
     seq_join(ctx.active_work(), iter(futures))
@@ -427,6 +453,95 @@ mod tests {
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+
+    pub async fn wrapper<C, S, B, I>(ctx: C, shares: I)
+    where
+        C: Context,
+        S: BooleanArray,
+        B: BooleanArray,
+        I: IntoIterator<Item = AdditiveShare<S>>,
+        I::IntoIter: ExactSizeIterator,
+        <I as IntoIterator>::IntoIter: Send,
+        for<'a> &'a B: Add<B, Output = B>,
+        for<'a> &'a B: Add<&'a B, Output = B>,
+        Standard: Distribution<B>,
+    {
+        // compute amount of MAC keys
+        let amount_of_keys: usize = usize::try_from(S::BITS).unwrap() + 31 / 32;
+        // // generate MAC keys
+        let keys = vec![AdditiveShare::ZERO; amount_of_keys];
+
+        // compute and append tags to rows
+        let shares_and_tags: Vec<AdditiveShare<B>> =
+            compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares)
+                .await
+                .unwrap();
+    }
+
+    #[test]
+    fn minimal_stall() {
+        const RECORD_AMOUNT: usize = 1;
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = thread_rng();
+            let records = (0..RECORD_AMOUNT)
+                .map(|_| rng.gen::<BA32>())
+                .collect::<Vec<_>>();
+
+            world
+                .semi_honest(records.into_iter(), |ctx, (row_shares)| async move {
+                    wrapper::<_, BA32, BA64, _>(ctx, row_shares).await;
+                })
+                .await;
+        });
+    }
+
+    /// This test checks the correctness of the malicious shuffle.
+    /// It does not check the security against malicious behavior.
+    #[test]
+    fn check_shuffle_correctness() {
+        const RECORD_AMOUNT: usize = 10;
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = thread_rng();
+            // using Gf32Bit here since it implements cmp such that vec can later be sorted
+            let mut records = (0..RECORD_AMOUNT)
+                .map(|_| rng.gen())
+                .collect::<Vec<Gf32Bit>>();
+
+            let records_boolean_array = records
+                .iter()
+                .map(|row| {
+                    let mut buf = GenericArray::default();
+                    row.serialize(&mut buf);
+                    BA32::deserialize(&buf).unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            let result = world
+                .semi_honest(
+                    records_boolean_array.into_iter(),
+                    |ctx, records| async move {
+                        malicious_shuffle::<_, BA32, BA64, _>(ctx, records)
+                            .await
+                            .unwrap()
+                    },
+                )
+                .await
+                .reconstruct();
+
+            let mut result_galois = result
+                .iter()
+                .map(|row| {
+                    let mut buf = GenericArray::default();
+                    row.serialize(&mut buf);
+                    Gf32Bit::deserialize(&buf).unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(records.sort(), result_galois.sort());
+        });
+    }
 
     /// This test checks the correctness of the malicious shuffle
     /// when all parties behave honestly
@@ -557,7 +672,7 @@ mod tests {
                         // convert key
                         let mac_key: Vec<AdditiveShare<Gf32Bit>> =
                             key_shares.to_gf32bit().unwrap().collect::<Vec<_>>();
-                        compute_and_add_tags(ctx, &mac_key, &row_shares)
+                        compute_and_add_tags(ctx, &mac_key, row_shares)
                             .await
                             .unwrap()
                     },
