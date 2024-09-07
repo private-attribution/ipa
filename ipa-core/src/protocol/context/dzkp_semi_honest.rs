@@ -14,7 +14,7 @@ use crate::{
     },
     protocol::{
         context::{
-            dzkp_validator::Segment, Base, DZKPContext, InstrumentedIndexedSharedRandomness,
+            Base, DZKPContext, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness,
         },
         Gate, RecordId,
@@ -108,13 +108,8 @@ impl<'a, B: ShardBinding> SeqJoin for DZKPUpgraded<'a, B> {
 
 #[async_trait]
 impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
-    fn is_verified(&self) -> Result<(), Error> {
+    async fn validate_record(&self, _record_id: RecordId) -> Result<(), Error> {
         Ok(())
-    }
-
-    fn push(&self, _record_id: RecordId, _segment: Segment) {
-        // in the semi-honest setting, the segment is not added
-        // therefore this function does nothing
     }
 }
 

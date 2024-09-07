@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         basics::{validated_partial_reveal, BooleanProtocols},
         boolean::step::TwoHundredFiftySixBitOpStep,
-        context::{dzkp_validator::DZKPValidator, Context},
+        context::{Context, DZKPContext},
         ipa_prf::boolean_ops::{
             addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
         },
@@ -97,17 +97,17 @@ use crate::{
 /// # Panics
 /// If values processed by this function is smaller than 256 bits.
 /// If vectorization is too large, i.e. `NC>=100k`.
-pub async fn convert_to_fp25519<V, const NC: usize, const NP: usize>(
-    dzkp_validator: V,
+pub async fn convert_to_fp25519<C, const NC: usize, const NP: usize>(
+    ctx: C,
     record_id: RecordId,
     input_shares: BitDecomposed<AdditiveShare<Boolean, NC>>,
 ) -> Result<Vec<AdditiveShare<Fp25519, NP>>, Error>
 where
-    V: DZKPValidator,
+    C: DZKPContext,
     Fp25519: Vectorizable<NP>,
     Boolean: FieldSimd<NC>,
     BitDecomposed<AdditiveShare<Boolean, NC>>: FromPrss<usize>,
-    AdditiveShare<Boolean, NC>: BooleanProtocols<V::Context, NC>,
+    AdditiveShare<Boolean, NC>: BooleanProtocols<C, NC>,
     Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, NC>>>,
     Vec<BA256>:
         for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<NC>>::Array; 256], Error = Infallible>,
@@ -127,19 +127,16 @@ where
     // Ensure that the probability of leaking information is less than 1/(2^128).
     debug_assert!(input_shares.iter().count() < (BITS - 128));
 
-    // get context
-    let m_ctx = dzkp_validator.context();
-
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
     // the two highest bits are set to 0 to allow carries for two additions
     let (sh_r, sh_s) =
-        gen_sh_r_and_sh_s::<_, BITS, NC>(&m_ctx.narrow(&Step::GenerateSecretSharing), record_id);
+        gen_sh_r_and_sh_s::<_, BITS, NC>(&ctx.narrow(&Step::GenerateSecretSharing), record_id);
 
     // addition r+s might cause carry,
     // this is no problem since we have set bit 254 of sh_r and sh_s to 0
     let sh_rs = {
         let (mut rs_with_higherorderbits, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-            m_ctx.narrow(&Step::IntegerAddBetweenMasks),
+            ctx.narrow(&Step::IntegerAddBetweenMasks),
             record_id,
             &sh_r,
             &sh_s,
@@ -157,7 +154,7 @@ where
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
     let (sh_y, _) = integer_add::<_, TwoHundredFiftySixBitOpStep, NC>(
-        m_ctx.narrow(&Step::IntegerAddMaskToX),
+        ctx.narrow(&Step::IntegerAddMaskToX),
         record_id,
         &sh_rs,
         &input_shares,
@@ -166,14 +163,8 @@ where
 
     // validate and reveal
     // this leaks information, but with negligible probability
-    let y = validated_partial_reveal(
-        dzkp_validator.clone(),
-        &Step::RevealY,
-        record_id,
-        Role::H3,
-        &sh_y,
-    )
-    .await?;
+    let y =
+        validated_partial_reveal(ctx.narrow(&Step::RevealY), record_id, Role::H3, &sh_y).await?;
 
     let y = y.map(|y| {
         Vec::<BA256>::transposed_from(y.as_slice().try_into().unwrap()).unwrap_infallible()
@@ -186,7 +177,7 @@ where
         .ok()
         .expect("sh_s was constructed with the correct number of bits");
 
-    output_shares::<_, NC, NP>(&m_ctx, &sh_r, &sh_s, y)
+    output_shares::<_, NC, NP>(&ctx, &sh_r, &sh_s, y)
 }
 
 /// Generates `sh_r` and `sh_s` from PRSS randomness (`r`).
@@ -389,7 +380,7 @@ mod tests {
         ff::{boolean_array::BA64, Serializable},
         helpers::{repeat_n, stream::process_slice_by_chunks},
         protocol::{
-            context::UpgradableContext,
+            context::{dzkp_validator::DZKPValidator, UpgradableContext},
             ipa_prf::{CONV_CHUNK, CONV_PROOF_CHUNK, PRF_CHUNK},
         },
         rand::thread_rng,
@@ -432,7 +423,7 @@ mod tests {
                             let match_keys =
                                 BitDecomposed::transposed_from(&*chunk).unwrap_infallible();
                             convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(
-                                validator.clone(),
+                                m_ctx.clone(),
                                 RecordId::from(idx),
                                 match_keys,
                             )
@@ -461,13 +452,10 @@ mod tests {
     #[test]
     fn test_malicious_convert_to_fp25519() {
         run(|| async move {
-            // TODO: use something like the commented parameters, when proof batching is fixed, to
-            // exercise it. Ideally PROOF_CHUNK could be more than 1, but the test is pretty slow.
-            //const COUNT: usize = CONV_CHUNK * PROOF_CHUNK * 2 + 1;
-            //const PROOF_CHUNK: usize = 1;
-            const COUNT: usize = CONV_CHUNK + 1;
+            // Ideally PROOF_CHUNK could be more than 1, but the test is pretty slow.
+            const PROOF_CHUNK: usize = 1;
+            const COUNT: usize = CONV_CHUNK * PROOF_CHUNK * 2 + 1;
             const TOTAL_RECORDS: usize = (COUNT + CONV_CHUNK - 1) / CONV_CHUNK;
-            const PROOF_CHUNK: usize = TOTAL_RECORDS;
 
             let world = TestWorld::default();
 
@@ -497,7 +485,7 @@ mod tests {
                             let match_keys =
                                 BitDecomposed::transposed_from(&*chunk).unwrap_infallible();
                             convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(
-                                validator.clone(),
+                                m_ctx.clone(),
                                 RecordId::from(idx),
                                 match_keys,
                             )
@@ -531,12 +519,13 @@ mod tests {
                 .semi_honest(iter::empty::<BA256>(), |ctx, _records| async move {
                     let c_ctx = ctx.set_total_records(1);
                     let validator = &c_ctx.dzkp_validator(1);
+                    let m_ctx = validator.context();
                     let match_keys = BitDecomposed::new(repeat_n(
                         AdditiveShare::<Boolean, CONV_CHUNK>::ZERO,
                         128,
                     ));
                     convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(
-                        validator.clone(),
+                        m_ctx.clone(),
                         RecordId::FIRST,
                         match_keys,
                     )

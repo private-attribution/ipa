@@ -35,7 +35,7 @@ use crate::{
         ShardReceivingEnd, TotalRecords,
     },
     protocol::{
-        context::dzkp_validator::{DZKPValidator, Segment},
+        context::dzkp_validator::DZKPValidator,
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
         Gate, RecordId,
     },
@@ -126,6 +126,11 @@ pub trait UpgradedContext: Context {
     ///
     /// Future improvement will combine this with [`Reveal`] to access
     /// the value after validation.
+    ///
+    /// This API may only be used when the number of records per batch is the same
+    /// for every step submitting intermediates to this validator. It also requires
+    /// that `set_total_records` is set appropriately on the context that is used
+    /// to create the validator.
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error>;
 }
 
@@ -474,18 +479,21 @@ where
 }
 
 /// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
+#[async_trait]
 pub trait DZKPContext: Context {
-    /// `is_verified()` allows to confirm that there are currently no unverified multiplications,
-    /// i.e. shares that might have been manipulated.
-    /// when this is the case, it is safe to call functions like `reveal`
+    /// This method blocks until `record_id` has been validated. Validation happens
+    /// in batches, this method will block each individual future until
+    /// the whole batch is validated. The code written this way is more concise
+    /// and easier to read
     ///
-    /// ## Errors
-    /// Returns error when context contains unverified multiplications
-    fn is_verified(&self) -> Result<(), Error>;
-
-    /// This function allows to add segments to a batch. This function is called by `multiply` to add
-    /// values that need to be verified using the DZKP prover and verifiers.
-    fn push(&self, record_id: RecordId, segment: Segment);
+    /// Future improvement will combine this with [`Reveal`] to access
+    /// the value after validation.
+    ///
+    /// This API may only be used when the number of records per batch is the same
+    /// for every step submitting intermediates to this validator. It also requires
+    /// that `set_total_records` is set appropriately on the context that is used
+    /// to create the validator.
+    async fn validate_record(&self, record_id: RecordId) -> Result<(), Error>;
 }
 
 #[cfg(all(test, unit_test))]
