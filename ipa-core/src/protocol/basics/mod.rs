@@ -89,6 +89,8 @@ impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>>
 {
 }
 
+impl<'a> BooleanProtocols<DZKPUpgradedMaliciousContext<'a>> for AdditiveShare<Boolean> {}
+
 // Used for aggregation tests
 impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 8>
     for AdditiveShare<Boolean, 8>
@@ -101,6 +103,11 @@ impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Bool
 }
 
 impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, PRF_CHUNK>
+    for AdditiveShare<Boolean, PRF_CHUNK>
+{
+}
+
+impl<'a> BooleanProtocols<DZKPUpgradedMaliciousContext<'a>, PRF_CHUNK>
     for AdditiveShare<Boolean, PRF_CHUNK>
 {
 }
@@ -146,6 +153,8 @@ impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>,
     for AdditiveShare<Boolean, 32>
 {
 }
+
+impl<'a> BooleanProtocols<DZKPUpgradedMaliciousContext<'a>, 32> for AdditiveShare<Boolean, 32> {}
 
 const_assert_eq!(
     AGG_CHUNK,

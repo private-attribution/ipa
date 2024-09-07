@@ -5,6 +5,7 @@ use tokio::sync::watch;
 
 use crate::{
     error::Error,
+    helpers::TotalRecords,
     protocol::RecordId,
     sync::{Arc, Mutex},
 };
@@ -34,7 +35,7 @@ pub(super) struct Batcher<'a, B> {
     /// Absolute index of the first element of `batches`.
     first_batch: usize,
     records_per_batch: usize,
-    total_records: Option<usize>,
+    total_records: TotalRecords,
 
     /// Used to initialize new batches.
     batch_constructor: Box<dyn Fn(usize) -> B + Send + 'a>,
@@ -83,18 +84,22 @@ enum Ready<B> {
 }
 
 impl<'a, B> Batcher<'a, B> {
-    pub fn new(
+    pub fn new<T: Into<TotalRecords>>(
         records_per_batch: usize,
-        total_records: Option<usize>,
+        total_records: T,
         batch_constructor: Box<dyn Fn(usize) -> B + Send + 'a>,
     ) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             batches: VecDeque::new(),
             first_batch: 0,
             records_per_batch,
-            total_records,
+            total_records: total_records.into(),
             batch_constructor,
         }))
+    }
+
+    pub fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T) {
+        self.total_records = self.total_records.overwrite(total_records.into());
     }
 
     fn batch_offset(&self, record_id: RecordId) -> usize {
@@ -131,7 +136,7 @@ impl<'a, B> Batcher<'a, B> {
     }
 
     fn is_ready_for_validation(&mut self, record_id: RecordId) -> Result<Ready<B>, Error> {
-        let Some(total_records) = self.total_records else {
+        let Some(total_records) = self.total_records.count() else {
             return Err(Error::MissingTotalRecords(String::from("validate_record")));
         };
 
@@ -148,10 +153,24 @@ impl<'a, B> Batcher<'a, B> {
         let total_count = min(self.records_per_batch, remaining_records);
         let record_offset_in_batch = usize::from(record_id) - first_record_in_batch;
         let batch = self.get_batch_by_offset(batch_offset);
+        assert!(
+            !batch.pending_records[record_offset_in_batch],
+            "validate_record called twice for record {record_id}",
+        );
+        // This assertion is stricter than the bounds check in `BitVec::set` when the
+        // batch size is not a multiple of 8, or for a partial final batch.
+        assert!(
+            record_offset_in_batch < total_count,
+            "record offset {record_offset_in_batch} exceeds batch size {total_count}",
+        );
         batch.pending_records.set(record_offset_in_batch, true);
         batch.pending_count += 1;
         if batch.pending_count == total_count {
-            assert!(batch.pending_records[0..total_count].all());
+            assert!(
+                batch.pending_records[0..total_count].all(),
+                "Expected batch of {total_count} records to be ready for validation, but only have {:?}.",
+                &batch.pending_records[0..total_count],
+            );
             tracing::info!("batch {batch_index} is ready for validation");
             let batch;
             if batch_offset == 0 {
@@ -261,7 +280,7 @@ mod tests {
 
     #[test]
     fn makes_batches() {
-        let batcher = Batcher::new(2, Some(4), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 4, Box::new(|_| Vec::new()));
         let mut batcher = batcher.lock().unwrap();
 
         for i in 0..4 {
@@ -280,7 +299,7 @@ mod tests {
 
     #[tokio::test]
     async fn validates_batches() {
-        let batcher = Batcher::new(2, Some(4), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 4, Box::new(|_| Vec::new()));
         let results = {
             let mut batcher = batcher.lock().unwrap();
 
@@ -311,7 +330,7 @@ mod tests {
         // Test the case where the batches arrive for validation out of order. Under
         // normal usage, this is unlikely, but has been observed to happen in e.g.
         // test_malicious_convert_to_fp25519.
-        let batcher = Batcher::new(2, Some(4), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 4, Box::new(|_| Vec::new()));
 
         for i in 0..4 {
             batcher
@@ -352,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn validates_batches_async() {
-        let batcher = Batcher::new(2, Some(4), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 4, Box::new(|_| Vec::new()));
 
         for i in 0..4 {
             batcher
@@ -401,7 +420,7 @@ mod tests {
 
     #[tokio::test]
     async fn validation_failure() {
-        let batcher = Batcher::new(2, Some(4), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 4, Box::new(|_| Vec::new()));
 
         for i in 0..4 {
             batcher
@@ -453,7 +472,7 @@ mod tests {
 
     #[tokio::test]
     async fn handles_partial_final_batch() {
-        let batcher = Batcher::new(2, Some(3), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 3, Box::new(|_| Vec::new()));
         let results = {
             let mut batcher = batcher.lock().unwrap();
 
@@ -483,7 +502,7 @@ mod tests {
 
     #[tokio::test]
     async fn requires_total_records_in_validate_record() {
-        let batcher = Batcher::new(2, None, Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, TotalRecords::Unspecified, Box::new(|_| Vec::new()));
         let result = {
             let mut batcher = batcher.lock().unwrap();
             batcher.get_batch(RecordId::FIRST).batch.push(0);
@@ -496,7 +515,7 @@ mod tests {
 
     #[tokio::test]
     async fn record_id_out_of_range() {
-        let batcher = Batcher::new(2, Some(1), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 1, Box::new(|_| Vec::new()));
 
         for i in 0..2 {
             batcher
@@ -520,7 +539,7 @@ mod tests {
 
     #[test]
     fn into_single_batch() {
-        let batcher = Batcher::new(2, None, Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, TotalRecords::Unspecified, Box::new(|_| Vec::new()));
 
         for i in 0..2 {
             batcher
@@ -538,7 +557,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "assertion failed: self.batches.len() <= 1")]
     fn into_single_batch_fails_with_multiple_batches() {
-        let batcher = Batcher::new(2, None, Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, TotalRecords::Unspecified, Box::new(|_| Vec::new()));
 
         for i in 0..4 {
             batcher
@@ -556,7 +575,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "assertion failed: self.first_batch == 0")]
     async fn into_single_batch_fails_after_first_batch() {
-        let batcher = Batcher::new(2, Some(4), Box::new(|_| Vec::new()));
+        let batcher = Batcher::new(2, 4, Box::new(|_| Vec::new()));
 
         for i in 0..4 {
             batcher
