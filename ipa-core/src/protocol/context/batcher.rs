@@ -59,19 +59,15 @@ trait ExpectBatch {
     /// Specialized `Option::expect` for batch-related values.
     ///
     /// Constructs an error message based on the supplied context.
-    fn expect_not_yet_validated(self, first_batch: usize, batch_offset: usize) -> Self::Ok;
+    fn expect_not_yet_validated(self, batch_index: usize) -> Self::Ok;
 }
 
 impl<T> ExpectBatch for Option<T> {
     type Ok = T;
 
-    fn expect_not_yet_validated(self, first_batch: usize, batch_offset: usize) -> T {
+    fn expect_not_yet_validated(self, batch_index: usize) -> T {
         let Some(value) = self else {
-            let batch_index = first_batch + batch_offset;
-            panic!(
-                "Batches should be processed in order. Attempting to retrieve batch {batch_index}. \
-                    The oldest active batch is batch {first_batch}.",
-            )
+            panic!("Attempting to access batch {batch_index}, which has already been validated.");
         };
         value
     }
@@ -103,14 +99,9 @@ impl<'a, B> Batcher<'a, B> {
 
     fn batch_offset(&self, record_id: RecordId) -> usize {
         let batch_index = usize::from(record_id) / self.records_per_batch;
-        let Some(batch_offset) = batch_index.checked_sub(self.first_batch) else {
-            panic!(
-                "Batches should be processed in order. Attempting to retrieve batch {batch_index}. \
-                 The oldest active batch is batch {}.",
-                self.first_batch,
-            )
-        };
-        batch_offset
+        batch_index
+            .checked_sub(self.first_batch)
+            .expect_not_yet_validated(batch_index)
     }
 
     fn get_batch_by_offset(&mut self, batch_offset: usize) -> &mut BatchState<B> {
@@ -130,7 +121,7 @@ impl<'a, B> Batcher<'a, B> {
 
         self.batches[batch_offset]
             .as_mut()
-            .expect_not_yet_validated(self.first_batch, batch_offset)
+            .expect_not_yet_validated(self.first_batch + batch_offset)
     }
 
     /// # Panics
@@ -174,7 +165,7 @@ impl<'a, B> Batcher<'a, B> {
             } else {
                 batch = self.batches[batch_offset].take();
             }
-            let batch = batch.expect_not_yet_validated(self.first_batch, batch_offset);
+            let batch = batch.expect_not_yet_validated(self.first_batch + batch_offset);
             Ok(Ready::Yes { batch_index, batch })
         } else {
             Ok(Ready::No(batch.validation_result.subscribe()))
@@ -248,7 +239,7 @@ impl<'a, B> Batcher<'a, B> {
         match self.batches.pop_back() {
             Some(state) => {
                 state
-                    .expect_not_yet_validated(self.first_batch, batch_index)
+                    .expect_not_yet_validated(self.first_batch + batch_index)
                     .batch
             }
             None => (self.batch_constructor)(0),
