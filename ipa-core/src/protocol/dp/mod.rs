@@ -328,29 +328,33 @@ where
                 OV::BITS,
             );
 
-            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-                &ctx.narrow(&DPStep::LaplacePass1),
+            let dp_validator = ctx.dzkp_validator(1);
+
+            let noised_output = apply_laplace_noise_pass::<_, OV, B>(
+                &dp_validator.context().narrow(&DPStep::LaplacePass1),
                 histogram_bin_values,
                 Role::H1,
                 &noise_params,
             )
             .await?;
 
-            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-                &ctx.narrow(&DPStep::LaplacePass2),
+            let noised_output = apply_laplace_noise_pass::<_, OV, B>(
+                &dp_validator.context().narrow(&DPStep::LaplacePass2),
                 noised_output,
                 Role::H2,
                 &noise_params,
             )
             .await?;
 
-            let noised_output = apply_laplace_noise_pass::<C, OV, B>(
-                &ctx.narrow(&DPStep::LaplacePass3),
+            let noised_output = apply_laplace_noise_pass::<_, OV, B>(
+                &dp_validator.context().narrow(&DPStep::LaplacePass3),
                 noised_output,
                 Role::H3,
                 &noise_params,
             )
             .await?;
+
+            dp_validator.validate().await?;
 
             Ok(Vec::transposed_from(&noised_output)?)
         }
@@ -716,7 +720,7 @@ mod test {
         let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> =
             vectorize_input(OV::BITS as usize, &input_values); // bit_width passed here needs to match OV::BITS
         let result = world
-            .upgraded_semi_honest(input, |ctx, input| async move {
+            .semi_honest(input, |ctx, input| async move {
                 dp_for_histogram::<_, { NUM_BREAKDOWNS as usize }, OV, SS_BITS>(
                     ctx, input, dp_params,
                 )
