@@ -731,7 +731,7 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
     /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error> {
         let batcher = self.batcher_ref.as_ref().unwrap().lock().unwrap();
-        if batcher.iter().all(|state| state.batch.is_empty()) {
+        if batcher.is_empty() {
             Ok(())
         } else {
             Err(Error::ContextUnsafe(format!("{:?}", self.protocol_ctx)))
