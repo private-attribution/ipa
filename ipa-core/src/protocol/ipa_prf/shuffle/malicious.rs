@@ -6,7 +6,6 @@ use futures_util::{
     stream::iter,
 };
 use generic_array::GenericArray;
-use proptest::num::usize;
 use rand::distributions::{Distribution, Standard};
 
 use crate::{
@@ -53,38 +52,35 @@ where
     Standard: Distribution<B>,
 {
     // compute amount of MAC keys
-    let amount_of_keys: usize = usize::try_from(S::BITS).unwrap() + 31 / 32;
+    let amount_of_keys: usize = (usize::try_from(S::BITS).unwrap() + 31) / 32;
     // // generate MAC keys
-    let keys = vec![AdditiveShare::ZERO; amount_of_keys];
-    // = (0..amount_of_keys)
-    //     .map(|i| ctx.prss().generate_fields(RecordId::from(i)))
-    //     .map(|(left, right)| AdditiveShare::new(left, right))
-    //     .collect::<Vec<AdditiveShare<Gf32Bit>>>();
+    let keys = (0..amount_of_keys)
+        .map(|i| ctx.prss().generate_fields(RecordId::from(i)))
+        .map(|(left, right)| AdditiveShare::new(left, right))
+        .collect::<Vec<AdditiveShare<Gf32Bit>>>();
 
     // compute and append tags to rows
     let shares_and_tags: Vec<AdditiveShare<B>> =
         compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares).await?;
 
-    // // shuffle
-    // let (shuffled_shares, messages) = shuffle(
-    //     ctx.narrow(&OPRFShuffleStep::ShuffleProtocol),
-    //     shares_and_tags,
-    // )
-    // .await?;
-    //
-    // // verify the shuffle
-    // verify_shuffle(
-    //     ctx.narrow(&OPRFShuffleStep::VerifyShuffle),
-    //     &keys,
-    //     &shuffled_shares,
-    //     messages,
-    // )
-    // .await?;
-    //
-    // // truncate tags from output_shares
-    // Ok(truncate_tags(&shuffled_shares))
+    // shuffle
+    let (shuffled_shares, messages) = shuffle(
+        ctx.narrow(&OPRFShuffleStep::ShuffleProtocol),
+        shares_and_tags,
+    )
+    .await?;
 
-    Ok(vec![AdditiveShare::ZERO; 1])
+    // verify the shuffle
+    verify_shuffle(
+        ctx.narrow(&OPRFShuffleStep::VerifyShuffle),
+        &keys,
+        &shuffled_shares,
+        messages,
+    )
+    .await?;
+
+    // truncate tags from output_shares
+    Ok(truncate_tags(&shuffled_shares))
 }
 
 /// This function truncates the tags from the output shares of the shuffle protocol
@@ -98,7 +94,7 @@ where
 {
     let tag_offset = usize::try_from((S::BITS + 7) / 8).unwrap();
     shares_and_tags
-        .into_iter()
+        .iter()
         .map(|row_with_tag| {
             let mut buf_left = GenericArray::default();
             let mut buf_right = GenericArray::default();
@@ -454,48 +450,6 @@ mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    pub async fn wrapper<C, S, B, I>(ctx: C, shares: I)
-    where
-        C: Context,
-        S: BooleanArray,
-        B: BooleanArray,
-        I: IntoIterator<Item = AdditiveShare<S>>,
-        I::IntoIter: ExactSizeIterator,
-        <I as IntoIterator>::IntoIter: Send,
-        for<'a> &'a B: Add<B, Output = B>,
-        for<'a> &'a B: Add<&'a B, Output = B>,
-        Standard: Distribution<B>,
-    {
-        // compute amount of MAC keys
-        let amount_of_keys: usize = usize::try_from(S::BITS).unwrap() + 31 / 32;
-        // // generate MAC keys
-        let keys = vec![AdditiveShare::ZERO; amount_of_keys];
-
-        // compute and append tags to rows
-        let shares_and_tags: Vec<AdditiveShare<B>> =
-            compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares)
-                .await
-                .unwrap();
-    }
-
-    #[test]
-    fn minimal_stall() {
-        const RECORD_AMOUNT: usize = 1;
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = thread_rng();
-            let records = (0..RECORD_AMOUNT)
-                .map(|_| rng.gen::<BA32>())
-                .collect::<Vec<_>>();
-
-            world
-                .semi_honest(records.into_iter(), |ctx, (row_shares)| async move {
-                    wrapper::<_, BA32, BA64, _>(ctx, row_shares).await;
-                })
-                .await;
-        });
-    }
-
     /// This test checks the correctness of the malicious shuffle.
     /// It does not check the security against malicious behavior.
     #[test]
@@ -539,7 +493,10 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            assert_eq!(records.sort(), result_galois.sort());
+            records.sort();
+            result_galois.sort();
+
+            assert_eq!(records, result_galois);
         });
     }
 
@@ -672,9 +629,13 @@ mod tests {
                         // convert key
                         let mac_key: Vec<AdditiveShare<Gf32Bit>> =
                             key_shares.to_gf32bit().unwrap().collect::<Vec<_>>();
-                        compute_and_add_tags(ctx, &mac_key, row_shares)
-                            .await
-                            .unwrap()
+                        compute_and_add_tags(
+                            ctx.narrow(&OPRFShuffleStep::GenerateTags),
+                            &mac_key,
+                            row_shares,
+                        )
+                        .await
+                        .unwrap()
                     },
                 )
                 .await
