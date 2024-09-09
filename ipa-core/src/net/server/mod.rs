@@ -376,7 +376,7 @@ where
 
         Box::pin(async move {
             let (stream, service) = acceptor.accept(stream, service).await.map_err(|err| {
-                error!("connection error: {err}");
+                error!("[ClientCertRecognizingAcceptor] connection error: {err}");
                 err
             })?;
 

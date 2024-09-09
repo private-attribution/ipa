@@ -112,20 +112,6 @@ pub fn execute<R: PrivateKeyRegistry>(
         }
         // TODO(953): This is really using BA32, not Fp32bitPrime. The `FieldType` mechanism needs
         // to be reworked.
-        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-        (QueryType::OprfIpaRelaxedDpPadding(ipa_config), FieldType::Fp32BitPrime) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
         (QueryType::SemiHonestOprfIpa(ipa_config), _) => do_query(
             config,
             gateway,
@@ -149,30 +135,6 @@ pub fn execute<R: PrivateKeyRegistry>(
                     OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        // TODO(953): This is not doing anything differently than the Fp32BitPrime case, except
-        // using 16 bits for histogram values
-        #[cfg(any(
-            test,
-            feature = "cli",
-            feature = "test-fixture",
-            feature = "weak-field"
-        ))]
-        (QueryType::OprfIpaRelaxedDpPadding(ipa_config), FieldType::Fp31) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    OprfIpaQuery::<_, crate::ff::boolean_array::BA16, R>::new(
-                        ipa_config,
-                        key_registry,
-                    )
-                    .execute(ctx, config.size, input)
-                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),

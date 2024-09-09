@@ -196,7 +196,7 @@ async fn ipa(
     let input = InputSource::from(&args.input);
     let query_type = match (security_model, &query_style) {
         (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            QueryType::OprfIpaRelaxedDpPadding(ipa_query_config)
+            QueryType::SemiHonestOprfIpa(ipa_query_config)
         }
         (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
             QueryType::MaliciousOprfIpa(ipa_query_config)

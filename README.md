@@ -62,6 +62,36 @@ The first time, it will download the necessary packages (crates) and compile the
 
 If you're just running tests/benchmarks, it will build automatically and you can skip this step.
 
+If you want to get a helper binary, here's an example command showcasing some of the available features:
+
+```
+cargo build --bin helper --features='web-app real-world-infra compact-gate multi-threading disable-metrics stall-detection' --no-default-features --release
+```
+
+### Building IPA as a Docker Image
+
+To build a docker image with IPA helper in it:
+
+```
+docker build -t ipa:latest -f docker/helper.Dockerfile .
+```
+
+Note that if you want to build for a specific platform, different than the one you're using, you need to specify it. For example:
+
+```
+docker build -t ipa:latest --platform=linux/amd64 -f docker/helper.Dockerfile .
+```
+
+### Pushing Docker to ghcr.io
+
+First, follow the instructions [here](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry) to get your Token.
+
+```
+echo $CR_PAT | docker login ghcr.io -u <USER_NAME> --password-stdin
+docker tag <IMAGE_ID> ghcr.io/private-attribution/ipa/ipa-helper:<TAG>
+docker push ghcr.io/private-attribution/ipa/ipa-helper:<TAG>
+```
+
 ### Running tests
 
 To run the test suite, run
