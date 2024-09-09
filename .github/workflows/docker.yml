@@ -2,14 +2,18 @@ name: Publish Helper Image CI
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "docker/ci/**"
-      - ".github/workflows/docker.yml"
-      - "Cargo.toml"
   schedule:
     # Once monthly at a randomly selected time.
     - cron: "24 2 3,18 * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "docker/ci/**"
+      - ".github/workflows/docker.yml"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "ipa-*/src/**/*"
 
 jobs:
   build:
@@ -17,6 +21,17 @@ jobs:
     steps:
     - name: "Checkout"
       uses: actions/checkout@v4
+
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ghcr.io/${{ github.repository }}/ipa-helper
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha
 
     - name: "Setup Docker Buildx"
       uses: docker/setup-buildx-action@v2
@@ -34,5 +49,6 @@ jobs:
         context: .
         file: ./docker/ci/helper.Dockerfile
         push: true
-        tags: ghcr.io/${{ github.repository }}/ipa-helper:latest
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
         platforms: linux/amd64
