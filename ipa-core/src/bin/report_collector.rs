@@ -98,6 +98,7 @@ enum ReportCollectorCommand {
     /// Apply differential privacy noise to IPA inputs
     ApplyDpNoise(ApplyDpArgs),
     /// Execute OPRF IPA in a semi-honest setting
+    #[command(visible_alias = "oprf-ipa")]
     SemiHonestOprfIpa(IpaQueryConfig),
     /// Execute OPRF IPA in an honest majority (one malicious helper) setting
     MaliciousOprfIpa(IpaQueryConfig),

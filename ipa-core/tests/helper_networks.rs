@@ -54,6 +54,12 @@ fn https_semi_honest_ipa() {
     test_ipa(IpaSecurityModel::SemiHonest, true);
 }
 
+#[test]
+#[cfg(all(test, web_test, not(feature = "compact-gate")))] // TODO: enable for compact gate
+fn https_malicious_ipa() {
+    test_ipa(IpaSecurityModel::Malicious, true);
+}
+
 /// Similar to [`network`] tests, but it uses keygen + confgen CLIs to generate helper client config
 /// and then just runs test multiply to make sure helpers are up and running
 ///

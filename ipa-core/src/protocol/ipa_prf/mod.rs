@@ -446,6 +446,46 @@ pub mod tests {
             let padding_params = PaddingParameters::relaxed();
 
             let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<_, BA5, BA3, BA16, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+
+    #[test]
+    fn malicious() {
+        const EXPECTED: &[u128] = &[0, 2, 5, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::default();
+
+            let records: Vec<TestRawDataRecord> = vec![
+                test_input(0, 12345, false, 1, 0),
+                test_input(5, 12345, false, 2, 0),
+                test_input(10, 12345, true, 0, 5),
+                test_input(0, 68362, false, 1, 0),
+                test_input(20, 68362, true, 0, 2),
+            ]; // trigger value of 2 attributes to earlier source row with breakdown 1 and trigger
+               // value of 5 attributes to source row with breakdown 2.
+            let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::relaxed();
+
+            let mut result: Vec<_> = world
                 .malicious(records.into_iter(), |ctx, input_rows| async move {
                     oprf_ipa::<_, BA5, BA3, BA16, BA20, 5, 32>(
                         ctx,
@@ -503,7 +543,7 @@ pub mod tests {
                 test_input(20, 68362, true, 0, 2),
             ];
             let mut result: Vec<_> = world
-                .malicious(records.into_iter(), |ctx, input_rows| async move {
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     oprf_ipa::<_, BA5, BA3, BA16, BA20, SS_BITS, B>(
                         ctx,
                         input_rows,
