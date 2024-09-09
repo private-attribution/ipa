@@ -132,7 +132,7 @@ where
     // need to output x_1
     // call to clone causes allocation
     // ideally in the semi honest setting, we would not clone
-    let mut x_2 = x_1.clone();
+    let mut x_2 = x_1;
     add_single_shares_in_place(&mut x_2, z_31);
     x_2.shuffle(&mut rng_perm_l);
     send_to_peer(&x_2, ctx, &OPRFShuffleStep::TransferX2, Direction::Right).await?;
@@ -142,7 +142,7 @@ where
     Ok((
         res,
         IntermediateShuffleMessages {
-            x1_or_y1: Some(x_1),
+            x1_or_y1: None,
             x2_or_y2: None,
         },
     ))
@@ -193,7 +193,7 @@ where
     // we need to output x_2
     // call to clone causes allocation
     // ideally in the semi honest setting, we would not clone
-    let mut x_3 = x_2.clone();
+    let mut x_3 = x_2;
     add_single_shares_in_place(&mut x_3, z_23);
     x_3.shuffle(&mut rng_perm_r);
 
@@ -225,7 +225,7 @@ where
         res,
         IntermediateShuffleMessages {
             x1_or_y1: None,
-            x2_or_y2: Some(x_2),
+            x2_or_y2: None,
         },
     ))
 }
@@ -262,7 +262,7 @@ where
     // need to output y_1
     // call to clone causes allocation
     // ideally in the semi honest setting, we would not clone
-    let mut y_2 = y_1.clone();
+    let mut y_2 = y_1;
     add_single_shares_in_place(&mut y_2, z_31);
 
     let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
@@ -272,7 +272,7 @@ where
     // need to output y_2
     // call to clone causes allocation
     // ideally in the semi honest setting, we would not clone
-    let mut y_3 = y_2.clone();
+    let mut y_3 = y_2;
     add_single_shares_in_place(&mut y_3, z_23);
     y_3.shuffle(&mut rng_perm_l);
 
@@ -300,8 +300,8 @@ where
     Ok((
         res,
         IntermediateShuffleMessages {
-            x1_or_y1: Some(y_1),
-            x2_or_y2: Some(y_2),
+            x1_or_y1: None,
+            x2_or_y2: None,
         },
     ))
 }
@@ -428,13 +428,9 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use rand::{thread_rng, Rng};
-
     use super::shuffle;
     use crate::{
         ff::{Gf40Bit, U128Conversions},
-        secret_sharing::replicated::ReplicatedSecretSharing,
-        test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
@@ -469,60 +465,5 @@ pub mod tests {
             actual, records,
             "Shuffle should not change the items in the set"
         );
-    }
-
-    #[test]
-    fn check_intermediate_messages() {
-        const RECORD_AMOUNT: usize = 100;
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = thread_rng();
-            // using Gf40Bit here since it implements cmp such that vec can later be sorted
-            let mut records = (0..RECORD_AMOUNT)
-                .map(|_| rng.gen())
-                .collect::<Vec<Gf40Bit>>();
-
-            let [h1, h2, h3] = world
-                .semi_honest(records.clone().into_iter(), |ctx, records| async move {
-                    shuffle(ctx, records).await
-                })
-                .await;
-
-            // check consistency
-            // i.e. x_1 xor y_1 = x_2 xor y_2 = C xor A xor B
-            let (h1_shares, h1_messages) = h1.unwrap();
-            let (_, h2_messages) = h2.unwrap();
-            let (h3_shares, h3_messages) = h3.unwrap();
-
-            let mut x1_xor_y1 = h1_messages
-                .x1_or_y1
-                .unwrap()
-                .iter()
-                .zip(h3_messages.x1_or_y1.unwrap())
-                .map(|(x1, y1)| x1 + y1)
-                .collect::<Vec<_>>();
-            let mut x2_xor_y2 = h2_messages
-                .x2_or_y2
-                .unwrap()
-                .iter()
-                .zip(h3_messages.x2_or_y2.unwrap())
-                .map(|(x2, y2)| x2 + y2)
-                .collect::<Vec<_>>();
-            let mut a_xor_b_xor_c = h1_shares
-                .iter()
-                .zip(h3_shares)
-                .map(|(h1_share, h3_share)| h1_share.left() + h1_share.right() + h3_share.left())
-                .collect::<Vec<_>>();
-
-            // unshuffle by sorting
-            records.sort();
-            x1_xor_y1.sort();
-            x2_xor_y2.sort();
-            a_xor_b_xor_c.sort();
-
-            assert_eq!(records, a_xor_b_xor_c);
-            assert_eq!(records, x1_xor_y1);
-            assert_eq!(records, x2_xor_y2);
-        });
     }
 }

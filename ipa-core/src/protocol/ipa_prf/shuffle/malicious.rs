@@ -354,46 +354,10 @@ mod tests {
             boolean_array::{BA112, BA144, BA20, BA32, BA64},
             Serializable,
         },
-        protocol::ipa_prf::shuffle::base::shuffle,
         secret_sharing::SharedValue,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-
-    /// This test checks the correctness of the malicious shuffle
-    /// when all parties behave honestly
-    /// and all the MAC keys are `Gf32Bit::ONE`.
-    /// Further, each row consists of a `BA32` and a `BA32` tag.
-    #[test]
-    fn check_shuffle_with_simple_mac() {
-        const RECORD_AMOUNT: usize = 10;
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = thread_rng();
-            let records = (0..RECORD_AMOUNT)
-                .map(|_| {
-                    let entry = rng.gen::<[u8; 4]>();
-                    let mut entry_and_tag = [0u8; 8];
-                    entry_and_tag[0..4].copy_from_slice(&entry);
-                    entry_and_tag[4..8].copy_from_slice(&entry);
-                    BA64::deserialize_from_slice(&entry_and_tag)
-                })
-                .collect::<Vec<BA64>>();
-
-            let _ = world
-                .semi_honest(records.into_iter(), |ctx, rows| async move {
-                    // trivial shares of Gf32Bit::ONE
-                    let key_shares = vec![AdditiveShare::new(Gf32Bit::ONE, Gf32Bit::ONE); 1];
-                    // run shuffle
-                    let (shares, messages) = shuffle(ctx.narrow("shuffle"), rows).await.unwrap();
-                    // verify it
-                    verify_shuffle(ctx.narrow("verify"), &key_shares, &shares, messages)
-                        .await
-                        .unwrap();
-                })
-                .await;
-        });
-    }
 
     /// Helper function for tests below.
     /// `S::Bits + 32` needs to be the same as `B::Bits`
