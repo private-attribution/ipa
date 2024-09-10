@@ -122,9 +122,13 @@ pub mod query {
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
-                QueryType::OPRF_IPA_STR => {
+                QueryType::SEMI_HONEST_OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
-                    Ok(QueryType::OprfIpa(q))
+                    Ok(QueryType::SemiHonestOprfIpa(q))
+                }
+                QueryType::MALICIOUS_OPRF_IPA_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::MaliciousOprfIpa(q))
                 }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
@@ -148,7 +152,7 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply | QueryType::TestAddInPrimeField => Ok(()),
-                QueryType::OprfIpa(config) => {
+                QueryType::SemiHonestOprfIpa(config) | QueryType::MaliciousOprfIpa(config) => {
                     write!(
                         f,
                         "&per_user_credit_cap={}&max_breakdown_key={}&with_dp={}&epsilon={}",

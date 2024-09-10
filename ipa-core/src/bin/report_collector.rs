@@ -97,8 +97,11 @@ enum ReportCollectorCommand {
     },
     /// Apply differential privacy noise to IPA inputs
     ApplyDpNoise(ApplyDpArgs),
-    /// Execute OPRF IPA in a semi-honest majority setting
-    OprfIpa(IpaQueryConfig),
+    /// Execute OPRF IPA in a semi-honest setting
+    #[command(visible_alias = "oprf-ipa")]
+    SemiHonestOprfIpa(IpaQueryConfig),
+    /// Execute OPRF IPA in an honest majority (one malicious helper) setting
+    MaliciousOprfIpa(IpaQueryConfig),
 }
 
 #[derive(Debug, clap::Args)]
@@ -129,11 +132,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
-        ReportCollectorCommand::OprfIpa(config) => {
+        ReportCollectorCommand::SemiHonestOprfIpa(config) => {
             ipa(
                 &args,
                 &network,
                 IpaSecurityModel::SemiHonest,
+                config,
+                &clients,
+                IpaQueryStyle::Oprf,
+            )
+            .await?
+        }
+        ReportCollectorCommand::MaliciousOprfIpa(config) => {
+            ipa(
+                &args,
+                &network,
+                IpaSecurityModel::Malicious,
                 config,
                 &clients,
                 IpaQueryStyle::Oprf,
@@ -180,13 +194,12 @@ async fn ipa(
     query_style: IpaQueryStyle,
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
-    let query_type: QueryType;
-    match (security_model, &query_style) {
+    let query_type = match (security_model, &query_style) {
         (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            query_type = QueryType::OprfIpa(ipa_query_config);
+            QueryType::SemiHonestOprfIpa(ipa_query_config)
         }
         (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
-            panic!("OPRF for malicious is not implemented as yet")
+            QueryType::MaliciousOprfIpa(ipa_query_config)
         }
     };
 

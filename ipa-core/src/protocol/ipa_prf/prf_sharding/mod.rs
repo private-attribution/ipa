@@ -487,9 +487,9 @@ where
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
-    for<'a> Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>,
-    for<'a> Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
-    for<'a> Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -568,9 +568,9 @@ where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    for<'a> Replicated<BK>: BooleanArrayMul<V::Context>,
-    for<'a> Replicated<TS>: BooleanArrayMul<V::Context>,
-    for<'a> Replicated<TV>: BooleanArrayMul<V::Context>,
+    Replicated<BK>: BooleanArrayMul<V::Context>,
+    Replicated<TS>: BooleanArrayMul<V::Context>,
+    Replicated<TV>: BooleanArrayMul<V::Context>,
 {
     let chunked_user_results =
         input
@@ -608,9 +608,9 @@ where
     BK: BooleanArray + U128Conversions,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    for<'a> Replicated<BK>: BooleanArrayMul<C>,
-    for<'a> Replicated<TS>: BooleanArrayMul<C>,
-    for<'a> Replicated<TV>: BooleanArrayMul<C>,
+    Replicated<BK>: BooleanArrayMul<C>,
+    Replicated<TS>: BooleanArrayMul<C>,
+    Replicated<TV>: BooleanArrayMul<C>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {

@@ -180,7 +180,7 @@ public_key = "b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e"
                             .expect("manually constructed for test"),
                     )]));
 
-                OprfIpaQuery::<BA16, KeyRegistry<PrivateKeyOnly>>::new(
+                OprfIpaQuery::<_, BA16, KeyRegistry<PrivateKeyOnly>>::new(
                     query_config,
                     private_registry,
                 )

@@ -19,19 +19,30 @@ use rand_core::SeedableRng;
 use shuttle::future as tokio;
 use typenum::Unsigned;
 
+#[cfg(any(
+    test,
+    feature = "cli",
+    feature = "test-fixture",
+    feature = "weak-field"
+))]
+use crate::ff::FieldType;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 use crate::{
     ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add_in_prime_field,
 };
 use crate::{
-    ff::{boolean_array::BA32, FieldType, Serializable},
+    ff::{boolean_array::BA32, Serializable},
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
         BodyStream, Gateway,
     },
     hpke::PrivateKeyRegistry,
-    protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, Gate},
+    protocol::{
+        context::{MaliciousContext, SemiHonestContext},
+        prss::Endpoint as PrssEndpoint,
+        Gate,
+    },
     query::{
         runner::{OprfIpaQuery, QueryResult},
         state::RunningQuery,
@@ -101,35 +112,29 @@ pub fn execute<R: PrivateKeyRegistry>(
         }
         // TODO(953): This is really using BA32, not Fp32bitPrime. The `FieldType` mechanism needs
         // to be reworked.
-        (QueryType::OprfIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
+        (QueryType::SemiHonestOprfIpa(ipa_config), _) => do_query(
             config,
             gateway,
             input,
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<BA32, R>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
-        // TODO(953): This is not doing anything differently than the Fp32BitPrime case, except
-        // using 16 bits for histogram values
-        #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::OprfIpa(ipa_config), FieldType::Fp31) => do_query(
+        (QueryType::MaliciousOprfIpa(ipa_config), _) => do_query(
             config,
             gateway,
             input,
             move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
+                let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<crate::ff::boolean_array::BA16, R>::new(
-                        ipa_config,
-                        key_registry,
-                    )
-                    .execute(ctx, config.size, input)
-                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                    OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
