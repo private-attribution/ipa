@@ -288,15 +288,11 @@ pub fn test_ipa_with_config(
         command.arg("--disable-https");
     }
 
-    let protocol = match mode {
-        IpaSecurityModel::SemiHonest => {
-            if encrypted_inputs {
-                "semi-honest-oprf-ipa"
-            } else {
-                "oprf-ipa-test"
-            }
-        }
-        IpaSecurityModel::Malicious => "malicious-oprf-ipa",
+    let protocol = match (mode, encrypted_inputs) {
+        (IpaSecurityModel::SemiHonest, true) => "semi-honest-oprf-ipa",
+        (IpaSecurityModel::SemiHonest, false) => "semi-honest-oprf-ipa-test",
+        (IpaSecurityModel::Malicious, true) => "malicious-oprf-ipa",
+        (IpaSecurityModel::Malicious, false) => "malicious-oprf-ipa-test",
     };
     command.arg(protocol);
     if encrypted_inputs {

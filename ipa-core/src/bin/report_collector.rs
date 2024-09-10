@@ -4,12 +4,11 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io,
-    io::{stdout, BufRead, BufReader, Write},
+    io::{stdout, Write},
     ops::Deref,
     path::{Path, PathBuf},
 };
 
-use bytes::BufMut;
 use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
 use hyper::http::uri::Scheme;
@@ -24,12 +23,9 @@ use ipa_core::{
     },
     config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
-    helpers::{
-        query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
-        BodyStream,
-    },
+    helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     net::MpcHelperClient,
-    report::DEFAULT_KEY_ID,
+    report::{EncryptedOprfReportFiles, DEFAULT_KEY_ID},
     test_fixture::{
         ipa::{ipa_in_the_clear, CappingOrder, IpaQueryStyle, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig,
@@ -106,7 +102,10 @@ enum ReportCollectorCommand {
     ApplyDpNoise(ApplyDpArgs),
     /// Execute OPRF IPA in a semi-honest majority setting with known test data
     /// and compare results against expectation
-    OprfIpaTest(IpaQueryConfig),
+    SemiHonestOprfIpaTest(IpaQueryConfig),
+    /// Execute OPRF IPA in an honest majority (one malicious helper) setting
+    /// with known test data and compare results against expectation
+    MalciousOprfIpaTest(IpaQueryConfig),
     /// Execute OPRF IPA in a semi-honest majority setting with unknown encrypted data
     #[command(visible_alias = "oprf-ipa")]
     SemiHonestOprfIpa {
@@ -170,11 +169,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
-        ReportCollectorCommand::OprfIpaTest(config) => {
+        ReportCollectorCommand::SemiHonestOprfIpaTest(config) => {
             ipa_test(
                 &args,
                 &network,
                 IpaSecurityModel::SemiHonest,
+                config,
+                &clients,
+                IpaQueryStyle::Oprf,
+            )
+            .await?
+        }
+        ReportCollectorCommand::MalciousOprfIpaTest(config) => {
+            ipa_test(
+                &args,
+                &network,
+                IpaSecurityModel::Malicious,
                 config,
                 &clients,
                 IpaQueryStyle::Oprf,
@@ -306,32 +316,16 @@ async fn ipa(
 ) -> Result<(), Box<dyn Error>> {
     let query_type = get_query_type(security_model, &query_style, ipa_query_config);
 
-    let enc1 = &encrypted_inputs.enc_input_file1;
-    let enc2 = &encrypted_inputs.enc_input_file2;
-    let enc3 = &encrypted_inputs.enc_input_file3;
+    let files = [
+        &encrypted_inputs.enc_input_file1,
+        &encrypted_inputs.enc_input_file2,
+        &encrypted_inputs.enc_input_file3,
+    ];
 
-    let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
-    let mut query_sizes: [usize; 3] = [0, 0, 0];
-    for (i, path) in [enc1, enc2, enc3].iter().enumerate() {
-        let file = File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let encrypted_report_bytes = hex::decode(line?.trim())?;
-            buffers[i].put_u16_le(encrypted_report_bytes.len().try_into()?);
-            buffers[i].put_slice(encrypted_report_bytes.as_slice());
-            query_sizes[i] += 1;
-        }
-    }
-    // Panic if input sizes are not the same
-    // Panic instead of returning an Error as this is non-recoverable
-    assert_eq!(query_sizes[0], query_sizes[1]);
-    assert_eq!(query_sizes[1], query_sizes[2]);
-
-    // without loss of generality, set query length to length of first input size
-    let query_size = query_sizes[0];
+    let encrypted_oprf_report_files = EncryptedOprfReportFiles::from(files);
 
     let query_config = QueryConfig {
-        size: QuerySize::try_from(query_size).unwrap(),
+        size: QuerySize::try_from(encrypted_oprf_report_files.query_size).unwrap(),
         field_type: FieldType::Fp32BitPrime,
         query_type,
     };
@@ -341,7 +335,6 @@ async fn ipa(
         .await
         .expect("Unable to create query!");
 
-    let inputs = buffers.map(BodyStream::from);
     tracing::info!("Starting query for OPRF");
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
@@ -349,8 +342,8 @@ async fn ipa(
             // implementation, otherwise a runtime reconstruct error will be generated.
             // see ipa-core/src/query/executor.rs
             run_query_and_validate::<BA32>(
-                inputs,
-                query_size,
+                encrypted_oprf_report_files.stream,
+                encrypted_oprf_report_files.query_size,
                 helper_clients,
                 query_id,
                 ipa_query_config,

@@ -32,14 +32,20 @@ fn compact_gate_cap_8_no_window_semi_honest_encryped_input() {
 }
 
 #[test]
+fn compact_gate_cap_8_no_window_semi_honest_plaintext_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 0, false);
+}
+
+#[test]
 #[ignore] // TODO
-fn compact_gate_cap_8_no_window_malicious() {
+fn compact_gate_cap_8_no_window_malicious_encrypted_input() {
     test_compact_gate(IpaSecurityModel::Malicious, 8, 0, true);
 }
 
 #[test]
-fn compact_gate_cap_8_no_window_semi_honest_plaintext_input() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 0, false);
+#[ignore] // TODO
+fn compact_gate_cap_8_no_window_malicious_plaintext_input() {
+    test_compact_gate(IpaSecurityModel::Malicious, 8, 0, false);
 }
 
 #[test]

@@ -1,7 +1,10 @@
 use std::{
     fmt::{Display, Formatter},
+    fs::File,
+    io::{BufRead, BufReader},
     marker::PhantomData,
     ops::{Add, Deref},
+    path::PathBuf,
 };
 
 use bytes::{BufMut, Bytes};
@@ -13,6 +16,7 @@ use typenum::{Sum, Unsigned, U1, U16};
 use crate::{
     error::BoxError,
     ff::{boolean_array::BA64, Serializable},
+    helpers::BodyStream,
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, Info, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
@@ -159,6 +163,47 @@ pub enum InvalidReportError {
     Length(usize, usize),
 }
 
+pub struct EncryptedOprfReportFiles {
+    pub stream: [BodyStream; 3],
+    pub query_size: usize,
+}
+
+impl From<[&PathBuf; 3]> for EncryptedOprfReportFiles {
+    fn from(files: [&PathBuf; 3]) -> Self {
+        let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+        let mut query_sizes: [usize; 3] = [0, 0, 0];
+        for (i, path) in files.iter().enumerate() {
+            let file =
+                File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let encrypted_report_bytes = hex::decode(
+                    line.expect("Unable to read line. {file:?} is likely corrupt")
+                        .trim(),
+                )
+                .expect("Unable to read line. {file:?} is likely corrupt");
+                buffers[i].put_u16_le(
+                    encrypted_report_bytes
+                        .len()
+                        .try_into()
+                        .expect("Unable to read line. {file:?} is likely corrupt"),
+                );
+                buffers[i].put_slice(encrypted_report_bytes.as_slice());
+                query_sizes[i] += 1;
+            }
+        }
+        // Panic if input sizes are not the same
+        // Panic instead of returning an Error as this is non-recoverable
+        assert_eq!(query_sizes[0], query_sizes[1]);
+        assert_eq!(query_sizes[1], query_sizes[2]);
+
+        Self {
+            stream: buffers.map(BodyStream::from),
+            // without loss of generality, set query length to length of first input size
+            query_size: query_sizes[0],
+        }
+    }
+}
 // TODO: If we are parsing reports from CSV files, we may also want an owned version of EncryptedReport.
 
 /// A binary report as submitted by a report collector, containing encrypted `OprfReport`

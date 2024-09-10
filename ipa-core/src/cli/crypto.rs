@@ -601,22 +601,12 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
             build_encrypt_args(input_file.path(), output_dir.path(), network_file.path());
         let _ = encrypt(&encrypt_args);
 
-        let enc1 = output_dir.path().join("helper1.enc");
-        let enc2 = output_dir.path().join("helper2.enc");
-        let enc3 = output_dir.path().join("helper3.enc");
-
-        let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
-        for (i, path) in [enc1, enc2, enc3].iter().enumerate() {
-            let file = File::open(path).unwrap();
-            let reader = BufReader::new(file);
-            for line in reader.lines() {
-                let line = line.unwrap();
-                let encrypted_report_bytes = hex::decode(line.trim()).unwrap();
-                println!("{}", encrypted_report_bytes.len());
-                buffers[i].put_u16_le(encrypted_report_bytes.len().try_into().unwrap());
-                buffers[i].put_slice(encrypted_report_bytes.as_slice());
-            }
-        }
+        let files = [
+            output_dir.path().join("helper1.enc"),
+            output_dir.path().join("helper2.enc"),
+            output_dir.path().join("helper3.enc"),
+        ];
+        let encrypted_oprf_report_files = EncryptedOprfReportFiles::from(files);
 
         let world = TestWorld::default();
         let contexts = world.contexts();
@@ -631,31 +621,35 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
         ];
 
         #[allow(clippy::large_futures)]
-        let results = join3v(buffers.into_iter().zip(contexts).zip(mk_private_keys).map(
-            |((buffer, ctx), mk_private_key)| {
-                let query_config = IpaQueryConfig {
-                    per_user_credit_cap: 8,
-                    attribution_window_seconds: None,
-                    max_breakdown_key: 3,
-                    with_dp: 0,
-                    epsilon: 1.0,
-                    plaintext_match_keys: false,
-                };
-                let input = BodyStream::from(buffer);
+        let results = join3v(
+            encrypted_oprf_report_files
+                .stream
+                .into_iter()
+                .zip(contexts)
+                .zip(mk_private_keys)
+                .map(|((input, ctx), mk_private_key)| {
+                    let query_config = IpaQueryConfig {
+                        per_user_credit_cap: 8,
+                        attribution_window_seconds: None,
+                        max_breakdown_key: 3,
+                        with_dp: 0,
+                        epsilon: 1.0,
+                        plaintext_match_keys: false,
+                    };
 
-                let private_registry =
-                    Arc::new(KeyRegistry::<PrivateKeyOnly>::from_keys([PrivateKeyOnly(
-                        IpaPrivateKey::from_bytes(&mk_private_key)
-                            .expect("manually constructed for test"),
-                    )]));
+                    let private_registry =
+                        Arc::new(KeyRegistry::<PrivateKeyOnly>::from_keys([PrivateKeyOnly(
+                            IpaPrivateKey::from_bytes(&mk_private_key)
+                                .expect("manually constructed for test"),
+                        )]));
 
-                OprfIpaQuery::<_, BA16, KeyRegistry<PrivateKeyOnly>>::new(
-                    query_config,
-                    private_registry,
-                )
-                .execute(ctx, query_size, input)
-            },
-        ))
+                    OprfIpaQuery::<_, BA16, KeyRegistry<PrivateKeyOnly>>::new(
+                        query_config,
+                        private_registry,
+                    )
+                    .execute(ctx, query_size, input)
+                }),
+        )
         .await;
 
         assert_eq!(
