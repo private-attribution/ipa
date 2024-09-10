@@ -71,7 +71,7 @@ where
     .await?;
 
     // verify the shuffle
-    verify_shuffle(
+    verify_shuffle::<_, S, B>(
         ctx.narrow(&OPRFShuffleStep::VerifyShuffle),
         &keys,
         &shuffled_shares,
@@ -96,16 +96,31 @@ where
     shares_and_tags
         .iter()
         .map(|row_with_tag| {
-            let mut buf_left = GenericArray::default();
-            let mut buf_right = GenericArray::default();
-            row_with_tag.left().serialize(&mut buf_left);
-            row_with_tag.right().serialize(&mut buf_right);
             AdditiveShare::new(
-                S::deserialize(GenericArray::from_slice(&buf_left[0..tag_offset])).unwrap(),
-                S::deserialize(GenericArray::from_slice(&buf_right[0..tag_offset])).unwrap(),
+                split_row_and_tag(row_with_tag.left(), tag_offset).0,
+                split_row_and_tag(row_with_tag.right(), tag_offset).0,
             )
         })
         .collect()
+}
+
+/// This function splits a row with tag into
+/// a row without tag and a tag
+///
+/// ## Panics
+/// Panics when the lengths are incorrect:
+/// `S` in bytes needs to be equal to `tag_offset`.
+/// `B` in bytes needs to be equal to `tag_offset + 4`.
+fn split_row_and_tag<S: BooleanArray, B: BooleanArray>(
+    row_with_tag: B,
+    tag_offset: usize,
+) -> (S, Gf32Bit) {
+    let mut buf = GenericArray::default();
+    row_with_tag.serialize(&mut buf);
+    (
+        S::deserialize(GenericArray::from_slice(&buf.as_slice()[0..tag_offset])).unwrap(),
+        Gf32Bit::deserialize(GenericArray::from_slice(&buf.as_slice()[tag_offset..])).unwrap(),
+    )
 }
 
 /// This function verifies the `shuffled_shares` and the `IntermediateShuffleMessages`.
@@ -113,11 +128,11 @@ where
 /// ## Errors
 /// Propagates network errors.
 /// Further, returns an error when messages are inconsistent with the MAC tags.
-async fn verify_shuffle<C: Context, S: BooleanArray>(
+async fn verify_shuffle<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
     key_shares: &[AdditiveShare<Gf32Bit>],
-    shuffled_shares: &[AdditiveShare<S>],
-    messages: IntermediateShuffleMessages<S>,
+    shuffled_shares: &[AdditiveShare<B>],
+    messages: IntermediateShuffleMessages<B>,
 ) -> Result<(), Error> {
     // reveal keys
     let k_ctx = ctx
@@ -127,11 +142,15 @@ async fn verify_shuffle<C: Context, S: BooleanArray>(
 
     // verify messages and shares
     match ctx.role() {
-        Role::H1 => h1_verify(ctx, &keys, shuffled_shares, messages.get_x1_or_y1()).await,
-        Role::H2 => h2_verify(ctx, &keys, shuffled_shares, messages.get_x2_or_y2()).await,
+        Role::H1 => {
+            h1_verify::<_, S, B>(ctx, &keys, shuffled_shares, messages.get_x1_or_y1()).await
+        }
+        Role::H2 => {
+            h2_verify::<_, S, B>(ctx, &keys, shuffled_shares, messages.get_x2_or_y2()).await
+        }
         Role::H3 => {
             let (y1, y2) = messages.get_both_x_or_ys();
-            h3_verify(ctx, &keys, shuffled_shares, y1, y2).await
+            h3_verify::<_, S, B>(ctx, &keys, shuffled_shares, y1, y2).await
         }
     }
 }
@@ -145,17 +164,17 @@ async fn verify_shuffle<C: Context, S: BooleanArray>(
 /// Propagates network errors. Further it returns an error when
 /// `hash_x1 != hash_y1` or `hash_c_h2 != hash_a_xor_b`
 /// or `hash_c_h3 != hash_a_xor_b`.
-async fn h1_verify<C: Context, S: BooleanArray>(
+async fn h1_verify<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
     keys: &[StdArray<Gf32Bit, 1>],
-    share_a_and_b: &[AdditiveShare<S>],
-    x1: Vec<S>,
+    share_a_and_b: &[AdditiveShare<B>],
+    x1: Vec<B>,
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for x1
-    let hash_x1 = compute_row_hash(keys, x1);
+    let hash_x1 = compute_row_hash::<S, B, _>(keys, x1);
     // compute hash for A xor B
-    let hash_a_xor_b = compute_row_hash(
+    let hash_a_xor_b = compute_row_hash::<S, B, _>(
         keys,
         share_a_and_b
             .iter()
@@ -212,17 +231,17 @@ async fn h1_verify<C: Context, S: BooleanArray>(
 /// ## Errors
 /// Propagates network errors. Further it returns an error when
 /// `hash_x2 != hash_y2`.
-async fn h2_verify<C: Context, S: BooleanArray>(
+async fn h2_verify<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
     keys: &[StdArray<Gf32Bit, 1>],
-    share_b_and_c: &[AdditiveShare<S>],
-    x2: Vec<S>,
+    share_b_and_c: &[AdditiveShare<B>],
+    x2: Vec<B>,
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for x2
-    let hash_x2 = compute_row_hash(keys, x2);
+    let hash_x2 = compute_row_hash::<S, B, _>(keys, x2);
     // compute hash for C
-    let hash_c = compute_row_hash(
+    let hash_c = compute_row_hash::<S, B, _>(
         keys,
         share_b_and_c.iter().map(ReplicatedSecretSharing::right),
     );
@@ -260,20 +279,20 @@ async fn h2_verify<C: Context, S: BooleanArray>(
 ///
 /// ## Errors
 /// Propagates network errors.
-async fn h3_verify<C: Context, S: BooleanArray>(
+async fn h3_verify<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
     keys: &[StdArray<Gf32Bit, 1>],
-    share_c_and_a: &[AdditiveShare<S>],
-    y1: Vec<S>,
-    y2: Vec<S>,
+    share_c_and_a: &[AdditiveShare<B>],
+    y1: Vec<B>,
+    y2: Vec<B>,
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for y1
-    let hash_y1 = compute_row_hash(keys, y1);
+    let hash_y1 = compute_row_hash::<S, B, _>(keys, y1);
     // compute hash for y2
-    let hash_y2 = compute_row_hash(keys, y2);
+    let hash_y2 = compute_row_hash::<S, B, _>(keys, y2);
     // compute hash for C
-    let hash_c = compute_row_hash(
+    let hash_c = compute_row_hash::<S, B, _>(
         keys,
         share_c_and_a.iter().map(ReplicatedSecretSharing::left),
     );
@@ -304,16 +323,23 @@ async fn h3_verify<C: Context, S: BooleanArray>(
 ///
 /// ## Panics
 /// Panics when conversion from `BooleanArray` to `Vec<Gf32Bit` fails.
-fn compute_row_hash<S, I>(keys: &[StdArray<Gf32Bit, 1>], row_iterator: I) -> Hash
+fn compute_row_hash<S, B, I>(keys: &[StdArray<Gf32Bit, 1>], row_iterator: I) -> Hash
 where
     S: BooleanArray,
-    I: IntoIterator<Item = S>,
+    B: BooleanArray,
+    I: IntoIterator<Item = B>,
 {
-    let iterator = row_iterator
-        .into_iter()
-        .map(|row| <S as TryInto<Vec<Gf32Bit>>>::try_into(row).unwrap());
-    compute_hash(iterator.map(|row| {
-        row.into_iter()
+    let tag_offset = usize::try_from((B::BITS + 7) / 8).unwrap() - 4;
+
+    let iterator = row_iterator.into_iter().map(|row_with_tag| {
+        let (row, tag) = split_row_and_tag(row_with_tag, tag_offset);
+        <S as TryInto<Vec<Gf32Bit>>>::try_into(row)
+            .unwrap()
+            .into_iter()
+            .chain(iter::once(tag))
+    });
+    compute_hash(iterator.map(|row_iterator| {
+        row_iterator
             .zip(keys)
             .fold(Gf32Bit::ZERO, |acc, (row_entry, key)| {
                 acc + row_entry * *key.first()
@@ -444,11 +470,63 @@ mod tests {
             boolean_array::{BA112, BA144, BA20, BA32, BA64},
             Serializable,
         },
+        helpers::in_memory_config::{MaliciousHelper, MaliciousHelperContext},
         protocol::ipa_prf::shuffle::base::shuffle,
         secret_sharing::SharedValue,
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
+
+    /// Test the hashing of `BA112` and tag equality.
+    #[test]
+    fn hash() {
+        run(|| async {
+            let world = TestWorld::default();
+
+            let mut rng = thread_rng();
+            let record = rng.gen::<BA112>();
+
+            let (keys, result) = world
+                .semi_honest(record, |ctx, record| async move {
+                    // compute amount of MAC keys
+                    let amount_of_keys: usize = (usize::try_from(BA112::BITS).unwrap() + 31) / 32;
+                    // // generate MAC keys
+                    let keys = (0..amount_of_keys)
+                        .map(|i| ctx.prss().generate_fields(RecordId::from(i)))
+                        .map(|(left, right)| AdditiveShare::new(left, right))
+                        .collect::<Vec<AdditiveShare<Gf32Bit>>>();
+
+                    // compute and append tags to rows
+                    let shares_and_tags: Vec<AdditiveShare<BA144>> = compute_and_add_tags(
+                        ctx.narrow(&OPRFShuffleStep::GenerateTags),
+                        &keys,
+                        iter::once(record),
+                    )
+                    .await
+                    .unwrap();
+
+                    (keys, shares_and_tags)
+                })
+                .await
+                .reconstruct();
+
+            let result_ba = BA112::deserialize_from_slice(&result[0].as_raw_slice()[0..14]);
+
+            assert_eq!(record, result_ba);
+
+            let tag = <BA112 as TryInto<Vec<Gf32Bit>>>::try_into(record)
+                .unwrap()
+                .iter()
+                .zip(keys)
+                .fold(Gf32Bit::ZERO, |acc, (entry, key)| acc + *entry * key);
+
+            let tag_mpc = <BA32 as TryInto<Vec<Gf32Bit>>>::try_into(BA32::deserialize_from_slice(
+                &result[0].as_raw_slice()[14..18],
+            ))
+            .unwrap();
+            assert_eq!(tag, tag_mpc[0]);
+        });
+    }
 
     /// This test checks the correctness of the malicious shuffle.
     /// It does not check the security against malicious behavior.
@@ -500,6 +578,30 @@ mod tests {
         });
     }
 
+    /// This tests checks that the shuffling of `BA112`
+    /// does not return an error
+    /// nor panic.
+    #[test]
+    fn shuffle_ba112_succeeds() {
+        const RECORD_AMOUNT: usize = 10;
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = thread_rng();
+
+            let records = (0..RECORD_AMOUNT)
+                .map(|_| rng.gen())
+                .collect::<Vec<BA112>>();
+
+            world
+                .semi_honest(records.into_iter(), |ctx, records| async move {
+                    malicious_shuffle::<_, BA112, BA144, _>(ctx, records)
+                        .await
+                        .unwrap()
+                })
+                .await;
+        });
+    }
+
     /// This test checks the correctness of the malicious shuffle
     /// when all parties behave honestly
     /// and all the MAC keys are `Gf32Bit::ONE`.
@@ -527,9 +629,14 @@ mod tests {
                     // run shuffle
                     let (shares, messages) = shuffle(ctx.narrow("shuffle"), rows).await.unwrap();
                     // verify it
-                    verify_shuffle(ctx.narrow("verify"), &key_shares, &shares, messages)
-                        .await
-                        .unwrap();
+                    verify_shuffle::<_, BA32, BA64>(
+                        ctx.narrow("verify"),
+                        &key_shares,
+                        &shares,
+                        messages,
+                    )
+                    .await
+                    .unwrap();
                 })
                 .await;
         });
@@ -674,5 +781,117 @@ mod tests {
     #[should_panic(expected = "GenericArray::from_iter expected 4 items")]
     fn bad_initialization_too_small() {
         check_tags::<BA20, BA32>();
+    }
+
+    #[allow(clippy::ptr_arg)] // to match StreamInterceptor trait
+    fn interceptor_h1_to_h2(ctx: &MaliciousHelperContext, data: &mut Vec<u8>) {
+        // H3 runs an additive attack against H1 (on the right) by
+        // adding a 1 to the left part of share it is holding
+        if ctx.gate.as_ref().contains("transfer_x2") && ctx.dest == Role::H2 {
+            data[0] ^= 1u8;
+        }
+    }
+
+    #[allow(clippy::ptr_arg)] // to match StreamInterceptor trait
+    fn interceptor_h2_to_h3(ctx: &MaliciousHelperContext, data: &mut Vec<u8>) {
+        // H3 runs an additive attack against H1 (on the right) by
+        // adding a 1 to the left part of share it is holding
+        if ctx.gate.as_ref().contains("transfer_y1") && ctx.dest == Role::H3 {
+            data[0] ^= 1u8;
+        }
+    }
+
+    #[allow(clippy::ptr_arg)] // to match StreamInterceptor trait
+    fn interceptor_h3_to_h2(ctx: &MaliciousHelperContext, data: &mut Vec<u8>) {
+        // H3 runs an additive attack against H1 (on the right) by
+        // adding a 1 to the left part of share it is holding
+        if ctx.gate.as_ref().contains("transfer_c_hat") && ctx.dest == Role::H2 {
+            data[0] ^= 1u8;
+        }
+    }
+
+    /// This test checks that the malicious sort fails
+    /// under a simple bit flip attack by H1.
+    ///
+    /// `x2` will be inconsistent which is checked by `H2`.
+    #[test]
+    #[should_panic(expected = "X2 is inconsistent")]
+    fn fail_under_bit_flip_attack_on_x2() {
+        const RECORD_AMOUNT: usize = 10;
+
+        run(move || async move {
+            let mut rng = thread_rng();
+            let mut config = TestWorldConfig::default();
+            config.stream_interceptor =
+                MaliciousHelper::new(Role::H1, config.role_assignment(), interceptor_h1_to_h2);
+
+            let world = TestWorld::new_with(config);
+            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let [_, h2, _] = world
+                .semi_honest(records.into_iter(), |ctx, shares| async move {
+                    malicious_shuffle::<_, BA32, BA64, _>(ctx, shares).await
+                })
+                .await;
+
+            let _ = h2.unwrap();
+        });
+    }
+
+    /// This test checks that the malicious sort fails
+    /// under a simple bit flip attack by H2.
+    ///
+    /// `y1` will be inconsistent which is checked by `H1`.
+    #[test]
+    #[should_panic(expected = "Y1 is inconsistent")]
+    fn fail_under_bit_flip_attack_on_y1() {
+        const RECORD_AMOUNT: usize = 10;
+
+        run(move || async move {
+            let mut rng = thread_rng();
+            let mut config = TestWorldConfig::default();
+            config.stream_interceptor =
+                MaliciousHelper::new(Role::H2, config.role_assignment(), interceptor_h2_to_h3);
+
+            let world = TestWorld::new_with(config);
+            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let [h1, _, _] = world
+                .malicious(records.into_iter(), |ctx, shares| async move {
+                    malicious_shuffle::<_, BA32, BA64, _>(ctx, shares).await
+                })
+                .await;
+            let _ = h1.unwrap();
+        });
+    }
+
+    /// This test checks that the malicious sort fails
+    /// under a simple bit flip attack by H3.
+    ///
+    /// `c` from `H2` will be inconsistent
+    /// which is checked by `H1`.
+    #[test]
+    #[should_panic(expected = "C from H2 is inconsistent")]
+    fn fail_under_bit_flip_attack_on_c() {
+        const RECORD_AMOUNT: usize = 10;
+
+        run(move || async move {
+            let mut rng = thread_rng();
+            let mut config = TestWorldConfig::default();
+            config.stream_interceptor =
+                MaliciousHelper::new(Role::H3, config.role_assignment(), interceptor_h3_to_h2);
+
+            let world = TestWorld::new_with(config);
+            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let [h1, h2, _] = world
+                .semi_honest(records.into_iter(), |ctx, shares| async move {
+                    malicious_shuffle::<_, BA32, BA64, _>(ctx, shares).await
+                })
+                .await;
+
+            // x2 should be consistent with y2
+            let _ = h2.unwrap();
+
+            // but this should fail
+            let _ = h1.unwrap();
+        });
     }
 }
