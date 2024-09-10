@@ -146,7 +146,6 @@ pub fn validate_dp(
                 } else {
                     next_actual_f64
                 };
-                println!("next_actual_f64 = {next_actual_f64}, next_actual_f64_shifted = {next_actual_f64_shifted}");
 
                 let (_, std) = truncated_discrete_laplace.mean_and_std();
                 let tolerance_factor = 20.0; // set so this fails randomly with small probability
