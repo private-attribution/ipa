@@ -10,11 +10,9 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use comfy_table::{Cell, Table};
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        noise::{apply, ApplyDpArgs},
         playbook::{
             make_clients, playbook_oprf_ipa, run_query_and_validate, validate, validate_dp,
             InputSource,
@@ -98,8 +96,6 @@ enum ReportCollectorCommand {
         #[clap(flatten)]
         gen_args: EventGeneratorConfig,
     },
-    /// Apply differential privacy noise to IPA inputs
-    ApplyDpNoise(ApplyDpArgs),
     /// Execute OPRF IPA in a semi-honest majority setting with known test data
     /// and compare results against expectation
     SemiHonestOprfIpaTest(IpaQueryConfig),
@@ -168,7 +164,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             seed,
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
-        ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
         ReportCollectorCommand::SemiHonestOprfIpaTest(config) => {
             ipa_test(
                 &args,
@@ -443,53 +438,6 @@ async fn ipa_test(
                 },
             );
         }
-    }
-
-    Ok(())
-}
-
-fn apply_dp_noise(args: &Args, dp_args: &ApplyDpArgs) -> Result<(), Box<dyn Error>> {
-    let IpaQueryResult { breakdowns, .. } =
-        serde_json::from_slice(&InputSource::from(&args.input).to_vec()?)?;
-
-    let output = apply(&breakdowns, dp_args);
-    let mut table = Table::new();
-    let header = std::iter::once("Epsilon".to_string())
-        .chain(std::iter::once("Variance".to_string()))
-        .chain(std::iter::once("Mean".to_string()))
-        .chain((0..breakdowns.len()).map(|i| format!("{}", i + 1)))
-        .collect::<Vec<_>>();
-    table.set_header(header);
-
-    // original values
-    table.add_row(
-        std::iter::repeat("-".to_string())
-            .take(3)
-            .chain(breakdowns.iter().map(ToString::to_string)),
-    );
-
-    // reverse because smaller epsilon means more noise and I print the original values
-    // in the first row.
-    for epsilon in output.keys().rev() {
-        let noised_values = output.get(epsilon).unwrap();
-        let mut row = vec![
-            Cell::new(format!("{:.3}", epsilon)),
-            Cell::new(format!("{:.3}", noised_values.std)),
-            Cell::new(format!("{:.3}", noised_values.mean)),
-        ];
-
-        for agg in noised_values.breakdowns.iter() {
-            row.push(Cell::new(format!("{}", agg)));
-        }
-
-        table.add_row(row);
-    }
-
-    println!("{}", table);
-
-    if let Some(file) = &args.output_file {
-        let mut file = File::create(file)?;
-        serde_json::to_writer_pretty(&mut file, &output)?;
     }
 
     Ok(())
