@@ -605,7 +605,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
             output_dir.path().join("helper2.enc"),
             output_dir.path().join("helper3.enc"),
         ];
-        let encrypted_oprf_report_files = EncryptedOprfReportStreams::from(files);
+        let encrypted_oprf_report_streams = EncryptedOprfReportStreams::from(files);
 
         let world = TestWorld::default();
         let contexts = world.contexts();
@@ -621,7 +621,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
 
         #[allow(clippy::large_futures)]
         let results = join3v(
-            encrypted_oprf_report_files
+            encrypted_oprf_report_streams
                 .streams
                 .into_iter()
                 .zip(contexts)
