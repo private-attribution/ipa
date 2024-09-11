@@ -1,3 +1,27 @@
+//! Provides report types which are aggregated by the IPA protocol
+//!
+//! The `OprfReport` is the primary data type which each helpers use to aggreate in the IPA
+//! protocol.
+//! From each Helper's POV, the Report Collector POSTs a length delimited byte
+//! stream, which is then processed as follows:
+//!
+//! `BodyStream` → `EncryptedOprfReport` → `OprfReport`
+//!
+//! From the Report Collectors's POV, there are two potential paths:
+//! 1. In production, encrypted events are recieved from clients and accumulated out of band
+//!    as 3 files of newline delimited hex encoded enrypted events.
+//! 2. For testing, simluated plaintext events are provided as a CSV.
+//!
+//! Path 1 is proccssed as follows:
+//!
+//! `files: [PathBuf; 3]` → `EncryptedOprfReportsFiles` → `helpers::BodyStream`
+//!
+//! Path 2 is processed as follows:
+//!
+//! `cli::playbook::InputSource` (`PathBuf` or `stdin()`) →
+//! `test_fixture::ipa::TestRawDataRecord` → `OprfReport` → encrypted bytes
+//! (via `Oprf.delmited_encrypt_to`) → `helpers::BodyStream`
+
 use std::{
     fmt::{Display, Formatter},
     fs::File,
@@ -163,12 +187,18 @@ pub enum InvalidReportError {
     Length(usize, usize),
 }
 
-pub struct EncryptedOprfReportFiles {
-    pub stream: [BodyStream; 3],
+/// A struct intended for the Report Collector to hold the streams of underlying
+/// `EncryptedOprfReports` represented as length delmited bytes. Helpers receive an
+/// individual stream, which are unpacked into `EncryptedOprfReports` and decrypted
+/// into `OprfReports`.
+pub struct EncryptedOprfReportStreams {
+    pub streams: [BodyStream; 3],
     pub query_size: usize,
 }
 
-impl From<[&PathBuf; 3]> for EncryptedOprfReportFiles {
+/// A trait to build an `EncryptedOprfReportStreams` struct from 3 files of
+///  `EncryptedOprfReports` formated at newline delimited hex.
+impl From<[&PathBuf; 3]> for EncryptedOprfReportStreams {
     fn from(files: [&PathBuf; 3]) -> Self {
         let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
         let mut query_sizes: [usize; 3] = [0, 0, 0];
@@ -198,7 +228,7 @@ impl From<[&PathBuf; 3]> for EncryptedOprfReportFiles {
         assert_eq!(query_sizes[1], query_sizes[2]);
 
         Self {
-            stream: buffers.map(BodyStream::from),
+            streams: buffers.map(BodyStream::from),
             // without loss of generality, set query length to length of first input size
             query_size: query_sizes[0],
         }

@@ -25,7 +25,7 @@ use ipa_core::{
     ff::{boolean_array::BA32, FieldType},
     helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     net::MpcHelperClient,
-    report::{EncryptedOprfReportFiles, DEFAULT_KEY_ID},
+    report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
     test_fixture::{
         ipa::{ipa_in_the_clear, CappingOrder, IpaQueryStyle, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig,
@@ -322,7 +322,7 @@ async fn ipa(
         &encrypted_inputs.enc_input_file3,
     ];
 
-    let encrypted_oprf_report_files = EncryptedOprfReportFiles::from(files);
+    let encrypted_oprf_report_files = EncryptedOprfReportStreams::from(files);
 
     let query_config = QueryConfig {
         size: QuerySize::try_from(encrypted_oprf_report_files.query_size).unwrap(),
@@ -342,7 +342,7 @@ async fn ipa(
             // implementation, otherwise a runtime reconstruct error will be generated.
             // see ipa-core/src/query/executor.rs
             run_query_and_validate::<BA32>(
-                encrypted_oprf_report_files.stream,
+                encrypted_oprf_report_files.streams,
                 encrypted_oprf_report_files.query_size,
                 helper_clients,
                 query_id,

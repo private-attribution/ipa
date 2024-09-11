@@ -259,12 +259,10 @@ mod tests {
             CsvSerializer,
         },
         ff::{boolean_array::BA16, U128Conversions},
-        helpers::{
-            query::{IpaQueryConfig, QuerySize},
-            BodyStream,
-        },
+        helpers::query::{IpaQueryConfig, QuerySize},
         hpke::{IpaPrivateKey, KeyRegistry, PrivateKeyOnly},
         query::OprfIpaQuery,
+        report::EncryptedOprfReportSteams,
         test_fixture::{
             ipa::TestRawDataRecord, join3v, EventGenerator, EventGeneratorConfig, Reconstruct,
             TestWorld,
@@ -540,6 +538,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
 
     #[tokio::test]
     async fn encrypt_and_execute_query() {
+        panic!("is this run?");
         const EXPECTED: &[u128] = &[0, 8, 5];
 
         let records: Vec<TestRawDataRecord> = vec![
@@ -606,7 +605,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
             output_dir.path().join("helper2.enc"),
             output_dir.path().join("helper3.enc"),
         ];
-        let encrypted_oprf_report_files = EncryptedOprfReportFiles::from(files);
+        let encrypted_oprf_report_files = EncryptedOprfReportStreams::from(files);
 
         let world = TestWorld::default();
         let contexts = world.contexts();
@@ -623,7 +622,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
         #[allow(clippy::large_futures)]
         let results = join3v(
             encrypted_oprf_report_files
-                .stream
+                .streams
                 .into_iter()
                 .zip(contexts)
                 .zip(mk_private_keys)
