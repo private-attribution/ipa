@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# crossbeam channels are faster than std
+crossbeam-channel = "0.5"
 # Crate uses raw entry API that is unstable in stdlib
 hashbrown = "0.14"
 # Fast non-collision-resistant hashing

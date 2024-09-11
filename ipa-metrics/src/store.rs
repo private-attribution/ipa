@@ -6,15 +6,26 @@ use rustc_hash::FxBuildHasher;
 use crate::{key::OwnedMetricName, kind::CounterValue, MetricName};
 
 /// A basic store. Currently only supports counters.
-#[derive(Default)]
-struct Store {
+pub struct Store {
     // Counters and other metrics are stored to optimize writes. That means, one lookup
     // per write. The cost of assembling the total count across all dimensions is absorbed
     // by readers
     counters: hashbrown::HashMap<OwnedMetricName, CounterValue, FxBuildHasher>,
 }
 
+impl Default for Store {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Store {
+    pub const fn new() -> Self {
+        Self {
+            counters: hashbrown::HashMap::with_hasher(FxBuildHasher),
+        }
+    }
+
     pub(crate) fn merge(&mut self, other: Self) {
         for (k, v) in other.counters {
             let hash = compute_hash(self.counters.hasher(), &k);
@@ -25,6 +36,10 @@ impl Store {
                 .or_insert(k, 0)
                 .1 += v;
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.counters.is_empty()
     }
 }
 
@@ -67,7 +82,7 @@ impl Store {
     }
 }
 
-struct CounterHandle<'a, const LABELS: usize> {
+pub struct CounterHandle<'a, const LABELS: usize> {
     val: &'a mut CounterValue,
 }
 
