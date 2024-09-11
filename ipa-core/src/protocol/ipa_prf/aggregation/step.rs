@@ -12,8 +12,12 @@ pub(crate) enum AggregationStep {
     RevealStep,
     #[step(child = BucketStep)]
     MoveToBucket,
+    #[step(child = crate::protocol::context::step::DzkpBatchStep)]
+    MoveToBucketValidate,
     #[step(count = 32, child = AggregateChunkStep)]
     AggregateChunk(usize),
+    #[step(count = 32, child = crate::protocol::context::step::DzkpSingleBatchStep)]
+    AggregateChunkValidate(usize),
 }
 
 /// the number of steps must be kept in sync with `MAX_BREAKDOWNS` defined

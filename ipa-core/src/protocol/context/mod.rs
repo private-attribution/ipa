@@ -9,9 +9,6 @@ pub mod step;
 pub mod upgrade;
 
 mod batcher;
-/// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
-/// this flag can be removed
-#[allow(dead_code)]
 pub mod validator;
 
 use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
@@ -21,12 +18,17 @@ pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
 pub use dzkp_semi_honest::DZKPUpgraded as DZKPUpgradedSemiHonestContext;
 use futures::{stream, Stream, StreamExt};
 use ipa_step::{Step, StepNarrow};
-pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
+pub use malicious::{
+    Context as MaliciousContext, MaliciousProtocolSteps, Upgraded as UpgradedMaliciousContext,
+};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use validator::Validator;
 pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
+
+#[cfg(all(feature = "in-memory-infra", any(test, feature = "test-fixture")))]
+pub(crate) use malicious::TEST_DZKP_STEPS;
 
 use crate::{
     error::Error,
@@ -109,7 +111,14 @@ pub trait UpgradableContext: Context {
 
     type DZKPValidator: DZKPValidator;
 
-    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator;
+    fn dzkp_validator<S>(
+        self,
+        steps: MaliciousProtocolSteps<S>,
+        max_multiplications_per_gate: usize,
+    ) -> Self::DZKPValidator
+    where
+        Gate: StepNarrow<S>,
+        S: Step + ?Sized;
 }
 
 pub type MacUpgraded<C, F> = <<C as UpgradableContext>::Validator<F> as Validator<F>>::Context;

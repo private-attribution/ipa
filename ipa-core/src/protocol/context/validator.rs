@@ -221,11 +221,11 @@ impl<'a, F: ExtendableField> BatchValidator<'a, F> {
 
         Self {
             protocol_ctx: ctx.narrow(&Step::MaliciousProtocol),
-            batches_ref: Batcher::new(
+            batches_ref: Arc::new(Batcher::new(
                 records_per_batch,
                 total_records,
                 Box::new(move |batch_index| Malicious::new(ctx.clone(), batch_index)),
-            ),
+            )),
         }
     }
 }

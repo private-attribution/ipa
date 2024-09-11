@@ -3,6 +3,7 @@ use std::{cmp, collections::BTreeMap, fmt::Debug, future::ready};
 use async_trait::async_trait;
 use bitvec::prelude::{BitArray, BitSlice, Lsb0};
 use futures::{stream, Future, FutureExt, Stream, StreamExt};
+use ipa_step::StepNarrow;
 
 use crate::{
     error::{BoxError, Error},
@@ -12,17 +13,17 @@ use crate::{
         context::{
             batcher::Batcher,
             dzkp_field::{DZKPBaseField, UVTupleBlock},
-            dzkp_malicious::{DZKPUpgraded as MaliciousDZKPUpgraded, DzkpBatcher},
+            dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
-            step::ZeroKnowledgeProofValidateStep as Step,
-            Base, Context, DZKPContext, MaliciousContext,
+            step::{DzkpSingleBatchStep, DzkpValidationProtocolStep as Step},
+            Base, Context, DZKPContext, MaliciousContext, MaliciousProtocolSteps,
         },
         ipa_prf::validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
         Gate, RecordId,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::ShardBinding,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 pub type Array256Bit = BitArray<[u8; 32], Lsb0>;
@@ -696,15 +697,23 @@ impl<'a, B: ShardBinding> DZKPValidator for SemiHonestDZKPValidator<'a, B> {
     }
 }
 
+type DzkpBatcher<'a> = Batcher<'a, Batch>;
+
+/// The DZKP validator, and all associated contexts, each hold a reference to a single
+/// instance of `MaliciousDZKPValidatorInner`.
+pub(super) struct MaliciousDZKPValidatorInner<'a> {
+    pub(super) batcher: Mutex<DzkpBatcher<'a>>,
+    pub(super) validate_ctx: Base<'a>,
+}
+
 /// `MaliciousDZKPValidator` corresponds to pub struct `Malicious` and implements the trait `DZKPValidator`
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
 pub struct MaliciousDZKPValidator<'a> {
     // This is an `Option` because we want to consume it in `DZKPValidator::validate`,
     // but we also want to implement `Drop`. Note that the `is_verified` check in `Drop`
     // does nothing when `batcher_ref` is already `None`.
-    batcher_ref: Option<Arc<DzkpBatcher<'a>>>,
+    inner_ref: Option<Arc<MaliciousDZKPValidatorInner<'a>>>,
     protocol_ctx: MaliciousDZKPUpgraded<'a>,
-    validate_ctx: MaliciousContext<'a>,
 }
 
 #[async_trait]
@@ -716,30 +725,31 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
     }
 
     fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T) {
-        self.batcher_ref
+        self.inner_ref
             .as_ref()
-            .unwrap()
+            .expect("validator should be active")
+            .batcher
             .lock()
             .unwrap()
             .set_total_records(total_records);
     }
 
     async fn validate(mut self) -> Result<(), Error> {
-        let batcher_arc = self
-            .batcher_ref
+        let arc = self
+            .inner_ref
             .take()
             .expect("nothing else should be consuming the batcher");
-        let batcher_mutex = Arc::into_inner(batcher_arc)
+        let MaliciousDZKPValidatorInner {
+            batcher: batcher_mutex,
+            validate_ctx,
+        } = Arc::into_inner(arc)
             .expect("validator should hold the only strong reference to batcher");
+
         let batcher = batcher_mutex.into_inner().unwrap();
 
         batcher
             .into_single_batch()
-            .validate(
-                self.validate_ctx
-                    .narrow(&Step::DZKPValidate(0))
-                    .validator_context(),
-            )
+            .validate(validate_ctx.narrow(&DzkpSingleBatchStep))
             .await
     }
 
@@ -749,7 +759,13 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
     /// ## Errors
     /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error> {
-        let batcher = self.batcher_ref.as_ref().unwrap().lock().unwrap();
+        let batcher = self
+            .inner_ref
+            .as_ref()
+            .expect("validator should be active")
+            .batcher
+            .lock()
+            .unwrap();
         if batcher.is_empty() {
             Ok(())
         } else {
@@ -760,7 +776,16 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
 
 impl<'a> MaliciousDZKPValidator<'a> {
     #[must_use]
-    pub fn new(ctx: MaliciousContext<'a>, max_multiplications_per_gate: usize) -> Self {
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn new<S>(
+        ctx: MaliciousContext<'a>,
+        steps: MaliciousProtocolSteps<S>,
+        max_multiplications_per_gate: usize,
+    ) -> Self
+    where
+        Gate: StepNarrow<S>,
+        S: ipa_step::Step + ?Sized,
+    {
         let batcher = Batcher::new(
             max_multiplications_per_gate,
             ctx.total_records(),
@@ -771,19 +796,21 @@ impl<'a> MaliciousDZKPValidator<'a> {
                 )
             }),
         );
-        let protocol_ctx =
-            MaliciousDZKPUpgraded::new(&batcher, ctx.narrow(&Step::DZKPMaliciousProtocol));
+        let inner = Arc::new(MaliciousDZKPValidatorInner {
+            batcher,
+            validate_ctx: ctx.narrow(steps.validate).validator_context(),
+        });
+        let protocol_ctx = MaliciousDZKPUpgraded::new(&inner, ctx.narrow(steps.protocol));
         Self {
-            batcher_ref: Some(batcher),
+            inner_ref: Some(inner),
             protocol_ctx,
-            validate_ctx: ctx,
         }
     }
 }
 
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
-        if self.batcher_ref.is_some() {
+        if self.inner_ref.is_some() {
             self.is_verified().unwrap();
         }
     }
@@ -811,10 +838,9 @@ mod tests {
             context::{
                 dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
                 dzkp_validator::{
-                    Batch, DZKPValidator, Segment, SegmentEntry, Step, BIT_ARRAY_LEN,
-                    TARGET_PROOF_SIZE,
+                    Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
                 },
-                Context, UpgradableContext,
+                Context, UpgradableContext, TEST_DZKP_STEPS,
             },
             Gate, RecordId,
         },
@@ -839,11 +865,8 @@ mod tests {
             .malicious(
                 original_inputs.clone().into_iter(),
                 |ctx, input_shares| async move {
-                    let v = ctx.dzkp_validator(COUNT);
-                    let m_ctx = v
-                        .context()
-                        .narrow(&Step::DZKPMaliciousProtocol)
-                        .set_total_records(COUNT - 1);
+                    let v = ctx.dzkp_validator(TEST_DZKP_STEPS, COUNT);
+                    let m_ctx = v.context().set_total_records(COUNT - 1);
 
                     let m_results = seq_join(
                         NonZeroUsize::new(COUNT).unwrap(),
@@ -922,7 +945,7 @@ mod tests {
             .map(|(ctx, input_shares)| async move {
                 let v = ctx
                     .set_total_records(count - 1)
-                    .dzkp_validator(ctx.active_work().get());
+                    .dzkp_validator(TEST_DZKP_STEPS, ctx.active_work().get());
                 let m_ctx = v.context();
 
                 let m_results = v
@@ -951,7 +974,7 @@ mod tests {
             .into_iter()
             .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(max_multiplications_per_gate);
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
                 let m_ctx = v.context();
 
                 let m_results = v
@@ -1311,14 +1334,16 @@ mod tests {
 
         let [h1_batch, h2_batch, h3_batch] = world
             .malicious((a, b), |ctx, (a, b)| async move {
-                let mut validator = ctx.dzkp_validator(10);
+                let mut validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 10);
                 let mctx = validator.context();
                 let _ = a
                     .multiply(&b, mctx.set_total_records(1), RecordId::from(0))
                     .await
                     .unwrap();
 
-                let batcher_mutex = Arc::into_inner(validator.batcher_ref.take().unwrap()).unwrap();
+                let batcher_mutex = Arc::into_inner(validator.inner_ref.take().unwrap())
+                    .unwrap()
+                    .batcher;
                 batcher_mutex.into_inner().unwrap().into_single_batch()
             })
             .await;

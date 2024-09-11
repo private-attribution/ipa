@@ -24,7 +24,7 @@ use crate::{
             dzkp_validator::DZKPValidator, upgrade::Upgradable, Context,
             DZKPUpgradedMaliciousContext, MaliciousContext, SemiHonestContext,
             ShardedSemiHonestContext, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext, Validator,
+            UpgradedSemiHonestContext, Validator, TEST_DZKP_STEPS,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, QueryId, RecordId,
@@ -676,7 +676,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         R: Future<Output = O> + Send,
     {
         self.malicious(input, |ctx, share| async {
-            let v = ctx.dzkp_validator(10);
+            let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 10);
             let m_ctx = v.context();
             let m_result = helper_fn(m_ctx, share).await;
             v.validate().await.unwrap();

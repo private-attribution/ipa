@@ -78,7 +78,6 @@ where
     C: UpgradableContext,
     Fp25519: Vectorizable<N>,
 {
-    let ctx = ctx.narrow(&Step::PRFKeyGen);
     let v: AdditiveShare<Fp25519, 1> = ctx.prss().generate(RecordId::FIRST);
 
     v.expand()

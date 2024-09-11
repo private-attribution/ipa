@@ -18,7 +18,7 @@ use crate::{
         boolean::{step::ThirtyTwoBitStep, NBitStep},
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPContext, UpgradableContext,
+            Context, DZKPContext, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
             aggregation::step::{AggregateChunkStep, AggregateValuesStep, AggregationStep as Step},
@@ -153,9 +153,14 @@ where
     let move_to_bucket_records =
         TotalRecords::specified(div_round_up(contributions_stream_len, Const::<AGG_CHUNK>))?;
     let validator = ctx
-        .narrow(&Step::MoveToBucket)
         .set_total_records(move_to_bucket_records)
-        .dzkp_validator(move_to_bucket_chunk_size);
+        .dzkp_validator(
+            MaliciousProtocolSteps {
+                protocol: &Step::MoveToBucket,
+                validate: &Step::MoveToBucketValidate,
+            },
+            move_to_bucket_chunk_size,
+        );
     let bucket_ctx = validator.context();
     // move each value to the correct bucket
     let row_contribution_chunk_stream = process_stream_by_chunks(
@@ -223,11 +228,17 @@ where
     });
     let mut intermediate_results = Vec::new();
     let mut chunk_counter = 0;
+
     for chunk in chunks {
-        let ctx = ctx.narrow(&Step::AggregateChunk(chunk_counter));
         chunk_counter += 1;
         let stream = aggregation_input.by_ref().take(chunk);
-        let validator = ctx.dzkp_validator(agg_proof_chunk);
+        let validator = ctx.clone().dzkp_validator(
+            MaliciousProtocolSteps {
+                protocol: &Step::AggregateChunk(chunk_counter),
+                validate: &Step::AggregateChunkValidate(chunk_counter),
+            },
+            agg_proof_chunk,
+        );
         let result =
             aggregate_values::<_, HV, B>(validator.context(), stream.boxed(), chunk).await?;
         validator.validate().await?;
@@ -235,9 +246,14 @@ where
     }
 
     if intermediate_results.len() > 1 {
-        let ctx = ctx.narrow(&Step::AggregateChunk(chunk_counter));
-        let validator = ctx.dzkp_validator(agg_proof_chunk);
         let stream_len = intermediate_results.len();
+        let validator = ctx.dzkp_validator(
+            MaliciousProtocolSteps {
+                protocol: &Step::AggregateChunk(chunk_counter),
+                validate: &Step::AggregateChunkValidate(chunk_counter),
+            },
+            agg_proof_chunk,
+        );
         let aggregated_result = aggregate_values::<_, HV, B>(
             validator.context(),
             stream::iter(intermediate_results).boxed(),

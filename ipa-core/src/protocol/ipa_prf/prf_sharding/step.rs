@@ -16,6 +16,8 @@ impl From<usize> for UserNthRowStep {
 pub(crate) enum AttributionStep {
     #[step(child = UserNthRowStep)]
     Attribute,
+    #[step(child = crate::protocol::context::step::DzkpBatchStep)]
+    AttributeValidate,
     #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
     Aggregate,
 }

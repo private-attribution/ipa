@@ -13,11 +13,14 @@ use crate::{
     protocol::{
         basics::mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
         context::{
-            batcher::Batcher, dzkp_validator::MaliciousDZKPValidator,
-            prss::InstrumentedIndexedSharedRandomness, step::UpgradeStep, upgrade::Upgradable,
-            validator, validator::BatchValidator, Base, Context as ContextTrait,
-            InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
-            UpgradableContext, UpgradedContext,
+            batcher::Batcher,
+            dzkp_validator::MaliciousDZKPValidator,
+            prss::InstrumentedIndexedSharedRandomness,
+            step::UpgradeStep,
+            upgrade::Upgradable,
+            validator::{self, BatchValidator},
+            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
+            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::{Endpoint as PrssEndpoint, FromPrss},
         Gate, RecordId,
@@ -29,6 +32,20 @@ use crate::{
     seq_join::SeqJoin,
     sharding::NotSharded,
     sync::Arc,
+};
+
+pub struct MaliciousProtocolSteps<'a, S: Step + ?Sized> {
+    pub protocol: &'a S,
+    pub validate: &'a S,
+}
+
+#[cfg(all(feature = "in-memory-infra", any(test, feature = "test-fixture")))]
+pub(crate) const TEST_DZKP_STEPS: MaliciousProtocolSteps<
+    'static,
+    super::step::MaliciousProtocolStep,
+> = MaliciousProtocolSteps {
+    protocol: &super::step::MaliciousProtocolStep::MaliciousProtocol,
+    validate: &super::step::MaliciousProtocolStep::Validate,
 };
 
 #[derive(Clone)]
@@ -122,8 +139,16 @@ impl<'a> UpgradableContext for Context<'a> {
 
     type DZKPValidator = MaliciousDZKPValidator<'a>;
 
-    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator {
-        MaliciousDZKPValidator::new(self, max_multiplications_per_gate)
+    fn dzkp_validator<S>(
+        self,
+        steps: MaliciousProtocolSteps<S>,
+        max_multiplications_per_gate: usize,
+    ) -> Self::DZKPValidator
+    where
+        Gate: StepNarrow<S>,
+        S: Step + ?Sized,
+    {
+        MaliciousDZKPValidator::new(self, steps, max_multiplications_per_gate)
     }
 }
 
