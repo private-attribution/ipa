@@ -1,7 +1,34 @@
+//! Provides report types which are aggregated by the IPA protocol
+//!
+//! The `OprfReport` is the primary data type which each helpers use to aggreate in the IPA
+//! protocol.
+//! From each Helper's POV, the Report Collector POSTs a length delimited byte
+//! stream, which is then processed as follows:
+//!
+//! `BodyStream` → `EncryptedOprfReport` → `OprfReport`
+//!
+//! From the Report Collectors's POV, there are two potential paths:
+//! 1. In production, encrypted events are recieved from clients and accumulated out of band
+//!    as 3 files of newline delimited hex encoded enrypted events.
+//! 2. For testing, simluated plaintext events are provided as a CSV.
+//!
+//! Path 1 is proccssed as follows:
+//!
+//! `files: [PathBuf; 3]` → `EncryptedOprfReportsFiles` → `helpers::BodyStream`
+//!
+//! Path 2 is processed as follows:
+//!
+//! `cli::playbook::InputSource` (`PathBuf` or `stdin()`) →
+//! `test_fixture::ipa::TestRawDataRecord` → `OprfReport` → encrypted bytes
+//! (via `Oprf.delmited_encrypt_to`) → `helpers::BodyStream`
+
 use std::{
     fmt::{Display, Formatter},
+    fs::File,
+    io::{BufRead, BufReader},
     marker::PhantomData,
     ops::{Add, Deref},
+    path::PathBuf,
 };
 
 use bytes::{BufMut, Bytes};
@@ -13,6 +40,7 @@ use typenum::{Sum, Unsigned, U1, U16};
 use crate::{
     error::BoxError,
     ff::{boolean_array::BA64, Serializable},
+    helpers::BodyStream,
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, Info, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
@@ -159,6 +187,53 @@ pub enum InvalidReportError {
     Length(usize, usize),
 }
 
+/// A struct intended for the Report Collector to hold the streams of underlying
+/// `EncryptedOprfReports` represented as length delmited bytes. Helpers receive an
+/// individual stream, which are unpacked into `EncryptedOprfReports` and decrypted
+/// into `OprfReports`.
+pub struct EncryptedOprfReportStreams {
+    pub streams: [BodyStream; 3],
+    pub query_size: usize,
+}
+
+/// A trait to build an `EncryptedOprfReportStreams` struct from 3 files of
+///  `EncryptedOprfReports` formated at newline delimited hex.
+impl From<[&PathBuf; 3]> for EncryptedOprfReportStreams {
+    fn from(files: [&PathBuf; 3]) -> Self {
+        let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+        let mut query_sizes: [usize; 3] = [0, 0, 0];
+        for (i, path) in files.iter().enumerate() {
+            let file =
+                File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let encrypted_report_bytes = hex::decode(
+                    line.expect("Unable to read line. {file:?} is likely corrupt")
+                        .trim(),
+                )
+                .expect("Unable to read line. {file:?} is likely corrupt");
+                buffers[i].put_u16_le(
+                    encrypted_report_bytes
+                        .len()
+                        .try_into()
+                        .expect("Unable to read line. {file:?} is likely corrupt"),
+                );
+                buffers[i].put_slice(encrypted_report_bytes.as_slice());
+                query_sizes[i] += 1;
+            }
+        }
+        // Panic if input sizes are not the same
+        // Panic instead of returning an Error as this is non-recoverable
+        assert_eq!(query_sizes[0], query_sizes[1]);
+        assert_eq!(query_sizes[1], query_sizes[2]);
+
+        Self {
+            streams: buffers.map(BodyStream::from),
+            // without loss of generality, set query length to length of first input size
+            query_size: query_sizes[0],
+        }
+    }
+}
 // TODO: If we are parsing reports from CSV files, we may also want an owned version of EncryptedReport.
 
 /// A binary report as submitted by a report collector, containing encrypted `OprfReport`
