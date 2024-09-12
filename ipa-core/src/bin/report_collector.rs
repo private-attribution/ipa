@@ -322,10 +322,10 @@ async fn ipa(
         &encrypted_inputs.enc_input_file3,
     ];
 
-    let encrypted_oprf_report_files = EncryptedOprfReportStreams::from(files);
+    let encrypted_oprf_report_streams = EncryptedOprfReportStreams::from(files);
 
     let query_config = QueryConfig {
-        size: QuerySize::try_from(encrypted_oprf_report_files.query_size).unwrap(),
+        size: QuerySize::try_from(encrypted_oprf_report_streams.query_size).unwrap(),
         field_type: FieldType::Fp32BitPrime,
         query_type,
     };
@@ -342,8 +342,8 @@ async fn ipa(
             // implementation, otherwise a runtime reconstruct error will be generated.
             // see ipa-core/src/query/executor.rs
             run_query_and_validate::<BA32>(
-                encrypted_oprf_report_files.streams,
-                encrypted_oprf_report_files.query_size,
+                encrypted_oprf_report_streams.streams,
+                encrypted_oprf_report_streams.query_size,
                 helper_clients,
                 query_id,
                 ipa_query_config,
