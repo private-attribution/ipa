@@ -7,8 +7,6 @@ mod ipa_output;
 #[cfg(feature = "web-app")]
 mod keygen;
 mod metric_collector;
-#[cfg(feature = "cli")]
-pub mod noise;
 mod paths;
 #[cfg(all(feature = "test-fixture", feature = "web-app", feature = "cli"))]
 pub mod playbook;
