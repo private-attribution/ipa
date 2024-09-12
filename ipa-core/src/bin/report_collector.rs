@@ -105,7 +105,7 @@ enum ReportCollectorCommand {
     SemiHonestOprfIpaTest(IpaQueryConfig),
     /// Execute OPRF IPA in an honest majority (one malicious helper) setting
     /// with known test data and compare results against expectation
-    MalciousOprfIpaTest(IpaQueryConfig),
+    MaliciousOprfIpaTest(IpaQueryConfig),
     /// Execute OPRF IPA in a semi-honest majority setting with unknown encrypted data
     #[command(visible_alias = "oprf-ipa")]
     SemiHonestOprfIpa {
@@ -180,7 +180,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             )
             .await?
         }
-        ReportCollectorCommand::MalciousOprfIpaTest(config) => {
+        ReportCollectorCommand::MaliciousOprfIpaTest(config) => {
             ipa_test(
                 &args,
                 &network,
