@@ -9,7 +9,7 @@ cargo llvm-cov clean --workspace
 cargo build --all-targets
 
 # Need to be kept in sync manually with tests we run inside check.yml.
-cargo test
+cargo test --features "cli test-fixture"
 
 # descriptive-gate does not require a feature flag.
 for gate in "compact-gate" ""; do
