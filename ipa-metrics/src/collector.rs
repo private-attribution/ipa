@@ -63,11 +63,8 @@ struct MetricsCollector {
 
 impl MetricsCollector {
     pub fn install(self) {
-        COLLECTOR.with(|c| {
-            assert!(
-                c.borrow_mut().replace(self).is_none(),
-                "Already initialized"
-            );
+        COLLECTOR.with_borrow_mut(|c| {
+            assert!(c.replace(self).is_none(), "Already initialized");
         });
     }
 
@@ -98,10 +95,7 @@ mod tests {
         thread::{Scope, ScopedJoinHandle},
     };
 
-    use crate::{
-        collector::{installer, MetricsCollector, MetricsProducer},
-        counter, metric_name,
-    };
+    use crate::{collector::{installer, MetricsCollector, MetricsProducer}, counter, metric_name, set_test_partition};
 
     struct MeteredScope<'scope, 'env: 'scope>(&'scope Scope<'scope, 'env>, MetricsProducer);
 
@@ -137,14 +131,21 @@ mod tests {
     fn start_stop() {
         let (collector, producer) = installer();
         let handle = thread::spawn(|| {
+            set_test_partition();
             collector.install();
             MetricsCollector::wait_for_all().counter_value(&metric_name!("foo"))
         });
 
         thread::scope(move |s| {
             let s = s.metered(producer);
-            s.spawn(|| counter!("foo", 3));
-            s.spawn(|| counter!("foo", 5));
+            s.spawn(|| {
+                set_test_partition();
+                counter!("foo", 3)
+            });
+            s.spawn(|| {
+                set_test_partition();
+                counter!("foo", 5)
+            });
         });
 
         assert_eq!(8, handle.join().unwrap());

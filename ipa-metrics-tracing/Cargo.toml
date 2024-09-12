@@ -1,0 +1,9 @@
+[package]
+name = "ipa-metrics-tracing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ipa-metrics = { version = "*", path = "../ipa-metrics", features = ["partitions"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

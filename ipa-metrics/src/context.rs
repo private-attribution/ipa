@@ -1,6 +1,6 @@
 use std::{cell::RefCell, mem};
 use crossbeam_channel::Sender;
-use crate::{store::Store, MetricsStore};
+use crate::MetricsStore;
 
 thread_local! {
     pub(crate) static METRICS_CTX: RefCell<MetricsContext> = const { RefCell::new(MetricsContext::new()) }
@@ -64,12 +64,18 @@ impl MetricsContext {
         self.tx = Some(tx);
     }
 
-    pub fn store(&self) -> &Store {
+    pub fn store(&self) -> &MetricsStore {
         &self.store
     }
 
-    pub fn store_mut(&mut self) -> &mut Store {
+    #[cfg(not(feature = "partitions"))]
+    pub fn store_mut(&mut self) -> &mut MetricsStore {
         &mut self.store
+    }
+
+    #[cfg(feature = "partitions")]
+    pub fn store_mut(&mut self) -> &mut crate::store::Store {
+        self.store.current_mut()
     }
 
     fn is_connected(&self) -> bool {
@@ -88,14 +94,6 @@ impl MetricsContext {
             }
         }
     }
-    //
-    // pub(crate) fn connect(tx: Sender<MetricsStore>) {
-    //     METRICS_CTX.with_borrow_mut(|ctx| ctx.init(tx));
-    // }
-    //
-    // pub(crate) fn current_flush() -> bool {
-    //     METRICS_CTX.with(|ctx| ctx.borrow().is_connected())
-    // }
 }
 
 impl Drop for MetricsContext {
@@ -108,23 +106,29 @@ impl Drop for MetricsContext {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
+    use std::{mem, thread};
 
-    use crate::{context::METRICS_CTX, kind::CounterValue, metric_name, MetricName};
+    use crate::{context::METRICS_CTX, kind::CounterValue, metric_name, set_test_partition, MetricName};
 
     fn get_counter_value(name: &MetricName) -> CounterValue {
-        METRICS_CTX.with_borrow(|ctx| ctx.store().counter_value(name))
+        let v = METRICS_CTX.with_borrow(|ctx| ctx.store().counter_value(name));
+        // empty the store to avoid warnings about non-empty store being dropped
+        METRICS_CTX.with_borrow_mut(|ctx| mem::take(ctx.store_mut()));
+
+        v
     }
 
     /// Each thread has its local store by default, and it is exclusive to it
     #[test]
     fn local_store() {
+        set_test_partition();
         counter!("foo", 7);
 
         thread::spawn(|| {
             counter!("foo", 5);
             assert_eq!(5, get_counter_value(&metric_name!("foo")));
         });
+
         assert_eq!(7, get_counter_value(&metric_name!("foo")));
     }
 }

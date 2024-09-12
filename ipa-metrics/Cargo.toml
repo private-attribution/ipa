@@ -3,6 +3,11 @@ name = "ipa-metrics"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+# support metric partitioning
+partitions = []
+
 [dependencies]
 # crossbeam channels are faster than std
 crossbeam-channel = "0.5"
