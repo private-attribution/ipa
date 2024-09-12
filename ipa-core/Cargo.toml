@@ -196,7 +196,7 @@ bench = false
 
 [[bin]]
 name = "crypto_util"
-required-features = ["cli", "test-fixture", "web-app", "in-memory-infra"]
+required-features = ["cli", "test-fixture", "web-app"]
 bench = false
 
 [[bench]]

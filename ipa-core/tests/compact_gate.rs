@@ -12,6 +12,7 @@ fn test_compact_gate<I: TryInto<NonZeroU32>>(
     mode: IpaSecurityModel,
     per_user_credit_cap: u32,
     attribution_window_seconds: I,
+    encrypted_input: bool,
 ) {
     let config = IpaQueryConfig {
         per_user_credit_cap,
@@ -20,30 +21,57 @@ fn test_compact_gate<I: TryInto<NonZeroU32>>(
         ..Default::default()
     };
 
-    test_ipa_with_config(mode, false, config);
+    // test https with encrypted input
+    // and http with plaintest input
+    test_ipa_with_config(mode, encrypted_input, config, encrypted_input);
 }
 
 #[test]
-fn compact_gate_cap_8_no_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 0);
+fn compact_gate_cap_8_no_window_semi_honest_encryped_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 0, true);
 }
 
 #[test]
-fn compact_gate_cap_8_no_window_malicious() {
-    test_compact_gate(IpaSecurityModel::Malicious, 8, 0);
+fn compact_gate_cap_8_no_window_semi_honest_plaintext_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 0, false);
 }
 
 #[test]
-fn compact_gate_cap_8_with_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 86400);
+fn compact_gate_cap_8_no_window_malicious_encrypted_input() {
+    test_compact_gate(IpaSecurityModel::Malicious, 8, 0, true);
 }
 
 #[test]
-fn compact_gate_cap_16_no_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 0);
+fn compact_gate_cap_8_no_window_malicious_plaintext_input() {
+    test_compact_gate(IpaSecurityModel::Malicious, 8, 0, false);
 }
 
 #[test]
-fn compact_gate_cap_16_with_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 86400);
+fn compact_gate_cap_8_with_window_semi_honest_encryped_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 86400, true);
+}
+
+#[test]
+fn compact_gate_cap_8_with_window_semi_honest_plaintext_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 86400, false);
+}
+
+#[test]
+fn compact_gate_cap_16_no_window_semi_honest_encryped_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 0, true);
+}
+
+#[test]
+fn compact_gate_cap_16_no_window_semi_honest_plaintext_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 0, false);
+}
+
+#[test]
+fn compact_gate_cap_16_with_window_semi_honest_encryped_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 86400, true);
+}
+
+#[test]
+fn compact_gate_cap_16_with_window_semi_honest_plaintext_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 86400, false);
 }

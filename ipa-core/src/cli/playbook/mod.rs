@@ -14,7 +14,7 @@ pub use input::InputSource;
 pub use multiply::secure_mul;
 use tokio::time::sleep;
 
-pub use self::ipa::playbook_oprf_ipa;
+pub use self::ipa::{playbook_oprf_ipa, run_query_and_validate};
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
     ff::boolean_array::{BA20, BA3, BA8},
