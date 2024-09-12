@@ -68,16 +68,13 @@ jobs:
         run: cargo build --tests
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --features "cli test-fixture"
 
       - name: Run tests with multithreading feature enabled
         run: cargo test --features "multi-threading"
 
       - name: Run Web Tests
         run: cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
-
-      - name: Run CLI tests
-        run: cargo test cli:: -p ipa-core --no-default-features --features "cli test-fixture web-app in-memory-infra"
 
   release:
     name: Release builds and tests

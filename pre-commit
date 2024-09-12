@@ -97,7 +97,7 @@ check "Clippy web checks" \
 # The tests here need to be kept in sync with scripts/coverage-ci.
 
 check "Tests" \
-    cargo test
+    cargo test --features="cli test-fixture"
 
 check "Web tests" \
     cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
@@ -107,9 +107,6 @@ check "Web tests (descriptive gate)" \
 
 check "Concurrency tests" \
     cargo test -p ipa-core --release --features "shuttle multi-threading"
-
-check "CLI tests" \
-    cargo test cli:: -p ipa-core --no-default-features --features "cli test-fixture web-app in-memory-infra"
 
 check "IPA benchmark" \
     cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- -n 62 -c 16
