@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 ARG SOURCES_DIR=/usr/src/ipa
-FROM rust:bullseye AS builder
+FROM rust:bookworm AS builder
 ARG SOURCES_DIR
 
 # Prepare helper binaries
@@ -10,7 +10,7 @@ RUN set -eux; \
     cargo build --bin helper --release --no-default-features --features "web-app real-world-infra compact-gate"
 
 # Copy them to the final image
-FROM debian:bullseye-slim
+FROM rust:slim-bookworm
 ENV HELPER_BIN_PATH=/usr/local/bin/ipa-helper
 ENV CONF_DIR=/etc/ipa
 ARG SOURCES_DIR
