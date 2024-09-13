@@ -14,7 +14,10 @@ use crate::{
     protocol::{
         basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::{dzkp_validator::DZKPValidator, Context, DZKPUpgraded, UpgradableContext},
+        context::{
+            dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
+            UpgradableContext,
+        },
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
             step::{QuicksortPassStep, QuicksortStep as Step},
@@ -166,12 +169,15 @@ where
         let total_records_usize = div_round_up(num_comparisons_needed, Const::<SORT_CHUNK>);
         let total_records = TotalRecords::specified(total_records_usize)
             .expect("num_comparisons_needed should not be zero");
-        let v = ctx
-            .narrow(&Step::QuicksortPass(quicksort_pass))
-            .set_total_records(total_records)
+        let v = ctx.set_total_records(total_records).dzkp_validator(
+            MaliciousProtocolSteps {
+                protocol: &Step::QuicksortPass(quicksort_pass),
+                validate: &Step::QuicksortPassValidate(quicksort_pass),
+            },
             // TODO: use something like this when validating in chunks
-            //.dzkp_validator(TARGET_PROOF_SIZE / usize::try_from(K::BITS).unwrap() / SORT_CHUNK);
-            .dzkp_validator(total_records_usize);
+            // `TARGET_PROOF_SIZE / usize::try_from(K::BITS).unwrap() / SORT_CHUNK``
+            total_records_usize,
+        );
         let c = v.context();
         let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
         let rvl_ctx = c.narrow(&QuicksortPassStep::Reveal);

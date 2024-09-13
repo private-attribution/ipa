@@ -3,12 +3,7 @@ use std::{cmp::min, collections::VecDeque, future::Future};
 use bitvec::{bitvec, prelude::BitVec};
 use tokio::sync::watch;
 
-use crate::{
-    error::Error,
-    helpers::TotalRecords,
-    protocol::RecordId,
-    sync::{Arc, Mutex},
-};
+use crate::{error::Error, helpers::TotalRecords, protocol::RecordId, sync::Mutex};
 
 /// Manages validation of batches of records for malicious protocols.
 ///
@@ -88,14 +83,14 @@ impl<'a, B> Batcher<'a, B> {
         records_per_batch: usize,
         total_records: T,
         batch_constructor: Box<dyn Fn(usize) -> B + Send + 'a>,
-    ) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    ) -> Mutex<Self> {
+        Mutex::new(Self {
             batches: VecDeque::new(),
             first_batch: 0,
             records_per_batch,
             total_records: total_records.into(),
             batch_constructor,
-        }))
+        })
     }
 
     pub fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T) {
@@ -550,7 +545,7 @@ mod tests {
                 .push(i);
         }
 
-        let batcher = Arc::into_inner(batcher).unwrap().into_inner().unwrap();
+        let batcher = batcher.into_inner().unwrap();
         assert_eq!(batcher.into_single_batch(), vec![0, 1]);
     }
 
@@ -568,7 +563,7 @@ mod tests {
                 .push(i);
         }
 
-        let batcher = Arc::into_inner(batcher).unwrap().into_inner().unwrap();
+        let batcher = batcher.into_inner().unwrap();
         batcher.into_single_batch();
     }
 
@@ -602,7 +597,7 @@ mod tests {
             });
         assert_eq!(try_join(fut1, fut2).await.unwrap(), ((), ()));
 
-        let batcher = Arc::into_inner(batcher).unwrap().into_inner().unwrap();
+        let batcher = batcher.into_inner().unwrap();
         batcher.into_single_batch();
     }
 }

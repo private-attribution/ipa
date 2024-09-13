@@ -65,7 +65,10 @@ macro_rules! boolean_vector {
                     error::Error,
                     protocol::{
                         basics::select,
-                        context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
+                        context::{
+                            dzkp_validator::DZKPValidator, Context, UpgradableContext,
+                            TEST_DZKP_STEPS,
+                        },
                         RecordId,
                     },
                     rand::{thread_rng, Rng},
@@ -89,7 +92,7 @@ macro_rules! boolean_vector {
 
                     let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares)))
                         .map(|(ctx, (bit_share, (a_share, b_share)))| async move {
-                            let v = ctx.clone().dzkp_validator(1);
+                            let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
                             let m_ctx = v.context();
 
                             let result = select(
@@ -129,7 +132,7 @@ macro_rules! boolean_vector {
 
                     let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares)))
                         .map(|(ctx, (bit_share, (a_share, b_share)))| async move {
-                            let v = ctx.clone().dzkp_validator(1);
+                            let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
                             let sh_ctx = v.context();
 
                             let result = select(

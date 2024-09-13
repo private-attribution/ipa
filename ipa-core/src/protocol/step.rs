@@ -43,8 +43,6 @@ pub enum DeadCodeStep {
     SaturatedSubtraction,
     #[step(child = crate::protocol::ipa_prf::prf_sharding::step::FeatureLabelDotProductStep)]
     FeatureLabelDotProduct,
-    #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]
-    ZeroKnowledgeProofValidate,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
     Multiplication,
 }

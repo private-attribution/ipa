@@ -30,9 +30,10 @@ use crate::{
         },
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPContext, DZKPUpgraded, UpgradableContext,
+            Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
+            aggregation::{aggregate_values_proof_chunk, step::AggregationStep},
             boolean_ops::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
@@ -385,18 +386,10 @@ where
     (histogram, ranges)
 }
 
-fn set_up_contexts<C>(
-    root_ctx: C,
-    chunk_size: usize,
-    histogram: &[usize],
-) -> Result<(C::DZKPValidator, Vec<DZKPUpgraded<C>>), Error>
+fn set_up_contexts<C>(ctx: &C, histogram: &[usize]) -> Result<Vec<C>, Error>
 where
-    C: UpgradableContext,
+    C: Context,
 {
-    let mut dzkp_validator = root_ctx.dzkp_validator(chunk_size);
-    let ctx = dzkp_validator.context();
-    dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
-
     let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
         if row_number == 0 {
@@ -409,7 +402,7 @@ where
             context_per_row_depth.push(ctx_for_row_number);
         }
     }
-    Ok((dzkp_validator, context_per_row_depth))
+    Ok(context_per_row_depth)
 }
 
 ///
@@ -513,8 +506,15 @@ where
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let (dzkp_validator, ctx_for_row_number) =
-        set_up_contexts(sh_ctx.narrow(&Step::Attribute), chunk_size, histogram)?;
+    let mut dzkp_validator = sh_ctx.clone().dzkp_validator(
+        MaliciousProtocolSteps {
+            protocol: &Step::Attribute,
+            validate: &Step::AttributeValidate,
+        },
+        chunk_size,
+    );
+    dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
+    let ctx_for_row_number = set_up_contexts(&dzkp_validator.context(), histogram)?;
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
@@ -535,23 +535,28 @@ where
         attribution_window_seconds,
     );
 
-    let aggregation_validator = sh_ctx.narrow(&Step::Aggregate).dzkp_validator(0);
-    let ctx = aggregation_validator.context();
+    let ctx = sh_ctx.narrow(&Step::Aggregate);
 
     // New aggregation is still experimental, we need proofs that it is private,
     // hence it is only enabled behind a feature flag.
     if cfg!(feature = "reveal-aggregation") {
         // If there was any error in attribution we stop the execution with an error
         tracing::warn!("Using the experimental aggregation based on revealing breakdown keys");
+        let validator = ctx.dzkp_validator(
+            MaliciousProtocolSteps {
+                protocol: &AggregationStep::AggregateChunk(0),
+                validate: &AggregationStep::AggregateChunkValidate(0),
+            },
+            aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()),
+        );
         let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
-        breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, user_contributions).await
+        let result =
+            breakdown_reveal_aggregation::<_, _, _, HV, B>(validator.context(), user_contributions)
+                .await;
+        validator.validate().await?;
+        result
     } else {
-        aggregate_contributions::<_, _, _, _, HV, B>(
-            sh_ctx.narrow(&Step::Aggregate),
-            flattened_user_results,
-            num_outputs,
-        )
-        .await
+        aggregate_contributions::<_, _, _, _, HV, B>(ctx, flattened_user_results, num_outputs).await
     }
 }
 

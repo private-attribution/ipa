@@ -11,33 +11,33 @@ use crate::{
     helpers::{MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         context::{
-            batcher::Batcher,
-            dzkp_validator::{Batch, Segment},
+            dzkp_validator::{Batch, MaliciousDZKPValidatorInner, Segment},
             prss::InstrumentedIndexedSharedRandomness,
-            step::ZeroKnowledgeProofValidateStep,
+            step::DzkpBatchStep,
             Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
             MaliciousContext,
         },
         Gate, RecordId,
     },
     seq_join::SeqJoin,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Weak},
 };
-
-pub(super) type DzkpBatcher<'a> = Mutex<Batcher<'a, Batch>>;
 
 /// Represents protocol context in malicious setting when using zero-knowledge proofs,
 /// i.e. secure against one active adversary in 3 party MPC ring.
 #[derive(Clone)]
 pub struct DZKPUpgraded<'a> {
-    batcher: Weak<DzkpBatcher<'a>>,
+    validator_inner: Weak<MaliciousDZKPValidatorInner<'a>>,
     base_ctx: MaliciousContext<'a>,
 }
 
 impl<'a> DZKPUpgraded<'a> {
-    pub(super) fn new(batch: &Arc<DzkpBatcher<'a>>, base_ctx: MaliciousContext<'a>) -> Self {
+    pub(super) fn new(
+        validator_inner: &Arc<MaliciousDZKPValidatorInner<'a>>,
+        base_ctx: MaliciousContext<'a>,
+    ) -> Self {
         Self {
-            batcher: Arc::downgrade(batch),
+            validator_inner: Arc::downgrade(validator_inner),
             base_ctx,
         }
     }
@@ -49,10 +49,10 @@ impl<'a> DZKPUpgraded<'a> {
     }
 
     fn with_batch<C: FnOnce(&mut Batch) -> T, T>(&self, record_id: RecordId, action: C) -> T {
-        let batcher = self.batcher.upgrade().expect("Validator is active");
+        let validator_inner = self.validator_inner.upgrade().expect("Validator is active");
 
-        let mut batch = batcher.lock().unwrap();
-        let state = batch.get_batch(record_id);
+        let mut batcher = validator_inner.batcher.lock().unwrap();
+        let state = batcher.get_batch(record_id);
         (action)(&mut state.batch)
     }
 }
@@ -60,18 +60,16 @@ impl<'a> DZKPUpgraded<'a> {
 #[async_trait]
 impl<'a> DZKPContext for DZKPUpgraded<'a> {
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
-        let validation_future = self
+        let validator_inner = self.validator_inner.upgrade().expect("validator is active");
+
+        let ctx = validator_inner.validate_ctx.clone();
+
+        let validation_future = validator_inner
             .batcher
-            .upgrade()
-            .expect("Validation batch is active")
             .lock()
             .unwrap()
             .validate_record(record_id, |batch_idx, batch| {
-                batch.validate(
-                    self.base_ctx
-                        .narrow(&ZeroKnowledgeProofValidateStep::DZKPValidate(batch_idx))
-                        .validator_context(),
-                )
+                batch.validate(ctx.narrow(&DzkpBatchStep(batch_idx)))
             });
 
         validation_future.await

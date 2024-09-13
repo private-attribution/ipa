@@ -20,7 +20,10 @@ use crate::{
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, Reveal},
-        context::{dzkp_validator::DZKPValidator, DZKPUpgraded, MacUpgraded, UpgradableContext},
+        context::{
+            dzkp_validator::DZKPValidator, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps,
+            UpgradableContext,
+        },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
             oprf_padding::apply_dp_padding,
@@ -28,6 +31,7 @@ use crate::{
             prf_sharding::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
+            step::IpaPrfStep,
         },
         prss::FromPrss,
         RecordId,
@@ -296,12 +300,8 @@ where
     )
     .await?;
 
-    let noisy_output_histogram = dp_for_histogram::<_, B, HV, SS_BITS>(
-        ctx.narrow(&Step::DifferentialPrivacy),
-        output_histogram,
-        dp_params,
-    )
-    .await?;
+    let noisy_output_histogram =
+        dp_for_histogram::<_, B, HV, SS_BITS>(ctx, output_histogram, dp_params).await?;
     Ok(noisy_output_histogram)
 }
 
@@ -330,11 +330,15 @@ where
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
     let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), Const::<PRF_CHUNK>))?;
-    let convert_ctx = ctx
-        .narrow(&Step::ConvertFp25519)
-        .set_total_records(conv_records);
+    let convert_ctx = ctx.set_total_records(conv_records);
 
-    let validator = convert_ctx.dzkp_validator(CONV_PROOF_CHUNK);
+    let validator = convert_ctx.dzkp_validator(
+        MaliciousProtocolSteps {
+            protocol: &Step::ConvertFp25519,
+            validate: &Step::ConvertFp25519Validate,
+        },
+        CONV_PROOF_CHUNK,
+    );
     let m_ctx = validator.context();
 
     let curve_pts = seq_join(
@@ -354,9 +358,11 @@ where
     .try_collect::<Vec<_>>()
     .await?;
 
-    let eval_ctx = ctx.narrow(&Step::EvalPrf).set_total_records(eval_records);
-    let prf_key = gen_prf_key(&eval_ctx);
-    let validator = eval_ctx.validator::<Fp25519>();
+    let prf_key = gen_prf_key(&ctx.narrow(&IpaPrfStep::PrfKeyGen));
+    let validator = ctx
+        .narrow(&Step::EvalPrf)
+        .set_total_records(eval_records)
+        .validator::<Fp25519>();
     let eval_ctx = validator.context();
 
     let prf_of_match_keys = seq_join(

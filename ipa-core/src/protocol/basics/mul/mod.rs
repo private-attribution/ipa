@@ -27,7 +27,7 @@ use crate::{
 mod dzkp_malicious;
 pub(crate) mod malicious;
 mod semi_honest;
-pub(in crate::protocol) mod step;
+pub(crate) mod step;
 
 pub use semi_honest::sh_multiply as semi_honest_multiply;
 
