@@ -180,7 +180,7 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
             .create_new(true)
             .open(args.output_file)?,
     );
-
+    let mut first_error = None;
     for (idx, (dec_report1, (dec_report2, dec_report3))) in decrypted_reports1
         .zip(decrypted_reports2.zip(decrypted_reports3))
         .enumerate()
@@ -236,11 +236,33 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
                     trigger_value,
                 )?;
             }
-            _ => println!("Decryption failed for record no {idx}"),
+            (Err(e1), _, _) => {
+                writeln!(writer, "Decryption failed Record: {idx} Reason:{e1}",)?;
+                eprintln!("Decryption failed Record: {idx} Reason:{e1}");
+                if first_error.is_none() {
+                    first_error = Some(e1);
+                }
+            }
+            (Ok(_), Err(e2), _) => {
+                writeln!(writer, "Decryption failed Record: {idx} Reason:{e2}",)?;
+                eprintln!("Decryption failed Record: {idx} Reason:{e2}");
+                if first_error.is_none() {
+                    first_error = Some(e2);
+                }
+            }
+            (Ok(_), Ok(_), Err(e3)) => {
+                writeln!(writer, "Decryption failed Record: {idx} Reason:{e3}",)?;
+                eprintln!("Decryption failed Record: {idx} Reason:{e3}");
+                if first_error.is_none() {
+                    first_error = Some(e3);
+                }
+            }
         }
     }
-
-    Ok(())
+    match first_error {
+        None => Ok(()),
+        Some(err) => Err(Box::new(err)),
+    }
 }
 
 #[cfg(test)]
