@@ -3,7 +3,11 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use hashbrown::hash_map::RawEntryMut;
 use rustc_hash::FxBuildHasher;
 
-use crate::{key::OwnedMetricName, kind::CounterValue, MetricName};
+use crate::{
+    key::{OwnedMetricName, OwnedName},
+    kind::CounterValue,
+    MetricName,
+};
 
 /// A basic store. Currently only supports counters.
 pub struct Store {
@@ -79,6 +83,10 @@ impl Store {
         }
 
         answer
+    }
+
+    pub fn counters(&self) -> impl Iterator<Item = (&OwnedName, CounterValue)> {
+        self.counters.iter().map(|(key, value)| (key, *value))
     }
 }
 

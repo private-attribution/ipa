@@ -1,5 +1,7 @@
 use std::{cell::RefCell, mem};
+
 use crossbeam_channel::Sender;
+
 use crate::MetricsStore;
 
 thread_local! {
@@ -9,19 +11,19 @@ thread_local! {
 #[macro_export]
 macro_rules! counter {
     // Match when two key-value pairs are provided
-    ($metric:expr, $val:literal, $l1:expr => $v1:expr, $l2:expr => $v2:expr) => {{
-        let name = crate::metric_name!($metric, $l1 => $v1, $l2 => $v2);
-        crate::context::METRICS_CTX.with_borrow_mut(|ctx| ctx.store_mut().counter(&name).inc($val))
+    ($metric:expr, $val:expr, $l1:expr => $v1:expr, $l2:expr => $v2:expr$(,)?) => {{
+        let name = $crate::metric_name!($metric, $l1 => $v1, $l2 => $v2);
+        $crate::MetricsContext::current_thread(|ctx| ctx.store_mut().counter(&name).inc($val))
     }};
     // Match when one key-value pair is provided
-    ($metric:expr, $l1:expr => $v1:expr) => {{
-        let name = crate::metric_name!($metric, $l1 => $v1);
-        crate::context::METRICS_CTX.with_borrow_mut(|ctx| ctx.store_mut().counter(&name).inc(1))
+    ($metric:expr, $val:expr, $l1:expr => $v1:expr) => {{
+        let name = $crate::metric_name!($metric, $l1 => $v1);
+        $crate::MetricsContext::current_thread(|ctx| ctx.store_mut().counter(&name).inc($val))
     }};
     // Match when no key-value pairs are provided
-    ($metric:expr, $val:literal) => {{
-        let name = crate::metric_name!($metric);
-        crate::context::METRICS_CTX.with_borrow_mut(|ctx| ctx.store_mut().counter(&name).inc($val))
+    ($metric:expr, $val:expr) => {{
+        let name = $crate::metric_name!($metric);
+        $crate::MetricsContext::current_thread(|ctx| ctx.store_mut().counter(&name).inc($val))
     }};
 }
 
@@ -54,6 +56,10 @@ impl MetricsContext {
             store: MetricsStore::new(),
             tx: None,
         }
+    }
+
+    pub fn current_thread<F: FnOnce(&mut MetricsContext) -> T, T>(f: F) -> T {
+        METRICS_CTX.with_borrow_mut(f)
     }
 
     /// Connects this context to the collector thread.
@@ -108,7 +114,9 @@ impl Drop for MetricsContext {
 mod tests {
     use std::{mem, thread};
 
-    use crate::{context::METRICS_CTX, kind::CounterValue, metric_name, set_test_partition, MetricName};
+    use crate::{
+        context::METRICS_CTX, kind::CounterValue, metric_name, set_test_partition, MetricName,
+    };
 
     fn get_counter_value(name: &MetricName) -> CounterValue {
         let v = METRICS_CTX.with_borrow(|ctx| ctx.store().counter_value(name));

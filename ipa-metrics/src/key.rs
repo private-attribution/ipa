@@ -35,25 +35,25 @@ macro_rules! metric_name {
     // Match when two key-value pairs are provided
     // TODO: enforce uniqueness at compile time
     ($metric:expr, $l1:expr => $v1:expr, $l2:expr => $v2:expr) => {{
-        let labels = {
-            crate::key::UniqueElements::enforce_unique([
-                crate::label::Label {
-                    name: $l1,
-                    val: $v1,
-                },
-                crate::label::Label {
-                    name: $l2,
-                    val: $v2,
-                },
-            ])
-        };
-        crate::key::NameWithTwoLabels::from_parts($metric, labels)
+        use $crate::UniqueElements;
+        let labels = [
+            $crate::Label {
+                name: $l1,
+                val: $v1,
+            },
+            $crate::Label {
+                name: $l2,
+                val: $v2,
+            },
+        ]
+        .enforce_unique();
+        $crate::MetricName::from_parts($metric, labels)
     }};
     // Match when one key-value pair is provided
     ($metric:expr, $l1:expr => $v1:expr) => {{
-        crate::key::NameWithLabel::from_parts(
+        $crate::MetricName::from_parts(
             $metric,
-            [crate::label::Label {
+            [$crate::Label {
                 name: $l1,
                 val: $v1,
             }],
@@ -61,7 +61,7 @@ macro_rules! metric_name {
     }};
     // Match when no key-value pairs are provided
     ($metric:expr) => {{
-        crate::key::Name::from_parts($metric, [])
+        $crate::MetricName::from_parts($metric, [])
     }};
 }
 
@@ -109,9 +109,19 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 /// version of it, that does not borrow anything from outside.
 /// This is the key inside metric stores which are simple hashmaps.
 #[derive(Debug)]
-pub(super) struct OwnedName {
+pub struct OwnedName {
     pub(super) key: &'static str,
     labels: [Option<OwnedLabel>; 5],
+}
+
+impl OwnedName {
+    pub fn key(&self) -> &'static str {
+        self.key
+    }
+
+    pub fn labels(&self) -> impl Iterator<Item = &OwnedLabel> {
+        self.labels.iter().filter_map(|l| l.as_ref())
+    }
 }
 
 impl<const LABELS: usize> Hash for Name<'_, LABELS> {

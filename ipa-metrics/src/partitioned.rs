@@ -1,25 +1,32 @@
 use std::cell::Cell;
+
 use hashbrown::hash_map::Entry;
 use rustc_hash::FxBuildHasher;
-use crate::kind::CounterValue;
-use crate::MetricName;
-use crate::store::Store;
+
+use crate::{kind::CounterValue, store::Store, MetricName};
 
 /// Each partition is a unique 16 byte value.
-type Partition = u128;
+pub type Partition = u128;
 
-pub(super) fn set_partition(new: Partition) {
+pub fn set_partition(new: Partition) {
     PARTITION.set(Some(new));
 }
 
-fn current_partition() -> Option<Partition> {
+pub fn set_or_unset_partition(new: Option<Partition>) {
+    PARTITION.set(new);
+}
+
+pub fn unset_partition() {
+    PARTITION.set(None);
+}
+
+pub fn current_partition() -> Option<Partition> {
     PARTITION.get()
 }
 
 thread_local! {
     static PARTITION: Cell<Option<Partition>> = Cell::new(None);
 }
-
 
 /// Provides the same functionality as [`Store`], but partitioned
 /// across many dimensions. There is an extra price for it, so
@@ -32,6 +39,7 @@ thread_local! {
 /// use [`Store`] instead
 pub struct PartitionedStore {
     inner: hashbrown::HashMap<Partition, Store, FxBuildHasher>,
+    default_store: Store,
 }
 
 impl Default for PartitionedStore {
@@ -44,6 +52,7 @@ impl PartitionedStore {
     pub const fn new() -> Self {
         Self {
             inner: hashbrown::HashMap::with_hasher(FxBuildHasher),
+            default_store: Store::new(),
         }
     }
 
@@ -56,7 +65,20 @@ impl PartitionedStore {
         f(&mut store)
     }
 
-    pub fn with_partition<F: FnOnce(&mut Store) -> T, T>(&mut self, partition: Partition, f: F) -> T {
+    pub fn with_partition<F: FnOnce(&Store) -> T, T>(
+        &self,
+        partition: Partition,
+        f: F,
+    ) -> Option<T> {
+        let store = self.inner.get(&partition);
+        store.map(f)
+    }
+
+    pub fn with_partition_mut<F: FnOnce(&mut Store) -> T, T>(
+        &mut self,
+        partition: Partition,
+        f: F,
+    ) -> T {
         let mut store = self.get_mut(Some(partition));
         f(&mut store)
     }
@@ -69,13 +91,17 @@ impl PartitionedStore {
         for (partition, store) in other.inner {
             self.get_mut(Some(partition)).merge(store);
         }
+        self.default_store.merge(other.default_store);
     }
 
     pub fn counter_value(&self, name: &MetricName) -> CounterValue {
         if let Some(partition) = current_partition() {
-            self.inner.get(&partition).map(|store| store.counter_value(name)).unwrap_or_default()
+            self.inner
+                .get(&partition)
+                .map(|store| store.counter_value(name))
+                .unwrap_or_default()
         } else {
-            CounterValue::default()
+            self.default_store.counter_value(name)
         }
     }
 
@@ -86,39 +112,49 @@ impl PartitionedStore {
                 Entry::Vacant(entry) => entry.insert(Store::default()),
             }
         } else {
-            panic!("Partition must be set before PartitionedStore can be used.")
+            &mut self.default_store
         }
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::metric_name;
-    use crate::partitioned::{set_partition, PartitionedStore};
+    use crate::{
+        metric_name,
+        partitioned::{set_partition, PartitionedStore},
+    };
 
     #[test]
     fn unique_partition() {
         let metric = metric_name!("foo");
         let mut store = PartitionedStore::new();
-        store.with_partition(1, |store| {
+        store.with_partition_mut(1, |store| {
             store.counter(&metric).inc(1);
         });
-        store.with_partition(5, |store| {
+        store.with_partition_mut(5, |store| {
             store.counter(&metric).inc(5);
         });
 
-        assert_eq!(5, store.with_partition(5, |store| store.counter(&metric).get()));
-        assert_eq!(1, store.with_partition(1, |store| store.counter(&metric).get()));
-        assert_eq!(0, store.with_partition(10, |store| store.counter(&metric).get()));
+        assert_eq!(
+            5,
+            store.with_partition_mut(5, |store| store.counter(&metric).get())
+        );
+        assert_eq!(
+            1,
+            store.with_partition_mut(1, |store| store.counter(&metric).get())
+        );
+        assert_eq!(
+            0,
+            store.with_partition_mut(10, |store| store.counter(&metric).get())
+        );
     }
 
-    #[test]
-    #[should_panic(expected = "Partition must be set before PartitionedStore can be used.")]
-    fn current_panic() {
-        let mut store = PartitionedStore::new();
-        store.with_current_partition(|_| unreachable!());
-    }
+    // #[test]
+    // #[should_panic(expected = "Partition must be set before PartitionedStore can be used.")]
+    // fn current_panic() {
+    //     let mut store = PartitionedStore::new();
+    //     store.with_current_partition(|_| unreachable!());
+    // }
 
     #[test]
     fn current_partition() {
@@ -133,6 +169,9 @@ mod tests {
             store.counter(&metric).inc(5);
         });
 
-        assert_eq!(6, store.with_current_partition(|store| store.counter(&metric).get()));
+        assert_eq!(
+            6,
+            store.with_current_partition(|store| store.counter(&metric).get())
+        );
     }
 }

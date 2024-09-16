@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Formatter},
     hash::{Hash, Hasher},
 };
 
@@ -9,7 +9,7 @@ pub const MAX_LABELS: usize = 5;
 
 /// Dimension value (or label value) must be sendable to another thread
 /// and there must be a way to show it
-pub trait Value: Debug + Display + Send {
+pub trait Value: Display + Send {
     /// Creates a unique hash for this value.
     /// It is easy to create collisions, so better avoid them,
     /// by assigning a unique integer to each value
@@ -31,7 +31,6 @@ impl LabelValue for u32 {
     }
 }
 
-#[derive(Debug)]
 pub struct Label<'lv> {
     pub name: &'static str,
     pub val: &'lv dyn Value,
@@ -46,6 +45,15 @@ impl Label<'_> {
     }
 }
 
+impl Debug for Label<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Label")
+            .field("name", &self.name)
+            .field("val", &format!("{}", self.val))
+            .finish()
+    }
+}
+
 impl Hash for Label<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.name.as_bytes());
@@ -53,7 +61,6 @@ impl Hash for Label<'_> {
     }
 }
 
-#[derive(Debug)]
 pub struct OwnedLabel {
     pub name: &'static str,
     pub val: Box<dyn Value>,
@@ -66,11 +73,28 @@ impl OwnedLabel {
             val: self.val.as_ref(),
         }
     }
+
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub fn str_value(&self) -> String {
+        self.val.to_string()
+    }
 }
 
 impl Hash for OwnedLabel {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.borrow().hash(state)
+    }
+}
+
+impl Debug for OwnedLabel {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnedLabel")
+            .field("name", &self.name)
+            .field("val", &format!("{}", self.val))
+            .finish()
     }
 }
 

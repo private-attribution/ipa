@@ -1,8 +1,7 @@
-use std::{
-    cell::RefCell,
-    mem,
-};
+use std::{cell::RefCell, mem};
+
 use crossbeam_channel::{Receiver, Sender};
+
 use crate::{context::CurrentThreadContext, MetricsStore};
 
 thread_local! {
@@ -95,7 +94,10 @@ mod tests {
         thread::{Scope, ScopedJoinHandle},
     };
 
-    use crate::{collector::{installer, MetricsCollector, MetricsProducer}, counter, metric_name, set_test_partition};
+    use crate::{
+        collector::{installer, MetricsCollector, MetricsProducer},
+        counter, metric_name, set_test_partition,
+    };
 
     struct MeteredScope<'scope, 'env: 'scope>(&'scope Scope<'scope, 'env>, MetricsProducer);
 
@@ -131,21 +133,14 @@ mod tests {
     fn start_stop() {
         let (collector, producer) = installer();
         let handle = thread::spawn(|| {
-            set_test_partition();
             collector.install();
             MetricsCollector::wait_for_all().counter_value(&metric_name!("foo"))
         });
 
         thread::scope(move |s| {
             let s = s.metered(producer);
-            s.spawn(|| {
-                set_test_partition();
-                counter!("foo", 3)
-            });
-            s.spawn(|| {
-                set_test_partition();
-                counter!("foo", 5)
-            });
+            s.spawn(|| counter!("foo", 3));
+            s.spawn(|| counter!("foo", 5));
         });
 
         assert_eq!(8, handle.join().unwrap());
