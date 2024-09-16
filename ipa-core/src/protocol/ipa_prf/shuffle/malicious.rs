@@ -51,12 +51,13 @@ where
     for<'a> &'a B: Add<&'a B, Output = B>,
     Standard: Distribution<B>,
 {
+    // assert lengths
+    assert_eq!(S::BITS + 32, B::BITS);
     // compute amount of MAC keys
     let amount_of_keys: usize = (usize::try_from(S::BITS).unwrap() + 31) / 32;
     // // generate MAC keys
     let keys = (0..amount_of_keys)
-        .map(|i| ctx.prss().generate_fields(RecordId::from(i)))
-        .map(|(left, right)| AdditiveShare::new(left, right))
+        .map(|i| ctx.prss().generate(RecordId::from(i)))
         .collect::<Vec<AdditiveShare<Gf32Bit>>>();
 
     // compute and append tags to rows
@@ -80,6 +81,7 @@ where
     .await?;
 
     // truncate tags from output_shares
+    // verify_shuffle ensures that truncate_tags yields the correct rows
     Ok(truncate_tags(&shuffled_shares))
 }
 
@@ -92,34 +94,37 @@ where
     S: BooleanArray,
     B: BooleanArray,
 {
-    let tag_offset = usize::try_from((S::BITS + 7) / 8).unwrap();
     shares_and_tags
         .iter()
         .map(|row_with_tag| {
             AdditiveShare::new(
-                split_row_and_tag(row_with_tag.left(), tag_offset).0,
-                split_row_and_tag(row_with_tag.right(), tag_offset).0,
+                split_row_and_tag(row_with_tag.left()).0,
+                split_row_and_tag(row_with_tag.right()).0,
             )
         })
         .collect()
 }
 
 /// This function splits a row with tag into
-/// a row without tag and a tag
+/// a row without tag and a tag.
+///
+/// When `row_with_tag` does not have the correct format,
+/// i.e. deserialization returns an error,
+/// the output row and tag will be the default values.
 ///
 /// ## Panics
 /// Panics when the lengths are incorrect:
 /// `S` in bytes needs to be equal to `tag_offset`.
 /// `B` in bytes needs to be equal to `tag_offset + 4`.
-fn split_row_and_tag<S: BooleanArray, B: BooleanArray>(
-    row_with_tag: B,
-    tag_offset: usize,
-) -> (S, Gf32Bit) {
+fn split_row_and_tag<S: BooleanArray, B: BooleanArray>(row_with_tag: B) -> (S, Gf32Bit) {
+    let tag_offset = usize::try_from((S::BITS + 7) / 8).unwrap();
     let mut buf = GenericArray::default();
     row_with_tag.serialize(&mut buf);
     (
-        S::deserialize(GenericArray::from_slice(&buf.as_slice()[0..tag_offset])).unwrap(),
-        Gf32Bit::deserialize(GenericArray::from_slice(&buf.as_slice()[tag_offset..])).unwrap(),
+        S::deserialize(GenericArray::from_slice(&buf.as_slice()[0..tag_offset]))
+            .unwrap_or_default(),
+        Gf32Bit::deserialize(GenericArray::from_slice(&buf.as_slice()[tag_offset..]))
+            .unwrap_or_default(),
     )
 }
 
@@ -138,7 +143,11 @@ async fn verify_shuffle<C: Context, S: BooleanArray, B: BooleanArray>(
     let k_ctx = ctx
         .narrow(&OPRFShuffleStep::RevealMACKey)
         .set_total_records(TotalRecords::specified(key_shares.len())?);
-    let keys = reveal_keys(&k_ctx, key_shares).await?;
+    let keys = reveal_keys(&k_ctx, key_shares)
+        .await?
+        .iter()
+        .map(Gf32Bit::from_array)
+        .collect::<Vec<_>>();
 
     // verify messages and shares
     match ctx.role() {
@@ -166,15 +175,15 @@ async fn verify_shuffle<C: Context, S: BooleanArray, B: BooleanArray>(
 /// or `hash_c_h3 != hash_a_xor_b`.
 async fn h1_verify<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
-    keys: &[StdArray<Gf32Bit, 1>],
+    keys: &[Gf32Bit],
     share_a_and_b: &[AdditiveShare<B>],
     x1: Vec<B>,
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for x1
-    let hash_x1 = compute_row_hash::<S, B, _>(keys, x1);
+    let hash_x1 = compute_and_hash_tags::<S, B, _>(keys, x1);
     // compute hash for A xor B
-    let hash_a_xor_b = compute_row_hash::<S, B, _>(
+    let hash_a_xor_b = compute_and_hash_tags::<S, B, _>(
         keys,
         share_a_and_b
             .iter()
@@ -233,15 +242,15 @@ async fn h1_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 /// `hash_x2 != hash_y2`.
 async fn h2_verify<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
-    keys: &[StdArray<Gf32Bit, 1>],
+    keys: &[Gf32Bit],
     share_b_and_c: &[AdditiveShare<B>],
     x2: Vec<B>,
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for x2
-    let hash_x2 = compute_row_hash::<S, B, _>(keys, x2);
+    let hash_x2 = compute_and_hash_tags::<S, B, _>(keys, x2);
     // compute hash for C
-    let hash_c = compute_row_hash::<S, B, _>(
+    let hash_c = compute_and_hash_tags::<S, B, _>(
         keys,
         share_b_and_c.iter().map(ReplicatedSecretSharing::right),
     );
@@ -281,18 +290,18 @@ async fn h2_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 /// Propagates network errors.
 async fn h3_verify<C: Context, S: BooleanArray, B: BooleanArray>(
     ctx: C,
-    keys: &[StdArray<Gf32Bit, 1>],
+    keys: &[Gf32Bit],
     share_c_and_a: &[AdditiveShare<B>],
     y1: Vec<B>,
     y2: Vec<B>,
 ) -> Result<(), Error> {
     // compute hashes
     // compute hash for y1
-    let hash_y1 = compute_row_hash::<S, B, _>(keys, y1);
+    let hash_y1 = compute_and_hash_tags::<S, B, _>(keys, y1);
     // compute hash for y2
-    let hash_y2 = compute_row_hash::<S, B, _>(keys, y2);
+    let hash_y2 = compute_and_hash_tags::<S, B, _>(keys, y2);
     // compute hash for C
-    let hash_c = compute_row_hash::<S, B, _>(
+    let hash_c = compute_and_hash_tags::<S, B, _>(
         keys,
         share_c_and_a.iter().map(ReplicatedSecretSharing::left),
     );
@@ -323,26 +332,26 @@ async fn h3_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 ///
 /// ## Panics
 /// Panics when conversion from `BooleanArray` to `Vec<Gf32Bit` fails.
-fn compute_row_hash<S, B, I>(keys: &[StdArray<Gf32Bit, 1>], row_iterator: I) -> Hash
+fn compute_and_hash_tags<S, B, I>(keys: &[Gf32Bit], row_iterator: I) -> Hash
 where
     S: BooleanArray,
     B: BooleanArray,
     I: IntoIterator<Item = B>,
 {
-    let tag_offset = usize::try_from((B::BITS + 7) / 8).unwrap() - 4;
-
     let iterator = row_iterator.into_iter().map(|row_with_tag| {
-        let (row, tag) = split_row_and_tag(row_with_tag, tag_offset);
+        // when split_row_and_tags returns the default value, the verification will fail
+        // except 2^-security_parameter, i.e. 2^-32
+        let (row, tag) = split_row_and_tag(row_with_tag);
         <S as TryInto<Vec<Gf32Bit>>>::try_into(row)
             .unwrap()
             .into_iter()
             .chain(iter::once(tag))
     });
-    compute_hash(iterator.map(|row_iterator| {
-        row_iterator
+    compute_hash(iterator.map(|row_entry_iterator| {
+        row_entry_iterator
             .zip(keys)
             .fold(Gf32Bit::ZERO, |acc, (row_entry, key)| {
-                acc + row_entry * *key.first()
+                acc + row_entry * *key
             })
     }))
 }
@@ -362,6 +371,7 @@ async fn reveal_keys<C: Context>(
     // reveal MAC keys
     let keys = ctx
         .parallel_join(key_shares.iter().enumerate().map(|(i, key)| async move {
+            // uses malicious_reveal directly since we malicious_shuffle always needs the malicious_revel
             malicious_reveal(ctx.clone(), RecordId::from(i), None, key).await
         }))
         .await?
@@ -399,8 +409,7 @@ where
     S: BooleanArray,
     B: BooleanArray,
     I: IntoIterator<Item = AdditiveShare<S>>,
-    I::IntoIter: ExactSizeIterator,
-    <I as IntoIterator>::IntoIter: Send,
+    I::IntoIter: ExactSizeIterator + Send,
 {
     let row_iterator = rows.into_iter();
     let length = row_iterator.len();
@@ -468,7 +477,7 @@ mod tests {
     use crate::{
         ff::{
             boolean_array::{BA112, BA144, BA20, BA32, BA64},
-            Serializable,
+            Serializable, U128Conversions,
         },
         helpers::in_memory_config::{MaliciousHelper, MaliciousHelperContext},
         protocol::ipa_prf::shuffle::base::shuffle,
@@ -514,13 +523,13 @@ mod tests {
 
             assert_eq!(record, result_ba);
 
-            let tag = <BA112 as TryInto<Vec<Gf32Bit>>>::try_into(record)
+            let tag = Vec::<Gf32Bit>::try_from(record)
                 .unwrap()
                 .iter()
                 .zip(keys)
                 .fold(Gf32Bit::ZERO, |acc, (entry, key)| acc + *entry * key);
 
-            let tag_mpc = <BA32 as TryInto<Vec<Gf32Bit>>>::try_into(BA32::deserialize_from_slice(
+            let tag_mpc = Vec::<Gf32Bit>::try_from(BA32::deserialize_from_slice(
                 &result[0].as_raw_slice()[14..18],
             ))
             .unwrap();
@@ -536,69 +545,23 @@ mod tests {
         run(|| async {
             let world = TestWorld::default();
             let mut rng = thread_rng();
-            // using Gf32Bit here since it implements cmp such that vec can later be sorted
             let mut records = (0..RECORD_AMOUNT)
-                .map(|_| rng.gen())
-                .collect::<Vec<Gf32Bit>>();
-
-            let records_boolean_array = records
-                .iter()
-                .map(|row| {
-                    let mut buf = GenericArray::default();
-                    row.serialize(&mut buf);
-                    BA32::deserialize(&buf).unwrap()
-                })
-                .collect::<Vec<_>>();
-
-            let result = world
-                .semi_honest(
-                    records_boolean_array.into_iter(),
-                    |ctx, records| async move {
-                        malicious_shuffle::<_, BA32, BA64, _>(ctx, records)
-                            .await
-                            .unwrap()
-                    },
-                )
-                .await
-                .reconstruct();
-
-            let mut result_galois = result
-                .iter()
-                .map(|row| {
-                    let mut buf = GenericArray::default();
-                    row.serialize(&mut buf);
-                    Gf32Bit::deserialize(&buf).unwrap()
-                })
-                .collect::<Vec<_>>();
-
-            records.sort();
-            result_galois.sort();
-
-            assert_eq!(records, result_galois);
-        });
-    }
-
-    /// This tests checks that the shuffling of `BA112`
-    /// does not return an error
-    /// nor panic.
-    #[test]
-    fn shuffle_ba112_succeeds() {
-        const RECORD_AMOUNT: usize = 10;
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = thread_rng();
-
-            let records = (0..RECORD_AMOUNT)
                 .map(|_| rng.gen())
                 .collect::<Vec<BA112>>();
 
-            world
-                .semi_honest(records.into_iter(), |ctx, records| async move {
+            let mut result = world
+                .semi_honest(records.clone().into_iter(), |ctx, records| async move {
                     malicious_shuffle::<_, BA112, BA144, _>(ctx, records)
                         .await
                         .unwrap()
                 })
-                .await;
+                .await
+                .reconstruct();
+
+            records.sort_by_key(BA112::as_u128);
+            result.sort_by_key(BA112::as_u128);
+
+            assert_eq!(records, result);
         });
     }
 
