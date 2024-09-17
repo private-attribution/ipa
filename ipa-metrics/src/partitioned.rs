@@ -37,6 +37,7 @@ thread_local! {
 /// For safety, it will panic if partition is not set. If partitioning
 /// is not required, turn off the `partitions` feature and
 /// use [`Store`] instead
+#[derive(Clone)]
 pub struct PartitionedStore {
     inner: hashbrown::HashMap<Partition, Store, FxBuildHasher>,
     default_store: Store,

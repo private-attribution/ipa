@@ -66,6 +66,15 @@ pub struct OwnedLabel {
     pub val: Box<dyn Value>,
 }
 
+impl Clone for OwnedLabel {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name,
+            val: self.val.boxed(),
+        }
+    }
+}
+
 impl OwnedLabel {
     fn borrow(&self) -> Label<'_> {
         Label {

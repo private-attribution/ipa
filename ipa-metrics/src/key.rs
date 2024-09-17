@@ -78,13 +78,16 @@ pub type NameWithLabel<'lv> = Name<'lv, 1>;
 pub type NameWithTwoLabels<'lv> = Name<'lv, 2>;
 
 impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
-    pub const fn from_parts(key: &'static str, labels: [Label<'lv>; LABELS]) -> Self {
+    pub fn from_parts<I: Into<&'static str>>(key: I, labels: [Label<'lv>; LABELS]) -> Self {
         assert!(
             LABELS <= MAX_LABELS,
             "Maximum 5 labels per metric is supported"
         );
 
-        Self { key, labels }
+        Self {
+            key: key.into(),
+            labels,
+        }
     }
 
     /// [`ToOwned`] trait does not work because of
@@ -108,7 +111,7 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 /// Same as [`Name`], but intended for internal use. This is an owned
 /// version of it, that does not borrow anything from outside.
 /// This is the key inside metric stores which are simple hashmaps.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OwnedName {
     pub(super) key: &'static str,
     labels: [Option<OwnedLabel>; 5],

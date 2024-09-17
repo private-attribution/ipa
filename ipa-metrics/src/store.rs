@@ -10,6 +10,7 @@ use crate::{
 };
 
 /// A basic store. Currently only supports counters.
+#[derive(Clone)]
 pub struct Store {
     // Counters and other metrics are stored to optimize writes. That means, one lookup
     // per write. The cost of assembling the total count across all dimensions is absorbed

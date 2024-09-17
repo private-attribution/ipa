@@ -7,7 +7,8 @@ mod label;
 mod partitioned;
 mod store;
 
-pub use context::MetricsContext;
+pub use collector::{installer, MetricsCollector, MetricsCollectorController, MetricsProducer};
+pub use context::{CurrentThreadContext as MetricsCurrentThreadContext, MetricsContext};
 pub use key::{MetricName, OwnedName, UniqueElements};
 pub use label::{Label, LabelValue};
 #[cfg(feature = "partitions")]
