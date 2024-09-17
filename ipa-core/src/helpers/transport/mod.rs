@@ -25,6 +25,7 @@ pub use handler::{
 };
 #[cfg(feature = "in-memory-infra")]
 pub use in_memory::{config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
+use ipa_metrics::LabelValue;
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
 pub use stream::WrappedAxumBodyStream;
@@ -41,7 +42,7 @@ use crate::{
 /// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
 /// types of peers - helpers and shards.
 pub trait Identity:
-    Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + 'static
+    Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + LabelValue + 'static
 {
     fn as_str(&self) -> Cow<'static, str>;
 }

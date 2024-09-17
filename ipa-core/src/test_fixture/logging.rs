@@ -44,6 +44,7 @@ pub fn setup() {
                 )
                 .with(fmt_layer)
                 .with(MetricsLayer::new())
+                .with(ipa_metrics_tracing::MetricsPartitioningLayer)
                 .init();
         }
     });

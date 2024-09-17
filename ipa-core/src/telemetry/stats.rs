@@ -1,9 +1,13 @@
 use std::{
-    collections::{hash_map::Iter, HashMap},
+    collections::{
+        hash_map::{Entry, Iter},
+        HashMap,
+    },
     fmt::Debug,
 };
 
-use metrics::{KeyName, Label, SharedString};
+use ipa_metrics::{MetricPartition, MetricsStore};
+use metrics::{Key, KeyName, Label, SharedString};
 use metrics_util::{
     debugging::{DebugValue, Snapshot},
     CompositeKey, MetricKind,
@@ -32,6 +36,7 @@ pub struct CounterDetails {
 /// or POST requests.
 ///
 /// X1 and X2 cannot be greater than X, but these values may overlap, i.e. X1 + X2 >= X
+#[derive(Default)]
 pub struct Metrics {
     pub counters: HashMap<KeyName, CounterDetails>,
     pub metric_description: HashMap<KeyName, SharedString>,
@@ -68,6 +73,38 @@ impl<'a> IntoIterator for &'a CounterDetails {
 }
 
 impl Metrics {
+    pub fn from_partition(metrics_store: &MetricsStore, partition: MetricPartition) -> Self {
+        let v = metrics_store.with_partition(partition, |store| {
+            let mut this = Self::default();
+            for (counter, value) in store.counters() {
+                let key = Key::from_parts(
+                    counter.key(),
+                    counter
+                        .labels()
+                        .map(|l| Label::new(l.name(), l.str_value()))
+                        .collect::<Vec<_>>(),
+                );
+                let composite_key = CompositeKey::new(MetricKind::Counter, key);
+                match this.counters.entry(counter.key().into()) {
+                    Entry::Occupied(mut entry) => {
+                        entry
+                            .get_mut()
+                            .add(&composite_key, &DebugValue::Counter(value));
+                    }
+                    Entry::Vacant(entry) => {
+                        let mut counter_details = CounterDetails::default();
+                        counter_details.add(&composite_key, &DebugValue::Counter(value));
+                        entry.insert(counter_details);
+                    }
+                }
+            }
+
+            this
+        });
+
+        v.expect(&format!("Partition {partition} does not exist"))
+    }
+
     pub fn from_snapshot(snapshot: Snapshot) -> Self {
         const ALWAYS_TRUE: fn(&[Label]) -> bool = |_| true;
         Self::with_filter(snapshot, ALWAYS_TRUE)

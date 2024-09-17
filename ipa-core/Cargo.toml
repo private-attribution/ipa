@@ -44,7 +44,7 @@ web-app = [
     "http-body",
     "http-body-util",
 ]
-test-fixture = ["weak-field"]
+test-fixture = ["weak-field", "ipa-metrics/partitions", "ipa-metrics-tracing"]
 # Include observability instruments that detect lack of progress inside MPC. If there is a bug that leads to helper
 # miscommunication, this feature helps to detect it. Turning it on has some cost.
 # If "shuttle" feature is enabled, turning this on has no effect.
@@ -78,6 +78,8 @@ ipa-prf = []
 [dependencies]
 ipa-step = { version = "*", path = "../ipa-step" }
 ipa-step-derive = { version = "*", path = "../ipa-step-derive" }
+ipa-metrics = { version = "*", path = "../ipa-metrics"}
+ipa-metrics-tracing = { optional = true, version = "*", path = "../ipa-metrics-tracing" }
 
 aes = "0.8.3"
 async-trait = "0.1.79"
@@ -163,6 +165,8 @@ serde = { version = "1.0", features = ["derive"] }
 command-fds = "0.2.2"
 hex = "0.4"
 ipa-step = { version = "*", path = "../ipa-step", features = ["build", "string-step"] }
+ipa-metrics = { version = "*", path = "../ipa-metrics", features = ["partitions"] }
+ipa-metrics-tracing = { version = "*", path = "../ipa-metrics-tracing" }
 permutation = "0.4.1"
 proptest = "1.4"
 rustls = { version = "0.23" }

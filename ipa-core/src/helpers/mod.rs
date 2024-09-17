@@ -5,7 +5,7 @@
 
 use std::{
     convert::Infallible,
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display, Formatter, Write},
     num::NonZeroUsize,
 };
 
@@ -61,6 +61,7 @@ pub use gateway::{
     MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportImpl,
 };
 pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEnd};
+use ipa_metrics::LabelValue;
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
@@ -158,6 +159,12 @@ impl Debug for HelperIdentity {
     }
 }
 
+impl Display for HelperIdentity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 #[cfg(feature = "web-app")]
 impl From<HelperIdentity> for hyper::header::HeaderValue {
     fn from(id: HelperIdentity) -> Self {
@@ -230,6 +237,16 @@ impl<T> Index<HelperIdentity> for Vec<T> {
 impl<T> IndexMut<HelperIdentity> for Vec<T> {
     fn index_mut(&mut self, index: HelperIdentity) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
+    }
+}
+
+impl LabelValue for HelperIdentity {
+    fn hash(&self) -> u64 {
+        todo!()
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        todo!()
     }
 }
 
@@ -383,6 +400,22 @@ impl<T> Index<Role> for Vec<T> {
 impl<T> IndexMut<Role> for Vec<T> {
     fn index_mut(&mut self, index: Role) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
+    }
+}
+
+impl Display for Role {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_static_str())
+    }
+}
+
+impl LabelValue for Role {
+    fn hash(&self) -> u64 {
+        u64::from(*self as u32)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
     }
 }
 

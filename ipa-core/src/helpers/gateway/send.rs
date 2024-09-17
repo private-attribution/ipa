@@ -158,13 +158,21 @@ impl<I: TransportIdentity, M: Message> SendingEnd<I, M> {
     ))]
     pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error<I>> {
         let r = self.inner.send(record_id, msg).await;
-        metrics::increment_counter!(RECORDS_SENT,
-            STEP => self.inner.channel_id.gate.as_ref().to_string(),
-            ROLE => self.sender_id.as_str(),
+        // metrics::increment_counter!(RECORDS_SENT,
+        //     STEP => self.inner.channel_id.gate.as_ref().to_string(),
+        //     ROLE => self.sender_id.as_str(),
+        // );
+        // metrics::counter!(BYTES_SENT, M::Size::U64,
+        //     STEP => self.inner.channel_id.gate.as_ref().to_string(),
+        //     ROLE => self.sender_id.as_str(),
+        // );
+        ipa_metrics::counter!(BYTES_SENT, M::Size::U64,
+            STEP => &self.inner.channel_id.gate,
+            ROLE => &self.sender_id,
         );
-        metrics::counter!(BYTES_SENT, M::Size::U64,
-            STEP => self.inner.channel_id.gate.as_ref().to_string(),
-            ROLE => self.sender_id.as_str(),
+        ipa_metrics::counter!(RECORDS_SENT, 1,
+            STEP => &self.inner.channel_id.gate,
+            ROLE => &self.sender_id,
         );
 
         r

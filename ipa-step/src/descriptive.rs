@@ -1,5 +1,10 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::{
+    fmt::{Debug, Display, Formatter},
+    hash::Hasher,
+};
 
+use ipa_metrics::LabelValue;
+use rustc_hash::FxHasher;
 use serde::Deserialize;
 
 use crate::{Gate, Step, StepNarrow};
@@ -90,5 +95,21 @@ impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
         let id = format!("{}/{}", self.id, step.as_ref());
 
         Self { id }
+    }
+}
+
+impl LabelValue for Descriptive {
+    fn hash(&self) -> u64 {
+        fn hash_str(input: &str) -> u64 {
+            let mut hasher = FxHasher::default();
+            hasher.write(input.as_bytes());
+            hasher.finish()
+        }
+
+        hash_str(self.as_ref())
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(self.clone())
     }
 }

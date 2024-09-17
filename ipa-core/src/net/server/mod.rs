@@ -30,7 +30,7 @@ use futures::{
     future::{ready, BoxFuture, Either, Ready},
     Future, FutureExt,
 };
-use hyper::{body::Incoming, header::HeaderName, Request};
+use hyper::{body::Incoming, header::HeaderName, Request, Version};
 use metrics::increment_counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use rustls_pki_types::CertificateDer;
@@ -131,11 +131,12 @@ impl MpcHelperServer {
         const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::LOCALHOST;
         #[cfg(not(test))]
         const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
-
         let svc = self.router().layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |_request: &hyper::Request<_>| tracing.make_span())
                 .on_request(|request: &hyper::Request<_>, _: &Span| {
+                    ipa_metrics::counter!(RequestProtocolVersion::from(request.version()), 1);
+                    ipa_metrics::counter!(REQUESTS_RECEIVED, 1);
                     increment_counter!(RequestProtocolVersion::from(request.version()));
                     increment_counter!(REQUESTS_RECEIVED);
                 }),
@@ -226,6 +227,8 @@ where
 {
     tokio::spawn({
         async move {
+            eprintln!("server started on {:?}", std::thread::current().id());
+            tracing::warn!("server started on {:?}", std::thread::current().id());
             // Apply configuration
             HttpServerConfig::apply(&mut server.http_builder().http2());
             // Start serving
