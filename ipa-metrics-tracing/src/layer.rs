@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use ipa_metrics::MetricsCurrentThreadContext;
 use tracing::{
     field::{Field, Visit},
     instrument::WithSubscriber,
@@ -57,6 +58,13 @@ impl<S: Subscriber + for<'s> LookupSpan<'s>> Layer<S> for MetricsPartitioningLay
         if let Some(MetricPartition(prev, _)) = span.extensions_mut().get_mut() {
             eprintln!("Unsetting partition to {:?}", prev);
             ipa_metrics::set_or_unset_partition(prev.take())
+        };
+    }
+
+    fn on_close(&self, id: Id, ctx: Context<'_, S>) {
+        let span = ctx.span(&id).expect("Span should exists before closing it");
+        if let Some(MetricPartition(_, _)) = span.extensions().get() {
+            MetricsCurrentThreadContext::flush();
         };
     }
 }
