@@ -141,7 +141,7 @@ impl DecryptedReports {
             .unwrap_or_else(|e| panic!("unable to open file {filename:?}. {e}"));
         let reader = BufReader::new(file);
         Self {
-            filename: filename.to_path_buf(),
+            filename: filename.clone(),
             reader,
             key_registry,
             iter_index: 0,
@@ -198,58 +198,57 @@ pub async fn decrypt_and_reconstruct(args: DecryptArgs) -> Result<(), BoxError> 
     for (dec_report1, (dec_report2, dec_report3)) in
         decrypted_reports1.zip(decrypted_reports2.zip(decrypted_reports3))
     {
-        match (dec_report1, dec_report2, dec_report3) {
-            (Ok(dec_report1), Ok(dec_report2), Ok(dec_report3)) => {
-                let timestamp = [
-                    dec_report1.timestamp,
-                    dec_report2.timestamp,
-                    dec_report3.timestamp,
-                ]
-                .reconstruct()
-                .as_u128();
+        if let (Ok(dec_report1), Ok(dec_report2), Ok(dec_report3)) =
+            (dec_report1, dec_report2, dec_report3)
+        {
+            let timestamp = [
+                dec_report1.timestamp,
+                dec_report2.timestamp,
+                dec_report3.timestamp,
+            ]
+            .reconstruct()
+            .as_u128();
 
-                let match_key = [
-                    dec_report1.match_key,
-                    dec_report2.match_key,
-                    dec_report3.match_key,
-                ]
-                .reconstruct()
-                .as_u128();
+            let match_key = [
+                dec_report1.match_key,
+                dec_report2.match_key,
+                dec_report3.match_key,
+            ]
+            .reconstruct()
+            .as_u128();
 
-                // these aren't reconstucted, so we explictly make sure
-                // they are consistent across all three files, then set
-                // it to the first one (without loss of generality)
-                assert_eq!(dec_report1.event_type, dec_report2.event_type);
-                assert_eq!(dec_report2.event_type, dec_report3.event_type);
-                let is_trigger_report = dec_report1.event_type == EventType::Trigger;
+            // these aren't reconstucted, so we explictly make sure
+            // they are consistent across all three files, then set
+            // it to the first one (without loss of generality)
+            assert_eq!(dec_report1.event_type, dec_report2.event_type);
+            assert_eq!(dec_report2.event_type, dec_report3.event_type);
+            let is_trigger_report = dec_report1.event_type == EventType::Trigger;
 
-                let breakdown_key = [
-                    dec_report1.breakdown_key,
-                    dec_report2.breakdown_key,
-                    dec_report3.breakdown_key,
-                ]
-                .reconstruct()
-                .as_u128();
+            let breakdown_key = [
+                dec_report1.breakdown_key,
+                dec_report2.breakdown_key,
+                dec_report3.breakdown_key,
+            ]
+            .reconstruct()
+            .as_u128();
 
-                let trigger_value = [
-                    dec_report1.trigger_value,
-                    dec_report2.trigger_value,
-                    dec_report3.trigger_value,
-                ]
-                .reconstruct()
-                .as_u128();
+            let trigger_value = [
+                dec_report1.trigger_value,
+                dec_report2.trigger_value,
+                dec_report3.trigger_value,
+            ]
+            .reconstruct()
+            .as_u128();
 
-                writeln!(
-                    writer,
-                    "{},{},{},{},{}",
-                    timestamp,
-                    match_key,
-                    u8::from(is_trigger_report),
-                    breakdown_key,
-                    trigger_value,
-                )?;
-            }
-            (_, _, _) => {}
+            writeln!(
+                writer,
+                "{},{},{},{},{}",
+                timestamp,
+                match_key,
+                u8::from(is_trigger_report),
+                breakdown_key,
+                trigger_value,
+            )?;
         }
     }
     Ok(())
