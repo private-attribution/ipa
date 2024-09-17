@@ -37,6 +37,10 @@ impl CurrentThreadContext {
     pub fn flush() {
         METRICS_CTX.with_borrow_mut(|ctx| ctx.flush());
     }
+
+    pub fn is_connected() -> bool {
+        METRICS_CTX.with_borrow(|ctx| ctx.is_connected())
+    }
 }
 
 /// This context is used inside thread-local storage,

@@ -10,19 +10,26 @@ thread_local! {
     static COLLECTOR: RefCell<Option<MetricsCollector>> = const { RefCell::new(None) }
 }
 
-fn installer() -> (MetricsCollector, MetricsProducer) {
+pub fn installer() -> (
+    MetricsCollector,
+    MetricsProducer,
+    MetricsCollectorController,
+) {
+    let (command_tx, command_rx) = crossbeam_channel::unbounded();
     let (tx, rx) = crossbeam_channel::unbounded();
     (
         MetricsCollector {
             rx,
             local_store: MetricsStore::default(),
+            command_rx,
         },
         MetricsProducer { tx },
+        MetricsCollectorController { tx: command_tx },
     )
 }
 
 #[derive(Clone)]
-struct MetricsProducer {
+pub struct MetricsProducer {
     tx: Sender<MetricsStore>,
 }
 
@@ -55,9 +62,28 @@ impl Drop for ProducerDropHandle {
     }
 }
 
-struct MetricsCollector {
+pub enum Command {
+    Snapshot(Sender<MetricsStore>),
+}
+
+pub struct MetricsCollectorController {
+    tx: Sender<Command>,
+}
+
+impl MetricsCollectorController {
+    pub fn snapshot(&self) -> Result<MetricsStore, String> {
+        let (tx, rx) = crossbeam_channel::bounded(0);
+        self.tx
+            .send(Command::Snapshot(tx))
+            .map_err(|e| format!("An error occurred while requesting metrics snapshot: {e}"))?;
+        rx.recv().map_err(|e| format!("Disconnected channel: {e}"))
+    }
+}
+
+pub struct MetricsCollector {
     rx: Receiver<MetricsStore>,
     local_store: MetricsStore,
+    command_rx: Receiver<Command>,
 }
 
 impl MetricsCollector {
@@ -65,6 +91,32 @@ impl MetricsCollector {
         COLLECTOR.with_borrow_mut(|c| {
             assert!(c.replace(self).is_none(), "Already initialized");
         });
+    }
+
+    fn event_loop(&mut self) {
+        loop {
+            crossbeam_channel::select! {
+                recv(self.rx) -> msg => {
+                    eprintln!("received new snapshot");
+                    self.local_store.merge(msg.unwrap());
+                }
+                recv(self.command_rx) -> cmd => {
+                    match cmd {
+                        Ok(Command::Snapshot(tx)) => {
+                            tx.send(self.local_store.clone()).unwrap();
+                        }
+                        Err(_) => {
+                            eprintln!("disconnected");
+                            break;
+                        }
+                        _ => {
+                            eprintln!("unknown command");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn recv_all(&mut self) {
@@ -77,13 +129,25 @@ impl MetricsCollector {
     }
 
     pub fn wait_for_all() -> MetricsStore {
-        COLLECTOR.with(|c| {
-            let mut c = c.borrow_mut();
+        COLLECTOR.with_borrow_mut(|c| {
             let collector = c.as_mut().expect("Collector is installed");
             collector.recv_all();
 
             mem::take(&mut collector.local_store)
         })
+    }
+
+    pub fn wait_for_shutdown() {
+        COLLECTOR.with_borrow_mut(|c| {
+            let collector = c.as_mut().expect("Collector is installed");
+            collector.event_loop();
+        });
+    }
+}
+
+impl Drop for MetricsCollector {
+    fn drop(&mut self) {
+        eprintln!("collector dropped");
     }
 }
 
@@ -131,7 +195,7 @@ mod tests {
 
     #[test]
     fn start_stop() {
-        let (collector, producer) = installer();
+        let (collector, producer, _) = installer();
         let handle = thread::spawn(|| {
             collector.install();
             MetricsCollector::wait_for_all().counter_value(&metric_name!("foo"))
