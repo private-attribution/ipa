@@ -51,7 +51,7 @@ where
 
     BitDecomposed::try_from(
         ctx.parallel_join(zip(a.iter(), b).enumerate().map(|(i, (a, b))| {
-            let ctx = ctx.narrow(&EightBitStep::Bit(i));
+            let ctx = ctx.narrow(&EightBitStep::from(i));
             a.multiply(b, ctx, record_id)
         }))
         .await?,

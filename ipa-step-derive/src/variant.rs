@@ -214,6 +214,8 @@ pub struct Generator {
     arm_count: ExtendedSum,
     // This tracks the index of each item.
     index_arms: TokenStream,
+    // This tracks integer variant constructors.
+    int_variant_constructors: TokenStream,
     // This tracks the arrays of names that are used for integer variants.
     name_arrays: TokenStream,
     // This tracks the arms of the `AsRef<str>` match implementation.
@@ -339,6 +341,16 @@ impl Generator {
             quote!(Self)
         };
 
+        if is_variant {
+            let constructor = format_ident!("{}", step_ident.to_string().to_snake_case());
+            self.int_variant_constructors.extend(quote! {
+                pub fn #constructor(v: #step_integer) -> Self {
+                    assert!(v < #step_integer::try_from(#step_count).unwrap());
+                    Self::#step_ident(v)
+                }
+            });
+        }
+
         // Construct some nice names for each integer value in the range.
         let array_name = format_ident!("{}_NAMES", step_ident.to_string().to_shouting_case());
         let skip_zeros = match *step_count - 1 {
@@ -363,7 +375,7 @@ impl Generator {
             let idx = self.arm_count.clone()
                 + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap());
             self.index_arms.extend(quote! {
-                #arm(i) => #idx,
+                #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
             });
 
             // With `step_count` variations present, each has a name.
@@ -404,7 +416,7 @@ impl Generator {
             let idx = self.arm_count.clone()
                 + quote!(::ipa_step::CompactGateIndex::try_from(*i).unwrap());
             self.index_arms.extend(quote! {
-                #arm(i) => #idx,
+                #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
             });
 
             let range_end = arm_count.clone() + *step_count;
@@ -415,11 +427,47 @@ impl Generator {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn generate(mut self, ident: &Ident, attr: &VariantAttribute) -> TokenStream {
         self.add_outer(attr);
 
         let mut result = quote! {
             impl ::ipa_step::Step for #ident {}
+        };
+
+        // Generate a bounds-checking `impl From` if this is an integer unit struct step.
+        if let &Some((count, ref type_path)) = &attr.integer {
+            result.extend(quote! {
+                impl From<#type_path> for #ident {
+                    fn from(v: #type_path) -> Self {
+                        assert!(v < #type_path::try_from(#count).unwrap());
+                        Self(v)
+                    }
+                }
+            });
+        }
+
+        // Generate bounds-checking variant constructors if there are integer variants.
+        if !self.int_variant_constructors.is_empty() {
+            let constructors = self.int_variant_constructors;
+            result.extend(quote! {
+                impl #ident {
+                    #constructors
+                }
+            });
+        }
+
+        let index_arm_wild = if self.name_arrays.is_empty() {
+            quote!()
+        } else {
+            // Note that the current `AsRef` impl indexes into an array of the valid step names, so
+            // will panic if used here to generate the message.
+            let panic_msg = format!(
+                "Index out of range in {ident}. Consider using bounds-checked step constructors.",
+            );
+            quote! {
+                _ => panic!(#panic_msg),
+            }
         };
 
         assert_eq!(self.index_arms.is_empty(), self.as_ref_arms.is_empty());
@@ -431,7 +479,10 @@ impl Generator {
             let as_ref_arms = self.as_ref_arms;
             (
                 quote! {
-                    match self { #index_arms }
+                    match self {
+                        #index_arms
+                        #index_arm_wild
+                    }
                 },
                 quote! {
                     match self { #as_ref_arms }

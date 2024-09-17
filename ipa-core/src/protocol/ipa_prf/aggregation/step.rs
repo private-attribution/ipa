@@ -26,17 +26,9 @@ pub(crate) enum AggregationStep {
 #[step(count = 512, child = crate::protocol::boolean::step::EightBitStep, name = "b")]
 pub struct BucketStep(usize);
 
-impl From<usize> for BucketStep {
-    fn from(v: usize) -> Self {
-        Self(v)
-    }
-}
-
 #[derive(CompactStep)]
-pub(crate) enum AggregateChunkStep {
-    #[step(count = 32, child = AggregateValuesStep)]
-    Aggregate(usize),
-}
+#[step(count = 32, child = AggregateValuesStep, name = "depth")]
+pub(crate) struct AggregateChunkStep(usize);
 
 #[derive(CompactStep)]
 pub(crate) enum AggregateValuesStep {

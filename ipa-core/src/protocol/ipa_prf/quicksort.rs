@@ -171,8 +171,8 @@ where
             .expect("num_comparisons_needed should not be zero");
         let v = ctx.set_total_records(total_records).dzkp_validator(
             MaliciousProtocolSteps {
-                protocol: &Step::QuicksortPass(quicksort_pass),
-                validate: &Step::QuicksortPassValidate(quicksort_pass),
+                protocol: &Step::quicksort_pass(quicksort_pass),
+                validate: &Step::quicksort_pass_validate(quicksort_pass),
             },
             // TODO: use something like this when validating in chunks
             // `TARGET_PROOF_SIZE / usize::try_from(K::BITS).unwrap() / SORT_CHUNK``

@@ -55,6 +55,16 @@ mod tests {
         _ = ComplexGate::from("/two2/one").narrow(&BasicStep::Two);
     }
 
+    /// Attempts to narrow with an out-of-range index should panic
+    /// (rather than produce an incorrect output gate).
+    #[test]
+    #[should_panic(
+        expected = "Index out of range in ComplexStep. Consider using bounds-checked step constructors."
+    )]
+    fn index_out_of_range() {
+        _ = ComplexGate::default().narrow(&ComplexStep::Two(10));
+    }
+
     /// Test that the alpha and beta gates work.
     #[test]
     fn alpha_and_beta() {

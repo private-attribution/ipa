@@ -52,7 +52,7 @@ where
 
     BitDecomposed::try_from(
         ctx.parallel_join(zip(a.iter(), b).enumerate().map(|(i, (a, b))| {
-            let ctx = ctx.narrow(&SixteenBitStep::Bit(i));
+            let ctx = ctx.narrow(&SixteenBitStep::from(i));
             async move {
                 let ab = a.multiply(b, ctx, record_id).await?;
                 Ok::<_, Error>(-ab + a + b)
