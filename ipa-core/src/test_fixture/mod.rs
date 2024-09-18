@@ -11,6 +11,7 @@ mod app;
 #[cfg(feature = "in-memory-infra")]
 pub mod circuit;
 mod event_gen;
+pub mod hybrid;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
