@@ -18,7 +18,9 @@ use crate::{
     protocol::{
         basics::{malicious_reveal, mul::semi_honest_multiply},
         context::Context,
-        ipa_prf::shuffle::{base::IntermediateShuffleMessages, shuffle, step::OPRFShuffleStep},
+        ipa_prf::shuffle::{
+            base::IntermediateShuffleMessages, shuffle_protocol, step::OPRFShuffleStep,
+        },
         prss::SharedRandomness,
         RecordId,
     },
@@ -65,7 +67,7 @@ where
         compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares).await?;
 
     // shuffle
-    let (shuffled_shares, messages) = shuffle(
+    let (shuffled_shares, messages) = shuffle_protocol(
         ctx.narrow(&OPRFShuffleStep::ShuffleProtocol),
         shares_and_tags,
     )
@@ -480,7 +482,7 @@ mod tests {
             Serializable, U128Conversions,
         },
         helpers::in_memory_config::{MaliciousHelper, MaliciousHelperContext},
-        protocol::ipa_prf::shuffle::base::shuffle,
+        protocol::ipa_prf::shuffle::base::shuffle_protocol,
         secret_sharing::SharedValue,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
@@ -590,7 +592,8 @@ mod tests {
                     // trivial shares of Gf32Bit::ONE
                     let key_shares = vec![AdditiveShare::new(Gf32Bit::ONE, Gf32Bit::ONE); 1];
                     // run shuffle
-                    let (shares, messages) = shuffle(ctx.narrow("shuffle"), rows).await.unwrap();
+                    let (shares, messages) =
+                        shuffle_protocol(ctx.narrow("shuffle"), rows).await.unwrap();
                     // verify it
                     verify_shuffle::<_, BA32, BA64>(
                         ctx.narrow("verify"),
