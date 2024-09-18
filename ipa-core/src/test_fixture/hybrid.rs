@@ -6,6 +6,23 @@ pub enum TestHybridRecord {
     TestConversion { match_key: u64, value: u32 },
 }
 
+struct HashmapEntry {
+    breakdown_key: u32,
+    total_value: u32,
+}
+
+impl HashmapEntry {
+    pub fn new(breakdown_key: u32, value: u32) -> Self {
+        Self {
+            breakdown_key,
+            total_value: value,
+        }
+    }
+}
+
+/// # Panics
+/// It won't, so long as you can convert a u32 to a usize
+#[must_use]
 pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize) -> Vec<u32> {
     let mut conversion_match_keys = HashSet::<u64>::new();
     let mut impression_match_keys = HashSet::<u64>::new();
@@ -21,7 +38,8 @@ pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize
         }
     }
 
-    let mut attributed_conversions = HashMap::<u64, (u32, u32), _>::new();
+    // The key is the "match key" and the value stores both the breakdown and total attributed value
+    let mut attributed_conversions = HashMap::<u64, HashmapEntry, _>::new();
 
     for input in input_rows {
         match input {
@@ -29,40 +47,42 @@ pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize
                 match_key,
                 breakdown_key,
             } => {
-                if let Some(_) = conversion_match_keys.get(match_key) {
+                if conversion_match_keys.contains(match_key) {
                     attributed_conversions
                         .entry(*match_key)
-                        .and_modify(|e| e.0 = *breakdown_key)
-                        .or_insert((*breakdown_key, 0));
+                        .and_modify(|e| e.breakdown_key = *breakdown_key)
+                        .or_insert(HashmapEntry::new(*breakdown_key, 0));
                 }
             }
             TestHybridRecord::TestConversion { match_key, value } => {
-                if let Some(_) = impression_match_keys.get(match_key) {
+                if impression_match_keys.contains(match_key) {
                     attributed_conversions
                         .entry(*match_key)
-                        .and_modify(|e| e.1 += value)
-                        .or_insert((0, *value));
+                        .and_modify(|e| e.total_value += value)
+                        .or_insert(HashmapEntry::new(0, *value));
                 }
             }
         }
     }
 
     let mut output = vec![0; max_breakdown];
-    for (_, (breakdown_key, value)) in attributed_conversions {
-        output[usize::try_from(breakdown_key).unwrap()] += value;
+    for (_, entry) in attributed_conversions {
+        output[usize::try_from(entry.breakdown_key).unwrap()] += entry.total_value;
     }
 
-    return output;
+    output
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::{seq::SliceRandom, thread_rng};
+
     use super::TestHybridRecord;
     use crate::test_fixture::hybrid::hybrid_in_the_clear;
 
     #[test]
     fn basic() {
-        let test_data = vec![
+        let mut test_data = vec![
             TestHybridRecord::TestImpression {
                 match_key: 12345,
                 breakdown_key: 2,
@@ -116,6 +136,9 @@ mod tests {
                 value: 8,
             }, // attributed
         ];
+
+        let mut rng = thread_rng();
+        test_data.shuffle(&mut rng);
         let expected = vec![
             0, 0, 43, // 12 + 31
             13, 33, // 25 + 8
