@@ -98,7 +98,7 @@ where
         ctx.parallel_join(zip(&**self, repeat(ctx.clone())).enumerate().map(
             |(i, (bit, ctx))| async move {
                 generic_reveal(
-                    ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(i)),
+                    ctx.narrow(&TwoHundredFiftySixBitOpStep::from(i)),
                     record_id,
                     excluded,
                     bit,

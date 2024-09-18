@@ -1,16 +1,8 @@
 use ipa_step_derive::CompactStep;
 
 #[derive(CompactStep)]
-pub enum UserNthRowStep {
-    #[step(count = 64, child = AttributionPerRowStep)]
-    Row(usize),
-}
-
-impl From<usize> for UserNthRowStep {
-    fn from(v: usize) -> Self {
-        Self::Row(v)
-    }
-}
+#[step(count = 64, child = AttributionPerRowStep, name = "row")]
+pub struct UserNthRowStep(usize);
 
 #[derive(CompactStep)]
 pub(crate) enum AttributionStep {

@@ -9,6 +9,7 @@ use syn::{
 use crate::{sum::ExtendedSum, IntoSpan};
 
 struct VariantAttrParser<'a> {
+    full_name: String,
     ident: &'a Ident,
     name: Option<String>,
     count: Option<usize>,
@@ -17,8 +18,9 @@ struct VariantAttrParser<'a> {
 }
 
 impl<'a> VariantAttrParser<'a> {
-    fn new(ident: &'a Ident) -> Self {
+    fn new(full_name: String, ident: &'a Ident) -> Self {
         Self {
+            full_name,
             ident,
             name: None,
             count: None,
@@ -161,6 +163,7 @@ impl<'a> VariantAttrParser<'a> {
             )
         } else {
             Ok(VariantAttribute {
+                full_name: self.full_name,
                 ident: self.ident.clone(),
                 name: self
                     .name
@@ -173,6 +176,7 @@ impl<'a> VariantAttrParser<'a> {
 }
 
 pub struct VariantAttribute {
+    full_name: String,
     ident: Ident,
     name: String,
     integer: Option<(usize, TypePath)>,
@@ -188,10 +192,11 @@ impl VariantAttribute {
     }
 
     /// Parse a set of attributes out from a representation of an enum.
-    pub fn parse_variants(data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
+    pub fn parse_variants(enum_ident: &Ident, data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
         let mut steps = Vec::with_capacity(data.variants.len());
         for v in &data.variants {
-            steps.push(VariantAttrParser::new(&v.ident).parse_variant(v)?);
+            let full_name = format!("{}::{}", enum_ident, v.ident);
+            steps.push(VariantAttrParser::new(full_name, &v.ident).parse_variant(v)?);
         }
         Ok(steps)
     }
@@ -202,7 +207,7 @@ impl VariantAttribute {
         attrs: &[Attribute],
         fields: Option<&Fields>,
     ) -> Result<Self, syn::Error> {
-        VariantAttrParser::new(ident).parse_outer(attrs, fields)
+        VariantAttrParser::new(ident.to_string(), ident).parse_outer(attrs, fields)
     }
 }
 
@@ -214,6 +219,8 @@ pub struct Generator {
     arm_count: ExtendedSum,
     // This tracks the index of each item.
     index_arms: TokenStream,
+    // This tracks integer variant constructors.
+    int_variant_constructors: TokenStream,
     // This tracks the arrays of names that are used for integer variants.
     name_arrays: TokenStream,
     // This tracks the arms of the `AsRef<str>` match implementation.
@@ -254,6 +261,7 @@ impl Generator {
     fn add_empty(&mut self, v: &VariantAttribute, is_variant: bool) {
         // Unpack so that we can use `quote!()`.
         let VariantAttribute {
+            full_name: _,
             ident: step_ident,
             name: step_name,
             integer: None,
@@ -323,6 +331,7 @@ impl Generator {
     fn add_int(&mut self, v: &VariantAttribute, is_variant: bool) {
         // Unpack so that we can use `quote!()`.
         let VariantAttribute {
+            full_name: step_full_name,
             ident: step_ident,
             name: step_name,
             integer: Some((step_count, step_integer)),
@@ -338,6 +347,22 @@ impl Generator {
         } else {
             quote!(Self)
         };
+
+        if is_variant {
+            let constructor = format_ident!("{}", step_ident.to_string().to_snake_case());
+            let out_of_bounds_msg = format!(
+                "Step index {{v}} out of bounds for {step_full_name} with count {step_count}."
+            );
+            self.int_variant_constructors.extend(quote! {
+                pub fn #constructor(v: #step_integer) -> Self {
+                    assert!(
+                        v < #step_integer::try_from(#step_count).unwrap(),
+                        #out_of_bounds_msg,
+                    );
+                    Self::#step_ident(v)
+                }
+            });
+        }
 
         // Construct some nice names for each integer value in the range.
         let array_name = format_ident!("{}_NAMES", step_ident.to_string().to_shouting_case());
@@ -362,8 +387,11 @@ impl Generator {
         if let Some(child) = step_child {
             let idx = self.arm_count.clone()
                 + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap());
+            let out_of_bounds_msg =
+                format!("Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors.");
             self.index_arms.extend(quote! {
-                #arm(i) => #idx,
+                #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
+                #arm(i) => panic!(#out_of_bounds_msg),
             });
 
             // With `step_count` variations present, each has a name.
@@ -403,8 +431,11 @@ impl Generator {
         } else {
             let idx = self.arm_count.clone()
                 + quote!(::ipa_step::CompactGateIndex::try_from(*i).unwrap());
+            let out_of_bounds_msg =
+                format!("Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors.");
             self.index_arms.extend(quote! {
-                #arm(i) => #idx,
+                #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
+                #arm(i) => panic!(#out_of_bounds_msg),
             });
 
             let range_end = arm_count.clone() + *step_count;
@@ -415,12 +446,40 @@ impl Generator {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn generate(mut self, ident: &Ident, attr: &VariantAttribute) -> TokenStream {
         self.add_outer(attr);
 
         let mut result = quote! {
             impl ::ipa_step::Step for #ident {}
         };
+
+        // Generate a bounds-checking `impl From` if this is an integer unit struct step.
+        if let &Some((count, ref type_path)) = &attr.integer {
+            let out_of_bounds_msg =
+                format!("Step index {{v}} out of bounds for {ident} with count {count}.");
+            result.extend(quote! {
+                impl From<#type_path> for #ident {
+                    fn from(v: #type_path) -> Self {
+                        assert!(
+                            v < #type_path::try_from(#count).unwrap(),
+                            #out_of_bounds_msg,
+                        );
+                        Self(v)
+                    }
+                }
+            });
+        }
+
+        // Generate bounds-checking variant constructors if there are integer variants.
+        if !self.int_variant_constructors.is_empty() {
+            let constructors = self.int_variant_constructors;
+            result.extend(quote! {
+                impl #ident {
+                    #constructors
+                }
+            });
+        }
 
         assert_eq!(self.index_arms.is_empty(), self.as_ref_arms.is_empty());
         let (index_arms, as_ref_arms) = if self.index_arms.is_empty() {

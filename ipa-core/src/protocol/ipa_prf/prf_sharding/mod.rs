@@ -899,6 +899,7 @@ pub mod tests {
             boolean_array::{BooleanArray, BA16, BA20, BA3, BA5, BA8},
             Field, U128Conversions,
         },
+        helpers::repeat_n,
         protocol::ipa_prf::prf_sharding::attribute_cap_aggregate,
         rand::Rng,
         secret_sharing::{
@@ -909,6 +910,7 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
+    #[derive(Clone)]
     struct PreShardedAndSortedOPRFTestInput<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
         prf_of_match_key: u64,
         is_trigger_bit: Boolean,
@@ -1102,6 +1104,7 @@ pub mod tests {
             );
         });
     }
+
     #[test]
     fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;
@@ -1162,6 +1165,32 @@ pub mod tests {
         });
     }
 
+    #[test]
+    #[should_panic(expected = "Step index 64 out of bounds for UserNthRowStep with count 64.")]
+    fn attribution_too_many_records_per_user() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> =
+                repeat_n(oprf_test_input(123, false, 17, 0), 65).collect();
+
+            let histogram = repeat_n(1, 65).collect::<Vec<_>>();
+            let histogram_ref = histogram.as_slice();
+
+            world
+                .malicious(records.into_iter(), |ctx, input_rows| async move {
+                    attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        histogram_ref,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await;
+        });
+    }
     #[test]
     fn capping_bugfix() {
         const HISTOGRAM: [usize; 10] = [5, 5, 5, 5, 5, 5, 5, 2, 1, 1];

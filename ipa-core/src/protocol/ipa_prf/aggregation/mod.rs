@@ -234,8 +234,8 @@ where
         let stream = aggregation_input.by_ref().take(chunk);
         let validator = ctx.clone().dzkp_validator(
             MaliciousProtocolSteps {
-                protocol: &Step::AggregateChunk(chunk_counter),
-                validate: &Step::AggregateChunkValidate(chunk_counter),
+                protocol: &Step::aggregate_chunk(chunk_counter),
+                validate: &Step::aggregate_chunk_validate(chunk_counter),
             },
             agg_proof_chunk,
         );
@@ -333,7 +333,7 @@ where
         // number of outputs (`next_num_rows`) gets rounded up. If calculating an explicit total
         // records, that would get rounded down.
         let par_agg_ctx = ctx
-            .narrow(&AggregateChunkStep::Aggregate(depth))
+            .narrow(&AggregateChunkStep::from(depth))
             .set_total_records(TotalRecords::Indeterminate);
         let next_num_rows = (num_rows + 1) / 2;
         aggregated_stream = Box::pin(
