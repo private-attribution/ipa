@@ -152,6 +152,7 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply | QueryType::TestAddInPrimeField => Ok(()),
+                #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestShardedShuffle => Ok(()),
                 QueryType::SemiHonestOprfIpa(config) | QueryType::MaliciousOprfIpa(config) => {
                     write!(
