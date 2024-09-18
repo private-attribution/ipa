@@ -19,7 +19,9 @@ use crate::{
         basics::{malicious_reveal, mul::semi_honest_multiply},
         context::Context,
         ipa_prf::shuffle::{
-            base::IntermediateShuffleMessages, shuffle_protocol, step::OPRFShuffleStep,
+            base::IntermediateShuffleMessages,
+            shuffle_protocol,
+            step::{OPRFShuffleStep, VerifyShuffleStep},
         },
         prss::SharedRandomness,
         RecordId,
@@ -139,7 +141,7 @@ async fn verify_shuffle<C: Context, S: BooleanArray, B: BooleanArray>(
 ) -> Result<(), Error> {
     // reveal keys
     let k_ctx = ctx
-        .narrow(&OPRFShuffleStep::RevealMACKey)
+        .narrow(&VerifyShuffleStep::RevealMACKey)
         .set_total_records(TotalRecords::specified(key_shares.len())?);
     let keys = reveal_keys(&k_ctx, key_shares)
         .await?
@@ -190,10 +192,10 @@ async fn h1_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 
     // setup channels
     let h3_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashesH3toH1)
+        .narrow(&VerifyShuffleStep::HashesH3toH1)
         .set_total_records(TotalRecords::specified(2)?);
     let h2_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH2toH1)
+        .narrow(&VerifyShuffleStep::HashH2toH1)
         .set_total_records(TotalRecords::ONE);
     let channel_h3 = &h3_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Left));
     let channel_h2 = &h2_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right));
@@ -255,10 +257,10 @@ async fn h2_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 
     // setup channels
     let h1_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH2toH1)
+        .narrow(&VerifyShuffleStep::HashH2toH1)
         .set_total_records(TotalRecords::specified(1)?);
     let h3_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH3toH2)
+        .narrow(&VerifyShuffleStep::HashH3toH2)
         .set_total_records(TotalRecords::specified(1)?);
     let channel_h1 = &h1_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left));
     let channel_h3 = &h3_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right));
@@ -306,10 +308,10 @@ async fn h3_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 
     // setup channels
     let h1_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashesH3toH1)
+        .narrow(&VerifyShuffleStep::HashesH3toH1)
         .set_total_records(TotalRecords::specified(2)?);
     let h2_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH3toH2)
+        .narrow(&VerifyShuffleStep::HashH3toH2)
         .set_total_records(TotalRecords::specified(1)?);
     let channel_h1 = &h1_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Right));
     let channel_h2 = &h2_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left));
