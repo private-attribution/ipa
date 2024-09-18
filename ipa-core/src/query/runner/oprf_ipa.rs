@@ -21,8 +21,8 @@ use crate::{
         basics::{BooleanArrayMul, Reveal, ShareKnownValue},
         context::{DZKPUpgraded, MacUpgraded, UpgradableContext},
         ipa_prf::{
-            oprf_ipa, oprf_padding::PaddingParameters, prf_eval::PrfSharing, OPRFIPAInputRow,
-            AGG_CHUNK, CONV_CHUNK, PRF_CHUNK, SORT_CHUNK,
+            oprf_ipa, oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle,
+            OPRFIPAInputRow, AGG_CHUNK, CONV_CHUNK, PRF_CHUNK, SORT_CHUNK,
         },
         prss::FromPrss,
         step::ProtocolStep::IpaPrf,
@@ -55,7 +55,7 @@ impl<C, HV, R: PrivateKeyRegistry> OprfIpaQuery<C, HV, R> {
 #[allow(clippy::too_many_lines)]
 impl<C, HV, R> OprfIpaQuery<C, HV, R>
 where
-    C: UpgradableContext,
+    C: UpgradableContext + Shuffle,
     HV: BooleanArray + U128Conversions,
     R: PrivateKeyRegistry,
     Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,

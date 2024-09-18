@@ -18,7 +18,11 @@ use crate::{
     protocol::{
         basics::{malicious_reveal, mul::semi_honest_multiply},
         context::Context,
-        ipa_prf::shuffle::{base::IntermediateShuffleMessages, shuffle, step::OPRFShuffleStep},
+        ipa_prf::shuffle::{
+            base::IntermediateShuffleMessages,
+            shuffle_protocol,
+            step::{OPRFShuffleStep, VerifyShuffleStep},
+        },
         prss::SharedRandomness,
         RecordId,
     },
@@ -65,11 +69,7 @@ where
         compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares).await?;
 
     // shuffle
-    let (shuffled_shares, messages) = shuffle(
-        ctx.narrow(&OPRFShuffleStep::ShuffleProtocol),
-        shares_and_tags,
-    )
-    .await?;
+    let (shuffled_shares, messages) = shuffle_protocol(ctx.clone(), shares_and_tags).await?;
 
     // verify the shuffle
     verify_shuffle::<_, S, B>(
@@ -141,7 +141,7 @@ async fn verify_shuffle<C: Context, S: BooleanArray, B: BooleanArray>(
 ) -> Result<(), Error> {
     // reveal keys
     let k_ctx = ctx
-        .narrow(&OPRFShuffleStep::RevealMACKey)
+        .narrow(&VerifyShuffleStep::RevealMACKey)
         .set_total_records(TotalRecords::specified(key_shares.len())?);
     let keys = reveal_keys(&k_ctx, key_shares)
         .await?
@@ -192,10 +192,10 @@ async fn h1_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 
     // setup channels
     let h3_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashesH3toH1)
+        .narrow(&VerifyShuffleStep::HashesH3toH1)
         .set_total_records(TotalRecords::specified(2)?);
     let h2_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH2toH1)
+        .narrow(&VerifyShuffleStep::HashH2toH1)
         .set_total_records(TotalRecords::ONE);
     let channel_h3 = &h3_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Left));
     let channel_h2 = &h2_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right));
@@ -257,10 +257,10 @@ async fn h2_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 
     // setup channels
     let h1_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH2toH1)
+        .narrow(&VerifyShuffleStep::HashH2toH1)
         .set_total_records(TotalRecords::specified(1)?);
     let h3_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH3toH2)
+        .narrow(&VerifyShuffleStep::HashH3toH2)
         .set_total_records(TotalRecords::specified(1)?);
     let channel_h1 = &h1_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left));
     let channel_h3 = &h3_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right));
@@ -308,10 +308,10 @@ async fn h3_verify<C: Context, S: BooleanArray, B: BooleanArray>(
 
     // setup channels
     let h1_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashesH3toH1)
+        .narrow(&VerifyShuffleStep::HashesH3toH1)
         .set_total_records(TotalRecords::specified(2)?);
     let h2_ctx = ctx
-        .narrow(&OPRFShuffleStep::HashH3toH2)
+        .narrow(&VerifyShuffleStep::HashH3toH2)
         .set_total_records(TotalRecords::specified(1)?);
     let channel_h1 = &h1_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Right));
     let channel_h2 = &h2_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left));
@@ -480,7 +480,7 @@ mod tests {
             Serializable, U128Conversions,
         },
         helpers::in_memory_config::{MaliciousHelper, MaliciousHelperContext},
-        protocol::ipa_prf::shuffle::base::shuffle,
+        protocol::ipa_prf::shuffle::base::shuffle_protocol,
         secret_sharing::SharedValue,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
@@ -590,7 +590,8 @@ mod tests {
                     // trivial shares of Gf32Bit::ONE
                     let key_shares = vec![AdditiveShare::new(Gf32Bit::ONE, Gf32Bit::ONE); 1];
                     // run shuffle
-                    let (shares, messages) = shuffle(ctx.narrow("shuffle"), rows).await.unwrap();
+                    let (shares, messages) =
+                        shuffle_protocol(ctx.narrow("shuffle"), rows).await.unwrap();
                     // verify it
                     verify_shuffle::<_, BA32, BA64>(
                         ctx.narrow("verify"),

@@ -10,8 +10,12 @@ pub(crate) enum OPRFShuffleStep {
     TransferX2,
     TransferY1,
     GenerateTags,
-    ShuffleProtocol,
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::VerifyShuffleStep)]
     VerifyShuffle,
+}
+
+#[derive(CompactStep)]
+pub(crate) enum VerifyShuffleStep {
     RevealMACKey,
     HashesH3toH1,
     HashH2toH1,

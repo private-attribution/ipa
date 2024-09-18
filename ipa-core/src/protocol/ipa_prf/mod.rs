@@ -96,7 +96,7 @@ use crate::{
     protocol::{
         context::Validator,
         dp::dp_for_histogram,
-        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing},
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
@@ -228,7 +228,7 @@ pub async fn oprf_ipa<'ctx, C, BK, TV, HV, TS, const SS_BITS: usize, const B: us
     dp_padding_params: PaddingParameters,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    C: UpgradableContext + 'ctx,
+    C: UpgradableContext + 'ctx + Shuffle,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
