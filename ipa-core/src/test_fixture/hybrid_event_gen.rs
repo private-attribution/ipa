@@ -64,12 +64,14 @@ pub struct EventGenerator<R: Rng> {
 }
 
 impl<R: Rng> EventGenerator<R> {
+    #[must_use]
     pub fn with_default_config(rng: R) -> Self {
         Self::with_config(rng, Config::default())
     }
 
     /// # Panics
     /// If the configuration is not valid.
+    #[must_use]
     pub fn with_config(rng: R, config: Config) -> Self {
         let max_capacity = usize::try_from(config.max_convs_per_imp.get() + 1).unwrap();
         Self {
@@ -82,84 +84,49 @@ impl<R: Rng> EventGenerator<R> {
     fn gen_batch(&mut self) {
         match self.config.conversion_distribution {
             ConversionDistribution::OnlyImpressions => {
-                let match_key = self.rng.gen::<u64>();
-                let imp = self.gen_impression(match_key);
-                self.in_flight.push(imp);
+                self.gen_batch_with_params(0.0, 1.0, 0.0);
             }
             ConversionDistribution::OnlyConversions => {
-                let match_key = self.rng.gen::<u64>();
-                let conv = self.gen_conversion(match_key);
-                self.in_flight.push(conv);
+                self.gen_batch_with_params(1.0, 0.0, 0.0);
             }
             ConversionDistribution::Default => {
-                let match_key = self.rng.gen::<u64>();
-                match self.rng.gen::<u8>() {
-                    // 10% chance of unmatched conversion
-                    0..=25 => {
-                        let conv = self.gen_conversion(match_key);
-                        self.in_flight.push(conv);
-                    }
-
-                    // 70% chance of unmatched impression
-                    26..=206 => {
-                        let imp = self.gen_impression(match_key);
-                        self.in_flight.push(imp);
-                    }
-
-                    // 20% chance of impression with at least one conversion
-                    _ => {
-                        let imp = self.gen_impression(match_key);
-                        let conv = self.gen_conversion(match_key);
-                        self.in_flight.push(imp);
-                        self.in_flight.push(conv);
-                        let mut conv_count = 1;
-                        // long-tailed distribution of # of conversions per impression
-                        // 15.6% chance of adding each subsequent conversion
-                        // will not exceed the configured maximum number of conversions per impression
-                        while conv_count < self.config.max_convs_per_imp.get()
-                            && self.rng.gen::<u64>() < 40
-                        {
-                            let conv = self.gen_conversion(match_key);
-                            self.in_flight.push(conv);
-                            conv_count += 1;
-                        }
-                    }
-                }
+                self.gen_batch_with_params(0.1, 0.7, 0.15);
             }
             ConversionDistribution::LotsOfConversionsPerImpression => {
-                let match_key = self.rng.gen::<u64>();
-                match self.rng.gen::<u8>() {
-                    // 40% chance of unmatched conversion
-                    0..=102 => {
-                        let conv = self.gen_conversion(match_key);
-                        self.in_flight.push(conv);
-                    }
+                self.gen_batch_with_params(0.3, 0.4, 0.8);
+            }
+        }
+    }
 
-                    // 30% chance of unmatched impression
-                    103..=180 => {
-                        let imp = self.gen_impression(match_key);
-                        self.in_flight.push(imp);
-                    }
-
-                    // 30% chance of impression with at least one conversion
-                    _ => {
-                        let imp = self.gen_impression(match_key);
-                        let conv = self.gen_conversion(match_key);
-                        self.in_flight.push(imp);
-                        self.in_flight.push(conv);
-                        let mut conv_count = 1;
-                        // long-tailed distribution of # of conversions per impression
-                        // 80% chance of adding each subsequent conversion
-                        // will not exceed the configured maximum number of conversions per impression
-                        while conv_count < self.config.max_convs_per_imp.get()
-                            && self.rng.gen::<u64>() < 205
-                        {
-                            let conv = self.gen_conversion(match_key);
-                            self.in_flight.push(conv);
-                            conv_count += 1;
-                        }
-                    }
-                }
+    fn gen_batch_with_params(
+        &mut self,
+        unmatched_conversions: f32,
+        unmatched_impressions: f32,
+        subsequent_conversion_prob: f32,
+    ) {
+        assert!(unmatched_conversions + unmatched_impressions <= 1.0);
+        let match_key = self.rng.gen::<u64>();
+        let rand = self.rng.gen::<f32>();
+        if rand < unmatched_conversions {
+            let conv = self.gen_conversion(match_key);
+            self.in_flight.push(conv);
+        } else if rand < unmatched_conversions + unmatched_impressions {
+            let imp = self.gen_impression(match_key);
+            self.in_flight.push(imp);
+        } else {
+            let imp = self.gen_impression(match_key);
+            let conv = self.gen_conversion(match_key);
+            self.in_flight.push(imp);
+            self.in_flight.push(conv);
+            let mut conv_count = 1;
+            // long-tailed distribution of # of conversions per impression
+            // will not exceed the configured maximum number of conversions per impression
+            while conv_count < self.config.max_convs_per_imp.get()
+                && self.rng.gen::<f32>() < subsequent_conversion_prob
+            {
+                let conv = self.gen_conversion(match_key);
+                self.in_flight.push(conv);
+                conv_count += 1;
             }
         }
     }
