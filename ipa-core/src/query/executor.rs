@@ -94,6 +94,12 @@ pub fn execute<R: PrivateKeyRegistry>(
                 Box::pin(execute_test_multiply::<Fp32BitPrime>(prss, gateway, input))
             })
         }
+        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        (QueryType::TestShardedShuffle, _) => {
+            do_query(config, gateway, input, |_prss, _gateway, _config, _input| {
+                unimplemented!()
+            })
+        }
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::TestAddInPrimeField, FieldType::Fp31) => {
             do_query(config, gateway, input, |prss, gateway, _config, input| {
