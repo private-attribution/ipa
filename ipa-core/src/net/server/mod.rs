@@ -31,7 +31,6 @@ use futures::{
     Future, FutureExt,
 };
 use hyper::{body::Incoming, header::HeaderName, Request, Version};
-use metrics::increment_counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use rustls_pki_types::CertificateDer;
 #[cfg(all(feature = "shuttle", test))]
@@ -137,8 +136,6 @@ impl MpcHelperServer {
                 .on_request(|request: &hyper::Request<_>, _: &Span| {
                     ipa_metrics::counter!(RequestProtocolVersion::from(request.version()), 1);
                     ipa_metrics::counter!(REQUESTS_RECEIVED, 1);
-                    increment_counter!(RequestProtocolVersion::from(request.version()));
-                    increment_counter!(REQUESTS_RECEIVED);
                 }),
         );
         let handle = Handle::new();
