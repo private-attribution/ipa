@@ -173,6 +173,22 @@ pub mod query {
 
                     Ok(())
                 }
+                QueryType::SemiHonestHybrid(config) => {
+                    write!(
+                        f,
+                        "&per_user_credit_cap={}&max_breakdown_key={}&with_dp={}&epsilon={}",
+                        config.per_user_credit_cap,
+                        config.max_breakdown_key,
+                        config.with_dp,
+                        config.epsilon,
+                    )?;
+
+                    if config.plaintext_match_keys {
+                        write!(f, "&plaintext_match_keys=true")?;
+                    }
+
+                    Ok(())
+                }
             }
         }
     }
