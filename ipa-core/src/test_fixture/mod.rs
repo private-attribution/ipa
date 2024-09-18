@@ -12,6 +12,7 @@ mod app;
 pub mod circuit;
 mod event_gen;
 pub mod hybrid;
+mod hybrid_event_gen;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
