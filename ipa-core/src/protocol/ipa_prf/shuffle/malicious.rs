@@ -67,11 +67,7 @@ where
         compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares).await?;
 
     // shuffle
-    let (shuffled_shares, messages) = shuffle_protocol(
-        ctx.narrow(&OPRFShuffleStep::ShuffleProtocol),
-        shares_and_tags,
-    )
-    .await?;
+    let (shuffled_shares, messages) = shuffle_protocol(ctx.clone(), shares_and_tags).await?;
 
     // verify the shuffle
     verify_shuffle::<_, S, B>(
