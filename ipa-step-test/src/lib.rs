@@ -59,7 +59,7 @@ mod tests {
     /// (rather than produce an incorrect output gate).
     #[test]
     #[should_panic(
-        expected = "Index out of range in ComplexStep. Consider using bounds-checked step constructors."
+        expected = "Step index 10 out of bounds for ComplexStep::Two with count 10. Consider using bounds-checked step constructors."
     )]
     fn index_out_of_range() {
         _ = ComplexGate::default().narrow(&ComplexStep::Two(10));

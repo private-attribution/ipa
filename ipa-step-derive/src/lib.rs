@@ -118,7 +118,7 @@ fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let mut g = Generator::default();
     let attr = match &ast.data {
         Data::Enum(data) => {
-            for v in VariantAttribute::parse_variants(data)? {
+            for v in VariantAttribute::parse_variants(ident, data)? {
                 g.add_variant(&v);
             }
             VariantAttribute::parse_outer(ident, &ast.attrs, None)?
@@ -404,7 +404,10 @@ mod test {
 
                 impl ManyArms {
                     pub fn arm(v: u8) -> Self {
-                        assert!(v < u8::try_from(3usize).unwrap());
+                        assert!(
+                            v < u8::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for ManyArms::Arm with count 3.",
+                        );
                         Self::Arm(v)
                     }
                 }
@@ -432,7 +435,7 @@ mod test {
                     fn base_index (& self) -> ::ipa_step::CompactGateIndex {
                         match self {
                             Self::Arm (i) if *i < u8::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
-                            _ => panic!("Index out of range in ManyArms. Consider using bounds-checked step constructors."),
+                            Self::Arm (i) => panic!("Step index {i} out of bounds for ManyArms::Arm with count 3. Consider using bounds-checked step constructors."),
                         }
                     }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
@@ -461,7 +464,10 @@ mod test {
 
                 impl ManyArms {
                     pub fn arm(v: u8) -> Self {
-                        assert!(v < u8::try_from(3usize).unwrap());
+                        assert!(
+                            v < u8::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for ManyArms::Arm with count 3.",
+                        );
                         Self::Arm(v)
                     }
                 }
@@ -489,7 +495,7 @@ mod test {
                     fn base_index (& self) -> ::ipa_step::CompactGateIndex {
                         match self {
                             Self::Arm (i) if *i < u8::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
-                            _ => panic!("Index out of range in ManyArms. Consider using bounds-checked step constructors."),
+                            Self::Arm (i) => panic!("Step index {i} out of bounds for ManyArms::Arm with count 3. Consider using bounds-checked step constructors."),
                         }
                     }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
@@ -660,7 +666,10 @@ mod test {
 
                 impl Parent {
                     pub fn offspring(v: u8) -> Self {
-                        assert!(v < u8::try_from(5usize).unwrap());
+                        assert!(
+                            v < u8::try_from(5usize).unwrap(),
+                            "Step index {v} out of bounds for Parent::Offspring with count 5.",
+                        );
                         Self::Offspring(v)
                     }
                 }
@@ -690,7 +699,7 @@ mod test {
                     fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
                             Self::Offspring(i) if *i < u8::try_from(5usize).unwrap() => (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
-                            _ => panic!("Index out of range in Parent. Consider using bounds-checked step constructors."),
+                            Self::Offspring(i) => panic!("Step index {i} out of bounds for Parent::Offspring with count 5. Consider using bounds-checked step constructors."),
                         }
                     }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
@@ -751,7 +760,10 @@ mod test {
 
                 impl AllArms {
                     pub fn int(v: usize) -> Self {
-                        assert!(v < usize::try_from(3usize).unwrap());
+                        assert!(
+                            v < usize::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for AllArms::Int with count 3.",
+                        );
                         Self::Int(v)
                     }
                 }
@@ -783,9 +795,9 @@ mod test {
                         match self {
                             Self::Empty => 0,
                             Self::Int(i) if *i < usize::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap() + 1,
+                            Self::Int(i) => panic!("Step index {i} out of bounds for AllArms::Int with count 3. Consider using bounds-checked step constructors."),
                             Self::Child => 4,
                             Self::Final => <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5,
-                            _ => panic!("Index out of range in AllArms. Consider using bounds-checked step constructors."),
                         }
                     }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
@@ -898,7 +910,10 @@ mod test {
 
                 impl From<u8> for StructInt {
                     fn from(v: u8) -> Self {
-                        assert!(v < u8::try_from(3usize).unwrap());
+                        assert!(
+                            v < u8::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for StructInt with count 3.",
+                        );
                         Self(v)
                     }
                 }
@@ -927,7 +942,7 @@ mod test {
                     fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
                             Self(i) if *i < u8::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
-                            _ => panic!("Index out of range in StructInt. Consider using bounds-checked step constructors."),
+                            Self(i) => panic!("Step index {i} out of bounds for StructInt with count 3. Consider using bounds-checked step constructors."),
                         }
                     }
 

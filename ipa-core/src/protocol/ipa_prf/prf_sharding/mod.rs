@@ -1166,7 +1166,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "v < usize::try_from(64usize).unwrap()")]
+    #[should_panic(expected = "Step index 64 out of bounds for UserNthRowStep with count 64.")]
     fn attribution_too_many_records_per_user() {
         run(|| async move {
             let world = TestWorld::default();

@@ -9,6 +9,7 @@ use syn::{
 use crate::{sum::ExtendedSum, IntoSpan};
 
 struct VariantAttrParser<'a> {
+    full_name: String,
     ident: &'a Ident,
     name: Option<String>,
     count: Option<usize>,
@@ -17,8 +18,9 @@ struct VariantAttrParser<'a> {
 }
 
 impl<'a> VariantAttrParser<'a> {
-    fn new(ident: &'a Ident) -> Self {
+    fn new(full_name: String, ident: &'a Ident) -> Self {
         Self {
+            full_name,
             ident,
             name: None,
             count: None,
@@ -161,6 +163,7 @@ impl<'a> VariantAttrParser<'a> {
             )
         } else {
             Ok(VariantAttribute {
+                full_name: self.full_name,
                 ident: self.ident.clone(),
                 name: self
                     .name
@@ -173,6 +176,7 @@ impl<'a> VariantAttrParser<'a> {
 }
 
 pub struct VariantAttribute {
+    full_name: String,
     ident: Ident,
     name: String,
     integer: Option<(usize, TypePath)>,
@@ -188,10 +192,11 @@ impl VariantAttribute {
     }
 
     /// Parse a set of attributes out from a representation of an enum.
-    pub fn parse_variants(data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
+    pub fn parse_variants(enum_ident: &Ident, data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
         let mut steps = Vec::with_capacity(data.variants.len());
         for v in &data.variants {
-            steps.push(VariantAttrParser::new(&v.ident).parse_variant(v)?);
+            let full_name = format!("{}::{}", enum_ident, v.ident);
+            steps.push(VariantAttrParser::new(full_name, &v.ident).parse_variant(v)?);
         }
         Ok(steps)
     }
@@ -202,7 +207,7 @@ impl VariantAttribute {
         attrs: &[Attribute],
         fields: Option<&Fields>,
     ) -> Result<Self, syn::Error> {
-        VariantAttrParser::new(ident).parse_outer(attrs, fields)
+        VariantAttrParser::new(ident.to_string(), ident).parse_outer(attrs, fields)
     }
 }
 
@@ -256,6 +261,7 @@ impl Generator {
     fn add_empty(&mut self, v: &VariantAttribute, is_variant: bool) {
         // Unpack so that we can use `quote!()`.
         let VariantAttribute {
+            full_name: _,
             ident: step_ident,
             name: step_name,
             integer: None,
@@ -325,6 +331,7 @@ impl Generator {
     fn add_int(&mut self, v: &VariantAttribute, is_variant: bool) {
         // Unpack so that we can use `quote!()`.
         let VariantAttribute {
+            full_name: step_full_name,
             ident: step_ident,
             name: step_name,
             integer: Some((step_count, step_integer)),
@@ -343,9 +350,15 @@ impl Generator {
 
         if is_variant {
             let constructor = format_ident!("{}", step_ident.to_string().to_snake_case());
+            let out_of_bounds_msg = format!(
+                "Step index {{v}} out of bounds for {step_full_name} with count {step_count}."
+            );
             self.int_variant_constructors.extend(quote! {
                 pub fn #constructor(v: #step_integer) -> Self {
-                    assert!(v < #step_integer::try_from(#step_count).unwrap());
+                    assert!(
+                        v < #step_integer::try_from(#step_count).unwrap(),
+                        #out_of_bounds_msg,
+                    );
                     Self::#step_ident(v)
                 }
             });
@@ -374,8 +387,11 @@ impl Generator {
         if let Some(child) = step_child {
             let idx = self.arm_count.clone()
                 + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap());
+            let out_of_bounds_msg =
+                format!("Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors.");
             self.index_arms.extend(quote! {
                 #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
+                #arm(i) => panic!(#out_of_bounds_msg),
             });
 
             // With `step_count` variations present, each has a name.
@@ -415,8 +431,11 @@ impl Generator {
         } else {
             let idx = self.arm_count.clone()
                 + quote!(::ipa_step::CompactGateIndex::try_from(*i).unwrap());
+            let out_of_bounds_msg =
+                format!("Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors.");
             self.index_arms.extend(quote! {
                 #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
+                #arm(i) => panic!(#out_of_bounds_msg),
             });
 
             let range_end = arm_count.clone() + *step_count;
@@ -437,10 +456,15 @@ impl Generator {
 
         // Generate a bounds-checking `impl From` if this is an integer unit struct step.
         if let &Some((count, ref type_path)) = &attr.integer {
+            let out_of_bounds_msg =
+                format!("Step index {{v}} out of bounds for {ident} with count {count}.");
             result.extend(quote! {
                 impl From<#type_path> for #ident {
                     fn from(v: #type_path) -> Self {
-                        assert!(v < #type_path::try_from(#count).unwrap());
+                        assert!(
+                            v < #type_path::try_from(#count).unwrap(),
+                            #out_of_bounds_msg,
+                        );
                         Self(v)
                     }
                 }
@@ -457,19 +481,6 @@ impl Generator {
             });
         }
 
-        let index_arm_wild = if self.name_arrays.is_empty() {
-            quote!()
-        } else {
-            // Note that the current `AsRef` impl indexes into an array of the valid step names, so
-            // will panic if used here to generate the message.
-            let panic_msg = format!(
-                "Index out of range in {ident}. Consider using bounds-checked step constructors.",
-            );
-            quote! {
-                _ => panic!(#panic_msg),
-            }
-        };
-
         assert_eq!(self.index_arms.is_empty(), self.as_ref_arms.is_empty());
         let (index_arms, as_ref_arms) = if self.index_arms.is_empty() {
             let n = attr.name();
@@ -479,10 +490,7 @@ impl Generator {
             let as_ref_arms = self.as_ref_arms;
             (
                 quote! {
-                    match self {
-                        #index_arms
-                        #index_arm_wild
-                    }
+                    match self { #index_arms }
                 },
                 quote! {
                     match self { #as_ref_arms }
