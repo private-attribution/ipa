@@ -24,8 +24,8 @@ impl HashmapEntry {
 /// It won't, so long as you can convert a u32 to a usize
 #[must_use]
 pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize) -> Vec<u32> {
-    let mut conversion_match_keys = HashSet::<u64>::new();
-    let mut impression_match_keys = HashSet::<u64>::new();
+    let mut conversion_match_keys = HashSet::new();
+    let mut impression_match_keys = HashSet::new();
 
     for input in input_rows {
         match input {
@@ -39,7 +39,7 @@ pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize
     }
 
     // The key is the "match key" and the value stores both the breakdown and total attributed value
-    let mut attributed_conversions = HashMap::<u64, HashmapEntry, _>::new();
+    let mut attributed_conversions = HashMap::new();
 
     for input in input_rows {
         match input {
@@ -48,10 +48,10 @@ pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize
                 breakdown_key,
             } => {
                 if conversion_match_keys.contains(match_key) {
-                    attributed_conversions
+                    let v = attributed_conversions
                         .entry(*match_key)
-                        .and_modify(|e| e.breakdown_key = *breakdown_key)
                         .or_insert(HashmapEntry::new(*breakdown_key, 0));
+                    v.breakdown_key = *breakdown_key;
                 }
             }
             TestHybridRecord::TestConversion { match_key, value } => {
