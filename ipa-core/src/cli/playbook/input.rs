@@ -203,13 +203,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "ParseIntError")]
     fn parse_negative() {
         Fp31::from_str("-1");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "ParseIntError")]
     fn parse_empty() {
         Fp31::from_str("");
     }
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "ParseIntError")]
     fn tuple_parse_error() {
         <(Fp31, Fp31)>::from_str("20,");
     }

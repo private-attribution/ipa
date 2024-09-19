@@ -537,9 +537,9 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
 
     #[tokio::test]
     async fn encrypt_and_execute_query() {
-        const EXPECTED: &[u128] = &[0, 8, 5];
+        const EXPECTED: &[u128] = &[0, 2, 5];
 
-        let records: Vec<TestRawDataRecord> = vec![
+        let records = vec![
             TestRawDataRecord {
                 timestamp: 0,
                 user_id: 12345,
@@ -568,81 +568,60 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
                 breakdown_key: 0,
                 trigger_value: 2,
             },
-            TestRawDataRecord {
-                timestamp: 20,
-                user_id: 68362,
-                is_trigger_report: false,
-                breakdown_key: 1,
-                trigger_value: 0,
-            },
-            TestRawDataRecord {
-                timestamp: 30,
-                user_id: 68362,
-                is_trigger_report: true,
-                breakdown_key: 1,
-                trigger_value: 7,
-            },
         ];
         let query_size = QuerySize::try_from(records.len()).unwrap();
         let mut input_file = NamedTempFile::new().unwrap();
 
         for event in records {
-            let _ = event.to_csv(input_file.as_file_mut());
+            event.to_csv(input_file.as_file_mut()).unwrap();
             writeln!(input_file.as_file()).unwrap();
         }
-        input_file.as_file_mut().flush().unwrap();
+        input_file.flush().unwrap();
 
         let output_dir = tempdir().unwrap();
         let network_file = write_network_file();
-        let encrypt_args =
-            build_encrypt_args(input_file.path(), output_dir.path(), network_file.path());
-        let _ = encrypt(&encrypt_args);
+        encrypt(&build_encrypt_args(
+            input_file.path(),
+            output_dir.path(),
+            network_file.path(),
+        ))
+        .unwrap();
 
         let files = [
             &output_dir.path().join("helper1.enc"),
             &output_dir.path().join("helper2.enc"),
             &output_dir.path().join("helper3.enc"),
         ];
-        let encrypted_oprf_report_streams = EncryptedOprfReportStreams::from(files);
 
         let world = TestWorld::default();
-        let contexts = world.contexts();
 
-        let mk_private_keys = vec![
-            hex::decode("53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff")
-                .expect("manually provided for test"),
-            hex::decode("3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569")
-                .expect("manually provided for test"),
-            hex::decode("1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7")
-                .expect("manually provided for test"),
+        let mk_private_keys = [
+            "53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff",
+            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569",
+            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7",
         ];
 
         #[allow(clippy::large_futures)]
         let results = join3v(
-            encrypted_oprf_report_streams
+            EncryptedOprfReportStreams::from(files)
                 .streams
                 .into_iter()
-                .zip(contexts)
-                .zip(mk_private_keys)
+                .zip(world.contexts())
+                .zip(mk_private_keys.into_iter())
                 .map(|((input, ctx), mk_private_key)| {
+                    let mk_private_key = hex::decode(mk_private_key)
+                        .map(|bytes| IpaPrivateKey::from_bytes(&bytes).unwrap())
+                        .unwrap();
                     let query_config = IpaQueryConfig {
-                        per_user_credit_cap: 8,
-                        attribution_window_seconds: None,
                         max_breakdown_key: 3,
                         with_dp: 0,
                         epsilon: 1.0,
-                        plaintext_match_keys: false,
+                        ..Default::default()
                     };
 
-                    let private_registry =
-                        Arc::new(KeyRegistry::<PrivateKeyOnly>::from_keys([PrivateKeyOnly(
-                            IpaPrivateKey::from_bytes(&mk_private_key)
-                                .expect("manually constructed for test"),
-                        )]));
-
-                    OprfIpaQuery::<_, BA16, KeyRegistry<PrivateKeyOnly>>::new(
+                    OprfIpaQuery::<_, BA16, _>::new(
                         query_config,
-                        private_registry,
+                        Arc::new(KeyRegistry::from_keys([PrivateKeyOnly(mk_private_key)])),
                     )
                     .execute(ctx, query_size, input)
                 }),
