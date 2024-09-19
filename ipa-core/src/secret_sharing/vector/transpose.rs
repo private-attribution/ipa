@@ -614,8 +614,6 @@ impl_transpose_shares_bool_to_ba!(BA32, 32, 256, test_transpose_shares_bool_to_b
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 32, test_transpose_shares_bool_to_ba_8x32);
 // added to support HV = BA32 to hold results when adding Binomial noise
 impl_transpose_shares_bool_to_ba_small!(BA32, 32, 32, test_transpose_shares_bool_to_ba_32x32);
-// // Usage: IPA test case for saturated additions
-// impl_transpose_shares_bool_to_ba_small!(BA3, 3, 32, test_transpose_shares_bool_to_ba_3x32);
 
 // Usage: Aggregation output tests
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 8, test_transpose_shares_bool_to_ba_8x8);
