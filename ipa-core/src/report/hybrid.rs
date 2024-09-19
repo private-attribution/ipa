@@ -1,7 +1,4 @@
-use std::{
-    marker::PhantomData,
-    ops::{Add, Deref},
-};
+use std::ops::{Add, Deref};
 
 use generic_array::ArrayLength;
 use typenum::{Sum, U16};
@@ -23,25 +20,22 @@ where
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct HybridConversionReport<V, TS>
+pub struct HybridConversionReport<V>
 where
     V: SharedValue,
-    TS: SharedValue,
 {
     match_key: Replicated<BA64>,
     value: Replicated<V>,
-    _phantom: PhantomData<TS>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum HybridReport<BK, V, TS>
+pub enum HybridReport<BK, V>
 where
     BK: SharedValue,
     V: SharedValue,
-    TS: SharedValue,
 {
     Impression(HybridImpressionReport<BK>),
-    Conversion(HybridConversionReport<V, TS>),
+    Conversion(HybridConversionReport<V>),
 }
 
 #[allow(dead_code)]
@@ -66,35 +60,36 @@ pub enum HybridInfo<'a> {
     Conversion(HybridConversionInfo<'a>),
 }
 
-impl<BK, V, TS> HybridReport<BK, V, TS>
+impl<BK, V> HybridReport<BK, V>
 where
     BK: SharedValue,
     V: SharedValue,
-    TS: SharedValue, // this is only needed for the backpart from EncryptedOprfReport
-    Replicated<BK>: Serializable,
-    Replicated<V>: Serializable,
-    Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-        <Replicated<TS> as Serializable>::Size,
-    >: Add<U16>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U16,
-    >: ArrayLength,
 {
     /// ## Errors
     /// If the report contents are invalid.
-    pub fn from_bytes<P: PrivateKeyRegistry, B: Deref<Target = [u8]>>(
-        data: B,
-        key_registry: &P,
-    ) -> Result<Self, InvalidReportError> {
+    pub fn from_bytes<P, B, TS>(data: B, key_registry: &P) -> Result<Self, InvalidReportError>
+    where
+        P: PrivateKeyRegistry,
+        B: Deref<Target = [u8]>,
+        TS: SharedValue, // this is only needed for the backport from EncryptedOprfReport
+        Replicated<BK>: Serializable,
+        Replicated<V>: Serializable,
+        Replicated<TS>: Serializable,
+        <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
+            Add<<Replicated<TS> as Serializable>::Size>,
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+            <Replicated<TS> as Serializable>::Size,
+        >: Add<U16>,
+        Sum<
+            Sum<
+                Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+                <Replicated<TS> as Serializable>::Size,
+            >,
+            U16,
+        >: ArrayLength,
+    {
         let encrypted_oprf_report = EncryptedOprfReport::<BK, V, TS, B>::from_bytes(data)?;
         let oprf_report = encrypted_oprf_report.decrypt(key_registry)?;
         match oprf_report.event_type {
@@ -105,7 +100,6 @@ where
             EventType::Trigger => Ok(Self::Conversion(HybridConversionReport {
                 match_key: oprf_report.match_key,
                 value: oprf_report.trigger_value,
-                _phantom: PhantomData::<TS>,
             })),
         }
     }
@@ -113,7 +107,6 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::marker::PhantomData;
 
     use rand::{distributions::Alphanumeric, rngs::ThreadRng, thread_rng, Rng};
 
@@ -148,11 +141,10 @@ mod test {
         let b = EventType::Source;
 
         let oprf_report = build_oprf_report(b, &mut rng);
-        let hybrid_report =
-            HybridReport::Impression::<BA8, BA3, BA20>(HybridImpressionReport::<BA8> {
-                match_key: oprf_report.match_key.clone(),
-                breakdown_key: oprf_report.breakdown_key.clone(),
-            });
+        let hybrid_report = HybridReport::Impression::<BA8, BA3>(HybridImpressionReport::<BA8> {
+            match_key: oprf_report.match_key.clone(),
+            breakdown_key: oprf_report.breakdown_key.clone(),
+        });
 
         let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
         let key_id = 0;
@@ -160,9 +152,11 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let hybrid_report2 =
-            HybridReport::<BA8, BA3, BA20>::from_bytes(enc_report_bytes.as_slice(), &key_registry)
-                .unwrap();
+        let hybrid_report2 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
+            enc_report_bytes.as_slice(),
+            &key_registry,
+        )
+        .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
     }
@@ -174,12 +168,10 @@ mod test {
         let b = EventType::Trigger;
 
         let oprf_report = build_oprf_report(b, &mut rng);
-        let hybrid_report =
-            HybridReport::Conversion::<BA8, BA3, BA20>(HybridConversionReport::<BA3, BA20> {
-                match_key: oprf_report.match_key.clone(),
-                value: oprf_report.trigger_value.clone(),
-                _phantom: PhantomData::<BA20>,
-            });
+        let hybrid_report = HybridReport::Conversion::<BA8, BA3>(HybridConversionReport::<BA3> {
+            match_key: oprf_report.match_key.clone(),
+            value: oprf_report.trigger_value.clone(),
+        });
 
         let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
         let key_id = 0;
@@ -187,9 +179,11 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let hybrid_report2 =
-            HybridReport::<BA8, BA3, BA20>::from_bytes(enc_report_bytes.as_slice(), &key_registry)
-                .unwrap();
+        let hybrid_report2 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
+            enc_report_bytes.as_slice(),
+            &key_registry,
+        )
+        .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
     }

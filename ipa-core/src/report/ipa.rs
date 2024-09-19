@@ -49,7 +49,7 @@ use crate::{
 };
 
 // TODO(679): This needs to come from configuration.
-pub static HELPER_ORIGIN: &str = "github.com/private-attribution";
+static HELPER_ORIGIN: &str = "github.com/private-attribution";
 
 pub type KeyIdentifier = u8;
 pub const DEFAULT_KEY_ID: KeyIdentifier = 0;
