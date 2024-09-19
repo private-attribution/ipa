@@ -594,7 +594,12 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
 
         let output_dir = tempdir().unwrap();
         let network_file = write_network_file();
-        encrypt(&build_encrypt_args(input_file.path(), output_dir.path(), network_file.path())).unwrap();
+        encrypt(&build_encrypt_args(
+            input_file.path(),
+            output_dir.path(),
+            network_file.path(),
+        ))
+        .unwrap();
 
         let files = [
             &output_dir.path().join("helper1.enc"),
