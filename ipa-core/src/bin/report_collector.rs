@@ -25,7 +25,6 @@ use ipa_core::{
     net::MpcHelperClient,
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
     test_fixture::{
-        hybrid::{hybrid_in_the_clear, TestHybridRecord},
         ipa::{ipa_in_the_clear, CappingOrder, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig, HybridEventGenerator, HybridGeneratorConfig,
     },
@@ -242,9 +241,7 @@ fn gen_hybrid_inputs(
     let rng = seed
         .map(StdRng::seed_from_u64)
         .unwrap_or_else(StdRng::from_entropy);
-    let event_gen = HybridEventGenerator::with_config(rng, args)
-        .take(count as usize)
-        .collect::<Vec<_>>();
+    let event_gen = HybridEventGenerator::with_config(rng, args).take(count as usize);
 
     let mut writer: Box<dyn Write> = if let Some(path) = output_file {
         Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
