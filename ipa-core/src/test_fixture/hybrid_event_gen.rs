@@ -64,14 +64,14 @@ pub struct EventGenerator<R: Rng> {
 }
 
 impl<R: Rng> EventGenerator<R> {
-    #[must_use]
+    #[allow(dead_code)]
     pub fn with_default_config(rng: R) -> Self {
         Self::with_config(rng, Config::default())
     }
 
     /// # Panics
     /// If the configuration is not valid.
-    #[must_use]
+    #[allow(dead_code)]
     pub fn with_config(rng: R, config: Config) -> Self {
         let max_capacity = usize::try_from(config.max_convs_per_imp.get() + 1).unwrap();
         Self {
