@@ -19,4 +19,7 @@ done
 cargo test --bench oneshot_ipa --no-default-features --features "enable-benches compact-gate" -- -n 62 -c 16
 cargo test --bench criterion_arithmetic --no-default-features --features "enable-benches compact-gate"
 
+# compact gate + in-memory-infra
+cargo test --features "compact-gate"
+
 cargo llvm-cov report "$@"

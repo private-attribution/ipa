@@ -721,3 +721,109 @@ pub mod tests {
         });
     }
 }
+
+#[cfg(all(test, all(feature = "compact-gate", feature = "in-memory-infra")))]
+mod compact_gate_tests {
+
+    use ipa_step::StepNarrow;
+
+    use crate::{
+        ff::{
+            boolean_array::{BA20, BA5, BA8},
+            U128Conversions,
+        },
+        helpers::query::DpMechanism,
+        protocol::{
+            ipa_prf::{oprf_ipa, oprf_padding::PaddingParameters},
+            step::{ProtocolGate, ProtocolStep},
+        },
+        test_executor::run,
+        test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld, TestWorldConfig},
+    };
+
+    #[test]
+    fn saturated_agg() {
+        const EXPECTED: &[u128] = &[0, 255, 255, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::new_with(TestWorldConfig {
+                initial_gate: Some(ProtocolGate::default().narrow(&ProtocolStep::IpaPrf)),
+                ..Default::default()
+            });
+
+            let records: Vec<TestRawDataRecord> = vec![
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 5,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 10,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 255,
+                },
+                TestRawDataRecord {
+                    timestamp: 20,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 255,
+                },
+                TestRawDataRecord {
+                    timestamp: 30,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 255,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 20,
+                    user_id: 68362,
+                    is_trigger_report: true,
+                    breakdown_key: 1,
+                    trigger_value: 255,
+                },
+            ];
+            let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::relaxed();
+
+            let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<_, BA5, BA8, BA8, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+}

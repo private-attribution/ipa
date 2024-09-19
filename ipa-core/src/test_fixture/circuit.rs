@@ -10,13 +10,13 @@ use crate::{
     protocol::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
-        step::ProtocolStep,
+        step::{ProtocolStep, TestExecutionStep as Step},
         Gate, RecordId,
     },
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
     seq_join::seq_join,
-    test_fixture::{step::TestExecutionStep as Step, ReconstructArr, TestWorld, TestWorldConfig},
+    test_fixture::{ReconstructArr, TestWorld, TestWorldConfig},
     utils::array::zip3,
 };
 
@@ -82,7 +82,7 @@ pub async fn arithmetic<F, const N: usize>(
             active,
             ..Default::default()
         },
-        initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test(0))),
+        initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test)),
         ..Default::default()
     };
     let world = TestWorld::new_with(config);

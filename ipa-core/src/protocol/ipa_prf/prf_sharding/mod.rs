@@ -320,14 +320,14 @@ pub struct AttributionOutputs<BK, TV> {
 pub type SecretSharedAttributionOutputs<BK, TV> =
     AttributionOutputs<Replicated<BK>, Replicated<TV>>;
 
-#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[cfg(test)]
 #[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
 pub struct AttributionOutputsTestInput<BK: BooleanArray, TV: BooleanArray> {
     pub bk: BK,
     pub tv: TV,
 }
 
-#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[cfg(test)]
 impl<BK, TV> crate::secret_sharing::IntoShares<(Replicated<BK>, Replicated<TV>)>
     for AttributionOutputsTestInput<BK, TV>
 where

@@ -29,7 +29,7 @@ fn build_narrows(
         let short_name = t.rsplit_once("::").map_or_else(|| t.as_ref(), |(_a, b)| b);
         let msg = format!("unexpected narrow for {gate_name}({{s}}) => {short_name}({{ss}})");
         syntax.extend(quote! {
-            #[allow(clippy::too_many_lines)]
+            #[allow(clippy::too_many_lines, clippy::unreadable_literal)]
             impl ::ipa_step::StepNarrow<#ty> for #ident {
                 fn narrow(&self, step: &#ty) -> Self {
                     match self.0 {
@@ -87,6 +87,7 @@ fn compact_gate_impl<S: CompactStep>(gate_name: &str) -> TokenStream {
     let gate_lookup_type = step_hasher.lookup_type();
     let mut syntax = quote! {
 
+        #[allow(clippy::unreadable_literal)]
         static STR_LOOKUP: [&str; #step_count] = [#(#gate_names),*];
         static GATE_LOOKUP: #gate_lookup_type = #step_hasher
 

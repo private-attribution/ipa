@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ipa_step::StepNarrow;
 
-use crate::{protocol::Gate, test_fixture::step::TestExecutionStep};
+use crate::protocol::{step::TestExecutionStep, Gate};
 
 /// This manages the gate information for test runs. Most unit tests want to have multiple runs
 /// using the same instance of [`TestWorld`], but they don't care about the name of that particular

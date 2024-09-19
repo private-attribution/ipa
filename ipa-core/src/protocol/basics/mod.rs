@@ -149,6 +149,11 @@ impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Bool
 {
 }
 
+impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 3>
+    for AdditiveShare<Boolean, 3>
+{
+}
+
 impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, 32>
     for AdditiveShare<Boolean, 32>
 {
