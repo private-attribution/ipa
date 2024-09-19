@@ -162,7 +162,7 @@ mod test {
     }
 
     #[test]
-    fn convert_to_hybrid_report() {
+    fn convert_to_hybrid_conversion_report() {
         let mut rng = thread_rng();
 
         let b = EventType::Trigger;
