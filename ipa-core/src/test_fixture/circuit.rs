@@ -82,7 +82,7 @@ pub async fn arithmetic<F, const N: usize>(
             active,
             ..Default::default()
         },
-        initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test(0))),
+        initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test)),
         ..Default::default()
     };
     let world = TestWorld::new_with(config);

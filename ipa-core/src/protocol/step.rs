@@ -9,9 +9,11 @@ pub enum ProtocolStep {
     IpaPrf,
     Multiply,
     PrimeFieldAddition,
-    #[cfg(any(test, feature = "test-fixture"))]
-    #[step(count = 10, child = crate::test_fixture::step::TestExecutionStep)]
-    Test(usize),
+    /// Steps used in unit tests are grouped under this one. Ideally it should be
+    /// gated behind test configuration, but it does not work with build.rs that
+    /// does not enable any features when creating protocol gate file
+    #[step(child = crate::test_fixture::step::TestExecutionStep)]
+    Test,
 
     /// This step includes all the steps that are currently not linked into a top-level protocol.
     ///

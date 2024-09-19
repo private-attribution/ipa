@@ -118,7 +118,7 @@ pub(crate) mod test_executor {
     }
 }
 
-#[cfg(all(test, unit_test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod test_executor {
     use std::future::Future;
 
@@ -137,6 +137,7 @@ pub(crate) mod test_executor {
             .block_on(f())
     }
 
+    #[allow(dead_code)]
     pub fn run<F, Fut, T>(f: F) -> T
     where
         F: Fn() -> Fut + Send + Sync + 'static,

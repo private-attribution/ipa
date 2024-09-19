@@ -15,7 +15,7 @@ pub mod hybrid;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
-pub(crate) mod step;
+pub mod step;
 #[cfg(feature = "in-memory-infra")]
 mod test_gate;
 
