@@ -106,7 +106,7 @@ impl<R: Rng> EventGenerator<R> {
     ) {
         assert!(unmatched_conversions + unmatched_impressions <= 1.0);
         let match_key = self.rng.gen::<u64>();
-        let rand = self.rng.gen::<f32>();
+        let rand = self.rng.gen_range(0.0..1.0);
         if rand < unmatched_conversions {
             let conv = self.gen_conversion(match_key);
             self.in_flight.push(conv);
@@ -122,7 +122,7 @@ impl<R: Rng> EventGenerator<R> {
             // long-tailed distribution of # of conversions per impression
             // will not exceed the configured maximum number of conversions per impression
             while conv_count < self.config.max_convs_per_imp.get()
-                && self.rng.gen::<f32>() < subsequent_conversion_prob
+                && self.rng.gen_range(0.0..1.0) < subsequent_conversion_prob
             {
                 let conv = self.gen_conversion(match_key);
                 self.in_flight.push(conv);
@@ -155,12 +155,14 @@ impl<R: Rng> Iterator for EventGenerator<R> {
         if self.in_flight.is_empty() {
             self.gen_batch();
         }
-        self.in_flight.pop()
+        Some(self.in_flight.pop().unwrap())
     }
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::collections::HashMap;
+
     use rand::thread_rng;
 
     use super::*;
@@ -171,6 +173,69 @@ mod tests {
         assert_eq!(10, gen.take(10).collect::<Vec<_>>().len());
 
         let gen = EventGenerator::with_default_config(thread_rng());
-        assert_eq!(59, gen.take(59).collect::<Vec<_>>().len());
+        assert_eq!(1000, gen.take(1000).collect::<Vec<_>>().len());
+    }
+
+    #[test]
+    fn subsequent_convs() {
+        let gen = EventGenerator::with_default_config(thread_rng());
+        let max_convs_per_imp = gen.config.max_convs_per_imp.get();
+        let mut match_key_to_event_count = HashMap::new();
+        for event in gen.take(10000) {
+            match event {
+                TestHybridRecord::TestImpression { match_key, .. } => {
+                    match_key_to_event_count
+                        .entry(match_key)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                }
+                TestHybridRecord::TestConversion { match_key, .. } => {
+                    match_key_to_event_count
+                        .entry(match_key)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                }
+            }
+        }
+        let histogram_size = usize::try_from(max_convs_per_imp + 2).unwrap();
+        let mut histogram: Vec<i32> = vec![0; histogram_size];
+        for (_, count) in match_key_to_event_count {
+            histogram[count] += 1;
+        }
+
+        assert!(
+            (6470 - histogram[1]).abs() < 200,
+            "expected {:?} unmatched events, got {:?}",
+            647,
+            histogram[1]
+        );
+
+        assert!(
+            (1370 - histogram[2]).abs() < 100,
+            "expected {:?} unmatched events, got {:?}",
+            137,
+            histogram[2]
+        );
+
+        assert!(
+            (200 - histogram[3]).abs() < 50,
+            "expected {:?} unmatched events, got {:?}",
+            20,
+            histogram[3]
+        );
+
+        assert!(
+            (30 - histogram[4]).abs() < 40,
+            "expected {:?} unmatched events, got {:?}",
+            3,
+            histogram[4]
+        );
+
+        assert!(
+            (0 - histogram[11]).abs() < 10,
+            "expected {:?} unmatched events, got {:?}",
+            0,
+            histogram[11]
+        );
     }
 }
