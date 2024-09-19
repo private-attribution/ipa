@@ -25,8 +25,9 @@ use ipa_core::{
     net::MpcHelperClient,
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
     test_fixture::{
+        hybrid::{hybrid_in_the_clear, TestHybridRecord},
         ipa::{ipa_in_the_clear, CappingOrder, IpaSecurityModel, TestRawDataRecord},
-        EventGenerator, EventGeneratorConfig,
+        EventGenerator, EventGeneratorConfig, HybridEventGenerator, HybridGeneratorConfig,
     },
 };
 use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
@@ -96,6 +97,18 @@ enum ReportCollectorCommand {
         #[clap(flatten)]
         gen_args: EventGeneratorConfig,
     },
+    GenHybridInputs {
+        /// Number of records to generate
+        #[clap(long, short = 'n')]
+        count: u32,
+
+        /// The seed for random generator.
+        #[clap(long, short = 's')]
+        seed: Option<u64>,
+
+        #[clap(flatten)]
+        gen_args: HybridGeneratorConfig,
+    },
     /// Execute OPRF IPA in a semi-honest majority setting with known test data
     /// and compare results against expectation
     SemiHonestOprfIpaTest(IpaQueryConfig),
@@ -164,6 +177,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             seed,
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
+        ReportCollectorCommand::GenHybridInputs {
+            count,
+            seed,
+            gen_args,
+        } => gen_hybrid_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::SemiHonestOprfIpaTest(config) => {
             ipa_test(
                 &args,
@@ -211,6 +229,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await?
         }
     };
+
+    Ok(())
+}
+
+fn gen_hybrid_inputs(
+    count: u32,
+    seed: Option<u64>,
+    output_file: Option<PathBuf>,
+    args: HybridGeneratorConfig,
+) -> io::Result<()> {
+    let rng = seed
+        .map(StdRng::seed_from_u64)
+        .unwrap_or_else(StdRng::from_entropy);
+    let event_gen = HybridEventGenerator::with_config(rng, args)
+        .take(count as usize)
+        .collect::<Vec<_>>();
+
+    let mut writer: Box<dyn Write> = if let Some(path) = output_file {
+        Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
+    } else {
+        Box::new(stdout().lock())
+    };
+
+    for event in event_gen {
+        event.to_csv(&mut writer)?;
+        writer.write_all(b"\n")?;
+    }
 
     Ok(())
 }

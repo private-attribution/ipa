@@ -12,7 +12,7 @@ mod app;
 pub mod circuit;
 mod event_gen;
 pub mod hybrid;
-mod hybrid_event_gen;
+pub mod hybrid_event_gen;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
@@ -26,6 +26,9 @@ use std::fmt::Debug;
 pub use app::TestApp;
 pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
 use futures::TryFuture;
+pub use hybrid_event_gen::{
+    Config as HybridGeneratorConfig, EventGenerator as HybridEventGenerator,
+};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};

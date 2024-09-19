@@ -20,3 +20,26 @@ impl Serializer for crate::test_fixture::ipa::TestRawDataRecord {
         Ok(())
     }
 }
+
+#[cfg(any(test, feature = "test-fixture"))]
+impl Serializer for crate::test_fixture::hybrid::TestHybridRecord {
+    fn to_csv<W: Write>(&self, buf: &mut W) -> io::Result<()> {
+        match self {
+            crate::test_fixture::hybrid::TestHybridRecord::TestImpression {
+                match_key,
+                breakdown_key,
+            } => {
+                write!(buf, "i,")?;
+                write!(buf, "{match_key},")?;
+                write!(buf, "{breakdown_key},")?;
+            }
+            crate::test_fixture::hybrid::TestHybridRecord::TestConversion { match_key, value } => {
+                write!(buf, "c,")?;
+                write!(buf, "{match_key},")?;
+                write!(buf, "{value}")?;
+            }
+        }
+
+        Ok(())
+    }
+}
