@@ -197,6 +197,11 @@ name = "crypto_util"
 required-features = ["cli", "test-fixture", "web-app"]
 bench = false
 
+[[bin]]
+name = "in_the_clear"
+required-features = ["cli", "test-fixture"]
+bench = false
+
 [[bench]]
 name = "criterion_arithmetic"
 path = "benches/ct/arithmetic_circuit.rs"

@@ -6,9 +6,16 @@ use std::{
     path::PathBuf,
 };
 
+use ipa_core::{
+    cli::playbook::InputSource,
+};
+
 use crate::{
     cli::playbook::generator::U128Generator, ff::U128Conversions,
-    test_fixture::ipa::TestRawDataRecord,
+    test_fixture::{
+        ipa::TestRawDataRecord,
+        hybrid::{hybrid_in_the_clear, TestHybridRecord},
+    }
 };
 
 pub trait InputItem {
@@ -49,6 +56,29 @@ impl InputItem for TestRawDataRecord {
                 is_trigger_report: is_trigger_bit.parse::<u8>().unwrap() == 1,
                 breakdown_key: breakdown_key.parse().unwrap(),
                 trigger_value: trigger_value.parse().unwrap(),
+            }
+        } else {
+            panic!("{s} is not a valid {}", type_name::<Self>())
+        }
+    }
+}
+
+impl InputItem for TestHybridRecord {
+    fn from_str(s: &str) -> Self {
+        if let [event_type, match_key, number] = s.splitn(3, ',').collect::<Vec<_>>()[..] {
+            match event_type {
+                'i' => TestHybridRecord::TestImpression {
+                    match_key,
+                    breakdown_key: number,
+                },
+                'c' => TestHybridRecord::TestImpression {
+                    match_key,
+                    value: number,
+                },
+                _ => panic!(
+                    "Invalid input. Rows should start with 'i' or 'c'. Did not expect {:?}",
+                    event_type
+                ),
             }
         } else {
             panic!("{s} is not a valid {}", type_name::<Self>())
