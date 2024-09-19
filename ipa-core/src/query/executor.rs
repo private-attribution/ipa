@@ -44,7 +44,7 @@ use crate::{
         Gate,
     },
     query::{
-        runner::{OprfIpaQuery, QueryResult},
+        runner::{HybridQuery, OprfIpaQuery, QueryResult},
         state::RunningQuery,
     },
     sync::Arc,
@@ -94,6 +94,13 @@ pub fn execute<R: PrivateKeyRegistry>(
                 Box::pin(execute_test_multiply::<Fp32BitPrime>(prss, gateway, input))
             })
         }
+        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        (QueryType::TestShardedShuffle, _) => do_query(
+            config,
+            gateway,
+            input,
+            |_prss, _gateway, _config, _input| unimplemented!(),
+        ),
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::TestAddInPrimeField, FieldType::Fp31) => {
             do_query(config, gateway, input, |prss, gateway, _config, input| {
@@ -133,6 +140,19 @@ pub fn execute<R: PrivateKeyRegistry>(
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
                     OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        (QueryType::SemiHonestHybrid(query_params), _) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    HybridQuery::<_, BA32, R>::new(query_params, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
