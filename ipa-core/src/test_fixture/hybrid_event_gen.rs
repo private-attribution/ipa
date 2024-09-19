@@ -278,7 +278,6 @@ mod tests {
         for (_, count) in match_key_to_event_count {
             histogram[count] += 1;
         }
-        println!("Histogram: {:?}", histogram);
 
         assert!(
             (30_032 - histogram[1]).abs() < 800,
