@@ -1,4 +1,4 @@
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU32;
 
 use rand::Rng;
 
@@ -16,8 +16,6 @@ pub enum ConversionDistribution {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct Config {
-    #[cfg_attr(feature = "clap", arg(long, default_value = "1000000000000"))]
-    pub num_events: NonZeroU64,
     #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
     pub max_conversion_value: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "20"))]
@@ -31,7 +29,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(1_000, 5, 20, 10)
+        Self::new(5, 20, 10, ConversionDistribution::Default)
     }
 }
 
@@ -42,17 +40,16 @@ impl Config {
     /// If any argument is 0.
     #[must_use]
     pub fn new(
-        num_events: u64,
         max_conversion_value: u32,
         max_breakdown_key: u32,
         max_convs_per_imp: u32,
+        conversion_distribution: ConversionDistribution,
     ) -> Self {
         Self {
-            num_events: NonZeroU64::try_from(num_events).unwrap(),
             max_conversion_value: NonZeroU32::try_from(max_conversion_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
             max_convs_per_imp: NonZeroU32::try_from(max_convs_per_imp).unwrap(),
-            conversion_distribution: ConversionDistribution::Default,
+            conversion_distribution,
         }
     }
 }
@@ -161,7 +158,7 @@ impl<R: Rng> Iterator for EventGenerator<R> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use rand::thread_rng;
 
@@ -177,11 +174,11 @@ mod tests {
     }
 
     #[test]
-    fn subsequent_convs() {
+    fn default_config() {
         let gen = EventGenerator::with_default_config(thread_rng());
         let max_convs_per_imp = gen.config.max_convs_per_imp.get();
         let mut match_key_to_event_count = HashMap::new();
-        for event in gen.take(10000) {
+        for event in gen.take(10_000) {
             match event {
                 TestHybridRecord::TestImpression { match_key, .. } => {
                     match_key_to_event_count
@@ -237,5 +234,146 @@ mod tests {
             0,
             histogram[11]
         );
+    }
+
+    #[test]
+    fn lots_of_repeat_conversions() {
+        const MAX_CONVS_PER_IMP: u32 = 10;
+        const MAX_BREAKDOWN_KEY: u32 = 20;
+        const MAX_VALUE: u32 = 3;
+        let gen = EventGenerator::with_config(
+            thread_rng(),
+            Config::new(
+                MAX_VALUE,
+                MAX_BREAKDOWN_KEY,
+                MAX_CONVS_PER_IMP,
+                ConversionDistribution::LotsOfConversionsPerImpression,
+            ),
+        );
+        let max_convs_per_imp = gen.config.max_convs_per_imp.get();
+        let mut match_key_to_event_count = HashMap::new();
+        for event in gen.take(100_000) {
+            match event {
+                TestHybridRecord::TestImpression {
+                    match_key,
+                    breakdown_key,
+                } => {
+                    assert!(breakdown_key <= MAX_BREAKDOWN_KEY);
+                    match_key_to_event_count
+                        .entry(match_key)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                }
+                TestHybridRecord::TestConversion { match_key, value } => {
+                    assert!(value <= MAX_VALUE);
+                    match_key_to_event_count
+                        .entry(match_key)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                }
+            }
+        }
+        let histogram_size = usize::try_from(max_convs_per_imp + 2).unwrap();
+        let mut histogram: Vec<i32> = vec![0; histogram_size];
+        for (_, count) in match_key_to_event_count {
+            histogram[count] += 1;
+        }
+        println!("Histogram: {:?}", histogram);
+
+        assert!(
+            (30_032 - histogram[1]).abs() < 800,
+            "expected {:?} unmatched events, got {:?}",
+            30_032,
+            histogram[1]
+        );
+
+        assert!(
+            (2_572 - histogram[2]).abs() < 300,
+            "expected {:?} unmatched events, got {:?}",
+            2_572,
+            histogram[2]
+        );
+
+        assert!(
+            (2_048 - histogram[3]).abs() < 200,
+            "expected {:?} unmatched events, got {:?}",
+            2_048,
+            histogram[3]
+        );
+
+        assert!(
+            (1_650 - histogram[4]).abs() < 100,
+            "expected {:?} unmatched events, got {:?}",
+            1_650,
+            histogram[4]
+        );
+
+        assert!(
+            (1_718 - histogram[11]).abs() < 100,
+            "expected {:?} unmatched events, got {:?}",
+            1_718,
+            histogram[11]
+        );
+    }
+
+    #[test]
+    fn only_impressions_config() {
+        const NUM_EVENTS: usize = 100;
+        const MAX_CONVS_PER_IMP: u32 = 1;
+        const MAX_BREAKDOWN_KEY: u32 = 10;
+        let gen = EventGenerator::with_config(
+            thread_rng(),
+            Config::new(
+                10,
+                MAX_BREAKDOWN_KEY,
+                MAX_CONVS_PER_IMP,
+                ConversionDistribution::OnlyImpressions,
+            ),
+        );
+        let mut match_keys = HashSet::new();
+        for event in gen.take(NUM_EVENTS) {
+            match event {
+                TestHybridRecord::TestImpression {
+                    match_key,
+                    breakdown_key,
+                } => {
+                    assert!(breakdown_key <= MAX_BREAKDOWN_KEY);
+                    match_keys.insert(match_key);
+                }
+                TestHybridRecord::TestConversion { .. } => {
+                    panic!("No conversions should be generated");
+                }
+            }
+        }
+        assert_eq!(match_keys.len(), NUM_EVENTS);
+    }
+
+    #[test]
+    fn only_conversions_config() {
+        const NUM_EVENTS: usize = 100;
+        const MAX_CONVS_PER_IMP: u32 = 1;
+        const MAX_VALUE: u32 = 10;
+        let gen = EventGenerator::with_config(
+            thread_rng(),
+            Config::new(
+                MAX_VALUE,
+                10,
+                MAX_CONVS_PER_IMP,
+                ConversionDistribution::OnlyConversions,
+            ),
+        );
+        let mut match_keys = HashSet::new();
+        for event in gen.take(NUM_EVENTS) {
+            match event {
+                TestHybridRecord::TestConversion { match_key, value } => {
+                    assert!(value <= MAX_VALUE);
+                    match_keys.insert(match_key);
+                }
+                TestHybridRecord::TestImpression { .. } => {
+                    panic!("No impressions should be generated");
+                }
+            }
+        }
+        assert_eq!(match_keys.len(), NUM_EVENTS);
     }
 }
