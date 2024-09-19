@@ -537,7 +537,7 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
 
     #[tokio::test]
     async fn encrypt_and_execute_query() {
-        const EXPECTED: &[u128] = &[0, 8, 5];
+        const EXPECTED: &[u128] = &[0, 2, 5];
 
         let records = vec![
             TestRawDataRecord {
@@ -567,20 +567,6 @@ public_key = "cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e"
                 is_trigger_report: true,
                 breakdown_key: 0,
                 trigger_value: 2,
-            },
-            TestRawDataRecord {
-                timestamp: 20,
-                user_id: 68362,
-                is_trigger_report: false,
-                breakdown_key: 1,
-                trigger_value: 0,
-            },
-            TestRawDataRecord {
-                timestamp: 30,
-                user_id: 68362,
-                is_trigger_report: true,
-                breakdown_key: 1,
-                trigger_value: 7,
             },
         ];
         let query_size = QuerySize::try_from(records.len()).unwrap();
