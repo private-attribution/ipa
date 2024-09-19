@@ -12,7 +12,7 @@ pub enum ProtocolStep {
     /// Steps used in unit tests are grouped under this one. Ideally it should be
     /// gated behind test configuration, but it does not work with build.rs that
     /// does not enable any features when creating protocol gate file
-    #[step(child = crate::test_fixture::step::TestExecutionStep)]
+    #[step(child = TestExecutionStep)]
     Test,
 
     /// This step includes all the steps that are currently not linked into a top-level protocol.
@@ -47,4 +47,11 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
     Multiplication,
+}
+
+/// Provides a unique per-iteration context in tests.
+#[derive(CompactStep)]
+pub enum TestExecutionStep {
+    #[step(count = 999)]
+    Iter(usize),
 }

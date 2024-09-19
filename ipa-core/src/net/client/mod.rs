@@ -468,10 +468,10 @@ pub(crate) mod tests {
             RequestHandler, RoleAssignment, Transport, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::test::TestServer,
+        protocol::step::TestExecutionStep,
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         sync::Arc,
-        test_fixture::step::TestExecutionStep,
     };
 
     #[tokio::test]

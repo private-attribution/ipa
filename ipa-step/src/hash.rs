@@ -62,6 +62,7 @@ impl ToTokens for HashingSteps {
             };
 
             struct #lookup_type {
+                #[allow(clippy::unreadable_literal)]
                 inner: [(u64, u32); #sz]
             }
 
