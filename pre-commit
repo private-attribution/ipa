@@ -88,7 +88,7 @@ check "Clippy checks" \
 check "Tests" \
     cargo test --features="cli test-fixture"
 
-if [ -z "$EXEC_SLOW_TESTS" ]
+if [ -n "$EXEC_SLOW_TESTS" ]
 then
 
   check "Benchmark compilation" \
