@@ -2,7 +2,7 @@ use std::{error::Error, fs::File, io::Write, num::NonZeroU32, path::PathBuf};
 
 use clap::Parser;
 use ipa_core::{
-    cli::playbook::InputSource,
+    cli::{playbook::InputSource, Verbosity},
     test_fixture::hybrid::{hybrid_in_the_clear, TestHybridRecord},
 };
 
@@ -30,6 +30,9 @@ impl From<&CommandInput> for InputSource {
 #[command(about)]
 struct Args {
     #[clap(flatten)]
+    logging: Verbosity,
+
+    #[clap(flatten)]
     input: CommandInput,
 
     /// The destination file for output.
@@ -42,6 +45,7 @@ struct Args {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+    let _handle = args.logging.setup_logging();
 
     let input = InputSource::from(&args.input);
 
