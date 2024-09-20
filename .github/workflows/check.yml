@@ -172,16 +172,16 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
-      - name: Integration Tests: Compact Gate
+      - name: Integration Tests - Compact Gate
         run: cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
-      - name: Integration Tests: Helper Networks
+      - name: Integration Tests - Helper Networks
         run: cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
-      - name: Integration Tests: Hybrid
+      - name: Integration Tests - Hybrid
         run: cargo test --release --test "hybrid" --no-default-features --features "cli test-fixture"
 
-      - name: Integration Tests: IPA with Relaxed DP
+      - name: Integration Tests - IPA with Relaxed DP
         run: cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed_dp"
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
