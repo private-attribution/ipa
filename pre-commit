@@ -123,6 +123,10 @@ then
   check "Slow tests: Helper Networks" \
       cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
+  check "Slow tests: Hybrid tests" \
+      cargo test --release --test "hybrid" --no-default-features --features "cli test-fixture"
+
+
   check "Slow tests: IPA with Relaxed DP" \
       cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 fi

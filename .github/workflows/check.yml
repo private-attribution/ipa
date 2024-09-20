@@ -175,6 +175,7 @@ jobs:
       - name: End-to-end tests
         run: cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
         run: cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+        run: cargo test --release --test "hybrid" --no-default-features --features "cli test-fixture"
         run: cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed_dp"
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699

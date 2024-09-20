@@ -267,6 +267,7 @@ required-features = [
     "real-world-infra",
     "test-fixture",
     "relaxed-dp",
+]
 
 [[test]]
 name = "hybrid"
