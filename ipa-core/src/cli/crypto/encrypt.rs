@@ -92,7 +92,7 @@ impl EncryptArgs {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::{io::Write, sync::Arc};
 

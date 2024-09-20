@@ -85,7 +85,7 @@ mod sample_data {
                 public_key = "{pk3}"
             "#
             );
-            file.write(network_data.as_bytes()).unwrap();
+            file.write_all(network_data.as_bytes()).unwrap();
 
             file
         }
@@ -99,15 +99,10 @@ mod sample_data {
         }
 
         pub fn sk_files(&self) -> [NamedTempFile; 3] {
-            let files = [
-                NamedTempFile::new().unwrap(),
-                NamedTempFile::new().unwrap(),
-                NamedTempFile::new().unwrap(),
-            ];
-
             self.inner.each_ref().map(|(_, sk)| sk).map(|sk| {
                 let mut file = NamedTempFile::new().unwrap();
-                file.write(hex::encode(sk.to_bytes()).as_bytes()).unwrap();
+                file.write_all(hex::encode(sk.to_bytes()).as_bytes())
+                    .unwrap();
                 file.flush().unwrap();
 
                 file
@@ -150,7 +145,6 @@ mod tests {
         path::Path,
     };
 
-    use clap::Parser;
     use tempfile::tempdir;
 
     use crate::cli::crypto::{decrypt::DecryptArgs, encrypt::EncryptArgs, sample_data};
@@ -167,35 +161,6 @@ mod tests {
             assert_eq!(line1.unwrap(), line2.unwrap());
         }
         assert!(reader2.next().is_none(), "Files have different lengths");
-    }
-
-    fn build_decrypt_args(
-        enc1: &Path,
-        enc2: &Path,
-        enc3: &Path,
-        mk_private_key1: &Path,
-        mk_private_key2: &Path,
-        mk_private_key3: &Path,
-        decrypt_output: &Path,
-    ) -> DecryptArgs {
-        DecryptArgs::try_parse_from([
-            "test_decrypt",
-            "--input-file1",
-            enc1.to_str().unwrap(),
-            "--input-file2",
-            enc2.to_str().unwrap(),
-            "--input-file3",
-            enc3.to_str().unwrap(),
-            "--mk-private-key1",
-            mk_private_key1.to_str().unwrap(),
-            "--mk-private-key2",
-            mk_private_key2.to_str().unwrap(),
-            "--mk-private-key3",
-            mk_private_key3.to_str().unwrap(),
-            "--output-file",
-            decrypt_output.to_str().unwrap(),
-        ])
-        .unwrap()
     }
 
     #[tokio::test]
