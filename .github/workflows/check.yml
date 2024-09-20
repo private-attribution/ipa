@@ -53,7 +53,7 @@ jobs:
 
       - name: Clippy
         if: ${{ success() || failure() }}
-        run: cargo clippy --features "cli test-fixture" --tests
+        run: cargo clippy --features "cli test-fixture relaxed_dp" --tests
 
       - name: Clippy concurrency tests
         if: ${{ success() || failure() }}
@@ -173,7 +173,9 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: End-to-end tests
-        run: cargo test --release --test "*" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+        run: cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+        run: cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+        run: cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed_dp"
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
   sanitize:

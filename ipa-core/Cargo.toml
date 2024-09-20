@@ -252,3 +252,14 @@ required-features = [
     "real-world-infra",
     "test-fixture",
 ]
+
+[[test]]
+name = "ipa_with_relaxed_dp"
+required-features = [
+    "cli",
+    "compact-gate",
+    "web-app",
+    "real-world-infra",
+    "test-fixture",
+    "relaxed-dp",
+]

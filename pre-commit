@@ -86,7 +86,7 @@ check "Clippy checks" \
     cargo clippy --features="cli test-fixture" --tests -- -D warnings
 
 check "Tests" \
-    cargo test --features="cli test-fixture"
+    cargo test --features="cli test-fixture relaxed-dp"
 
 if [ -n "$EXEC_SLOW_TESTS" ]
 then
@@ -117,6 +117,12 @@ then
   check "Arithmetic circuit benchmark" \
       cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
 
-  check "Slow tests" \
-      cargo test --release --test "*" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+  check "Slow tests: Compact Gate" \
+      cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+  check "Slow tests: Helper Networks" \
+      cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+  check "Slow tests: IPA with Relaxed DP" \
+      cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 fi
