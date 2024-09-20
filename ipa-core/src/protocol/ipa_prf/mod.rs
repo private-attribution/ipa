@@ -724,8 +724,7 @@ pub mod tests {
 
 #[cfg(all(test, all(feature = "compact-gate", feature = "in-memory-infra")))]
 mod compact_gate_tests {
-
-    use ipa_step::StepNarrow;
+    use ipa_step::{CompactStep, StepNarrow};
 
     use crate::{
         ff::{
@@ -740,6 +739,18 @@ mod compact_gate_tests {
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
+
+    #[test]
+    fn step_count_limit() {
+        // This is an arbitrary limit intended to catch changes that unintentionally
+        // blow up the step count. It can be increased, within reason.
+        const STEP_COUNT_LIMIT: u32 = 200_000;
+        assert!(
+            ProtocolStep::STEP_COUNT < STEP_COUNT_LIMIT,
+            "Step count of {actual} exceeds limit of {STEP_COUNT_LIMIT}.",
+            actual = ProtocolStep::STEP_COUNT,
+        );
+    }
 
     #[test]
     fn saturated_agg() {
