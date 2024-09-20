@@ -37,7 +37,7 @@ fn compact_gate_cap_8_no_window_semi_honest_plaintext_input() {
 }
 
 #[test]
-/// This test is turned off because of [`issue`]. 
+/// This test is turned off because of [`issue`].
 ///
 /// This test will hang without `relaxed-dp` feature turned out until it is fixed
 /// [`issue`]: https://github.com/private-attribution/ipa/issues/1298
@@ -47,7 +47,7 @@ fn compact_gate_cap_8_no_window_malicious_encrypted_input() {
 }
 
 #[test]
-/// This test is turned off because of [`issue`]. 
+/// This test is turned off because of [`issue`].
 ///
 /// This test will hang without `relaxed-dp` feature turned out until it is fixed
 /// [`issue`]: https://github.com/private-attribution/ipa/issues/1298
