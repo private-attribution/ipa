@@ -2,7 +2,7 @@
 #[allow(dead_code)]
 mod common;
 
-#[cfg(all(test, feature = "cli"))]
+#[cfg(all(test, feature = "cli", feature = "test-fixture"))]
 mod tests {
     use std::process::{Command, Stdio};
 
