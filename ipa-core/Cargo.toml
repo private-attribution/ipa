@@ -260,4 +260,5 @@ required-features = [
 name = "hybrid"
 required-features = [
     "test-fixture",
+    "cli",
 ]
