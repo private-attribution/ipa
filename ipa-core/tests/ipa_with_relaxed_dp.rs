@@ -3,7 +3,7 @@ mod common;
 
 use std::num::NonZeroU32;
 
-use common::test_ipa_with_config;
+use common::{test_ipa, test_ipa_with_config};
 use ipa_core::{helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel};
 
 fn build_config() -> IpaQueryConfig {
@@ -39,4 +39,10 @@ fn relaxed_dp_malicious() {
         config,
         encrypted_input,
     );
+}
+
+#[test]
+#[cfg(all(test, web_test))]
+fn relaxed_dp_https_malicious_ipa() {
+    test_ipa(IpaSecurityModel::Malicious, true, true);
 }
