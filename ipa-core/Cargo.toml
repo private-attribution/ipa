@@ -255,3 +255,9 @@ required-features = [
     "real-world-infra",
     "test-fixture",
 ]
+
+[[test]]
+name = "hybrid"
+required-features = [
+    "test-fixture",
+]
