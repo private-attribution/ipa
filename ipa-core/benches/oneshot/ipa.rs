@@ -19,7 +19,11 @@ use ipa_step::StepNarrow;
 use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
 
-#[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
+#[cfg(all(
+    not(target_env = "msvc"),
+    not(feature = "dhat-heap"),
+    not(target_os = "macos")
+))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
