@@ -74,6 +74,8 @@ reveal-aggregation = []
 aggregate-circuit = []
 # IPA protocol based on OPRF
 ipa-prf = []
+# relaxed DP, off by default
+relaxed-dp = []
 
 [dependencies]
 ipa-step = { version = "*", path = "../ipa-step" }

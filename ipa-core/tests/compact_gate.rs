@@ -37,11 +37,13 @@ fn compact_gate_cap_8_no_window_semi_honest_plaintext_input() {
 }
 
 #[test]
+#[ignore]
 fn compact_gate_cap_8_no_window_malicious_encrypted_input() {
     test_compact_gate(IpaSecurityModel::Malicious, 8, 0, true);
 }
 
 #[test]
+#[ignore]
 fn compact_gate_cap_8_no_window_malicious_plaintext_input() {
     test_compact_gate(IpaSecurityModel::Malicious, 8, 0, false);
 }

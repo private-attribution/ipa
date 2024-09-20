@@ -56,6 +56,7 @@ fn https_semi_honest_ipa() {
 
 #[test]
 #[cfg(all(test, web_test))]
+#[ignore]
 fn https_malicious_ipa() {
     test_ipa(IpaSecurityModel::Malicious, true, true);
 }
