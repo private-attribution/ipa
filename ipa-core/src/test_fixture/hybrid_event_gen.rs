@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::{iter::zip, num::NonZeroU32};
 
 use rand::Rng;
 
@@ -175,10 +175,25 @@ mod tests {
 
     #[test]
     fn default_config() {
+        const EXPECTED_HISTOGRAM_WITH_TOLERANCE: [(i32, f64); 12] = [
+            (0, 0.0), 
+            (647634, 0.01), 
+            (137626, 0.01), 
+            (20652, 0.02),
+            (3085, 0.05),
+            (463, 0.12),
+            (70, 0.5),
+            (10, 1.0),
+            (2, 1.0),
+            (0, 1.0),
+            (0, 1.0),
+            (0, 1.0),
+        ];
+        const TEST_COUNT: usize = 1_000_000;
         let gen = EventGenerator::with_default_config(thread_rng());
         let max_convs_per_imp = gen.config.max_convs_per_imp.get();
         let mut match_key_to_event_count = HashMap::new();
-        for event in gen.take(10_000) {
+        for event in gen.take(TEST_COUNT) {
             match event {
                 TestHybridRecord::TestImpression { match_key, .. } => {
                     match_key_to_event_count
@@ -200,44 +215,25 @@ mod tests {
             histogram[count] += 1;
         }
 
-        assert!(
-            (6470 - histogram[1]).abs() < 200,
-            "expected {:?} unmatched events, got {:?}",
-            647,
-            histogram[1]
-        );
-
-        assert!(
-            (1370 - histogram[2]).abs() < 100,
-            "expected {:?} unmatched events, got {:?}",
-            137,
-            histogram[2]
-        );
-
-        assert!(
-            (200 - histogram[3]).abs() < 50,
-            "expected {:?} unmatched events, got {:?}",
-            20,
-            histogram[3]
-        );
-
-        assert!(
-            (30 - histogram[4]).abs() < 40,
-            "expected {:?} unmatched events, got {:?}",
-            3,
-            histogram[4]
-        );
-
-        assert!(
-            (0 - histogram[11]).abs() < 10,
-            "expected {:?} unmatched events, got {:?}",
-            0,
-            histogram[11]
-        );
+        for (actual, (expected, tolerance)) in
+            zip(histogram, EXPECTED_HISTOGRAM_WITH_TOLERANCE.iter())
+        {
+            let max_tolerance = (*expected as f64) * tolerance + 10.0;
+            assert!(
+                (expected - actual).abs() as f64 <= max_tolerance,
+                "expected {:?} unmatched events, got {:?}",
+                expected,
+                actual,
+            );
+        }
     }
 
     #[test]
     fn lots_of_repeat_conversions() {
+        const EXPECTED_HISTOGRAM: [i32; 12] = [
+            0, 299296, 25640, 20542, 16421, 13133, 10503, 8417, 6730, 5391, 4289, 17206,
+        ];
+        const TEST_COUNT: usize = 1_000_000;
         const MAX_CONVS_PER_IMP: u32 = 10;
         const MAX_BREAKDOWN_KEY: u32 = 20;
         const MAX_VALUE: u32 = 3;
@@ -252,7 +248,7 @@ mod tests {
         );
         let max_convs_per_imp = gen.config.max_convs_per_imp.get();
         let mut match_key_to_event_count = HashMap::new();
-        for event in gen.take(100_000) {
+        for event in gen.take(TEST_COUNT) {
             match event {
                 TestHybridRecord::TestImpression {
                     match_key,
@@ -279,40 +275,14 @@ mod tests {
             histogram[count] += 1;
         }
 
-        assert!(
-            (30_032 - histogram[1]).abs() < 800,
-            "expected {:?} unmatched events, got {:?}",
-            30_032,
-            histogram[1]
-        );
-
-        assert!(
-            (2_572 - histogram[2]).abs() < 300,
-            "expected {:?} unmatched events, got {:?}",
-            2_572,
-            histogram[2]
-        );
-
-        assert!(
-            (2_048 - histogram[3]).abs() < 200,
-            "expected {:?} unmatched events, got {:?}",
-            2_048,
-            histogram[3]
-        );
-
-        assert!(
-            (1_650 - histogram[4]).abs() < 100,
-            "expected {:?} unmatched events, got {:?}",
-            1_650,
-            histogram[4]
-        );
-
-        assert!(
-            (1_718 - histogram[11]).abs() < 100,
-            "expected {:?} unmatched events, got {:?}",
-            1_718,
-            histogram[11]
-        );
+        for (expected, actual) in zip(EXPECTED_HISTOGRAM.iter(), histogram) {
+            assert!(
+                (expected - actual).abs() <= expected / 20 + 10,
+                "expected {:?} unmatched events, got {:?}",
+                expected,
+                actual,
+            );
+        }
     }
 
     #[test]
