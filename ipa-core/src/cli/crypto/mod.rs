@@ -21,7 +21,7 @@ mod sample_data {
     /// Keys that are used in crypto tests
     #[derive(Clone)]
     pub(super) struct TestKeys {
-        inner: [(IpaPublicKey, IpaPrivateKey); 3],
+        key_pairs: [(IpaPublicKey, IpaPrivateKey); 3],
     }
 
     static TEST_KEYS: OnceLock<TestKeys> = OnceLock::new();
@@ -32,7 +32,7 @@ mod sample_data {
     impl TestKeys {
         pub fn new() -> Self {
             Self {
-                inner: [
+                key_pairs: [
                     (
                         decode_key::<_, IpaPublicKey>(
                             "92a6fb666c37c008defd74abf3204ebea685742eab8347b08e2f7c759893947a",
@@ -63,7 +63,7 @@ mod sample_data {
 
         pub fn network_config(&self) -> NamedTempFile {
             let mut file = NamedTempFile::new().unwrap();
-            let [pk1, pk2, pk3] = self.inner.each_ref().map(|(pk, _)| pk);
+            let [pk1, pk2, pk3] = self.key_pairs.each_ref().map(|(pk, _)| pk);
             let [pk1, pk2, pk3] = [
                 hex::encode(pk1.to_bytes()),
                 hex::encode(pk2.to_bytes()),
@@ -91,15 +91,15 @@ mod sample_data {
         }
 
         pub fn set_sk<I: AsRef<[u8]>>(&mut self, idx: usize, data: I) {
-            self.inner[idx].1 = IpaPrivateKey::from_bytes(data.as_ref()).unwrap();
+            self.key_pairs[idx].1 = IpaPrivateKey::from_bytes(data.as_ref()).unwrap();
         }
 
         pub fn get_sk(&self, idx: usize) -> Vec<u8> {
-            self.inner[idx].1.to_bytes().to_vec()
+            self.key_pairs[idx].1.to_bytes().to_vec()
         }
 
         pub fn sk_files(&self) -> [NamedTempFile; 3] {
-            self.inner.each_ref().map(|(_, sk)| sk).map(|sk| {
+            self.key_pairs.each_ref().map(|(_, sk)| sk).map(|sk| {
                 let mut file = NamedTempFile::new().unwrap();
                 file.write_all(hex::encode(sk.to_bytes()).as_bytes())
                     .unwrap();
