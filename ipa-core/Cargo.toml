@@ -148,7 +148,7 @@ typenum = { version = "1.17", features = ["i128"] }
 # hpke is pinned to it
 x25519-dalek = "2.0.0-rc.3"
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
+[target.'cfg(all(not(target_env = "msvc"), not(target_os = "macos")))'.dependencies]
 tikv-jemallocator = "0.5.0"
 
 [build-dependencies]

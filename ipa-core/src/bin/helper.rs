@@ -22,7 +22,7 @@ use ipa_core::{
 };
 use tracing::{error, info};
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
