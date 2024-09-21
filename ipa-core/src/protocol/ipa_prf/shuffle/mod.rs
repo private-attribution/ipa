@@ -11,7 +11,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA112, BA144, BA64},
+        boolean_array::{BooleanArray, BA112, BA144, BA64, BA96},
         ArrayAccess,
     },
     protocol::{
@@ -140,7 +140,8 @@ where
         .map(|item| attribution_outputs_to_shuffle_input::<BK, TV, R>(&item))
         .collect::<Vec<_>>();
 
-    let (shuffled, _) = shuffle_protocol(ctx, shuffle_input).await?;
+    //let (shuffled, _) = shuffle_protocol(ctx, shuffle_input).await?;
+    let shuffled = malicious_shuffle::<_, R, BA96, _>(ctx, shuffle_input).await?;
 
     Ok(shuffled
         .into_iter()
