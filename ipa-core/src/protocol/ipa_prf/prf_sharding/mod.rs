@@ -534,7 +534,6 @@ where
         attribution_window_seconds,
     );
 
-    // TODO: move this to the place it's actually used
     let validator = sh_ctx.dzkp_validator(
         MaliciousProtocolSteps {
             protocol: &Step::Aggregate,

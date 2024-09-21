@@ -140,7 +140,6 @@ where
         .map(|item| attribution_outputs_to_shuffle_input::<BK, TV, R>(&item))
         .collect::<Vec<_>>();
 
-    //let (shuffled, _) = shuffle_protocol(ctx, shuffle_input).await?;
     let shuffled = malicious_shuffle::<_, R, BA96, _>(ctx, shuffle_input).await?;
 
     Ok(shuffled

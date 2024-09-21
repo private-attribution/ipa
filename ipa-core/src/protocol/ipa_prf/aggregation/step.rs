@@ -11,9 +11,7 @@ pub(crate) enum AggregationStep {
     Shuffle,
     RevealStep,
     #[step(child = AggregateChunkStep)]
-    AggregateAggregatePlease,
-    #[step(count = 32, child = crate::protocol::context::step::DzkpSingleBatchStep)]
-    AggregateChunkValidate(usize),
+    SumContributions,
     #[step(child = crate::protocol::context::step::DzkpBatchStep)]
     AggregateValidate,
 }

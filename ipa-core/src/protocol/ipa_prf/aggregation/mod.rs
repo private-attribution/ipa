@@ -116,6 +116,7 @@ pub fn aggregate_values_proof_chunk(input_width: usize, input_item_bits: usize) 
 ///
 /// It might be possible to save some cost by using naive wrapping arithmetic. Another
 /// possibility would be to combine all carries into a single "overflow detected" bit.
+#[tracing::instrument(name = "aggregate_values", skip_all, fields(num_rows = num_rows))]
 pub async fn aggregate_values<'ctx, 'fut, C, OV, const B: usize>(
     ctx: C,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
