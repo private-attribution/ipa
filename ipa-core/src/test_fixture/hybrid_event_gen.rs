@@ -175,6 +175,11 @@ mod tests {
 
     #[test]
     fn default_config() {
+        // Since there is randomness, the actual number will be a bit different
+        // from the expected value.
+        // The "tolerance" is used to compute the allowable range of values.
+        // It is multiplied by the expected value. So a tolerance of 0.05 means
+        // we will accept a value within 5% of the expected value
         const EXPECTED_HISTOGRAM_WITH_TOLERANCE: [(i32, f64); 12] = [
             (0, 0.0), 
             (647634, 0.01), 
@@ -218,12 +223,16 @@ mod tests {
         for (actual, (expected, tolerance)) in
             zip(histogram, EXPECTED_HISTOGRAM_WITH_TOLERANCE.iter())
         {
+            // Adding a constant value of 10 is a way of dealing with the high variability small values
+            // which will vary a lot more (as a percent). Because 10 is an increasingly large percentage of
+            // A smaller and smaller expected value
             let max_tolerance = (*expected as f64) * tolerance + 10.0;
             assert!(
                 (expected - actual).abs() as f64 <= max_tolerance,
-                "expected {:?} unmatched events, got {:?}",
-                expected,
+                "{:?} is outside of the expected range: ({:?}..{:?})",
                 actual,
+                (*expected as f64) - max_tolerance,
+                (*expected as f64) + max_tolerance,
             );
         }
     }
@@ -276,11 +285,13 @@ mod tests {
         }
 
         for (expected, actual) in zip(EXPECTED_HISTOGRAM.iter(), histogram) {
+            let max_tolerance = (*expected as f64) * 0.05 + 10.0;
             assert!(
-                (expected - actual).abs() <= expected / 20 + 10,
-                "expected {:?} unmatched events, got {:?}",
-                expected,
+                (expected - actual).abs() as f64 <= max_tolerance,
+                "{:?} is outside of the expected range: ({:?}..{:?})",
                 actual,
+                (*expected as f64) - max_tolerance,
+                (*expected as f64) + max_tolerance,
             );
         }
     }
