@@ -71,10 +71,10 @@ jobs:
         run: cargo test --features "cli test-fixture relaxed-dp"
 
       - name: Run tests with multithreading feature enabled
-        run: cargo test --features "multi-threading"
+        run: cargo test --features "multi-threading relaxed-dp"
 
       - name: Run Web Tests
-        run: cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+        run: cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 
   release:
     name: Release builds and tests
@@ -134,22 +134,22 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Build benchmarks
-        run: cargo build --benches --no-default-features --features "enable-benches compact-gate"
+        run: cargo build --benches --no-default-features --features "enable-benches compact-gate relaxed-dp"
 
       - name: Build concurrency tests (debug mode)
         run: cargo build --features shuttle
 
       - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features "enable-benches compact-gate"
+        run: cargo bench --bench oneshot_ipa --no-default-features --features "enable-benches compact-gate relaxed-dp"
 
       - name: Run arithmetic bench
-        run: cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
+        run: cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate relaxed-dp"
 
       - name: Run compact gate tests for HTTP stack
-        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 
       - name: Run in-memory compact gate tests
-        run: cargo test --features "compact-gate"
+        run: cargo test --features "compact-gate relaxed-dp"
   slow:
     name: Slow tests
     env:

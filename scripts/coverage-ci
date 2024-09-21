@@ -19,10 +19,10 @@ done
 # integration tests run without relaxed dp, except for these
 cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 
-cargo test --bench oneshot_ipa --no-default-features --features "enable-benches compact-gate" -- -n 62 -c 16
-cargo test --bench criterion_arithmetic --no-default-features --features "enable-benches compact-gate"
+cargo test --bench oneshot_ipa --no-default-features --features "enable-benches compact-gate relaxed-dp" -- -n 62 -c 16
+cargo test --bench criterion_arithmetic --no-default-features --features "enable-benches compact-gate relaxed-dp"
 
 # compact gate + in-memory-infra
-cargo test --features "compact-gate"
+cargo test --features "compact-gate relaxed-dp"
 
 cargo llvm-cov report "$@"
