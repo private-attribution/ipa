@@ -142,9 +142,9 @@ where
             },
         };
 
-        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        #[cfg(feature = "relaxed-dp")]
         let padding_params = PaddingParameters::relaxed();
-        #[cfg(not(any(test, feature = "cli", feature = "test-fixture")))]
+        #[cfg(not(feature = "relaxed-dp"))]
         let padding_params = PaddingParameters::default();
         match config.per_user_credit_cap {
             8 => oprf_ipa::<_, BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,
