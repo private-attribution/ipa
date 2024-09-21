@@ -12,6 +12,8 @@ pub(crate) enum AttributionStep {
     AttributeValidate,
     #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
     Aggregate,
+    #[step(child = crate::protocol::context::step::DzkpSingleBatchStep)]
+    AggregateValidate,
 }
 
 #[derive(CompactStep)]

@@ -75,6 +75,7 @@ where
     let attributions = shuffle_attributions(&ctx, attributed_values_padded).await?;
     let grouped_tvs = reveal_breakdowns(&ctx, attributions).await?;
     let num_rows = grouped_tvs.max_len;
+    let ctx = ctx.narrow(&AggregationStep::AggregateAggregatePlease);
     aggregate_values::<_, HV, B>(ctx, grouped_tvs.into_stream(), num_rows).await
 }
 

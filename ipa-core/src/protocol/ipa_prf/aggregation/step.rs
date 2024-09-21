@@ -10,14 +10,12 @@ pub(crate) enum AggregationStep {
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
     RevealStep,
-    #[step(child = BucketStep)]
-    MoveToBucket,
-    #[step(child = crate::protocol::context::step::DzkpBatchStep)]
-    MoveToBucketValidate,
-    #[step(count = 32, child = AggregateChunkStep)]
-    AggregateChunk(usize),
+    #[step(child = AggregateChunkStep)]
+    AggregateAggregatePlease,
     #[step(count = 32, child = crate::protocol::context::step::DzkpSingleBatchStep)]
     AggregateChunkValidate(usize),
+    #[step(child = crate::protocol::context::step::DzkpBatchStep)]
+    AggregateValidate,
 }
 
 /// the number of steps must be kept in sync with `MAX_BREAKDOWNS` defined

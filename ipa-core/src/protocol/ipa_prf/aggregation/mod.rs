@@ -1,30 +1,23 @@
-use std::{any::type_name, convert::Infallible, iter, pin::Pin};
+use std::{any::type_name, iter, pin::Pin};
 
-use futures::{stream, FutureExt, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
-use typenum::Const;
 
 use crate::{
-    error::{Error, LengthError, UnwrapInfallible},
+    error::{Error, LengthError},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{
-        stream::{
-            div_round_up, process_stream_by_chunks, ChunkBuffer, FixedLength, TryFlattenItersExt,
-        },
+        stream::{ChunkBuffer, FixedLength},
         TotalRecords,
     },
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
+        basics::BooleanProtocols,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::{
-            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPContext, MaliciousProtocolSteps, UpgradableContext,
-        },
+        context::{dzkp_validator::TARGET_PROOF_SIZE, Context},
         ipa_prf::{
-            aggregation::step::{AggregateChunkStep, AggregateValuesStep, AggregationStep as Step},
+            aggregation::step::{AggregateChunkStep, AggregateValuesStep},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
-            prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
-            BreakdownKey, AGG_CHUNK,
+            prf_sharding::AttributionOutputs,
         },
         RecordId,
     },
@@ -35,7 +28,6 @@ use crate::{
 };
 
 pub(crate) mod breakdown_reveal;
-mod bucket;
 pub(crate) mod step;
 
 type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
@@ -88,185 +80,6 @@ where
             attributed_breakdown_key_bits: bk,
             capped_attributed_trigger_value: tv,
         })
-    }
-}
-
-// Aggregation
-//
-// The input to aggregation is a stream of tuples of (attributed breakdown key, attributed trigger
-// value) for each record.
-//
-// The first stage of aggregation decodes the breakdown key to produce a vector of trigger value
-// to be added to each output bucket. At most one element of this vector can be non-zero,
-// corresponding to the breakdown key value. This stage is implemented by the
-// `move_single_value_to_bucket` function.
-//
-// The second stage of aggregation sums these vectors across all records, to produce the final
-// output histogram.
-//
-// The first stage of aggregation is vectorized over records, meaning that a chunk of N
-// records is collected, and the `move_single_value_to_bucket` function is called to
-// decode the breakdown keys for all of those records simultaneously.
-//
-// The second stage of aggregation is vectorized over histogram buckets, meaning that
-// the values in all `B` output buckets are added simultaneously.
-//
-// An intermediate transpose occurs between the two stages of aggregation, to convert from the
-// record-vectorized representation to the bucket-vectorized representation.
-//
-// The input to this transpose is `&[BitDecomposed<AdditiveShare<Boolean, {agg chunk}>>]`, indexed
-// by buckets, bits of trigger value, and contribution rows.
-//
-// The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
-// contribution rows, bits of trigger value, and buckets.
-#[tracing::instrument(name = "aggregate", skip_all, fields(streams = contributions_stream_len))]
-pub async fn aggregate_contributions<'ctx, C, St, BK, TV, HV, const B: usize>(
-    ctx: C,
-    contributions_stream: St,
-    mut contributions_stream_len: usize,
-) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
-where
-    C: UpgradableContext + 'ctx,
-    St: Stream<Item = Result<SecretSharedAttributionOutputs<BK, TV>, Error>> + Send,
-    BK: BreakdownKey<B>,
-    TV: BooleanArray + U128Conversions,
-    HV: BooleanArray + U128Conversions,
-    Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<<C::DZKPValidator as DZKPValidator>::Context, B>,
-    Replicated<Boolean, AGG_CHUNK>: SecureMul<<C::DZKPValidator as DZKPValidator>::Context>,
-    Replicated<BK>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
-    Replicated<TV>: BooleanArrayMul<<C::DZKPValidator as DZKPValidator>::Context>,
-    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-    Vec<BitDecomposed<Replicated<Boolean, B>>>: for<'a> TransposeFrom<
-        &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
-        Error = Infallible,
-    >,
-    Vec<Replicated<HV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
-{
-    assert!(contributions_stream_len != 0);
-
-    let move_to_bucket_chunk_size = TARGET_PROOF_SIZE / B / usize::try_from(TV::BITS).unwrap();
-    let move_to_bucket_records =
-        TotalRecords::specified(div_round_up(contributions_stream_len, Const::<AGG_CHUNK>))?;
-    let validator = ctx
-        .set_total_records(move_to_bucket_records)
-        .dzkp_validator(
-            MaliciousProtocolSteps {
-                protocol: &Step::MoveToBucket,
-                validate: &Step::MoveToBucketValidate,
-            },
-            move_to_bucket_chunk_size,
-        );
-    let bucket_ctx = validator.context();
-    // move each value to the correct bucket
-    let row_contribution_chunk_stream = process_stream_by_chunks(
-        contributions_stream,
-        AttributionOutputs {
-            attributed_breakdown_key_bits: vec![],
-            capped_attributed_trigger_value: vec![],
-        },
-        move |idx, chunk: AttributionOutputsChunk<AGG_CHUNK>| {
-            let record_id = RecordId::from(idx);
-            let validate_ctx = bucket_ctx.clone();
-            let ctx = bucket_ctx
-                .clone()
-                .set_total_records(TotalRecords::Indeterminate);
-            async move {
-                let result = bucket::move_single_value_to_bucket::<_, AGG_CHUNK>(
-                    ctx.clone(),
-                    record_id,
-                    chunk.attributed_breakdown_key_bits,
-                    chunk.capped_attributed_trigger_value,
-                    B,
-                    false,
-                )
-                .instrument(tracing::debug_span!("move_to_bucket", chunk = idx))
-                .await;
-
-                validate_ctx.validate_record(record_id).await?;
-
-                result
-            }
-        },
-    );
-
-    let mut aggregation_input = row_contribution_chunk_stream
-        // Rather than transpose out of record-vectorized form and then transpose again back
-        // into bucket-vectorized form, we use a special transpose (the "aggregation
-        // intermediate transpose") that combines the two steps.
-        //
-        // Since the bucket-vectorized representation is separable by records, we do the
-        // transpose within the `Chunk` wrapper using `Chunk::map`, and then invoke
-        // `Chunk::into_iter` via `try_flatten_iters` to produce an unchunked stream of
-        // records, vectorized by buckets.
-        .then(|fut| {
-            fut.map(|res| {
-                res.map(|chunk| {
-                    chunk.map(|data| Vec::transposed_from(data.as_slice()).unwrap_infallible())
-                })
-            })
-        })
-        .try_flatten_iters()
-        .boxed();
-
-    let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap());
-    let chunks = iter::from_fn(|| {
-        if contributions_stream_len >= agg_proof_chunk {
-            contributions_stream_len -= agg_proof_chunk;
-            Some(agg_proof_chunk)
-        } else if contributions_stream_len > 0 {
-            let chunk = contributions_stream_len;
-            contributions_stream_len = 0;
-            Some(chunk)
-        } else {
-            None
-        }
-    });
-    let mut intermediate_results = Vec::new();
-    let mut chunk_counter = 0;
-
-    for chunk in chunks {
-        chunk_counter += 1;
-        let stream = aggregation_input.by_ref().take(chunk);
-        let validator = ctx.clone().dzkp_validator(
-            MaliciousProtocolSteps {
-                protocol: &Step::aggregate_chunk(chunk_counter),
-                validate: &Step::aggregate_chunk_validate(chunk_counter),
-            },
-            agg_proof_chunk,
-        );
-        let result =
-            aggregate_values::<_, HV, B>(validator.context(), stream.boxed(), chunk).await?;
-        validator.validate().await?;
-        intermediate_results.push(Ok(result));
-    }
-
-    if intermediate_results.len() > 1 {
-        let stream_len = intermediate_results.len();
-        let validator = ctx.dzkp_validator(
-            MaliciousProtocolSteps {
-                protocol: &Step::AggregateChunk(chunk_counter),
-                validate: &Step::AggregateChunkValidate(chunk_counter),
-            },
-            agg_proof_chunk,
-        );
-        let aggregated_result = aggregate_values::<_, HV, B>(
-            validator.context(),
-            stream::iter(intermediate_results).boxed(),
-            stream_len,
-        )
-        .await?;
-        validator.validate().await?;
-        Ok(aggregated_result)
-    } else {
-        intermediate_results
-            .into_iter()
-            .next()
-            .expect("aggregation input must not be empty")
     }
 }
 

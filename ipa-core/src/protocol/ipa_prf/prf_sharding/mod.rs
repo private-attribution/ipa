@@ -12,7 +12,7 @@ use futures::{
     FutureExt, Stream, StreamExt, TryStreamExt,
 };
 
-use super::aggregation::{aggregate_contributions, breakdown_reveal::breakdown_reveal_aggregation};
+use super::aggregation::breakdown_reveal::breakdown_reveal_aggregation;
 use crate::{
     error::{Error, LengthError},
     ff::{
@@ -33,7 +33,7 @@ use crate::{
             Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
-            aggregation::{aggregate_values_proof_chunk, step::AggregationStep},
+            aggregation::aggregate_values_proof_chunk,
             boolean_ops::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
@@ -505,7 +505,6 @@ where
             * multiplications_per_record::<BK, TV, TS>(attribution_window_seconds));
 
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = input_rows.len() - histogram[0];
     let mut dzkp_validator = sh_ctx.clone().dzkp_validator(
         MaliciousProtocolSteps {
             protocol: &Step::Attribute,
@@ -535,12 +534,11 @@ where
         attribution_window_seconds,
     );
 
-    let ctx = sh_ctx.narrow(&Step::Aggregate);
-
-    let validator = ctx.dzkp_validator(
+    // TODO: move this to the place it's actually used
+    let validator = sh_ctx.dzkp_validator(
         MaliciousProtocolSteps {
-            protocol: &AggregationStep::AggregateChunk(0),
-            validate: &AggregationStep::AggregateChunkValidate(0),
+            protocol: &Step::Aggregate,
+            validate: &Step::AggregateValidate,
         },
         aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()),
     );
