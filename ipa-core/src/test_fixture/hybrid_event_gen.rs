@@ -1,4 +1,4 @@
-use std::{iter::zip, num::NonZeroU32};
+use std::num::NonZeroU32;
 
 use rand::Rng;
 
@@ -158,7 +158,10 @@ impl<R: Rng> Iterator for EventGenerator<R> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        iter::zip,
+    };
 
     use rand::thread_rng;
 
@@ -181,9 +184,9 @@ mod tests {
         // It is multiplied by the expected value. So a tolerance of 0.05 means
         // we will accept a value within 5% of the expected value
         const EXPECTED_HISTOGRAM_WITH_TOLERANCE: [(i32, f64); 12] = [
-            (0, 0.0), 
-            (647634, 0.01), 
-            (137626, 0.01), 
+            (0, 0.0),
+            (647634, 0.01),
+            (137626, 0.01),
             (20652, 0.02),
             (3085, 0.05),
             (463, 0.12),
