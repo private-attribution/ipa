@@ -185,10 +185,10 @@ mod tests {
         // we will accept a value within 5% of the expected value
         const EXPECTED_HISTOGRAM_WITH_TOLERANCE: [(i32, f64); 12] = [
             (0, 0.0),
-            (647634, 0.01),
-            (137626, 0.01),
-            (20652, 0.02),
-            (3085, 0.05),
+            (647_634, 0.01),
+            (137_626, 0.01),
+            (20_652, 0.02),
+            (3_085, 0.05),
             (463, 0.12),
             (70, 0.5),
             (10, 1.0),
@@ -229,13 +229,13 @@ mod tests {
             // Adding a constant value of 10 is a way of dealing with the high variability small values
             // which will vary a lot more (as a percent). Because 10 is an increasingly large percentage of
             // A smaller and smaller expected value
-            let max_tolerance = (*expected as f64) * tolerance + 10.0;
+            let max_tolerance = f64::from(*expected) * tolerance + 10.0;
             assert!(
-                (expected - actual).abs() as f64 <= max_tolerance,
+                f64::from((expected - actual).abs()) <= max_tolerance,
                 "{:?} is outside of the expected range: ({:?}..{:?})",
                 actual,
-                (*expected as f64) - max_tolerance,
-                (*expected as f64) + max_tolerance,
+                f64::from(*expected) - max_tolerance,
+                f64::from(*expected) + max_tolerance,
             );
         }
     }
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn lots_of_repeat_conversions() {
         const EXPECTED_HISTOGRAM: [i32; 12] = [
-            0, 299296, 25640, 20542, 16421, 13133, 10503, 8417, 6730, 5391, 4289, 17206,
+            0, 299_296, 25_640, 20_542, 16_421, 13_133, 10_503, 8_417, 6_730, 5_391, 4_289, 17_206,
         ];
         const TEST_COUNT: usize = 1_000_000;
         const MAX_CONVS_PER_IMP: u32 = 10;
@@ -288,13 +288,13 @@ mod tests {
         }
 
         for (expected, actual) in zip(EXPECTED_HISTOGRAM.iter(), histogram) {
-            let max_tolerance = (*expected as f64) * 0.05 + 10.0;
+            let max_tolerance = f64::from(*expected) * 0.05 + 10.0;
             assert!(
-                (expected - actual).abs() as f64 <= max_tolerance,
+                f64::from((expected - actual).abs()) <= max_tolerance,
                 "{:?} is outside of the expected range: ({:?}..{:?})",
                 actual,
-                (*expected as f64) - max_tolerance,
-                (*expected as f64) + max_tolerance,
+                f64::from(*expected) - max_tolerance,
+                f64::from(*expected) + max_tolerance,
             );
         }
     }
