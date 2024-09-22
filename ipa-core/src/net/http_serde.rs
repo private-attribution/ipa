@@ -569,12 +569,12 @@ pub mod query {
 
         impl Request {
             /// see above for the reason why this needs to be behind a feature flag
-            #[cfg(all(test, not(feature = "shuttle")))]
+            #[cfg(all(test, unit_test))]
             pub fn new(query_id: QueryId) -> Self {
                 Self { query_id }
             }
 
-            #[cfg(all(test, not(feature = "shuttle")))]
+            #[cfg(all(test, unit_test))]
             pub fn try_into_http_request(
                 self,
                 scheme: axum::http::uri::Scheme,
