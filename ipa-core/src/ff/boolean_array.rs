@@ -5,7 +5,7 @@ use bitvec::{
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{U14, U18, U2, U32, U8};
+use typenum::{U12, U14, U18, U2, U32, U8};
 
 use crate::{
     error::{Error, LengthError},
@@ -862,6 +862,9 @@ macro_rules! boolean_array_impl_large {
 //impl store for U8
 store_impl!(U8, 64);
 
+//impl store for U12
+store_impl!(U12, 96);
+
 //impl store for U14
 store_impl!(U14, 112);
 
@@ -890,6 +893,7 @@ boolean_array_impl_small!(boolean_array_16, BA16, 16, infallible);
 boolean_array_impl_small!(boolean_array_20, BA20, 20, fallible);
 boolean_array_impl_small!(boolean_array_32, BA32, 32, infallible);
 boolean_array_impl_small!(boolean_array_64, BA64, 64, infallible);
+boolean_array_impl_small!(boolean_array_96, BA96, 96, infallible);
 boolean_array_impl_small!(boolean_array_112, BA112, 112, infallible);
 boolean_array_impl_large!(boolean_array_144, BA144, 144, infallible, U18);
 boolean_array_impl_large!(boolean_array_256, BA256, 256, infallible, U32);

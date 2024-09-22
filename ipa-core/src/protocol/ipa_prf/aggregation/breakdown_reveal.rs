@@ -48,6 +48,7 @@ use crate::{
 /// 2. Reveal breakdown keys. This is the key difference to the previous
 ///    aggregation (see [`reveal_breakdowns`]).
 /// 3. Add all values for each breakdown.
+#[tracing::instrument(name = "breakdown_reveal_aggregation", skip_all, fields(total = attributed_values.len()))]
 pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     ctx: C,
     attributed_values: Vec<SecretSharedAttributionOutputs<BK, TV>>,
@@ -75,6 +76,7 @@ where
     let attributions = shuffle_attributions(&ctx, attributed_values_padded).await?;
     let grouped_tvs = reveal_breakdowns(&ctx, attributions).await?;
     let num_rows = grouped_tvs.max_len;
+    let ctx = ctx.narrow(&AggregationStep::SumContributions);
     aggregate_values::<_, HV, B>(ctx, grouped_tvs.into_stream(), num_rows).await
 }
 
