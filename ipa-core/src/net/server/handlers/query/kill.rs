@@ -1,4 +1,4 @@
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{extract::Path, routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
@@ -31,7 +31,7 @@ async fn handler(
 
 pub fn router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
-        .route(kill::AXUM_PATH, get(handler))
+        .route(kill::AXUM_PATH, post(handler))
         .layer(Extension(transport))
 }
 
@@ -89,7 +89,7 @@ mod tests {
                 http_serde::query::BASE_AXUM_PATH,
                 val.query_id
             );
-            hyper::Request::get(uri).body(Body::empty()).unwrap()
+            hyper::Request::post(uri).body(Body::empty()).unwrap()
         }
     }
 

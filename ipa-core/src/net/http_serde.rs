@@ -589,7 +589,7 @@ pub mod query {
                         self.query_id.as_ref()
                     ))
                     .build()?;
-                Ok(hyper::Request::get(uri).body(axum::body::Body::empty())?)
+                Ok(hyper::Request::post(uri).body(axum::body::Body::empty())?)
             }
         }
 
