@@ -1,5 +1,6 @@
 use std::{
     borrow::Borrow,
+    cmp::min,
     fmt::Debug,
     marker::PhantomData,
     num::NonZeroUsize,
@@ -203,10 +204,7 @@ impl<I: TransportIdentity> GatewaySenders<I> {
         match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => Arc::clone(entry.get()),
             Entry::Vacant(entry) => {
-                let sender = Self::new_sender(
-                    &SendChannelConfig::new::<M>(config, total_records),
-                    channel_id.clone(),
-                );
+                let sender = Self::new_sender(&SendChannelConfig::new::<M>(config, total_records), channel_id.clone());
                 entry.insert(Arc::clone(&sender));
 
                 tokio::spawn({
@@ -249,28 +247,71 @@ impl<I: Debug> Stream for GatewaySendStream<I> {
 
 impl SendChannelConfig {
     fn new<M: Message>(gateway_config: GatewayConfig, total_records: TotalRecords) -> Self {
-        debug_assert!(M::Size::USIZE > 0, "Message size cannot be 0");
+        Self::new_with(gateway_config, total_records, M::Size::USIZE)
+    }
 
-        let record_size = M::Size::USIZE;
-        let total_capacity = gateway_config.active.get() * record_size;
-        Self {
-            total_capacity: total_capacity.try_into().unwrap(),
-            record_size: record_size.try_into().unwrap(),
-            read_size: if total_records.is_indeterminate()
-                || gateway_config.read_size.get() <= record_size
-            {
+    fn new_with(
+        gateway_config: GatewayConfig,
+        total_records: TotalRecords,
+        record_size: usize,
+    ) -> Self {
+        debug_assert!(record_size > 0, "Message size cannot be 0");
+        // The absolute minimum of capacity we reserve for this channel. We can't go
+        // below that number, otherwise a deadlock is almost guaranteed.
+        let min_capacity = gateway_config.active.get() * record_size;
+
+        // first, compute the read size. It must be a multiple of `record_size` to prevent
+        // misaligned reads and deadlocks. For indeterminate channels, read size must be
+        // set to the size of one record, to trigger buffer flush on every write
+        let read_size =
+            if total_records.is_indeterminate() || gateway_config.read_size.get() <= record_size {
                 record_size
             } else {
-                std::cmp::min(
-                    total_capacity,
-                    // closest multiple of record_size to read_size
+                // closest multiple of record_size to read_size
+                let proposed_read_size = min(
                     gateway_config.read_size.get() / record_size * record_size,
-                )
-            }
-            .try_into()
-            .unwrap(),
+                    min_capacity,
+                );
+                // if min capacity is not a multiple of read size.
+                // we must adjust read size. Adjusting total capacity is not possible due to
+                // possible deadlocks - it must be strictly aligned with active work.
+                // read size goes in `record_size` increments to keep it aligned.
+                // rem is aligned with both capacity and read_size, so subtracting
+                // it will keep read_size and capacity aligned
+                // Here is an example how it may work:
+                // lets say the active work is set to 10, record size is 512 bytes
+                // and read size in gateway config is set to 2048 bytes (default value).
+                // the math above will compute total_capacity to 5120 bytes and
+                // proposed_read_size to 2048 because it is aligned with 512 record size.
+                // Now, if we don't adjust then we have an issue as 5120 % 2048 = 1024 != 0.
+                // Keeping read size like this will cause a deadlock, so we adjust it to
+                // 1024.
+                proposed_read_size - min_capacity % proposed_read_size
+            };
+
+        // total capacity must be a multiple of both read size and record size.
+        // Record size is easy to justify: misalignment here leads to either waste of memory
+        // or deadlock on the last write. Aligning read size and total capacity
+        // has the same reasoning behind it: reading less than total capacity
+        // can leave the last chunk half-written and backpressure from active work
+        // preventing the protocols to make further progress.
+        let total_capacity = min_capacity / read_size * read_size;
+
+        let this = Self {
+            total_capacity: total_capacity.try_into().unwrap(),
+            record_size: record_size.try_into().unwrap(),
+            read_size: read_size.try_into().unwrap(),
             total_records,
-        }
+        };
+
+        // make sure we've set these values correctly.
+        debug_assert_eq!(0, this.total_capacity.get() % this.read_size.get());
+        debug_assert_eq!(0, this.total_capacity.get() % this.record_size.get());
+        debug_assert!(this.total_capacity.get() >= this.read_size.get());
+        debug_assert!(this.total_capacity.get() >= this.record_size.get());
+        debug_assert!(this.read_size.get() >= this.record_size.get());
+
+        this
     }
 }
 
@@ -278,6 +319,7 @@ impl SendChannelConfig {
 mod test {
     use std::num::NonZeroUsize;
 
+    use proptest::proptest;
     use typenum::Unsigned;
 
     use crate::{
@@ -286,7 +328,7 @@ mod test {
             Serializable,
         },
         helpers::{gateway::send::SendChannelConfig, GatewayConfig, TotalRecords},
-        secret_sharing::SharedValue,
+        secret_sharing::{Sendable, StdArray},
     };
 
     impl Default for SendChannelConfig {
@@ -301,7 +343,7 @@ mod test {
     }
 
     #[allow(clippy::needless_update)] // to allow progress_check_interval to be conditionally compiled
-    fn send_config<V: SharedValue, const A: usize, const R: usize>(
+    fn send_config<V: Sendable, const A: usize, const R: usize>(
         total_records: TotalRecords,
     ) -> SendChannelConfig {
         let gateway_config = GatewayConfig {
@@ -390,5 +432,63 @@ mod test {
                 .read_size
                 .get()
         );
+    }
+
+    /// This test reproduces ipa/#1300. PRF evaluation sent 32*16 = 512 (record_size * vectorization)
+    /// chunks through a channel with total capacity 5120 (active work = 10 records) and read size
+    /// of 2048 bytes.
+    /// The problem was that read size of 2048 does not divide 5120, so the last chunk was not sent.
+    #[test]
+    fn total_capacity_is_a_multiple_of_read_size() {
+        let config =
+            send_config::<StdArray<BA256, 16>, 10, 2048>(TotalRecords::specified(43).unwrap());
+
+        assert_eq!(0, config.total_capacity.get() % config.read_size.get());
+        assert_eq!(config.total_capacity.get(), 10 * config.record_size.get());
+    }
+
+    fn ensure_config(
+        total_records: Option<usize>,
+        active: usize,
+        read_size: usize,
+        record_size: usize,
+    ) {
+        let gateway_config = GatewayConfig {
+            active: active.try_into().unwrap(),
+            read_size: read_size.try_into().unwrap(),
+            ..Default::default()
+        };
+        let config = SendChannelConfig::new_with(
+            gateway_config,
+            total_records
+                .map(|v| TotalRecords::specified(v).unwrap())
+                .unwrap_or(TotalRecords::Indeterminate),
+            record_size,
+        );
+
+        // total capacity checks
+        assert!(config.total_capacity.get() > 0);
+        assert!(config.total_capacity.get() >= record_size);
+        assert!(config.total_capacity.get() <= record_size * active);
+        assert!(config.total_capacity.get() >= config.read_size.get());
+        assert_eq!(0, config.total_capacity.get() % config.record_size.get());
+
+        // read size checks
+        assert!(config.read_size.get() > 0);
+        assert!(config.read_size.get() >= config.record_size.get());
+        assert_eq!(0, config.total_capacity.get() % config.read_size.get());
+        assert_eq!(0, config.read_size.get() % config.record_size.get());
+    }
+
+    proptest! {
+        #[test]
+        fn config_prop(
+            total_records in proptest::option::of(1_usize..1 << 32),
+            active in 1_usize..100_000,
+            read_size in 1_usize..32768,
+            record_size in 1_usize..4096,
+        ) {
+            ensure_config(total_records, active, read_size, record_size);
+        }
     }
 }

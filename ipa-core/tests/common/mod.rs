@@ -217,7 +217,11 @@ pub fn test_network<T: NetworkTest>(https: bool) {
     T::execute(path, https);
 }
 
-pub fn test_ipa<const INPUT_SIZE: usize>(mode: IpaSecurityModel, https: bool, encrypted_inputs: bool) {
+pub fn test_ipa<const INPUT_SIZE: usize>(
+    mode: IpaSecurityModel,
+    https: bool,
+    encrypted_inputs: bool,
+) {
     test_ipa_with_config::<INPUT_SIZE>(
         mode,
         https,
