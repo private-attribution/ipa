@@ -46,3 +46,9 @@ fn relaxed_dp_malicious() {
 fn relaxed_dp_https_malicious_ipa() {
     test_ipa::<100>(IpaSecurityModel::Malicious, true, true);
 }
+
+#[test]
+#[cfg(all(test, web_test))]
+fn relaxed_dp_https_malicious_ipa_10_rows() {
+    test_ipa::<10>(IpaSecurityModel::Malicious, true, true);
+}
