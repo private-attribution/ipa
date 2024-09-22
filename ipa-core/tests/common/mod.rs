@@ -217,8 +217,8 @@ pub fn test_network<T: NetworkTest>(https: bool) {
     T::execute(path, https);
 }
 
-pub fn test_ipa(mode: IpaSecurityModel, https: bool, encrypted_inputs: bool) {
-    test_ipa_with_config(
+pub fn test_ipa<const INPUT_SIZE: usize>(mode: IpaSecurityModel, https: bool, encrypted_inputs: bool) {
+    test_ipa_with_config::<INPUT_SIZE>(
         mode,
         https,
         IpaQueryConfig {
@@ -228,7 +228,7 @@ pub fn test_ipa(mode: IpaSecurityModel, https: bool, encrypted_inputs: bool) {
     );
 }
 
-pub fn test_ipa_with_config(
+pub fn test_ipa_with_config<const INPUT_SIZE: usize>(
     mode: IpaSecurityModel,
     https: bool,
     config: IpaQueryConfig,
@@ -238,7 +238,6 @@ pub fn test_ipa_with_config(
         panic!("encrypted_input requires https")
     };
 
-    const INPUT_SIZE: usize = 100;
     // set to true to always keep the temp dir after test finishes
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();

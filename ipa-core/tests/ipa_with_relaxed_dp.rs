@@ -20,7 +20,7 @@ fn relaxed_dp_semi_honest() {
     let encrypted_input = false;
     let config = build_config();
 
-    test_ipa_with_config(
+    test_ipa_with_config::<100>(
         IpaSecurityModel::SemiHonest,
         encrypted_input,
         config,
@@ -33,7 +33,7 @@ fn relaxed_dp_malicious() {
     let encrypted_input = false;
     let config = build_config();
 
-    test_ipa_with_config(
+    test_ipa_with_config::<100>(
         IpaSecurityModel::Malicious,
         encrypted_input,
         config,
@@ -44,5 +44,5 @@ fn relaxed_dp_malicious() {
 #[test]
 #[cfg(all(test, web_test))]
 fn relaxed_dp_https_malicious_ipa() {
-    test_ipa(IpaSecurityModel::Malicious, true, true);
+    test_ipa::<100>(IpaSecurityModel::Malicious, true, true);
 }
