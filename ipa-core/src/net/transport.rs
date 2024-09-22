@@ -273,10 +273,7 @@ mod tests {
 
     use bytes::Bytes;
     use futures::stream::{poll_immediate, StreamExt};
-    use futures_util::{
-        future::{join_all, try_join_all},
-        stream,
-    };
+    use futures_util::future::{join_all, try_join_all};
     use generic_array::GenericArray;
     use once_cell::sync::Lazy;
     use tokio::sync::mpsc::channel;
@@ -290,14 +287,12 @@ mod tests {
         helpers::{
             make_owned_handler,
             query::{QueryInput, QueryType::TestMultiply},
-            HandlerBox,
         },
         net::{
             client::ClientIdentity,
             test::{get_test_identity, TestConfig, TestConfigBuilder, TestServer},
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-        test_executor::run,
         test_fixture::Reconstruct,
         AppConfig, AppSetup, HelperApp,
     };
@@ -306,12 +301,12 @@ mod tests {
 
     #[tokio::test]
     async fn clean_on_kill() {
-        let noop_handler = make_owned_handler(|addr, stream| async move {
+        let noop_handler = make_owned_handler(|_, _| async move {
             {
                 Ok(HelperResponse::ok())
             }
         });
-        let TestServer { mut transport, .. } = TestServer::builder()
+        let TestServer { transport, .. } = TestServer::builder()
             .with_request_handler(Arc::clone(&noop_handler))
             .build()
             .await;
