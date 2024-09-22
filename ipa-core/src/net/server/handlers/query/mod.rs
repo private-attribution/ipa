@@ -1,5 +1,6 @@
 mod create;
 mod input;
+mod kill;
 mod prepare;
 mod results;
 mod status;
@@ -31,6 +32,7 @@ pub fn query_router(transport: Arc<HttpTransport>) -> Router {
         .merge(create::router(Arc::clone(&transport)))
         .merge(input::router(Arc::clone(&transport)))
         .merge(status::router(Arc::clone(&transport)))
+        .merge(kill::router(Arc::clone(&transport)))
         .merge(results::router(transport))
 }
 

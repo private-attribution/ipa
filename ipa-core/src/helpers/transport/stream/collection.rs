@@ -114,6 +114,26 @@ impl<I: TransportIdentity, S: Stream> StreamCollection<I, S> {
         let mut streams = self.inner.lock().unwrap();
         streams.clear();
     }
+
+    /// Returns the number of streams inside this collection.
+    ///
+    /// ## Panics
+    /// if mutex is poisoned.
+    #[cfg(test)]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inner.lock().unwrap().len()
+    }
+
+    /// Returns `true` if this collection is empty.
+    ///
+    /// ## Panics
+    /// if mutex is poisoned.
+    #[must_use]
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Describes the lifecycle of records stream inside [`StreamCollection`]

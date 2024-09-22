@@ -5,6 +5,7 @@ use std::{
 };
 
 use futures::{future::try_join, stream};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     error::Error as ProtocolError,
@@ -328,6 +329,36 @@ impl Processor {
 
         Ok(handle.await?)
     }
+
+    /// Terminates a query with the given id. If query is running, then it
+    /// is unregistered and its task is terminated.
+    ///
+    /// ## Errors
+    /// if query is not registered on this helper.
+    ///
+    /// ## Panics
+    /// If failed to obtain exclusive access to the query collection.
+    pub fn kill(&self, query_id: QueryId) -> Result<QueryKilled, QueryKillStatus> {
+        let mut queries = self.queries.inner.lock().unwrap();
+        let Some(state) = queries.remove(&query_id) else {
+            return Err(QueryKillStatus::NoSuchQuery(query_id));
+        };
+
+        if let QueryState::Running(handle) = state {
+            handle.join_handle.abort();
+        }
+
+        Ok(QueryKilled(query_id))
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct QueryKilled(pub QueryId);
+
+#[derive(thiserror::Error, Debug)]
+pub enum QueryKillStatus {
+    #[error("failed to kill a query: {0} does not exist.")]
+    NoSuchQuery(QueryId),
 }
 
 #[cfg(all(test, unit_test))]
@@ -546,6 +577,102 @@ mod tests {
                 processor.prepare(&transport, req),
                 Err(PrepareQueryError::AlreadyRunning)
             ));
+        }
+    }
+
+    mod kill {
+        use std::sync::Arc;
+
+        use crate::{
+            ff::FieldType,
+            helpers::{
+                query::{
+                    QueryConfig,
+                    QueryType::{TestAddInPrimeField, TestMultiply},
+                },
+                HandlerBox, HelperIdentity, InMemoryMpcNetwork, Transport,
+            },
+            protocol::QueryId,
+            query::{
+                processor::{tests::respond_ok, Processor},
+                state::{QueryState, RunningQuery},
+                QueryKillStatus,
+            },
+            test_executor::run,
+        };
+
+        #[test]
+        fn non_existent_query() {
+            let processor = Processor::default();
+            assert!(matches!(
+                processor.kill(QueryId),
+                Err(QueryKillStatus::NoSuchQuery(QueryId))
+            ));
+        }
+
+        #[test]
+        fn existing_query() {
+            run(|| async move {
+                let h2 = respond_ok();
+                let h3 = respond_ok();
+                let network = InMemoryMpcNetwork::new([
+                    None,
+                    Some(HandlerBox::owning_ref(&h2)),
+                    Some(HandlerBox::owning_ref(&h3)),
+                ]);
+                let identities = HelperIdentity::make_three();
+                let processor = Processor::default();
+                let transport = network.transport(identities[0]);
+                processor
+                    .new_query(
+                        Transport::clone_ref(&transport),
+                        QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+
+                processor.kill(QueryId).unwrap();
+
+                // start query again - it should work because the query was killed
+                processor
+                    .new_query(
+                        transport,
+                        QueryConfig::new(TestAddInPrimeField, FieldType::Fp32BitPrime, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+            });
+        }
+
+        #[test]
+        fn aborts_protocol_task() {
+            run(|| async move {
+                let processor = Processor::default();
+                let (_tx, rx) = tokio::sync::oneshot::channel();
+                let counter = Arc::new(1);
+                let task = tokio::spawn({
+                    let counter = Arc::clone(&counter);
+                    async move {
+                        loop {
+                            tokio::task::yield_now().await;
+                            let _ = *counter.as_ref();
+                        }
+                    }
+                });
+                processor.queries.inner.lock().unwrap().insert(
+                    QueryId,
+                    QueryState::Running(RunningQuery {
+                        result: rx,
+                        join_handle: task,
+                    }),
+                );
+
+                assert_eq!(2, Arc::strong_count(&counter));
+                processor.kill(QueryId).unwrap();
+                while Arc::strong_count(&counter) > 1 {
+                    tokio::task::yield_now().await;
+                }
+            });
         }
     }
 
