@@ -53,7 +53,6 @@ use crate::{
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
 };
-use crate::seq_join::SeqJoin;
 
 pub mod feature_label_dot_product;
 pub(crate) mod step;
@@ -511,7 +510,7 @@ where
             protocol: &Step::Attribute,
             validate: &Step::AttributeValidate,
         },
-        sh_ctx.active_work().get(),
+        std::cmp::min(sh_ctx.active_work().get(), chunk_size),
     );
     dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
     let ctx_for_row_number = set_up_contexts(&dzkp_validator.context(), histogram)?;

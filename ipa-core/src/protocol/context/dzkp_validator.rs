@@ -579,7 +579,7 @@ impl Batch {
         };
 
         // verify BatchToVerify, return result
-        let r = chunk_batch
+        chunk_batch
             .verify(
                 ctx.narrow(&Step::VerifyProof),
                 sum_of_uv,
@@ -588,8 +588,7 @@ impl Batch {
                 &challenges_for_left_prover,
                 &challenges_for_right_prover,
             )
-            .await;
-        r
+            .await
     }
 }
 

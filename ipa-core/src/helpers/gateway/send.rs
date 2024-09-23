@@ -434,7 +434,7 @@ mod test {
         );
     }
 
-    /// This test reproduces ipa/#1300. PRF evaluation sent 32*16 = 512 (record_size * vectorization)
+    /// This test reproduces ipa/#1300. PRF evaluation sent 32*16 = 512 (`record_size` * vectorization)
     /// chunks through a channel with total capacity 5120 (active work = 10 records) and read size
     /// of 2048 bytes.
     /// The problem was that read size of 2048 does not divide 5120, so the last chunk was not sent.
@@ -461,8 +461,7 @@ mod test {
         let config = SendChannelConfig::new_with(
             gateway_config,
             total_records
-                .map(|v| TotalRecords::specified(v).unwrap())
-                .unwrap_or(TotalRecords::Indeterminate),
+                .map_or(TotalRecords::Indeterminate, |v| TotalRecords::specified(v).unwrap()),
             record_size,
         );
 
