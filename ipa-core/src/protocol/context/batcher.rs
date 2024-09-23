@@ -99,7 +99,6 @@ impl<'a, B> Batcher<'a, B> {
 
     fn batch_offset(&self, record_id: RecordId) -> usize {
         let batch_index = usize::from(record_id) / self.records_per_batch;
-        tracing::warn!("for {record_id}, batch is {batch_index} because {} and {}", self.records_per_batch, self.total_records);
         batch_index
             .checked_sub(self.first_batch)
             .expect_not_yet_validated(batch_index)
@@ -161,7 +160,6 @@ impl<'a, B> Batcher<'a, B> {
         );
         batch.pending_records.set(record_offset_in_batch, true);
         batch.pending_count += 1;
-        tracing::warn!("batcher evaluates {batch_index} batch {record_id}, {remaining_records} for validation readiness: {}/{total_count}", batch.pending_count);
         if batch.pending_count == total_count {
             assert!(
                 batch.pending_records[0..total_count].all(),
