@@ -539,7 +539,9 @@ where
             protocol: &Step::Aggregate,
             validate: &Step::AggregateValidate,
         },
-        aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()),
+        // aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()),
+        // 1B batch size, suboptimal. But only to test that it works for 3M
+        1 << 30,
     );
     let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
     let result =
