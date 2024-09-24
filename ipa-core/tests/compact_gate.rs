@@ -23,7 +23,7 @@ fn test_compact_gate<I: TryInto<NonZeroU32>>(
 
     // test https with encrypted input
     // and http with plaintest input
-    test_ipa_with_config(mode, encrypted_input, config, encrypted_input);
+    test_ipa_with_config::<100>(mode, encrypted_input, config, encrypted_input);
 }
 
 #[test]
