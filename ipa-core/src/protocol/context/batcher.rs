@@ -1,5 +1,5 @@
 use std::{cmp::min, collections::VecDeque, future::Future};
-
+use std::fmt::Debug;
 use bitvec::{bitvec, prelude::BitVec};
 use tokio::sync::watch;
 
@@ -78,7 +78,7 @@ enum Ready<B> {
     },
 }
 
-impl<'a, B> Batcher<'a, B> {
+impl<'a, B: Debug> Batcher<'a, B> {
     pub fn new<T: Into<TotalRecords>>(
         records_per_batch: usize,
         total_records: T,
@@ -248,7 +248,12 @@ impl<'a, B> Batcher<'a, B> {
     /// If the batcher contains more than one batch.
     pub fn into_single_batch(mut self) -> B {
         assert!(self.first_batch == 0);
-        assert!(self.batches.len() <= 1);
+        assert!(self.batches.len() <= 1, "Number of batches must be 1, got {}. Total records: {:?}/records per batch: {}. debug: {:?}",
+                self.batches.len(),
+                self.total_records,
+                self.records_per_batch,
+                self.batches
+        );
         let batch_index = 0;
         match self.batches.pop_back() {
             Some(state) => {
