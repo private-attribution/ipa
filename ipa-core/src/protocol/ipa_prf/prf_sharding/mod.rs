@@ -12,7 +12,7 @@ use futures::{
     FutureExt, Stream, StreamExt, TryStreamExt,
 };
 
-use super::aggregation::{aggregate_contributions, breakdown_reveal::breakdown_reveal_aggregation};
+use super::aggregation::breakdown_reveal::breakdown_reveal_aggregation;
 use crate::{
     error::{Error, LengthError},
     ff::{
@@ -33,7 +33,7 @@ use crate::{
             Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
-            aggregation::{aggregate_values_proof_chunk, step::AggregationStep},
+            aggregation::aggregate_values_proof_chunk,
             boolean_ops::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
@@ -505,13 +505,14 @@ where
             * multiplications_per_record::<BK, TV, TS>(attribution_window_seconds));
 
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = input_rows.len() - histogram[0];
     let mut dzkp_validator = sh_ctx.clone().dzkp_validator(
         MaliciousProtocolSteps {
             protocol: &Step::Attribute,
             validate: &Step::AttributeValidate,
         },
-        chunk_size,
+        // The size of a single batch should not exceed the active work limit,
+        // otherwise it will stall
+        std::cmp::min(sh_ctx.active_work().get(), chunk_size),
     );
     dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
     let ctx_for_row_number = set_up_contexts(&dzkp_validator.context(), histogram)?;
@@ -535,29 +536,19 @@ where
         attribution_window_seconds,
     );
 
-    let ctx = sh_ctx.narrow(&Step::Aggregate);
-
-    // New aggregation is still experimental, we need proofs that it is private,
-    // hence it is only enabled behind a feature flag.
-    if cfg!(feature = "reveal-aggregation") {
-        // If there was any error in attribution we stop the execution with an error
-        tracing::warn!("Using the experimental aggregation based on revealing breakdown keys");
-        let validator = ctx.dzkp_validator(
-            MaliciousProtocolSteps {
-                protocol: &AggregationStep::AggregateChunk(0),
-                validate: &AggregationStep::AggregateChunkValidate(0),
-            },
-            aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()),
-        );
-        let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
-        let result =
-            breakdown_reveal_aggregation::<_, _, _, HV, B>(validator.context(), user_contributions)
-                .await;
-        validator.validate().await?;
-        result
-    } else {
-        aggregate_contributions::<_, _, _, _, HV, B>(ctx, flattened_user_results, num_outputs).await
-    }
+    let validator = sh_ctx.dzkp_validator(
+        MaliciousProtocolSteps {
+            protocol: &Step::Aggregate,
+            validate: &Step::AggregateValidate,
+        },
+        aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()),
+    );
+    let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
+    let result =
+        breakdown_reveal_aggregation::<_, _, _, HV, B>(validator.context(), user_contributions)
+            .await;
+    validator.validate().await?;
+    result
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]

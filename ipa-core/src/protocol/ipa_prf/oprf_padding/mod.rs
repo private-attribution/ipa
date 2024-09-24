@@ -274,6 +274,7 @@ where
 
 /// # Errors
 /// Will propagate errors from `apply_dp_padding_pass`
+#[tracing::instrument(name = "apply_dp_padding", skip_all)]
 pub async fn apply_dp_padding<C, T, const B: usize>(
     ctx: C,
     mut input: Vec<T>,
