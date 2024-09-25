@@ -97,6 +97,10 @@ impl<'a, B> Batcher<'a, B> {
         self.total_records = self.total_records.overwrite(total_records.into());
     }
 
+    pub fn records_per_batch(&self) -> usize {
+        self.records_per_batch
+    }
+
     fn batch_offset(&self, record_id: RecordId) -> usize {
         let batch_index = usize::from(record_id) / self.records_per_batch;
         batch_index

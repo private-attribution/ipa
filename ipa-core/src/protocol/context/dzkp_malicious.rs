@@ -1,4 +1,5 @@
 use std::{
+    cmp::max,
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
 };
@@ -29,6 +30,7 @@ use crate::{
 pub struct DZKPUpgraded<'a> {
     validator_inner: Weak<MaliciousDZKPValidatorInner<'a>>,
     base_ctx: MaliciousContext<'a>,
+    active_work: NonZeroUsize,
 }
 
 impl<'a> DZKPUpgraded<'a> {
@@ -36,9 +38,16 @@ impl<'a> DZKPUpgraded<'a> {
         validator_inner: &Arc<MaliciousDZKPValidatorInner<'a>>,
         base_ctx: MaliciousContext<'a>,
     ) -> Self {
+        // Adjust active_work to be at least records_per_batch. If it is less, we will
+        // stall, since every record in the batch remains incomplete until the batch is
+        // validated.
+        let records_per_batch = validator_inner.batcher.lock().unwrap().records_per_batch();
+        let active_work =
+            NonZeroUsize::new(max(base_ctx.active_work().get(), records_per_batch)).unwrap();
         Self {
             validator_inner: Arc::downgrade(validator_inner),
             base_ctx,
+            active_work,
         }
     }
 
@@ -130,7 +139,7 @@ impl<'a> super::Context for DZKPUpgraded<'a> {
 
 impl<'a> SeqJoin for DZKPUpgraded<'a> {
     fn active_work(&self) -> NonZeroUsize {
-        self.base_ctx.active_work()
+        self.active_work
     }
 }
 

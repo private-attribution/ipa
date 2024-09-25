@@ -1,5 +1,6 @@
 use std::{
     any::type_name,
+    cmp::max,
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
 };
@@ -174,13 +175,21 @@ pub(super) type MacBatcher<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F
 pub struct Upgraded<'a, F: ExtendableField> {
     batch: Weak<MacBatcher<'a, F>>,
     base_ctx: Context<'a>,
+    active_work: NonZeroUsize,
 }
 
 impl<'a, F: ExtendableField> Upgraded<'a, F> {
-    pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, ctx: Context<'a>) -> Self {
+    pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, base_ctx: Context<'a>) -> Self {
+        // Adjust active_work to be at least records_per_batch. The MAC validator
+        // currently configures the batcher with records_per_batch = active_work, which
+        // makes this adjustment a no-op, but we do it this way to match the DZKP validator.
+        let records_per_batch = batch.lock().unwrap().records_per_batch();
+        let active_work =
+            NonZeroUsize::new(max(base_ctx.active_work().get(), records_per_batch)).unwrap();
         Self {
             batch: Arc::downgrade(batch),
-            base_ctx: ctx,
+            base_ctx,
+            active_work,
         }
     }
 
@@ -297,7 +306,7 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
 
 impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
     fn active_work(&self) -> NonZeroUsize {
-        self.base_ctx.active_work()
+        self.active_work
     }
 }
 
