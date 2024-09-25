@@ -275,12 +275,12 @@ impl SendChannelConfig {
                     gateway_config.read_size.get() / record_size * record_size,
                     min_capacity,
                 );
-                // if min capacity is not a multiple of read size.
+                // if min capacity is not a multiple of read size,
                 // we must adjust read size. Adjusting total capacity is not possible due to
                 // possible deadlocks - it must be strictly aligned with active work.
                 // read size goes in `record_size` increments to keep it aligned.
-                // rem is aligned with both capacity and read_size, so subtracting
-                // it will keep read_size and capacity aligned
+                // `record_size` is aligned with both capacity and read_size, so subtracting
+                // it will keep both of these values aligned with it.
                 // Here is an example how it may work:
                 // lets say the active work is set to 10, record size is 512 bytes
                 // and read size in gateway config is set to 2048 bytes (default value).
@@ -313,6 +313,7 @@ impl SendChannelConfig {
         debug_assert!(this.total_capacity.get() >= this.read_size.get());
         debug_assert!(this.total_capacity.get() >= this.record_size.get());
         debug_assert!(this.read_size.get() >= this.record_size.get());
+        debug_assert_eq!(0, this.read_size.get() % this.record_size.get());
 
         this
     }
