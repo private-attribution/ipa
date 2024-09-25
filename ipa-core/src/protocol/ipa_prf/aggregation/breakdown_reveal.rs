@@ -210,7 +210,7 @@ pub mod tests {
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
-        test_executor::run,
+        test_executor::run_with,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -224,7 +224,11 @@ pub mod tests {
 
     #[test]
     fn semi_honest_happy_path() {
-        run(|| async {
+        // if shuttle executor is enabled, run this test only once.
+        // it is a very expensive test to explore all possible states,
+        // sometimes github bails after 40 minutes of running it
+        // (workers there are really slow).
+        run_with::<_, _, 3>(|| async {
             let world = TestWorld::default();
             let mut rng = rand::thread_rng();
             let mut expectation = Vec::new();
