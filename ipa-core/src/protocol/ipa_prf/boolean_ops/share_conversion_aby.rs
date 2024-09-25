@@ -532,7 +532,7 @@ mod tests {
                     .await
                     .unwrap()
                 })
-                .await
+                .await;
         });
     }
 
