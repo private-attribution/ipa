@@ -827,27 +827,39 @@ mod tests {
     use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
     use futures::{StreamExt, TryStreamExt};
     use futures_util::stream::iter;
-    use proptest::{prelude::prop, prop_compose, proptest};
+    use proptest::{prelude::Strategy, prop_oneof, proptest};
     use rand::{distributions::Standard, prelude::Distribution};
 
     use crate::{
-        error::Error, ff::{
-            boolean::Boolean, boolean_array::{BooleanArray, BA16, BA20, BA256, BA32, BA64, BA8}, Fp61BitPrime
-        }, protocol::{
+        error::Error,
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BooleanArray, BA16, BA20, BA256, BA32, BA64, BA8},
+            Fp61BitPrime,
+        },
+        protocol::{
             basics::{select, BooleanArrayMul, SecureMul},
             context::{
-                dzkp_field::{DZKPCompatibleField, BLOCK_SIZE}, dzkp_validator::{
+                dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
+                dzkp_validator::{
                     Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
-                }, Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext, UpgradableContext, TEST_DZKP_STEPS
+                },
+                Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
+                UpgradableContext, TEST_DZKP_STEPS,
             },
             Gate, RecordId,
-        }, rand::{thread_rng, Rng}, secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated,
-            IntoShares, SharedValue, Vectorizable,
-        }, seq_join::{seq_join, SeqJoin}, sharding::NotSharded, test_fixture::{join3v, Reconstruct, Runner, TestWorld}
+        },
+        rand::{thread_rng, Rng},
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+            Vectorizable,
+        },
+        seq_join::seq_join,
+        sharding::NotSharded,
+        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 
-    async fn test_simplest_circuit_semi_honest<V>()
+    async fn test_select_semi_honest<V>()
     where
         V: BooleanArray,
         for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
@@ -893,16 +905,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn simplest_circuit_semi_honest() {
-        test_simplest_circuit_semi_honest::<BA8>().await;
-        test_simplest_circuit_semi_honest::<BA16>().await;
-        test_simplest_circuit_semi_honest::<BA20>().await;
-        test_simplest_circuit_semi_honest::<BA32>().await;
-        test_simplest_circuit_semi_honest::<BA64>().await;
-        test_simplest_circuit_semi_honest::<BA256>().await;
+    async fn select_semi_honest() {
+        test_select_semi_honest::<BA8>().await;
+        test_select_semi_honest::<BA16>().await;
+        test_select_semi_honest::<BA20>().await;
+        test_select_semi_honest::<BA32>().await;
+        test_select_semi_honest::<BA64>().await;
+        test_select_semi_honest::<BA256>().await;
     }
 
-    async fn test_simplest_circuit_malicious<V>()
+    async fn test_select_malicious<V>()
     where
         V: BooleanArray,
         for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedMaliciousContext<'a>>,
@@ -948,17 +960,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn simplest_circuit_malicious() {
-        test_simplest_circuit_malicious::<BA8>().await;
-        test_simplest_circuit_malicious::<BA16>().await;
-        test_simplest_circuit_malicious::<BA20>().await;
-        test_simplest_circuit_malicious::<BA32>().await;
-        test_simplest_circuit_malicious::<BA64>().await;
-        test_simplest_circuit_malicious::<BA256>().await;
+    async fn select_malicious() {
+        test_select_malicious::<BA8>().await;
+        test_select_malicious::<BA16>().await;
+        test_select_malicious::<BA20>().await;
+        test_select_malicious::<BA32>().await;
+        test_select_malicious::<BA64>().await;
+        test_select_malicious::<BA256>().await;
     }
 
     #[tokio::test]
-    async fn dzkp_malicious() {
+    async fn two_multiplies_malicious() {
         const COUNT: usize = 32;
         let mut rng = thread_rng();
 
@@ -1019,8 +1031,8 @@ mod tests {
     }
 
     /// test for testing `validated_seq_join`
-    /// similar to `complex_circuit` in `validator.rs`
-    async fn complex_circuit_dzkp(
+    /// similar to `complex_circuit` in `validator.rs` (which has a more detailed comment)
+    async fn chained_multiplies_dzkp(
         count: usize,
         max_multiplications_per_gate: usize,
     ) -> Result<(), Error> {
@@ -1050,7 +1062,7 @@ mod tests {
             .map(|(ctx, input_shares)| async move {
                 let v = ctx
                     .set_total_records(count - 1)
-                    .dzkp_validator(TEST_DZKP_STEPS, ctx.active_work().get());
+                    .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
                 let m_ctx = v.context();
 
                 let m_results = v
@@ -1126,19 +1138,24 @@ mod tests {
         Ok(())
     }
 
-    prop_compose! {
-        fn arb_count_and_chunk()((log_count, log_multiplication_amount) in prop::sample::select(&[(5,5),(7,5),(5,8)])) -> (usize, usize) {
-            (1usize<<log_count, 1usize<<log_multiplication_amount)
-        }
+    fn record_count_strategy() -> impl Strategy<Value = usize> {
+        prop_oneof![1usize..=512, (1usize..=9).prop_map(|i| 1usize << i)]
+    }
+
+    fn max_multiplications_per_gate_strategy() -> impl Strategy<Value = usize> {
+        prop_oneof![1usize..=128, (1usize..=7).prop_map(|i| 1usize << i)]
     }
 
     proptest! {
         #[test]
-        fn test_complex_circuit_dzkp((count, multiplication_amount) in arb_count_and_chunk()){
-            let future = async {
-            let _ = complex_circuit_dzkp(count, multiplication_amount).await;
-        };
-        tokio::runtime::Runtime::new().unwrap().block_on(future);
+        fn test_chained_multiplies_dzkp(
+            record_count in record_count_strategy(),
+            max_multiplications_per_gate in max_multiplications_per_gate_strategy(),
+        ) {
+            println!("record_count {record_count} batch {max_multiplications_per_gate}");
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                chained_multiplies_dzkp(record_count, max_multiplications_per_gate).await.unwrap();
+            });
         }
     }
 
