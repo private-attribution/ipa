@@ -150,12 +150,15 @@ impl Gateway {
         &self,
         channel_id: &HelperChannelId,
         total_records: TotalRecords,
+        active_work: NonZeroUsize,
     ) -> send::SendingEnd<Role, M> {
         let transport = &self.transports.mpc;
         let channel = self.inner.mpc_senders.get::<M, _>(
             channel_id,
             transport,
-            self.config,
+            // we override the active work provided in config if caller
+            // wants to use a different value.
+            self.config.set_active_work(active_work),
             self.query_id,
             total_records,
         );
@@ -279,6 +282,15 @@ impl GatewayConfig {
         );
         // we set active to be at least 2, so unwrap is fine.
         self.active = NonZeroUsize::new(active).unwrap();
+    }
+
+    /// Creates a new configuration by overriding the value of active work.
+    #[must_use]
+    pub fn set_active_work(&self, active_work: NonZeroUsize) -> Self {
+        Self {
+            active: active_work,
+            ..*self
+        }
     }
 }
 
