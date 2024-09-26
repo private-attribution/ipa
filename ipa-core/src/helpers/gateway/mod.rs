@@ -296,7 +296,10 @@ impl GatewayConfig {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::{repeat, zip};
+    use std::{
+        iter::{repeat, zip},
+        num::NonZeroUsize,
+    };
 
     use futures::{
         future::{join, try_join, try_join_all},
@@ -305,12 +308,14 @@ mod tests {
 
     use crate::{
         ff::{boolean_array::BA3, Fp31, Fp32BitPrime, Gf2, U128Conversions},
-        helpers::{Direction, GatewayConfig, MpcMessage, Role, SendingEnd},
+        helpers::{
+            ChannelId, Direction, GatewayConfig, MpcMessage, Role, SendingEnd, TotalRecords,
+        },
         protocol::{
             context::{Context, ShardedContext},
-            RecordId,
+            Gate, RecordId,
         },
-        secret_sharing::replicated::semi_honest::AdditiveShare,
+        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
         sharding::ShardConfiguration,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards},
@@ -525,6 +530,42 @@ mod tests {
                     drop(recv2);
                 })
                 .await;
+        });
+    }
+
+    #[test]
+    fn custom_active_work() {
+        run(|| async move {
+            let world = TestWorld::new_with(TestWorldConfig {
+                gateway_config: GatewayConfig {
+                    active: 5.try_into().unwrap(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            let new_active_work = NonZeroUsize::new(3).unwrap();
+            assert!(new_active_work < world.gateway(Role::H1).config().active_work());
+            let sender = world.gateway(Role::H1).get_mpc_sender::<BA3>(
+                &ChannelId::new(Role::H2, Gate::default()),
+                TotalRecords::specified(15).unwrap(),
+                new_active_work,
+            );
+            try_join_all(
+                (0..new_active_work.get())
+                    .map(|record_id| sender.send(record_id.into(), BA3::ZERO)),
+            )
+            .await
+            .unwrap();
+            let recv = world.gateway(Role::H2).get_mpc_receiver::<BA3>(&ChannelId {
+                peer: Role::H1,
+                gate: Gate::default(),
+            });
+            // this will hang if the original active work is used
+            try_join_all(
+                (0..new_active_work.get()).map(|record_id| recv.receive(record_id.into())),
+            )
+            .await
+            .unwrap();
         });
     }
 
