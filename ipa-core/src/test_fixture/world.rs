@@ -780,7 +780,7 @@ impl<B: ShardBinding> ShardWorld<B> {
     #[must_use]
     pub fn malicious_contexts(&self, gate: &Gate) -> [MaliciousContext<'_>; 3] {
         zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
-            MaliciousContext::new_with_gate(participant, gateway, gate.clone())
+            MaliciousContext::new_with_gate(participant, gateway, gate.clone(), NotSharded)
         })
     }
 }
