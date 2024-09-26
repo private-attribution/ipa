@@ -827,30 +827,135 @@ mod tests {
     use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
     use futures::{StreamExt, TryStreamExt};
     use futures_util::stream::iter;
-    use proptest::{prop_compose, proptest, sample::select};
-    use rand::{thread_rng, Rng};
+    use proptest::{prelude::prop, prop_compose, proptest};
+    use rand::{distributions::Standard, prelude::Distribution};
 
     use crate::{
-        error::Error,
-        ff::{boolean::Boolean, Fp61BitPrime},
-        protocol::{
-            basics::SecureMul,
+        error::Error, ff::{
+            boolean::Boolean, boolean_array::{BooleanArray, BA16, BA20, BA256, BA32, BA64, BA8}, Fp61BitPrime
+        }, protocol::{
+            basics::{select, BooleanArrayMul, SecureMul},
             context::{
-                dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
-                dzkp_validator::{
+                dzkp_field::{DZKPCompatibleField, BLOCK_SIZE}, dzkp_validator::{
                     Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
-                },
-                Context, UpgradableContext, TEST_DZKP_STEPS,
+                }, Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext, UpgradableContext, TEST_DZKP_STEPS
             },
             Gate, RecordId,
-        },
-        secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
-            Vectorizable,
-        },
-        seq_join::{seq_join, SeqJoin},
-        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
+        }, rand::{thread_rng, Rng}, secret_sharing::{
+            replicated::semi_honest::AdditiveShare as Replicated,
+            IntoShares, SharedValue, Vectorizable,
+        }, seq_join::{seq_join, SeqJoin}, sharding::NotSharded, test_fixture::{join3v, Reconstruct, Runner, TestWorld}
     };
+
+    async fn test_simplest_circuit_semi_honest<V>()
+    where
+        V: BooleanArray,
+        for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
+        Standard: Distribution<V>,
+    {
+        let world = TestWorld::default();
+        let context = world.contexts();
+        let mut rng = thread_rng();
+
+        let bit = rng.gen::<Boolean>();
+        let a = rng.gen::<V>();
+        let b = rng.gen::<V>();
+
+        let bit_shares = bit.share_with(&mut rng);
+        let a_shares = a.share_with(&mut rng);
+        let b_shares = b.share_with(&mut rng);
+
+        let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares))).map(
+            |(ctx, (bit_share, (a_share, b_share)))| async move {
+                let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
+                let sh_ctx = v.context();
+
+                let result = select(
+                    sh_ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &bit_share,
+                    &a_share,
+                    &b_share,
+                )
+                .await?;
+
+                v.validate().await?;
+
+                Ok::<_, Error>(result)
+            },
+        );
+
+        let [ab0, ab1, ab2] = join3v(futures).await;
+
+        let ab = [ab0, ab1, ab2].reconstruct();
+
+        assert_eq!(ab, if bit.into() { a } else { b });
+    }
+
+    #[tokio::test]
+    async fn simplest_circuit_semi_honest() {
+        test_simplest_circuit_semi_honest::<BA8>().await;
+        test_simplest_circuit_semi_honest::<BA16>().await;
+        test_simplest_circuit_semi_honest::<BA20>().await;
+        test_simplest_circuit_semi_honest::<BA32>().await;
+        test_simplest_circuit_semi_honest::<BA64>().await;
+        test_simplest_circuit_semi_honest::<BA256>().await;
+    }
+
+    async fn test_simplest_circuit_malicious<V>()
+    where
+        V: BooleanArray,
+        for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedMaliciousContext<'a>>,
+        Standard: Distribution<V>,
+    {
+        let world = TestWorld::default();
+        let context = world.malicious_contexts();
+        let mut rng = thread_rng();
+
+        let bit = rng.gen::<Boolean>();
+        let a = rng.gen::<V>();
+        let b = rng.gen::<V>();
+
+        let bit_shares = bit.share_with(&mut rng);
+        let a_shares = a.share_with(&mut rng);
+        let b_shares = b.share_with(&mut rng);
+
+        let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares))).map(
+            |(ctx, (bit_share, (a_share, b_share)))| async move {
+                let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context();
+
+                let result = select(
+                    m_ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &bit_share,
+                    &a_share,
+                    &b_share,
+                )
+                .await?;
+
+                v.validate().await?;
+
+                Ok::<_, Error>(result)
+            },
+        );
+
+        let [ab0, ab1, ab2] = join3v(futures).await;
+
+        let ab = [ab0, ab1, ab2].reconstruct();
+
+        assert_eq!(ab, if bit.into() { a } else { b });
+    }
+
+    #[tokio::test]
+    async fn simplest_circuit_malicious() {
+        test_simplest_circuit_malicious::<BA8>().await;
+        test_simplest_circuit_malicious::<BA16>().await;
+        test_simplest_circuit_malicious::<BA20>().await;
+        test_simplest_circuit_malicious::<BA32>().await;
+        test_simplest_circuit_malicious::<BA64>().await;
+        test_simplest_circuit_malicious::<BA256>().await;
+    }
 
     #[tokio::test]
     async fn dzkp_malicious() {
@@ -1022,7 +1127,7 @@ mod tests {
     }
 
     prop_compose! {
-        fn arb_count_and_chunk()((log_count, log_multiplication_amount) in select(&[(5,5),(7,5),(5,8)])) -> (usize, usize) {
+        fn arb_count_and_chunk()((log_count, log_multiplication_amount) in prop::sample::select(&[(5,5),(7,5),(5,8)])) -> (usize, usize) {
             (1usize<<log_count, 1usize<<log_multiplication_amount)
         }
     }
