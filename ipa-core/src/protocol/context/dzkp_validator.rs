@@ -825,9 +825,13 @@ mod tests {
     };
 
     use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
-    use futures::{StreamExt, TryStreamExt};
+    use futures::{stream, StreamExt, TryStreamExt};
     use futures_util::stream::iter;
-    use proptest::{prelude::Strategy, prop_oneof, proptest};
+    use proptest::{
+        prelude::{Just, Strategy},
+        prop_compose, prop_oneof, proptest,
+        test_runner::Config as ProptestConfig,
+    };
     use rand::{distributions::Standard, prelude::Distribution};
 
     use crate::{
@@ -1030,6 +1034,51 @@ mod tests {
         }
     }
 
+    /// Similar to `test_select_malicious`, but operating on vectors
+    async fn multi_select_malicious<V>(count: usize, max_multiplications_per_gate: usize)
+    where
+        V: BooleanArray,
+        for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedMaliciousContext<'a>>,
+        Standard: Distribution<V>,
+    {
+        let mut rng = thread_rng();
+
+        let bit: Vec<Boolean> = repeat_with(|| rng.gen::<Boolean>()).take(count).collect();
+        let a: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
+        let b: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
+
+        let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] = TestWorld::default()
+            .malicious(
+                zip(bit.clone(), zip(a.clone(), b.clone())),
+                |ctx, inputs| async move {
+                    let v = ctx
+                        .set_total_records(count)
+                        .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
+                    let m_ctx = v.context();
+
+                    v.validated_seq_join(stream::iter(inputs).enumerate().map(
+                        |(i, (bit_share, (a_share, b_share)))| {
+                            let m_ctx = m_ctx.clone();
+                            async move {
+                                select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
+                                    .await
+                            }
+                        },
+                    ))
+                    .try_collect()
+                    .await
+                },
+            )
+            .await
+            .map(Result::unwrap);
+
+        let ab: Vec<V> = [ab0, ab1, ab2].reconstruct();
+
+        for i in 0..count {
+            assert_eq!(ab[i], if bit[i].into() { a[i] } else { b[i] });
+        }
+    }
+
     /// test for testing `validated_seq_join`
     /// similar to `complex_circuit` in `validator.rs` (which has a more detailed comment)
     async fn chained_multiplies_dzkp(
@@ -1139,23 +1188,62 @@ mod tests {
     }
 
     fn record_count_strategy() -> impl Strategy<Value = usize> {
-        prop_oneof![1usize..=512, (1usize..=9).prop_map(|i| 1usize << i)]
+        // The chained_multiplies test has count - 1 records, so 1 is not a valid input size.
+        // It is for multi_select though.
+        prop_oneof![2usize..=512, (1u32..=9).prop_map(|i| 1usize << i)]
     }
 
-    fn max_multiplications_per_gate_strategy() -> impl Strategy<Value = usize> {
-        prop_oneof![1usize..=128, (1usize..=7).prop_map(|i| 1usize << i)]
+    fn max_multiplications_per_gate_strategy(record_count: usize) -> impl Strategy<Value = usize> {
+        let max_max_mults = record_count.min(128);
+        prop_oneof![
+            1usize..=max_max_mults,
+            (0u32..=max_max_mults.ilog2()).prop_map(|i| 1usize << i)
+        ]
+    }
+
+    prop_compose! {
+        fn batching()
+                   (record_count in record_count_strategy())
+                   (record_count in Just(record_count), max_mults in max_multiplications_per_gate_strategy(record_count))
+        -> (usize, usize)
+        {
+            (record_count, max_mults)
+        }
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
         #[test]
-        fn test_chained_multiplies_dzkp(
-            record_count in record_count_strategy(),
-            max_multiplications_per_gate in max_multiplications_per_gate_strategy(),
-        ) {
+        fn batching_proptest((record_count, max_multiplications_per_gate) in batching()) {
             println!("record_count {record_count} batch {max_multiplications_per_gate}");
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                chained_multiplies_dzkp(record_count, max_multiplications_per_gate).await.unwrap();
-            });
+            if record_count / max_multiplications_per_gate >= 192 {
+                // TODO: #1269, or even if we don't fix that, don't hardcode the limit.
+                println!("skipping config because batch count exceeds limit of 192");
+            }
+            // This condition is correct only for active_work = 16 and record size of 1 byte.
+            else if max_multiplications_per_gate != 1 && max_multiplications_per_gate % 16 != 0 {
+                // TODO: #1300, read_size | batch_size.
+                // Note: for active work < 2048, read size matches active work.
+
+                // Besides read_size | batch_size, there is also a constraint
+                // something like active_work > read_size + batch_size - 1.
+                println!("skipping config due to read_size vs. batch_size constraints");
+            } else {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    chained_multiplies_dzkp(record_count, max_multiplications_per_gate).await.unwrap();
+                    /*
+                    multi_select_malicious::<BA3>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA8>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA16>(record_count, max_multiplications_per_gate).await;
+                    */
+                    multi_select_malicious::<BA20>(record_count, max_multiplications_per_gate).await;
+                    /*
+                    multi_select_malicious::<BA32>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA64>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA256>(record_count, max_multiplications_per_gate).await;
+                    */
+                });
+            }
         }
     }
 
