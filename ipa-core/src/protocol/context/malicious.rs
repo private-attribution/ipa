@@ -1,6 +1,5 @@
 use std::{
     any::type_name,
-    cmp::max,
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
 };
@@ -175,21 +174,23 @@ pub(super) type MacBatcher<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F
 pub struct Upgraded<'a, F: ExtendableField> {
     batch: Weak<MacBatcher<'a, F>>,
     base_ctx: Context<'a>,
-    active_work: NonZeroUsize,
 }
 
 impl<'a, F: ExtendableField> Upgraded<'a, F> {
-    pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, base_ctx: Context<'a>) -> Self {
-        // Adjust active_work to be at least records_per_batch. The MAC validator
-        // currently configures the batcher with records_per_batch = active_work, which
-        // makes this adjustment a no-op, but we do it this way to match the DZKP validator.
+    pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, ctx: Context<'a>) -> Self {
+        // The DZKP malicious context adjusts active_work to match records_per_batch.
+        // The MAC validator currently configures the batcher with records_per_batch =
+        // active_work. If the latter behavior changes, this code may need to be
+        // updated.
         let records_per_batch = batch.lock().unwrap().records_per_batch();
-        let active_work =
-            NonZeroUsize::new(max(base_ctx.active_work().get(), records_per_batch)).unwrap();
+        let active_work = ctx.active_work().get();
+        assert_eq!(
+            records_per_batch, active_work,
+            "Expect MAC validation batch size ({records_per_batch}) to match active work ({active_work})",
+        );
         Self {
             batch: Arc::downgrade(batch),
-            base_ctx,
-            active_work,
+            base_ctx: ctx,
         }
     }
 
@@ -306,7 +307,7 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
 
 impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
     fn active_work(&self) -> NonZeroUsize {
-        self.active_work
+        self.base_ctx.active_work()
     }
 }
 

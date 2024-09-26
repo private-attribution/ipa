@@ -838,7 +838,7 @@ mod tests {
         error::Error,
         ff::{
             boolean::Boolean,
-            boolean_array::{BooleanArray, BA16, BA20, BA256, BA32, BA64, BA8},
+            boolean_array::{BooleanArray, BA16, BA20, BA256, BA3, BA32, BA64, BA8},
             Fp61BitPrime,
         },
         protocol::{
@@ -910,6 +910,7 @@ mod tests {
 
     #[tokio::test]
     async fn select_semi_honest() {
+        test_select_semi_honest::<BA3>().await;
         test_select_semi_honest::<BA8>().await;
         test_select_semi_honest::<BA16>().await;
         test_select_semi_honest::<BA20>().await;
@@ -965,6 +966,7 @@ mod tests {
 
     #[tokio::test]
     async fn select_malicious() {
+        test_select_malicious::<BA3>().await;
         test_select_malicious::<BA8>().await;
         test_select_malicious::<BA16>().await;
         test_select_malicious::<BA20>().await;
