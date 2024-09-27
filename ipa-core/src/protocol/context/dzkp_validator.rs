@@ -257,7 +257,7 @@ impl MultiplicationInputsBatch {
         // records.
         let capacity_bits = usize::min(
             TARGET_PROOF_SIZE,
-            max_multiplications * multiplication_bit_size,
+            max_multiplications.saturating_mul(multiplication_bit_size),
         );
         Self {
             first_record,
@@ -295,7 +295,7 @@ impl MultiplicationInputsBatch {
         // panics when record_id is out of bounds
         assert!(record_id >= self.first_record);
         assert!(
-            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record)),
+            usize::from(record_id) < self.max_multiplications + usize::from(self.first_record),
             "record_id out of range in insert_segment. record {record_id} is beyond \
              segment of length {} starting at {}",
             self.max_multiplications,
@@ -326,9 +326,7 @@ impl MultiplicationInputsBatch {
 
         // panics when record_id is out of bounds
         assert!(record_id >= self.first_record);
-        assert!(
-            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
-        );
+        assert!(usize::from(record_id) < self.max_multiplications + usize::from(self.first_record));
 
         // panics when record_id is less than first_record
         let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
@@ -377,9 +375,7 @@ impl MultiplicationInputsBatch {
 
         // panics when record_id is out of bounds
         assert!(record_id >= self.first_record);
-        assert!(
-            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
-        );
+        assert!(usize::from(record_id) < self.max_multiplications + usize::from(self.first_record));
 
         let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
         let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
