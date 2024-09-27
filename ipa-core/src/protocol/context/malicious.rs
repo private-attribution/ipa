@@ -178,6 +178,16 @@ pub struct Upgraded<'a, F: ExtendableField> {
 
 impl<'a, F: ExtendableField> Upgraded<'a, F> {
     pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, ctx: Context<'a>) -> Self {
+        // The DZKP malicious context adjusts active_work to match records_per_batch.
+        // The MAC validator currently configures the batcher with records_per_batch =
+        // active_work. If the latter behavior changes, this code may need to be
+        // updated.
+        let records_per_batch = batch.lock().unwrap().records_per_batch();
+        let active_work = ctx.active_work().get();
+        assert_eq!(
+            records_per_batch, active_work,
+            "Expect MAC validation batch size ({records_per_batch}) to match active work ({active_work})",
+        );
         Self {
             batch: Arc::downgrade(batch),
             base_ctx: ctx,
