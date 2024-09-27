@@ -29,6 +29,7 @@ use crate::{
 pub struct DZKPUpgraded<'a> {
     validator_inner: Weak<MaliciousDZKPValidatorInner<'a>>,
     base_ctx: MaliciousContext<'a>,
+    active_work: NonZeroUsize,
 }
 
 impl<'a> DZKPUpgraded<'a> {
@@ -36,9 +37,30 @@ impl<'a> DZKPUpgraded<'a> {
         validator_inner: &Arc<MaliciousDZKPValidatorInner<'a>>,
         base_ctx: MaliciousContext<'a>,
     ) -> Self {
+        let records_per_batch = validator_inner.batcher.lock().unwrap().records_per_batch();
+        let active_work = if records_per_batch == 1 {
+            // If records_per_batch is 1, let active_work be anything. This only happens
+            // in tests; there shouldn't be a risk of deadlocks with one record per
+            // batch; and UnorderedReceiver capacity (which is set from active_work)
+            // must be at least two.
+            base_ctx.active_work()
+        } else {
+            // Adjust active_work to match records_per_batch. If it is less, we will
+            // certainly stall, since every record in the batch remains incomplete until
+            // the batch is validated. It is possible that it can be larger, but making
+            // it the same seems safer for now.
+            let active_work = NonZeroUsize::new(records_per_batch).unwrap();
+            tracing::debug!(
+                "Changed active_work from {} to {} to match batch size",
+                base_ctx.active_work().get(),
+                active_work,
+            );
+            active_work
+        };
         Self {
             validator_inner: Arc::downgrade(validator_inner),
             base_ctx,
+            active_work,
         }
     }
 
@@ -130,7 +152,7 @@ impl<'a> super::Context for DZKPUpgraded<'a> {
 
 impl<'a> SeqJoin for DZKPUpgraded<'a> {
     fn active_work(&self) -> NonZeroUsize {
-        self.base_ctx.active_work()
+        self.active_work
     }
 }
 
