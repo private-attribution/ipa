@@ -47,14 +47,16 @@ mod tests {
         helpers::{
             make_owned_handler,
             routing::{Addr, RouteId},
-            BodyStream, HelperIdentity, HelperResponse,
+            ApiError, BodyStream, HelperIdentity, HelperResponse,
         },
         net::{
             http_serde,
-            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with},
+            server::handlers::query::test_helpers::{
+                assert_fails_with, assert_fails_with_handler, assert_success_with,
+            },
         },
         protocol::QueryId,
-        query::QueryKilled,
+        query::{QueryKillStatus, QueryKilled},
     };
 
     #[tokio::test]
@@ -76,6 +78,36 @@ mod tests {
             .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
         assert_success_with(req, handler).await;
+    }
+
+    #[tokio::test]
+    async fn no_such_query() {
+        let handler = make_owned_handler(
+            move |_addr: Addr<HelperIdentity>, _data: BodyStream| async move {
+                Err(QueryKillStatus::NoSuchQuery(QueryId).into())
+            },
+        );
+
+        let req = http_serde::query::kill::Request::new(QueryId)
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
+            .unwrap();
+        assert_fails_with_handler(req, handler, StatusCode::NOT_FOUND).await;
+    }
+
+    #[tokio::test]
+    async fn unknown_error() {
+        let handler = make_owned_handler(
+            move |_addr: Addr<HelperIdentity>, _data: BodyStream| async move {
+                Err(ApiError::DeserializationFailure(
+                    serde_json::from_str::<()>("not-a-json").unwrap_err(),
+                ))
+            },
+        );
+
+        let req = http_serde::query::kill::Request::new(QueryId)
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
+            .unwrap();
+        assert_fails_with_handler(req, handler, StatusCode::INTERNAL_SERVER_ERROR).await;
     }
 
     struct OverrideReq {

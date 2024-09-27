@@ -141,6 +141,19 @@ pub mod test_helpers {
         assert_eq!(resp.status(), expected_status);
     }
 
+    pub async fn assert_fails_with_handler(
+        req: hyper::Request<Body>,
+        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        expected_status: StatusCode,
+    ) {
+        let test_server = TestServer::builder()
+            .with_request_handler(handler)
+            .build()
+            .await;
+        let resp = test_server.server.handle_req(req).await;
+        assert_eq!(resp.status(), expected_status);
+    }
+
     pub async fn assert_success_with(
         req: hyper::Request<Body>,
         handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,

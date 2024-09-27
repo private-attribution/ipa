@@ -5,7 +5,7 @@ use std::{
 };
 
 use futures::{future::try_join, stream};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     error::Error as ProtocolError,
@@ -352,7 +352,7 @@ impl Processor {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize)]
 pub struct QueryKilled(pub QueryId);
 
 #[derive(thiserror::Error, Debug)]

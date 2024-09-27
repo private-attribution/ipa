@@ -542,7 +542,6 @@ pub mod query {
             protocol::QueryId,
         };
 
-        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Request {
             pub query_id: QueryId,
         }
@@ -568,7 +567,12 @@ pub mod query {
         }
 
         impl Request {
-            /// see above for the reason why this needs to be behind a feature flag
+            /// Currently, it is only possible to kill
+            /// a query by issuing an HTTP request manually.
+            /// Maybe report collector can support this API,
+            /// but for now, only tests exercise this path
+            /// hence methods here are hidden behind feature
+            /// flags
             #[cfg(all(test, unit_test))]
             pub fn new(query_id: QueryId) -> Self {
                 Self { query_id }
