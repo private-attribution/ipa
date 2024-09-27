@@ -1,5 +1,6 @@
 mod create;
 mod input;
+mod kill;
 mod prepare;
 mod results;
 mod status;
@@ -31,6 +32,7 @@ pub fn query_router(transport: Arc<HttpTransport>) -> Router {
         .merge(create::router(Arc::clone(&transport)))
         .merge(input::router(Arc::clone(&transport)))
         .merge(status::router(Arc::clone(&transport)))
+        .merge(kill::router(Arc::clone(&transport)))
         .merge(results::router(transport))
 }
 
@@ -135,6 +137,19 @@ pub mod test_helpers {
     // from the server, and compare its [`StatusCode`] with what is expected.
     pub async fn assert_fails_with(req: hyper::Request<Body>, expected_status: StatusCode) {
         let test_server = TestServer::builder().build().await;
+        let resp = test_server.server.handle_req(req).await;
+        assert_eq!(resp.status(), expected_status);
+    }
+
+    pub async fn assert_fails_with_handler(
+        req: hyper::Request<Body>,
+        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        expected_status: StatusCode,
+    ) {
+        let test_server = TestServer::builder()
+            .with_request_handler(handler)
+            .build()
+            .await;
         let resp = test_server.server.handle_req(req).await;
         assert_eq!(resp.status(), expected_status);
     }

@@ -203,6 +203,10 @@ impl RequestHandler for Inner {
                 let query_id = ext_query_id(&req)?;
                 HelperResponse::from(qp.complete(query_id).await?)
             }
+            RouteId::KillQuery => {
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.kill(query_id)?)
+            }
         })
     }
 }
