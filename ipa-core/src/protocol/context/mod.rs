@@ -177,30 +177,20 @@ impl<'a, B: ShardBinding> Base<'a, B> {
         total_records: TotalRecords,
         sharding: B,
     ) -> Self {
-        Self::new_with_active_work(
-            participant,
-            gateway,
-            gate,
-            total_records,
-            gateway.config().active_work(),
-            sharding,
-        )
-    }
-
-    fn new_with_active_work(
-        participant: &'a PrssEndpoint,
-        gateway: &'a Gateway,
-        gate: Gate,
-        total_records: TotalRecords,
-        active_work: NonZeroUsize,
-        sharding: B,
-    ) -> Self {
         Self {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
-            active_work,
+            active_work: gateway.config().active_work(),
             sharding,
+        }
+    }
+
+    #[must_use]
+    pub fn set_active_work(self, new_active_work: NonZeroUsize) -> Self {
+        Self {
+            active_work: new_active_work,
+            ..self.clone()
         }
     }
 }

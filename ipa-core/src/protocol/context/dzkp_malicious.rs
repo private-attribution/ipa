@@ -29,7 +29,6 @@ use crate::{
 pub struct DZKPUpgraded<'a> {
     validator_inner: Weak<MaliciousDZKPValidatorInner<'a>>,
     base_ctx: MaliciousContext<'a>,
-    active_work: NonZeroUsize,
 }
 
 impl<'a> DZKPUpgraded<'a> {
@@ -59,8 +58,11 @@ impl<'a> DZKPUpgraded<'a> {
         };
         Self {
             validator_inner: Arc::downgrade(validator_inner),
-            base_ctx,
-            active_work,
+            // This overrides the active work for this context and all children
+            // created from it by using narrow, clone, etc.
+            // This allows all steps participating in malicious validation
+            // to use the same active work window and prevent deadlocks
+            base_ctx: base_ctx.set_active_work(active_work),
         }
     }
 
@@ -152,7 +154,7 @@ impl<'a> super::Context for DZKPUpgraded<'a> {
 
 impl<'a> SeqJoin for DZKPUpgraded<'a> {
     fn active_work(&self) -> NonZeroUsize {
-        self.active_work
+        self.base_ctx.active_work()
     }
 }
 
