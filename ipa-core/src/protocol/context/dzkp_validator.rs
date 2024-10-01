@@ -972,7 +972,7 @@ mod tests {
         test_select_malicious::<BA20>().await;
         test_select_malicious::<BA32>().await;
         test_select_malicious::<BA64>().await;
-        test_select_malicious::<BA256>().await;
+        Box::pin(test_select_malicious::<BA256>()).await;
     }
 
     #[tokio::test]
