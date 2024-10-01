@@ -78,6 +78,13 @@ impl<'a> Context<'a> {
             ..self.inner
         }
     }
+
+    #[must_use]
+    pub fn set_active_work(self, new_active_work: NonZeroUsize) -> Self {
+        Self {
+            inner: self.inner.set_active_work(new_active_work),
+        }
+    }
 }
 
 impl<'a> super::Context for Context<'a> {
