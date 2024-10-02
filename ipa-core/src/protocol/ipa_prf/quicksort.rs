@@ -176,7 +176,7 @@ where
             },
             // TODO: use something like this when validating in chunks
             // `TARGET_PROOF_SIZE / usize::try_from(K::BITS).unwrap() / SORT_CHUNK``
-            total_records_usize,
+            total_records_usize.next_power_of_two(),
         );
         let c = v.context();
         let cmp_ctx = c.narrow(&QuicksortPassStep::Compare);
