@@ -21,7 +21,6 @@ use crate::{
             validator::{self, BatchValidator},
             Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
-            UpgradedMaliciousContext,
         },
         prss::{Endpoint as PrssEndpoint, FromPrss},
         Gate, RecordId,
@@ -324,7 +323,7 @@ impl<F: ExtendableField, B: ShardBinding> Debug for Upgraded<'_, F, B> {
 /// Upgrading a semi-honest replicated share using malicious context produces
 /// a MAC-secured share with the same vectorization factor.
 #[async_trait]
-impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<UpgradedMaliciousContext<'a, V>>
+impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V, NotSharded>>
     for Replicated<V, N>
 where
     Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
@@ -333,7 +332,7 @@ where
 
     async fn upgrade(
         self,
-        ctx: UpgradedMaliciousContext<'a, V>,
+        ctx: Upgraded<'a, V, NotSharded>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let ctx = ctx.narrow(&UpgradeStep);
@@ -367,7 +366,7 @@ where
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<UpgradedMaliciousContext<'a, V>>
+impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V, NotSharded>>
     for (Replicated<V, N>, Replicated<V, N>)
 where
     Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
@@ -376,7 +375,7 @@ where
 
     async fn upgrade(
         self,
-        ctx: UpgradedMaliciousContext<'a, V>,
+        ctx: Upgraded<'a, V, NotSharded>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let (l, r) = self;
@@ -388,12 +387,12 @@ where
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V: ExtendableField> Upgradable<UpgradedMaliciousContext<'a, V>> for () {
+impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V, NotSharded>> for () {
     type Output = ();
 
     async fn upgrade(
         self,
-        _context: UpgradedMaliciousContext<'a, V>,
+        _context: Upgraded<'a, V, NotSharded>,
         _record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         Ok(())
@@ -402,28 +401,28 @@ impl<'a, V: ExtendableField> Upgradable<UpgradedMaliciousContext<'a, V>> for () 
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V, U> Upgradable<UpgradedMaliciousContext<'a, V>> for Vec<U>
+impl<'a, V, U> Upgradable<Upgraded<'a, V, NotSharded>> for Vec<U>
 where
     V: ExtendableField,
-    U: Upgradable<UpgradedMaliciousContext<'a, V>, Output: Send> + Send + 'a,
+    U: Upgradable<Upgraded<'a, V, NotSharded>, Output: Send> + Send + 'a,
 {
     type Output = Vec<U::Output>;
 
     async fn upgrade(
         self,
-        ctx: UpgradedMaliciousContext<'a, V>,
+        ctx: Upgraded<'a, V, NotSharded>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         /// Need a standalone function to avoid GAT issue that apparently can manifest
         /// even with `async_trait`.
         fn upgrade_vec<'a, V, U>(
-            ctx: UpgradedMaliciousContext<'a, V>,
+            ctx: Upgraded<'a, V, NotSharded>,
             record_id: RecordId,
             input: Vec<U>,
         ) -> impl std::future::Future<Output = Result<Vec<U::Output>, Error>> + 'a
         where
             V: ExtendableField,
-            U: Upgradable<UpgradedMaliciousContext<'a, V>> + 'a,
+            U: Upgradable<Upgraded<'a, V, NotSharded>> + 'a,
         {
             let mut upgraded = Vec::with_capacity(input.len());
             async move {
