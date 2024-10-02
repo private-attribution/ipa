@@ -203,10 +203,9 @@ impl<I: TransportIdentity> GatewaySenders<I> {
         match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => Arc::clone(entry.get()),
             Entry::Vacant(entry) => {
-                let sender = Self::new_sender(
-                    &SendChannelConfig::new::<M>(config, total_records),
-                    channel_id.clone(),
-                );
+                let config = SendChannelConfig::new::<M>(config, total_records);
+                tracing::trace!("send configuration for {channel_id:?}: {config:?}");
+                let sender = Self::new_sender(&config, channel_id.clone());
                 entry.insert(Arc::clone(&sender));
 
                 tokio::spawn({

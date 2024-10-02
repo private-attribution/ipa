@@ -31,16 +31,6 @@ impl<'de> serde::Deserialize<'de> for ProtocolGate {
 
 #[derive(CompactStep)]
 pub enum DeadCodeStep {
-    #[step(child = crate::protocol::basics::step::CheckZeroStep)]
-    CheckZero,
-    #[step(child = crate::protocol::basics::mul::step::MaliciousMultiplyStep)]
-    MaliciousMultiply,
-    #[step(child = crate::protocol::context::step::UpgradeStep)]
-    UpgradeShare,
-    #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
-    MaliciousProtocol,
-    #[step(child = crate::protocol::context::step::ValidateStep)]
-    MaliciousValidation,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedSubtractionStep)]
     SaturatedSubtraction,
     #[step(child = crate::protocol::ipa_prf::prf_sharding::step::FeatureLabelDotProductStep)]

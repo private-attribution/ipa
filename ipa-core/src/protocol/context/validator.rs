@@ -217,7 +217,7 @@ impl<'a, F: ExtendableField> BatchValidator<'a, F> {
 
         // TODO: Right now we set the batch work to be equal to active_work,
         // but it does not need to be. We can make this configurable if needed.
-        let records_per_batch = ctx.active_work().get().min(total_records.get());
+        let records_per_batch = ctx.active_work().get();
 
         Self {
             protocol_ctx: ctx.narrow(&Step::MaliciousProtocol),

@@ -67,6 +67,7 @@ impl<T: ObserveState> Observed<T> {
 }
 
 mod gateway {
+    use std::num::NonZeroUsize;
 
     use delegate::delegate;
 
@@ -153,12 +154,13 @@ mod gateway {
             &self,
             channel_id: &HelperChannelId,
             total_records: TotalRecords,
+            active_work: NonZeroUsize,
         ) -> SendingEnd<Role, M> {
             Observed::wrap(
                 Weak::clone(self.get_sn()),
                 self.inner()
                     .gateway
-                    .get_mpc_sender(channel_id, total_records),
+                    .get_mpc_sender(channel_id, total_records, active_work),
             )
         }
 

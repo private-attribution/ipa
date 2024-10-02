@@ -510,8 +510,8 @@ where
             protocol: &Step::Attribute,
             validate: &Step::AttributeValidate,
         },
-        // The size of a single batch should not exceed the active work limit,
-        // otherwise it will stall
+        // TODO: this should not be necessary, but probably can't be removed
+        // until we align read_size with the batch size.
         std::cmp::min(sh_ctx.active_work().get(), chunk_size),
     );
     dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());

@@ -135,7 +135,7 @@ impl HttpTransport {
             .expect("A Handler should be set by now")
             .handle(Addr::from_route(None, req), body);
 
-        if let RouteId::CompleteQuery = route_id {
+        if let RouteId::CompleteQuery | RouteId::KillQuery = route_id {
             ClearOnDrop {
                 transport: Arc::clone(&self),
                 inner: r,
@@ -210,7 +210,8 @@ impl Transport for Arc<HttpTransport> {
             evt @ (RouteId::QueryInput
             | RouteId::ReceiveQuery
             | RouteId::QueryStatus
-            | RouteId::CompleteQuery) => {
+            | RouteId::CompleteQuery
+            | RouteId::KillQuery) => {
                 unimplemented!(
                     "attempting to send client-specific request {evt:?} to another helper"
                 )
@@ -283,7 +284,10 @@ mod tests {
     use crate::{
         config::{NetworkConfig, ServerConfig},
         ff::{FieldType, Fp31, Serializable},
-        helpers::query::{QueryInput, QueryType::TestMultiply},
+        helpers::{
+            make_owned_handler,
+            query::{QueryInput, QueryType::TestMultiply},
+        },
         net::{
             client::ClientIdentity,
             test::{get_test_identity, TestConfig, TestConfigBuilder, TestServer},
@@ -294,6 +298,32 @@ mod tests {
     };
 
     static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
+
+    #[tokio::test]
+    async fn clean_on_kill() {
+        let noop_handler = make_owned_handler(|_, _| async move {
+            {
+                Ok(HelperResponse::ok())
+            }
+        });
+        let TestServer { transport, .. } = TestServer::builder()
+            .with_request_handler(Arc::clone(&noop_handler))
+            .build()
+            .await;
+
+        transport.record_streams.add_stream(
+            (QueryId, HelperIdentity::ONE, Gate::default()),
+            BodyStream::empty(),
+        );
+        assert_eq!(1, transport.record_streams.len());
+
+        Transport::clone_ref(&transport)
+            .dispatch((RouteId::KillQuery, QueryId), BodyStream::empty())
+            .await
+            .unwrap();
+
+        assert!(transport.record_streams.is_empty());
+    }
 
     #[tokio::test]
     async fn receive_stream() {

@@ -163,6 +163,7 @@ pub struct Base<'a, B: ShardBinding = NotSharded> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
+    active_work: NonZeroUsize,
     /// This indicates whether the system uses sharding or no. It's not ideal that we keep it here
     /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
     /// would be to move it to [`Inner`] struct.
@@ -181,7 +182,16 @@ impl<'a, B: ShardBinding> Base<'a, B> {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
+            active_work: gateway.config().active_work(),
             sharding,
+        }
+    }
+
+    #[must_use]
+    pub fn set_active_work(self, new_active_work: NonZeroUsize) -> Self {
+        Self {
+            active_work: new_active_work,
+            ..self.clone()
         }
     }
 }
@@ -218,6 +228,7 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
             inner: self.inner.clone(),
             gate: self.gate.narrow(step),
             total_records: self.total_records,
+            active_work: self.active_work,
             sharding: self.sharding.clone(),
         }
     }
@@ -227,6 +238,7 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
             inner: self.inner.clone(),
             gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
+            active_work: self.active_work,
             sharding: self.sharding.clone(),
         }
     }
@@ -255,9 +267,11 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
     }
 
     fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M> {
-        self.inner
-            .gateway
-            .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
+        self.inner.gateway.get_mpc_sender(
+            &ChannelId::new(role, self.gate.clone()),
+            self.total_records,
+            self.active_work,
+        )
     }
 
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
@@ -323,7 +337,7 @@ impl ShardConfiguration for Base<'_, Sharded> {
 
 impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
-        self.inner.gateway.config().active_work()
+        self.active_work
     }
 }
 
