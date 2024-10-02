@@ -819,8 +819,10 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::{
+        future::Future,
         iter::{repeat, repeat_with, zip},
         num::NonZeroUsize,
+        pin::Pin,
         sync::Arc,
     };
 
@@ -863,49 +865,54 @@ mod tests {
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 
-    async fn test_select_semi_honest<V>()
+    /// Depending on [`V`], the returning future size can be too large to fit on the stack,
+    /// hence we box it. We are seeing 8kb+ future size when using [`BA256`] and performance
+    /// does not matter here, so we move it to the heap unconditionally
+    fn test_select_semi_honest<V>() -> Pin<Box<impl Future<Output = ()>>>
     where
         V: BooleanArray,
         for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
         Standard: Distribution<V>,
     {
-        let world = TestWorld::default();
-        let context = world.contexts();
-        let mut rng = thread_rng();
+        Box::pin(async move {
+            let world = TestWorld::default();
+            let context = world.contexts();
+            let mut rng = thread_rng();
 
-        let bit = rng.gen::<Boolean>();
-        let a = rng.gen::<V>();
-        let b = rng.gen::<V>();
+            let bit = rng.gen::<Boolean>();
+            let a = rng.gen::<V>();
+            let b = rng.gen::<V>();
 
-        let bit_shares = bit.share_with(&mut rng);
-        let a_shares = a.share_with(&mut rng);
-        let b_shares = b.share_with(&mut rng);
+            let bit_shares = bit.share_with(&mut rng);
+            let a_shares = a.share_with(&mut rng);
+            let b_shares = b.share_with(&mut rng);
 
-        let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares))).map(
-            |(ctx, (bit_share, (a_share, b_share)))| async move {
-                let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
-                let sh_ctx = v.context();
+            let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares))).map(
+                |(ctx, (bit_share, (a_share, b_share)))| async move {
+                    let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
+                    let sh_ctx = v.context();
 
-                let result = select(
-                    sh_ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &bit_share,
-                    &a_share,
-                    &b_share,
-                )
-                .await?;
+                    let result = select(
+                        sh_ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &bit_share,
+                        &a_share,
+                        &b_share,
+                    )
+                    .await?;
 
-                v.validate().await?;
+                    v.validate().await?;
 
-                Ok::<_, Error>(result)
-            },
-        );
+                    Ok::<_, Error>(result)
+                },
+            );
 
-        let [ab0, ab1, ab2] = join3v(futures).await;
+            let [ab0, ab1, ab2] = join3v(futures).await;
 
-        let ab = [ab0, ab1, ab2].reconstruct();
+            let ab = [ab0, ab1, ab2].reconstruct();
 
-        assert_eq!(ab, if bit.into() { a } else { b });
+            assert_eq!(ab, if bit.into() { a } else { b });
+        })
     }
 
     #[tokio::test]
