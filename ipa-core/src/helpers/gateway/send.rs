@@ -436,6 +436,7 @@ mod test {
         read_size: usize,
         record_size: usize,
     ) {
+        #[allow(clippy::needless_update)] // stall detection feature wants default value
         let gateway_config = GatewayConfig {
             active: active.next_power_of_two().try_into().unwrap(),
             read_size: read_size.try_into().unwrap(),

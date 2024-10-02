@@ -512,7 +512,7 @@ where
         },
         // TODO: this should not be necessary, but probably can't be removed
         // until we align read_size with the batch size.
-        std::cmp::min(sh_ctx.active_work().get(), chunk_size),
+        std::cmp::min(sh_ctx.active_work().get(), chunk_size.next_power_of_two()),
     );
     dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
     let ctx_for_row_number = set_up_contexts(&dzkp_validator.context(), histogram)?;
@@ -541,7 +541,7 @@ where
             protocol: &Step::Aggregate,
             validate: &Step::AggregateValidate,
         },
-        aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()),
+        aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()).next_power_of_two(),
     );
     let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
     let result =

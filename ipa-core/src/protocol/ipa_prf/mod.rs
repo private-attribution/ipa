@@ -308,8 +308,10 @@ where
 // We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
 // is CONV_CHUNK. Let `len` equal the number of converted shares. The total amount of
 // multiplications is CONV_CHUNK*512*len. We want CONV_CHUNK*512*len ≈ 50M, or len ≈ 381, for a
-// reasonably-sized proof.
-const CONV_PROOF_CHUNK: usize = 400;
+// reasonably-sized proof. There is also a constraint on proof chunks to be powers of two, so
+// we pick the closest power of two close to 381 but less than that value. 256 gives us around 33M
+// multiplications per batch
+const CONV_PROOF_CHUNK: usize = 256;
 
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(

@@ -2,7 +2,6 @@ use std::{
     fs,
     io::BufReader,
     net::TcpListener,
-    num::NonZeroUsize,
     os::fd::{FromRawFd, RawFd},
     path::{Path, PathBuf},
     process,
@@ -18,7 +17,7 @@ use ipa_core::{
     error::BoxError,
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpShardTransport, HttpTransport, MpcHelperClient},
-    AppConfig, AppSetup,
+    AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tracing::{error, info};
 
@@ -93,7 +92,7 @@ struct ServerArgs {
 
     /// Override the amount of active work processed in parallel
     #[arg(long)]
-    active_work: Option<NonZeroUsize>,
+    active_work: Option<NonZeroU32PowerOfTwo>,
 }
 
 #[derive(Debug, Subcommand)]
