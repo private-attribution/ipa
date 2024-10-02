@@ -86,6 +86,7 @@ impl Args {
         self.active_work
             .map(NonZeroUsize::get)
             .unwrap_or_else(|| self.query_size.clamp(16, 1024))
+            .next_power_of_two()
     }
 
     fn attribution_window(&self) -> Option<NonZeroU32> {
