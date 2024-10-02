@@ -916,7 +916,7 @@ mod tests {
         test_select_semi_honest::<BA20>().await;
         test_select_semi_honest::<BA32>().await;
         test_select_semi_honest::<BA64>().await;
-        Box::pin(test_select_semi_honest::<BA256>()).await;
+        test_select_semi_honest::<BA256>().await;
     }
 
     async fn test_select_malicious<V>()
@@ -972,7 +972,7 @@ mod tests {
         test_select_malicious::<BA20>().await;
         test_select_malicious::<BA32>().await;
         test_select_malicious::<BA64>().await;
-        Box::pin(test_select_malicious::<BA256>()).await;
+        test_select_malicious::<BA256>().await;
     }
 
     #[tokio::test]

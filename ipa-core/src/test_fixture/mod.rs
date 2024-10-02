@@ -19,12 +19,12 @@ pub mod metrics;
 #[cfg(feature = "in-memory-infra")]
 mod test_gate;
 
-use std::fmt::Debug;
+use std::{fmt::Debug, future::Future};
 
 #[cfg(feature = "in-memory-infra")]
 pub use app::TestApp;
 pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
-use futures::TryFuture;
+use futures::{FutureExt, TryFuture};
 pub use hybrid_event_gen::{
     Config as HybridGeneratorConfig, EventGenerator as HybridEventGenerator,
 };
@@ -106,30 +106,32 @@ pub fn permutation_valid(permutation: &[u32]) -> bool {
 /// Wrapper for joining three things into an array.
 /// # Errors
 /// If one of the futures returned an error.
-pub async fn try_join3_array<T: TryFuture>([f0, f1, f2]: [T; 3]) -> Result<[T::Ok; 3], T::Error> {
-    futures::future::try_join3(f0, f1, f2)
-        .await
-        .map(|(a, b, c)| [a, b, c])
+pub fn try_join3_array<T: TryFuture>(
+    [f0, f1, f2]: [T; 3],
+) -> impl Future<Output = Result<[T::Ok; 3], T::Error>> {
+    futures::future::try_join3(f0, f1, f2).map(|res| res.map(|(a, b, c)| [a, b, c]))
 }
 
 /// Wrapper for joining three things into an array.
 /// # Panics
 /// If the tasks return `Err`.
-pub async fn join3<T>(a: T, b: T, c: T) -> [T::Ok; 3]
+pub fn join3<T>(a: T, b: T, c: T) -> impl Future<Output = [T::Ok; 3]>
 where
     T: TryFuture,
     T::Output: Debug,
     T::Ok: Debug,
     T::Error: Debug,
 {
-    let (a, b, c) = futures::future::try_join3(a, b, c).await.unwrap();
-    [a, b, c]
+    futures::future::try_join3(a, b, c).map(|res| {
+        let (a, b, c) = res.unwrap();
+        [a, b, c]
+    })
 }
 
 /// Wrapper for joining three things from an iterator into an array.
 /// # Panics
 /// If the tasks return `Err` or if `a` is the wrong length.
-pub async fn join3v<T, V>(a: V) -> [T::Ok; 3]
+pub fn join3v<T, V>(a: V) -> impl Future<Output = [T::Ok; 3]>
 where
     V: IntoIterator<Item = T>,
     T: TryFuture,
@@ -138,9 +140,11 @@ where
     T::Error: Debug,
 {
     let mut it = a.into_iter();
-    let res = join3(it.next().unwrap(), it.next().unwrap(), it.next().unwrap()).await;
+    let fut0 = it.next().unwrap();
+    let fut1 = it.next().unwrap();
+    let fut2 = it.next().unwrap();
     assert!(it.next().is_none());
-    res
+    join3(fut0, fut1, fut2)
 }
 
 /// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `Z`
