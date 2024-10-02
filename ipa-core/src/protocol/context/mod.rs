@@ -44,6 +44,7 @@ use crate::{
     secret_sharing::replicated::malicious::ExtendableField,
     seq_join::SeqJoin,
     sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
+    utils::NonZeroU32PowerOfTwo,
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -162,7 +163,7 @@ pub struct Base<'a, B: ShardBinding = NotSharded> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
-    active_work: NonZeroUsize,
+    active_work: NonZeroU32PowerOfTwo,
     /// This indicates whether the system uses sharding or no. It's not ideal that we keep it here
     /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
     /// would be to move it to [`Inner`] struct.
@@ -181,13 +182,13 @@ impl<'a, B: ShardBinding> Base<'a, B> {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
-            active_work: gateway.config().active_work(),
+            active_work: gateway.config().active_work_as_power_of_two(),
             sharding,
         }
     }
 
     #[must_use]
-    pub fn set_active_work(self, new_active_work: NonZeroUsize) -> Self {
+    pub fn set_active_work(self, new_active_work: NonZeroU32PowerOfTwo) -> Self {
         Self {
             active_work: new_active_work,
             ..self.clone()
@@ -336,7 +337,7 @@ impl ShardConfiguration for Base<'_, Sharded> {
 
 impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
-        self.active_work
+        self.active_work.to_non_zero_usize()
     }
 }
 

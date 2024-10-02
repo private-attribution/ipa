@@ -61,8 +61,11 @@ impl<'a> DZKPUpgraded<'a> {
             // This overrides the active work for this context and all children
             // created from it by using narrow, clone, etc.
             // This allows all steps participating in malicious validation
-            // to use the same active work window and prevent deadlocks
-            base_ctx: base_ctx.set_active_work(active_work),
+            // to use the same active work window and prevent deadlocks.
+            //
+            // This also checks that active work is a power of two and
+            // panics if it is not.
+            base_ctx: base_ctx.set_active_work(active_work.get().try_into().unwrap()),
         }
     }
 

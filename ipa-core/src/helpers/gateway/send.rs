@@ -255,12 +255,7 @@ impl SendChannelConfig {
         total_records: TotalRecords,
         record_size: usize,
     ) -> Self {
-        debug_assert!(record_size > 0, "Message size cannot be 0");
-        debug_assert!(
-            gateway_config.active.is_power_of_two(),
-            "Active work {} must be a power of two",
-            gateway_config.active.get()
-        );
+        assert!(record_size > 0, "Message size cannot be 0");
 
         let total_capacity = gateway_config.active.get() * record_size;
         // define read size as a multiplier of record size. The multiplier must be
@@ -289,7 +284,8 @@ impl SendChannelConfig {
             total_records,
         };
 
-        debug_assert!(this.total_capacity.get() >= record_size * gateway_config.active.get());
+        assert!(this.total_capacity.get() >= record_size * gateway_config.active.get());
+        assert_eq!(0, this.total_capacity.get() % this.read_size.get());
 
         this
     }
@@ -304,7 +300,7 @@ mod test {
 
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA256, BA3, BA7},
+            boolean_array::{BA16, BA20, BA256, BA3, BA32, BA7},
             Serializable,
         },
         helpers::{gateway::send::SendChannelConfig, GatewayConfig, TotalRecords},
@@ -419,6 +415,21 @@ mod test {
         ensure_config(Some(15), 90, 16, 3);
     }
 
+    #[test]
+    fn config_read_size_multiple_of_record_size() {
+        // 4 bytes * 8 = 32 bytes total capacity.
+        // desired read size is 15 bytes, and the closest multiple of BA32
+        // to it that is a power of two is 2 (4 gets us over 15 byte target)
+        assert_eq!(8, send_config::<BA32, 8, 15>(50.into()).read_size.get());
+
+        // here, read size is already a power of two
+        assert_eq!(16, send_config::<BA32, 8, 16>(50.into()).read_size.get());
+
+        // read size can be ridiculously small, config adjusts it to fit
+        // at least one record
+        assert_eq!(3, send_config::<BA20, 8, 1>(50.into()).read_size.get());
+    }
+
     fn ensure_config(
         total_records: Option<usize>,
         active: usize,
@@ -428,7 +439,6 @@ mod test {
         let gateway_config = GatewayConfig {
             active: active.next_power_of_two().try_into().unwrap(),
             read_size: read_size.try_into().unwrap(),
-            // read_size: read_size.next_power_of_two().try_into().unwrap(),
             ..Default::default()
         };
         let config = SendChannelConfig::new_with(

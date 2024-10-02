@@ -80,7 +80,7 @@ impl<'a> Context<'a> {
     }
 
     #[must_use]
-    pub fn set_active_work(self, new_active_work: NonZeroUsize) -> Self {
+    pub fn set_active_work(self, new_active_work: NonZeroU32PowerOfTwo) -> Self {
         Self {
             inner: self.inner.set_active_work(new_active_work),
         }
@@ -171,7 +171,10 @@ impl Debug for Context<'_> {
     }
 }
 
-use crate::sync::{Mutex, Weak};
+use crate::{
+    sync::{Mutex, Weak},
+    utils::NonZeroU32PowerOfTwo,
+};
 
 pub(super) type MacBatcher<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F>>>;
 

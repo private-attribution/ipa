@@ -67,7 +67,6 @@ impl<T: ObserveState> Observed<T> {
 }
 
 mod gateway {
-    use std::num::NonZeroUsize;
 
     use delegate::delegate;
 
@@ -81,6 +80,7 @@ mod gateway {
         protocol::QueryId,
         sharding::ShardIndex,
         sync::Arc,
+        utils::NonZeroU32PowerOfTwo,
     };
 
     pub struct InstrumentedGateway {
@@ -154,7 +154,7 @@ mod gateway {
             &self,
             channel_id: &HelperChannelId,
             total_records: TotalRecords,
-            active_work: NonZeroUsize,
+            active_work: NonZeroU32PowerOfTwo,
         ) -> SendingEnd<Role, M> {
             Observed::wrap(
                 Weak::clone(self.get_sn()),

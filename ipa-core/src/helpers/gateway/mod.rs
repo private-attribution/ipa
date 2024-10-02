@@ -30,6 +30,7 @@ use crate::{
     protocol::QueryId,
     sharding::ShardIndex,
     sync::{Arc, Mutex},
+    utils::NonZeroU32PowerOfTwo,
 };
 
 /// Alias for the currently configured transport.
@@ -73,8 +74,7 @@ pub struct State {
 pub struct GatewayConfig {
     /// The number of items that can be active at the one time.
     /// This is used to determine the size of sending and receiving buffers.
-    /// Any value that is not a power of two will be rejected
-    pub active: NonZeroUsize,
+    pub active: NonZeroU32PowerOfTwo,
 
     /// Number of bytes packed and sent together in one batch down to the network layer. This
     /// shouldn't be too small to keep the network throughput, but setting it large enough may
@@ -155,7 +155,7 @@ impl Gateway {
         &self,
         channel_id: &HelperChannelId,
         total_records: TotalRecords,
-        active_work: NonZeroUsize,
+        active_work: NonZeroU32PowerOfTwo,
     ) -> send::SendingEnd<Role, M> {
         let transport = &self.transports.mpc;
         let channel = self.inner.mpc_senders.get::<M, _>(
@@ -265,6 +265,11 @@ impl GatewayConfig {
     /// The configured amount of active work.
     #[must_use]
     pub fn active_work(&self) -> NonZeroUsize {
+        self.active.to_non_zero_usize()
+    }
+
+    #[must_use]
+    pub fn active_work_as_power_of_two(&self) -> NonZeroU32PowerOfTwo {
         self.active
     }
 
@@ -287,12 +292,12 @@ impl GatewayConfig {
         )
         .next_power_of_two();
         // we set active to be at least 2, so unwrap is fine.
-        self.active = NonZeroUsize::new(active).unwrap();
+        self.active = NonZeroU32PowerOfTwo::try_from(active).unwrap();
     }
 
     /// Creates a new configuration by overriding the value of active work.
     #[must_use]
-    pub fn set_active_work(&self, active_work: NonZeroUsize) -> Self {
+    pub fn set_active_work(&self, active_work: NonZeroU32PowerOfTwo) -> Self {
         Self {
             active: active_work,
             ..*self
@@ -304,7 +309,6 @@ impl GatewayConfig {
 mod tests {
     use std::{
         iter::{repeat, zip},
-        num::NonZeroUsize,
         sync::Arc,
     };
 
@@ -337,6 +341,7 @@ mod tests {
         sharding::ShardConfiguration,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards},
+        utils::NonZeroU32PowerOfTwo,
     };
 
     /// Verifies that [`Gateway`] send buffer capacity is adjusted to the message size.
@@ -556,13 +561,19 @@ mod tests {
         run(|| async move {
             let world = TestWorld::new_with(TestWorldConfig {
                 gateway_config: GatewayConfig {
-                    active: 5.try_into().unwrap(),
+                    active: 8.try_into().unwrap(),
                     ..Default::default()
                 },
                 ..Default::default()
             });
-            let new_active_work = NonZeroUsize::new(3).unwrap();
-            assert!(new_active_work < world.gateway(Role::H1).config().active_work());
+            let new_active_work = NonZeroU32PowerOfTwo::try_from(4).unwrap();
+            assert!(
+                new_active_work
+                    < world
+                        .gateway(Role::H1)
+                        .config()
+                        .active_work_as_power_of_two()
+            );
             let sender = world.gateway(Role::H1).get_mpc_sender::<BA3>(
                 &ChannelId::new(Role::H2, Gate::default()),
                 TotalRecords::specified(15).unwrap(),
