@@ -248,28 +248,50 @@ impl<I: Debug> Stream for GatewaySendStream<I> {
 
 impl SendChannelConfig {
     fn new<M: Message>(gateway_config: GatewayConfig, total_records: TotalRecords) -> Self {
-        debug_assert!(M::Size::USIZE > 0, "Message size cannot be 0");
+        Self::new_with(gateway_config, total_records, M::Size::USIZE)
+    }
+    fn new_with(
+        gateway_config: GatewayConfig,
+        total_records: TotalRecords,
+        record_size: usize,
+    ) -> Self {
+        debug_assert!(record_size > 0, "Message size cannot be 0");
+        debug_assert!(
+            gateway_config.active.is_power_of_two(),
+            "Active work {} must be a power of two",
+            gateway_config.active.get()
+        );
 
-        let record_size = M::Size::USIZE;
         let total_capacity = gateway_config.active.get() * record_size;
-        Self {
+        // define read size as a multiplier of record size. The multiplier must be
+        // a power of two to align perfectly with total capacity.
+        let read_size_multiplier = {
+            // next_power_of_two returns a value that is greater than or equal to.
+            // That is not what we want here: if read_size / record_size is a power
+            // of two, then subsequent division will get us further away from desired target.
+            // For example: if read_size / record_size = 4, then prev_power_of_two = 2.
+            // In such cases, we want to stay where we are, so we add +1 for that.
+            let prev_power_of_two =
+                (gateway_config.read_size.get() / record_size + 1).next_power_of_two() / 2;
+            std::cmp::max(1, prev_power_of_two)
+        };
+
+        let this = Self {
             total_capacity: total_capacity.try_into().unwrap(),
             record_size: record_size.try_into().unwrap(),
-            read_size: if total_records.is_indeterminate()
-                || gateway_config.read_size.get() <= record_size
-            {
+            read_size: if total_records.is_indeterminate() {
                 record_size
             } else {
-                std::cmp::min(
-                    total_capacity,
-                    // closest multiple of record_size to read_size
-                    gateway_config.read_size.get() / record_size * record_size,
-                )
+                std::cmp::min(total_capacity, read_size_multiplier * record_size)
             }
             .try_into()
             .unwrap(),
             total_records,
-        }
+        };
+
+        debug_assert!(this.total_capacity.get() >= record_size * gateway_config.active.get());
+
+        this
     }
 }
 
@@ -277,6 +299,7 @@ impl SendChannelConfig {
 mod test {
     use std::num::NonZeroUsize;
 
+    use proptest::proptest;
     use typenum::Unsigned;
 
     use crate::{
@@ -379,15 +402,67 @@ mod test {
     fn config_read_size_closest_multiple_to_record_size() {
         assert_eq!(
             6,
-            send_config::<BA20, 12, 7>(TotalRecords::Specified(2.try_into().unwrap()))
+            send_config::<BA20, 16, 7>(TotalRecords::Specified(2.try_into().unwrap()))
                 .read_size
                 .get()
         );
         assert_eq!(
             6,
-            send_config::<BA20, 12, 8>(TotalRecords::Specified(2.try_into().unwrap()))
+            send_config::<BA20, 16, 8>(TotalRecords::Specified(2.try_into().unwrap()))
                 .read_size
                 .get()
         );
+    }
+
+    #[test]
+    fn config_read_size_record_size_misalignment() {
+        ensure_config(Some(15), 90, 16, 3);
+    }
+
+    fn ensure_config(
+        total_records: Option<usize>,
+        active: usize,
+        read_size: usize,
+        record_size: usize,
+    ) {
+        let gateway_config = GatewayConfig {
+            active: active.next_power_of_two().try_into().unwrap(),
+            read_size: read_size.try_into().unwrap(),
+            // read_size: read_size.next_power_of_two().try_into().unwrap(),
+            ..Default::default()
+        };
+        let config = SendChannelConfig::new_with(
+            gateway_config,
+            total_records.map_or(TotalRecords::Indeterminate, |v| {
+                TotalRecords::specified(v).unwrap()
+            }),
+            record_size,
+        );
+
+        // total capacity checks
+        assert!(config.total_capacity.get() > 0);
+        assert!(config.total_capacity.get() >= config.read_size.get());
+        assert_eq!(0, config.total_capacity.get() % config.record_size.get());
+        assert_eq!(
+            config.total_capacity.get(),
+            record_size * gateway_config.active.get()
+        );
+
+        // read size checks
+        assert!(config.read_size.get() > 0);
+        assert!(config.read_size.get() >= config.record_size.get());
+        assert_eq!(0, config.total_capacity.get() % config.read_size.get());
+    }
+
+    proptest! {
+        #[test]
+        fn config_prop(
+            total_records in proptest::option::of(1_usize..1 << 32),
+            active in 1_usize..100_000,
+            read_size in 1_usize..32768,
+            record_size in 1_usize..4096,
+        ) {
+            ensure_config(total_records, active, read_size, record_size);
+        }
     }
 }
