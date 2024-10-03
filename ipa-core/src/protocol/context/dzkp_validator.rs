@@ -810,7 +810,15 @@ impl<'a> MaliciousDZKPValidator<'a> {
 
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
-        if self.inner_ref.is_some() {
+        // If `validate` has not been called, and we are not unwinding, check that the
+        // validator is not holding unverified multiplies.
+        //  * If `validate` has been called (i.e. the validator was used in the
+        //    non-`validate_record` mode of operation), then `self.inner_ref` is `None`,
+        //    because validation consumed the batcher via `self.inner_ref`.
+        //  * Unwinding can happen at any time, so complaining about incomplete
+        //    validation is likely just extra noise, and the additional panic
+        //    during unwinding could be confusing.
+        if self.inner_ref.is_some() && !std::thread::panicking() {
             self.is_verified().unwrap();
         }
     }
