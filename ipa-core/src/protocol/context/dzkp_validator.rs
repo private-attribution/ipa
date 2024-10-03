@@ -1249,6 +1249,47 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    #[should_panic(expected = "ContextUnsafe(\"DZKPMaliciousContext\")")]
+    async fn missing_validate() {
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
+
+        TestWorld::default()
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context().set_total_records(1);
+
+                a.multiply(&b, m_ctx, RecordId::FIRST).await.unwrap()
+
+                // `validate` should appear here.
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "panicking before validate")]
+    #[allow(unreachable_code)]
+    async fn missing_validate_panic() {
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
+
+        TestWorld::default()
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context().set_total_records(1);
+
+                let _result = a.multiply(&b, m_ctx, RecordId::FIRST).await.unwrap();
+
+                panic!("panicking before validate");
+            })
+            .await;
+    }
+
     #[test]
     fn batch_allocation_small() {
         const SIZE: usize = 1;
