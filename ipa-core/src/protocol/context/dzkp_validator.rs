@@ -34,6 +34,9 @@ const BIT_ARRAY_LEN: usize = 256;
 const BIT_ARRAY_MASK: usize = BIT_ARRAY_LEN - 1;
 const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 
+#[cfg(test)]
+pub const TARGET_PROOF_SIZE: usize = 500;
+#[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 
 /// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
