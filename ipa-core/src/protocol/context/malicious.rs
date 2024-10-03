@@ -138,14 +138,14 @@ impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
     }
 }
 
-impl<'a> UpgradableContext for Context<'a, NotSharded> {
-    type Validator<F: ExtendableField> = BatchValidator<'a, F>;
+impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
+    type Validator<F: ExtendableField> = BatchValidator<'a, F, B>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         BatchValidator::new(self)
     }
 
-    type DZKPValidator = MaliciousDZKPValidator<'a>;
+    type DZKPValidator = MaliciousDZKPValidator<'a, B>;
 
     fn dzkp_validator<S>(
         self,
@@ -174,18 +174,18 @@ impl<B: ShardBinding> Debug for Context<'_, B> {
 
 use crate::sync::{Mutex, Weak};
 
-pub(super) type MacBatcher<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F>>>;
+pub(super) type MacBatcher<'a, F, B> = Mutex<Batcher<'a, validator::Malicious<'a, F, B>>>;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone)]
 pub struct Upgraded<'a, F: ExtendableField, B: ShardBinding> {
-    batch: Weak<MacBatcher<'a, F>>,
+    batch: Weak<MacBatcher<'a, F, B>>,
     base_ctx: Context<'a, B>,
 }
 
 impl<'a, F: ExtendableField, B: ShardBinding> Upgraded<'a, F, B> {
-    pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, ctx: Context<'a, B>) -> Self {
+    pub(super) fn new(batch: &Arc<MacBatcher<'a, F, B>>, ctx: Context<'a, B>) -> Self {
         // The DZKP malicious context adjusts active_work to match records_per_batch.
         // The MAC validator currently configures the batcher with records_per_batch =
         // active_work. If the latter behavior changes, this code may need to be
@@ -231,7 +231,7 @@ impl<'a, F: ExtendableField, B: ShardBinding> Upgraded<'a, F, B> {
         self.with_batch(record_id, |v| v.r_share().clone())
     }
 
-    fn with_batch<C: FnOnce(&mut validator::Malicious<'a, F>) -> T, T>(
+    fn with_batch<C: FnOnce(&mut validator::Malicious<'a, F, B>) -> T, T>(
         &self,
         record_id: RecordId,
         action: C,
