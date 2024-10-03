@@ -851,8 +851,7 @@ impl<const SEED: u64> Distribute for Random<SEED> {
     }
 }
 
-// #[cfg(all(test, unit_test))]
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
