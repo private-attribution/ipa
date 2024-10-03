@@ -23,8 +23,8 @@ use crate::{
         context::{
             dzkp_validator::DZKPValidator, upgrade::Upgradable, Context,
             DZKPUpgradedMaliciousContext, MaliciousContext, SemiHonestContext,
-            ShardedSemiHonestContext, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext, Validator, TEST_DZKP_STEPS,
+            ShardedMaliciousContext, ShardedSemiHonestContext, UpgradableContext, UpgradedContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator, TEST_DZKP_STEPS,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, QueryId, RecordId,
@@ -369,6 +369,10 @@ where
 pub trait Runner<S: ShardingScheme> {
     /// This could be also derived from [`S`], but maybe that's too much for that trait.
     type SemiHonestContext<'ctx>: Context;
+    /// The type of context used to run protocols that are secure against
+    /// active adversaries. It varies depending on whether sharding is used or not.
+    type MaliciousContext<'ctx>: Context;
+
     /// Run with a context that can be upgraded, but is only good for semi-honest.
     async fn semi_honest<'a, I, A, O, H, R>(
         &'a self,
@@ -396,12 +400,12 @@ pub trait Runner<S: ShardingScheme> {
         R: Future<Output = O> + Send;
 
     /// Run with a context that can be upgraded to malicious.
-    async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> S::Container<[O; 3]>
     where
-        I: IntoShares<A> + Send + 'static,
+        I: RunnerInput<S, A>,
         A: Send,
         O: Send + Debug,
-        H: Fn(MaliciousContext<'a>, A) -> R + Send + Sync,
+        H: Fn(Self::MaliciousContext<'a>, S::Container<A>) -> R + Send + Sync,
         R: Future<Output = O> + Send;
 
     /// Run with a context that has already been upgraded to malicious.
@@ -444,6 +448,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
     for TestWorld<WithShards<SHARDS, D>>
 {
     type SemiHonestContext<'ctx> = ShardedSemiHonestContext<'ctx>;
+    type MaliciousContext<'ctx> = ShardedMaliciousContext<'ctx>;
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> Vec<[O; 3]>
     where
         I: RunnerInput<WithShards<SHARDS, D>, A>,
@@ -494,15 +499,39 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         unimplemented!()
     }
 
-    async fn malicious<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
+    async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> Vec<[O; 3]>
     where
-        I: IntoShares<A> + Send + 'static,
+        I: RunnerInput<WithShards<SHARDS, D>, A>,
         A: Send,
         O: Send + Debug,
-        H: Fn(MaliciousContext<'a>, A) -> R + Send + Sync,
+        H: Fn(
+                Self::MaliciousContext<'a>,
+                <WithShards<SHARDS> as ShardingScheme>::Container<A>,
+            ) -> R
+            + Send
+            + Sync,
         R: Future<Output = O> + Send,
     {
-        unimplemented!()
+        let shards = self.shards();
+        let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share().map(D::distribute);
+        let gate = self.next_gate();
+        // todo!()
+
+        // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
+        #[allow(clippy::redundant_closure)]
+        let shard_fn = |ctx, input| helper_fn(ctx, input);
+        zip(shards.into_iter(), zip(zip(h1, h2), h3))
+            .map(|(shard, ((h1, h2), h3))| {
+                ShardWorld::<Sharded>::run_either(
+                    shard.malicious_contexts(&gate),
+                    self.metrics_handle.span(),
+                    [h1, h2, h3],
+                    shard_fn,
+                )
+            })
+            .collect::<FuturesOrdered<_>>()
+            .collect::<Vec<_>>()
+            .await
     }
 
     async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(
@@ -541,6 +570,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
 #[async_trait]
 impl Runner<NotSharded> for TestWorld<NotSharded> {
     type SemiHonestContext<'ctx> = SemiHonestContext<'ctx>;
+    type MaliciousContext<'ctx> = MaliciousContext<'ctx>;
 
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
@@ -583,10 +613,10 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
 
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        I: IntoShares<A> + Send + 'static,
+        I: RunnerInput<NotSharded, A>,
         A: Send,
         O: Send + Debug,
-        H: Fn(MaliciousContext<'a>, A) -> R + Send + Sync,
+        H: Fn(Self::MaliciousContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
         ShardWorld::<NotSharded>::run_either(
@@ -778,9 +808,14 @@ impl<B: ShardBinding> ShardWorld<B> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn malicious_contexts(&self, gate: &Gate) -> [MaliciousContext<'_>; 3] {
+    pub fn malicious_contexts(&self, gate: &Gate) -> [MaliciousContext<'_, B>; 3] {
         zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
-            MaliciousContext::new_with_gate(participant, gateway, gate.clone(), NotSharded)
+            MaliciousContext::new_with_gate(
+                participant,
+                gateway,
+                gate.clone(),
+                self.shard_info.clone(),
+            )
         })
     }
 }
@@ -816,7 +851,8 @@ impl<const SEED: u64> Distribute for Random<SEED> {
     }
 }
 
-#[cfg(all(test, unit_test))]
+// #[cfg(all(test, unit_test))]
+#[cfg(test)]
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
@@ -826,12 +862,20 @@ mod tests {
     use futures_util::future::try_join4;
 
     use crate::{
-        ff::{boolean_array::BA3, Field, Fp31, U128Conversions},
+        ff::{boolean::Boolean, boolean_array::BA3, Field, Fp31, U128Conversions},
         helpers::{
             in_memory_config::{MaliciousHelper, MaliciousHelperContext},
-            Direction, Role,
+            Direction, Role, TotalRecords,
         },
-        protocol::{context::Context, prss::SharedRandomness, RecordId},
+        protocol::{
+            basics::SecureMul,
+            context::{
+                dzkp_validator::DZKPValidator, upgrade::Upgradable, Context, UpgradableContext,
+                UpgradedContext, Validator, TEST_DZKP_STEPS,
+            },
+            prss::SharedRandomness,
+            RecordId,
+        },
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
@@ -959,6 +1003,67 @@ mod tests {
 
             // values shared between H2 and H3 must be consistent
             assert_eq!(shares[1].right(), shares[2].left());
+        });
+    }
+
+    #[test]
+    fn zkp_malicious_sharded() {
+        run(|| async {
+            let world: TestWorld<WithShards<2>> =
+                TestWorld::with_shards(TestWorldConfig::default());
+            let input = vec![Boolean::truncate_from(0_u32), Boolean::truncate_from(1_u32)];
+            let r = world
+                .malicious(input.clone().into_iter(), |ctx, input| async move {
+                    assert_eq!(1, input.iter().len());
+                    let ctx = ctx.set_total_records(TotalRecords::ONE);
+                    let validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
+                    let ctx = validator.context();
+                    let r = input[0]
+                        .multiply(&input[0], ctx, RecordId::FIRST)
+                        .await
+                        .unwrap();
+                    validator.validate().await.unwrap();
+
+                    vec![r]
+                })
+                .await
+                .into_iter()
+                .flat_map(|v| v.reconstruct())
+                .collect::<Vec<_>>();
+
+            assert_eq!(input, r);
+        });
+    }
+
+    #[test]
+    fn mac_malicious_sharded() {
+        run(|| async {
+            let world: TestWorld<WithShards<2>> =
+                TestWorld::with_shards(TestWorldConfig::default());
+            let input = vec![Fp31::truncate_from(0_u32), Fp31::truncate_from(1_u32)];
+            let r = world
+                .malicious(input.clone().into_iter(), |ctx, input| async move {
+                    assert_eq!(1, input.iter().len());
+                    let validator = ctx.set_total_records(1).validator();
+                    let ctx = validator.context();
+                    let (a_upgraded, b_upgraded) = (input[0].clone(), input[0].clone())
+                        .upgrade(ctx.clone(), RecordId::FIRST)
+                        .await
+                        .unwrap();
+                    let _ = a_upgraded
+                        .multiply(&b_upgraded, ctx.narrow("multiply"), RecordId::FIRST)
+                        .await
+                        .unwrap();
+                    ctx.validate_record(RecordId::FIRST).await.unwrap();
+
+                    input
+                })
+                .await
+                .into_iter()
+                .flat_map(|v| v.reconstruct())
+                .collect::<Vec<_>>();
+
+            assert_eq!(input, r);
         });
     }
 }

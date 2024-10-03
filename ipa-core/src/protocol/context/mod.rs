@@ -26,6 +26,7 @@ pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
 pub type MaliciousContext<'a, B = NotSharded> = malicious::Context<'a, B>;
+pub type ShardedMaliciousContext<'a> = malicious::Context<'a, Sharded>;
 pub type UpgradedMaliciousContext<'a, F, B = NotSharded> = malicious::Upgraded<'a, F, B>;
 
 #[cfg(all(feature = "in-memory-infra", any(test, feature = "test-fixture")))]

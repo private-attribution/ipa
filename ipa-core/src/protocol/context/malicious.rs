@@ -323,8 +323,10 @@ impl<'a, F: ExtendableField, B: ShardBinding> SeqJoin for Upgraded<'a, F, B> {
 /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
 /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
 /// this implementation makes it easier to reinterpret the context as semi-honest.
-impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, F, NotSharded> {
-    type Base = Base<'a>;
+impl<'a, F: ExtendableField, B: ShardBinding> SpecialAccessToUpgradedContext<F>
+    for Upgraded<'a, F, B>
+{
+    type Base = Base<'a, B>;
 
     fn base_context(self) -> Self::Base {
         self.base_ctx.inner
@@ -340,7 +342,7 @@ impl<F: ExtendableField, B: ShardBinding> Debug for Upgraded<'_, F, B> {
 /// Upgrading a semi-honest replicated share using malicious context produces
 /// a MAC-secured share with the same vectorization factor.
 #[async_trait]
-impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V, NotSharded>>
+impl<'a, V: ExtendableFieldSimd<N>, B: ShardBinding, const N: usize> Upgradable<Upgraded<'a, V, B>>
     for Replicated<V, N>
 where
     Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
@@ -349,7 +351,7 @@ where
 
     async fn upgrade(
         self,
-        ctx: Upgraded<'a, V, NotSharded>,
+        ctx: Upgraded<'a, V, B>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let ctx = ctx.narrow(&UpgradeStep);
@@ -383,7 +385,7 @@ where
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V, NotSharded>>
+impl<'a, V: ExtendableFieldSimd<N>, B: ShardBinding, const N: usize> Upgradable<Upgraded<'a, V, B>>
     for (Replicated<V, N>, Replicated<V, N>)
 where
     Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
@@ -392,7 +394,7 @@ where
 
     async fn upgrade(
         self,
-        ctx: Upgraded<'a, V, NotSharded>,
+        ctx: Upgraded<'a, V, B>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let (l, r) = self;
@@ -404,12 +406,12 @@ where
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V, NotSharded>> for () {
+impl<'a, V: ExtendableField, B: ShardBinding> Upgradable<Upgraded<'a, V, B>> for () {
     type Output = ();
 
     async fn upgrade(
         self,
-        _context: Upgraded<'a, V, NotSharded>,
+        _context: Upgraded<'a, V, B>,
         _record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         Ok(())
@@ -418,28 +420,30 @@ impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V, NotSharded>> for () {
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V, U> Upgradable<Upgraded<'a, V, NotSharded>> for Vec<U>
+impl<'a, V, U, B> Upgradable<Upgraded<'a, V, B>> for Vec<U>
 where
     V: ExtendableField,
-    U: Upgradable<Upgraded<'a, V, NotSharded>, Output: Send> + Send + 'a,
+    U: Upgradable<Upgraded<'a, V, B>, Output: Send> + Send + 'a,
+    B: ShardBinding,
 {
     type Output = Vec<U::Output>;
 
     async fn upgrade(
         self,
-        ctx: Upgraded<'a, V, NotSharded>,
+        ctx: Upgraded<'a, V, B>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         /// Need a standalone function to avoid GAT issue that apparently can manifest
         /// even with `async_trait`.
-        fn upgrade_vec<'a, V, U>(
-            ctx: Upgraded<'a, V, NotSharded>,
+        fn upgrade_vec<'a, V, U, B>(
+            ctx: Upgraded<'a, V, B>,
             record_id: RecordId,
             input: Vec<U>,
         ) -> impl std::future::Future<Output = Result<Vec<U::Output>, Error>> + 'a
         where
             V: ExtendableField,
-            U: Upgradable<Upgraded<'a, V, NotSharded>> + 'a,
+            U: Upgradable<Upgraded<'a, V, B>> + 'a,
+            B: ShardBinding,
         {
             let mut upgraded = Vec::with_capacity(input.len());
             async move {
