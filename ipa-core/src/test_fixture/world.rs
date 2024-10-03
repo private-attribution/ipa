@@ -428,7 +428,7 @@ pub trait Runner<S: ShardingScheme> {
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
         O: Send + Debug,
-        H: Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R + Send + Sync,
+        H: Fn(DZKPUpgradedMaliciousContext<'a, NotSharded>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send;
 }
 
@@ -531,7 +531,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
         O: Send + Debug,
-        H: Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R + Send + Sync,
+        H: Fn(DZKPUpgradedMaliciousContext<'a, NotSharded>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
         unimplemented!()
@@ -672,7 +672,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
         O: Send + Debug,
-        H: (Fn(DZKPUpgradedMaliciousContext<'a>, A) -> R) + Send + Sync,
+        H: (Fn(DZKPUpgradedMaliciousContext<'a, NotSharded>, A) -> R) + Send + Sync,
         R: Future<Output = O> + Send,
     {
         self.malicious(input, |ctx, share| async {

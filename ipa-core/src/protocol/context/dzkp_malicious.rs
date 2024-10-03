@@ -20,21 +20,22 @@ use crate::{
         Gate, RecordId,
     },
     seq_join::SeqJoin,
+    sharding::ShardBinding,
     sync::{Arc, Weak},
 };
 
 /// Represents protocol context in malicious setting when using zero-knowledge proofs,
 /// i.e. secure against one active adversary in 3 party MPC ring.
 #[derive(Clone)]
-pub struct DZKPUpgraded<'a> {
-    validator_inner: Weak<MaliciousDZKPValidatorInner<'a>>,
-    base_ctx: MaliciousContext<'a>,
+pub struct DZKPUpgraded<'a, B: ShardBinding> {
+    validator_inner: Weak<MaliciousDZKPValidatorInner<'a, B>>,
+    base_ctx: MaliciousContext<'a, B>,
 }
 
-impl<'a> DZKPUpgraded<'a> {
+impl<'a, B: ShardBinding> DZKPUpgraded<'a, B> {
     pub(super) fn new(
-        validator_inner: &Arc<MaliciousDZKPValidatorInner<'a>>,
-        base_ctx: MaliciousContext<'a>,
+        validator_inner: &Arc<MaliciousDZKPValidatorInner<'a, B>>,
+        base_ctx: MaliciousContext<'a, B>,
     ) -> Self {
         let records_per_batch = validator_inner.batcher.lock().unwrap().records_per_batch();
         let active_work = if records_per_batch == 1 {
@@ -82,7 +83,7 @@ impl<'a> DZKPUpgraded<'a> {
 }
 
 #[async_trait]
-impl<'a> DZKPContext for DZKPUpgraded<'a> {
+impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
         let validator_inner = self.validator_inner.upgrade().expect("validator is active");
 
@@ -100,7 +101,7 @@ impl<'a> DZKPContext for DZKPUpgraded<'a> {
     }
 }
 
-impl<'a> super::Context for DZKPUpgraded<'a> {
+impl<'a, B: ShardBinding> super::Context for DZKPUpgraded<'a, B> {
     fn role(&self) -> Role {
         self.base_ctx.role()
     }
@@ -152,13 +153,13 @@ impl<'a> super::Context for DZKPUpgraded<'a> {
     }
 }
 
-impl<'a> SeqJoin for DZKPUpgraded<'a> {
+impl<'a, B: ShardBinding> SeqJoin for DZKPUpgraded<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.base_ctx.active_work()
     }
 }
 
-impl Debug for DZKPUpgraded<'_> {
+impl<B: ShardBinding> Debug for DZKPUpgraded<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "DZKPMaliciousContext")
     }
