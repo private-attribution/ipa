@@ -286,7 +286,7 @@ impl SendChannelConfig {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod test {
     use std::num::NonZeroUsize;
 
