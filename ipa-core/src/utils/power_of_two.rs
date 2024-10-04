@@ -68,7 +68,7 @@ impl NonZeroU32PowerOfTwo {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::{ConvertError, NonZeroU32PowerOfTwo};
 
