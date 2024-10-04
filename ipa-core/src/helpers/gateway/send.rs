@@ -259,17 +259,12 @@ impl SendChannelConfig {
 
         let total_capacity = gateway_config.active.get() * record_size;
         // define read size as a multiplier of record size. The multiplier must be
-        // a power of two to align perfectly with total capacity.
-        let read_size_multiplier = {
-            // next_power_of_two returns a value that is greater than or equal to.
-            // That is not what we want here: if read_size / record_size is a power
-            // of two, then subsequent division will get us further away from desired target.
-            // For example: if read_size / record_size = 4, then prev_power_of_two = 2.
-            // In such cases, we want to stay where we are, so we add +1 for that.
-            let prev_power_of_two =
-                (gateway_config.read_size.get() / record_size + 1).next_power_of_two() / 2;
-            std::cmp::max(1, prev_power_of_two)
-        };
+        // a power of two to align perfectly with total capacity. We don't want to exceed
+        // the target read size, so we pick a power of two <= read_size.
+        let read_size_multiplier =
+            // this computes the highest power of 2 less than or equal to read_size / record_size.
+            // Note, that if record_size is greater than read_size, we round it to 1
+            1 << (std::cmp::max(1, usize::BITS - (gateway_config.read_size.get() / record_size).leading_zeros()) - 1);
 
         let this = Self {
             total_capacity: total_capacity.try_into().unwrap(),
