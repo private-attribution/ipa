@@ -82,13 +82,20 @@ pub struct GatewayConfig {
     /// A rule of thumb is that this should get as close to network packet size as possible.
     ///
     /// This will be set for all channels and because they send records of different side, the actual
-    /// payload may not be exactly this, but it will be the closest multiple of record size to this
-    /// number. For instance, having 14 bytes records and batch size of 4096 will result in
-    /// 4088 bytes being sent in a batch.
+    /// payload may not be exactly this, but it will be the closest multiple of record size smaller than
+    /// or equal to number. For alignment reasons, this multiple will be a power of two, otherwise
+    /// a deadlock is possible. See ipa/#1300 for details how it can happen.
     ///
-    /// The actual size for read chunks may be bigger or smaller, depending on the record size
-    /// sent through each channel. Read size will be aligned with [`Self::active_work`] value to
-    /// prevent deadlocks.
+    /// For instance, having 14 bytes records and batch size of 4096 will result in
+    /// 3584 bytes being sent in a batch (`2^8 * 14 < 4096, 2^9 * 14 > 4096`).
+    ///
+    /// The consequence is that HTTP buffer size may not be perfectly aligned with the target.
+    /// As long as we use TCP it does not matter, but if we want to switch to UDP and have
+    /// precise control over the size of chunk sent, we should tune the buffer size at the
+    /// HTTP layer instead (using Hyper/H3 API or something like that). If we do this, then
+    /// read size becomes obsolete and should be removed in favor of flushing the entire
+    /// buffer chunks from the application layer down to HTTP and let network to figure out
+    /// the best way to slice this data before sending it to a peer.
     pub read_size: NonZeroUsize,
 
     /// Time to wait before checking gateway progress. If no progress has been made between
