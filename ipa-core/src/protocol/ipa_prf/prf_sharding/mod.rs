@@ -39,6 +39,7 @@ use crate::{
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
                 expand_shared_array_in_place,
             },
+            oprf_padding::PaddingParameters,
             prf_sharding::step::{
                 AttributionPerRowStep as PerRowStep, AttributionStep as Step,
                 AttributionWindowStep as WindowStep,
@@ -469,6 +470,7 @@ pub async fn attribute_cap_aggregate<
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
+    padding_parameters: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: UpgradableContext + 'ctx,
@@ -544,9 +546,12 @@ where
         aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()).next_power_of_two(),
     );
     let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
-    let result =
-        breakdown_reveal_aggregation::<_, _, _, HV, B>(validator.context(), user_contributions)
-            .await;
+    let result = breakdown_reveal_aggregation::<_, _, _, HV, B>(
+        validator.context(),
+        user_contributions,
+        padding_parameters,
+    )
+    .await;
     validator.validate().await?;
     result
 }
@@ -891,7 +896,9 @@ pub mod tests {
             Field, U128Conversions,
         },
         helpers::repeat_n,
-        protocol::ipa_prf::prf_sharding::attribute_cap_aggregate,
+        protocol::ipa_prf::{
+            oprf_padding::PaddingParameters, prf_sharding::attribute_cap_aggregate,
+        },
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
@@ -1077,7 +1084,11 @@ pub mod tests {
                 .malicious(records.into_iter(), |ctx, input_rows| async move {
                     Vec::transposed_from(
                         &attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, 5, 32>(
-                            ctx, input_rows, None, &histogram,
+                            ctx,
+                            input_rows,
+                            None,
+                            &histogram,
+                            &PaddingParameters::relaxed(),
                         )
                         .await
                         .unwrap(),
@@ -1138,6 +1149,7 @@ pub mod tests {
                             input_rows,
                             NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
                             &histogram,
+                            &PaddingParameters::relaxed(),
                         )
                         .await
                         .unwrap(),
@@ -1175,6 +1187,7 @@ pub mod tests {
                         input_rows,
                         None,
                         histogram_ref,
+                        &PaddingParameters::relaxed(),
                     )
                     .await
                     .unwrap()
@@ -1261,7 +1274,13 @@ pub mod tests {
                             BA20,
                             { SaturatingSumType::BITS as usize },
                             256,
-                        >(ctx, input_rows, None, &HISTOGRAM)
+                        >(
+                            ctx,
+                            input_rows,
+                            None,
+                            &HISTOGRAM,
+                            &PaddingParameters::relaxed(),
+                        )
                         .await
                         .unwrap(),
                     )

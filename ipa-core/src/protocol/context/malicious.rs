@@ -30,7 +30,7 @@ use crate::{
         semi_honest::AdditiveShare as Replicated,
     },
     seq_join::SeqJoin,
-    sharding::NotSharded,
+    sharding::{NotSharded, ShardBinding},
     sync::Arc,
 };
 
@@ -49,28 +49,29 @@ pub(crate) const TEST_DZKP_STEPS: MaliciousProtocolSteps<
 };
 
 #[derive(Clone)]
-pub struct Context<'a> {
-    inner: Base<'a>,
+pub struct Context<'a, B: ShardBinding> {
+    inner: Base<'a, B>,
 }
 
-impl<'a> Context<'a> {
+impl<'a> Context<'a, NotSharded> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
-        Self::new_with_gate(participant, gateway, Gate::default())
+        Self::new_with_gate(participant, gateway, Gate::default(), NotSharded)
     }
+}
 
-    pub fn new_with_gate(participant: &'a PrssEndpoint, gateway: &'a Gateway, gate: Gate) -> Self {
+impl<'a, B: ShardBinding> Context<'a, B> {
+    pub fn new_with_gate(
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        gate: Gate,
+        shard: B,
+    ) -> Self {
         Self {
-            inner: Base::new_complete(
-                participant,
-                gateway,
-                gate,
-                TotalRecords::Unspecified,
-                NotSharded,
-            ),
+            inner: Base::new_complete(participant, gateway, gate, TotalRecords::Unspecified, shard),
         }
     }
 
-    pub(crate) fn validator_context(self) -> Base<'a> {
+    pub(crate) fn validator_context(self) -> Base<'a, B> {
         // The DZKP validator uses communcation channels internally. We don't want any TotalRecords
         // set by the protocol to apply to those channels.
         Base {
@@ -87,7 +88,7 @@ impl<'a> Context<'a> {
     }
 }
 
-impl<'a> super::Context for Context<'a> {
+impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -137,14 +138,14 @@ impl<'a> super::Context for Context<'a> {
     }
 }
 
-impl<'a> UpgradableContext for Context<'a> {
-    type Validator<F: ExtendableField> = BatchValidator<'a, F>;
+impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
+    type Validator<F: ExtendableField> = BatchValidator<'a, F, B>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         BatchValidator::new(self)
     }
 
-    type DZKPValidator = MaliciousDZKPValidator<'a>;
+    type DZKPValidator = MaliciousDZKPValidator<'a, B>;
 
     fn dzkp_validator<S>(
         self,
@@ -159,13 +160,13 @@ impl<'a> UpgradableContext for Context<'a> {
     }
 }
 
-impl<'a> SeqJoin for Context<'a> {
+impl<'a, B: ShardBinding> SeqJoin for Context<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
 }
 
-impl Debug for Context<'_> {
+impl<B: ShardBinding> Debug for Context<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousContext")
     }
@@ -176,18 +177,18 @@ use crate::{
     utils::NonZeroU32PowerOfTwo,
 };
 
-pub(super) type MacBatcher<'a, F> = Mutex<Batcher<'a, validator::Malicious<'a, F>>>;
+pub(super) type MacBatcher<'a, F, B> = Mutex<Batcher<'a, validator::Malicious<'a, F, B>>>;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone)]
-pub struct Upgraded<'a, F: ExtendableField> {
-    batch: Weak<MacBatcher<'a, F>>,
-    base_ctx: Context<'a>,
+pub struct Upgraded<'a, F: ExtendableField, B: ShardBinding> {
+    batch: Weak<MacBatcher<'a, F, B>>,
+    base_ctx: Context<'a, B>,
 }
 
-impl<'a, F: ExtendableField> Upgraded<'a, F> {
-    pub(super) fn new(batch: &Arc<MacBatcher<'a, F>>, ctx: Context<'a>) -> Self {
+impl<'a, F: ExtendableField, B: ShardBinding> Upgraded<'a, F, B> {
+    pub(super) fn new(batch: &Arc<MacBatcher<'a, F, B>>, ctx: Context<'a, B>) -> Self {
         // The DZKP malicious context adjusts active_work to match records_per_batch.
         // The MAC validator currently configures the batcher with records_per_batch =
         // active_work. If the latter behavior changes, this code may need to be
@@ -233,7 +234,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
         self.with_batch(record_id, |v| v.r_share().clone())
     }
 
-    fn with_batch<C: FnOnce(&mut validator::Malicious<'a, F>) -> T, T>(
+    fn with_batch<C: FnOnce(&mut validator::Malicious<'a, F, B>) -> T, T>(
         &self,
         record_id: RecordId,
         action: C,
@@ -247,7 +248,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
+impl<'a, F: ExtendableField, B: ShardBinding> UpgradedContext for Upgraded<'a, F, B> {
     type Field = F;
 
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
@@ -263,7 +264,7 @@ impl<'a, F: ExtendableField> UpgradedContext for Upgraded<'a, F> {
     }
 }
 
-impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
+impl<'a, F: ExtendableField, B: ShardBinding> super::Context for Upgraded<'a, F, B> {
     fn role(&self) -> Role {
         self.base_ctx.role()
     }
@@ -315,7 +316,7 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
     }
 }
 
-impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
+impl<'a, F: ExtendableField, B: ShardBinding> SeqJoin for Upgraded<'a, F, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.base_ctx.active_work()
     }
@@ -325,7 +326,7 @@ impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
 /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
 /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
 /// this implementation makes it easier to reinterpret the context as semi-honest.
-impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, F> {
+impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, F, NotSharded> {
     type Base = Base<'a>;
 
     fn base_context(self) -> Self::Base {
@@ -333,7 +334,7 @@ impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, 
     }
 }
 
-impl<F: ExtendableField> Debug for Upgraded<'_, F> {
+impl<F: ExtendableField, B: ShardBinding> Debug for Upgraded<'_, F, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousContext<{:?}>", type_name::<F>())
     }
@@ -342,7 +343,8 @@ impl<F: ExtendableField> Debug for Upgraded<'_, F> {
 /// Upgrading a semi-honest replicated share using malicious context produces
 /// a MAC-secured share with the same vectorization factor.
 #[async_trait]
-impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V>> for Replicated<V, N>
+impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V, NotSharded>>
+    for Replicated<V, N>
 where
     Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
 {
@@ -350,7 +352,7 @@ where
 
     async fn upgrade(
         self,
-        ctx: Upgraded<'a, V>,
+        ctx: Upgraded<'a, V, NotSharded>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let ctx = ctx.narrow(&UpgradeStep);
@@ -384,7 +386,7 @@ where
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V>>
+impl<'a, V: ExtendableFieldSimd<N>, const N: usize> Upgradable<Upgraded<'a, V, NotSharded>>
     for (Replicated<V, N>, Replicated<V, N>)
 where
     Replicated<<V as ExtendableField>::ExtendedField, N>: FromPrss,
@@ -393,7 +395,7 @@ where
 
     async fn upgrade(
         self,
-        ctx: Upgraded<'a, V>,
+        ctx: Upgraded<'a, V, NotSharded>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         let (l, r) = self;
@@ -405,12 +407,12 @@ where
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V>> for () {
+impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V, NotSharded>> for () {
     type Output = ();
 
     async fn upgrade(
         self,
-        _context: Upgraded<'a, V>,
+        _context: Upgraded<'a, V, NotSharded>,
         _record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         Ok(())
@@ -419,28 +421,28 @@ impl<'a, V: ExtendableField> Upgradable<Upgraded<'a, V>> for () {
 
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
-impl<'a, V, U> Upgradable<Upgraded<'a, V>> for Vec<U>
+impl<'a, V, U> Upgradable<Upgraded<'a, V, NotSharded>> for Vec<U>
 where
     V: ExtendableField,
-    U: Upgradable<Upgraded<'a, V>, Output: Send> + Send + 'a,
+    U: Upgradable<Upgraded<'a, V, NotSharded>, Output: Send> + Send + 'a,
 {
     type Output = Vec<U::Output>;
 
     async fn upgrade(
         self,
-        ctx: Upgraded<'a, V>,
+        ctx: Upgraded<'a, V, NotSharded>,
         record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         /// Need a standalone function to avoid GAT issue that apparently can manifest
         /// even with `async_trait`.
         fn upgrade_vec<'a, V, U>(
-            ctx: Upgraded<'a, V>,
+            ctx: Upgraded<'a, V, NotSharded>,
             record_id: RecordId,
             input: Vec<U>,
         ) -> impl std::future::Future<Output = Result<Vec<U::Output>, Error>> + 'a
         where
             V: ExtendableField,
-            U: Upgradable<Upgraded<'a, V>> + 'a,
+            U: Upgradable<Upgraded<'a, V, NotSharded>> + 'a,
         {
             let mut upgraded = Vec::with_capacity(input.len());
             async move {

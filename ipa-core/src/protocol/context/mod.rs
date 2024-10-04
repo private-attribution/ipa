@@ -18,14 +18,15 @@ pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
 pub use dzkp_semi_honest::DZKPUpgraded as DZKPUpgradedSemiHonestContext;
 use futures::{stream, Stream, StreamExt};
 use ipa_step::{Step, StepNarrow};
-pub use malicious::{
-    Context as MaliciousContext, MaliciousProtocolSteps, Upgraded as UpgradedMaliciousContext,
-};
+pub use malicious::MaliciousProtocolSteps;
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use validator::Validator;
 pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
+
+pub type MaliciousContext<'a, B = NotSharded> = malicious::Context<'a, B>;
+pub type UpgradedMaliciousContext<'a, F, B = NotSharded> = malicious::Upgraded<'a, F, B>;
 
 #[cfg(all(feature = "in-memory-infra", any(test, feature = "test-fixture")))]
 pub(crate) use malicious::TEST_DZKP_STEPS;

@@ -269,7 +269,7 @@ where
     let padded_input_rows = apply_dp_padding::<_, OPRFIPAInputRow<BK, TV, TS>, B>(
         ctx.narrow(&Step::PaddingDp),
         input_rows,
-        dp_padding_params,
+        &dp_padding_params,
     )
     .await?;
 
@@ -297,6 +297,7 @@ where
         prfd_inputs,
         attribution_window_seconds,
         &row_count_histogram,
+        &dp_padding_params,
     )
     .await?;
 
@@ -451,7 +452,14 @@ pub mod tests {
             ]; // trigger value of 2 attributes to earlier source row with breakdown 1 and trigger
                // value of 5 attributes to source row with breakdown 2.
             let dp_params = DpMechanism::NoDp;
-            let padding_params = PaddingParameters::relaxed();
+            let padding_params = if cfg!(feature = "shuttle") {
+                // To reduce runtime. There is also a hard upper limit in the shuttle
+                // config (`max_steps`), that may need to be increased to support larger
+                // runs.
+                PaddingParameters::no_padding()
+            } else {
+                PaddingParameters::relaxed()
+            };
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -491,7 +499,7 @@ pub mod tests {
             ]; // trigger value of 2 attributes to earlier source row with breakdown 1 and trigger
                // value of 5 attributes to source row with breakdown 2.
             let dp_params = DpMechanism::NoDp;
-            let padding_params = PaddingParameters::relaxed();
+            let padding_params = PaddingParameters::no_padding();
 
             let mut result: Vec<_> = world
                 .malicious(records.into_iter(), |ctx, input_rows| async move {

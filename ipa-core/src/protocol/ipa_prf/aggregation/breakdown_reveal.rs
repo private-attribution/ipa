@@ -52,6 +52,7 @@ use crate::{
 pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     ctx: C,
     attributed_values: Vec<SecretSharedAttributionOutputs<BK, TV>>,
+    padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: Context,
@@ -63,13 +64,12 @@ where
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
 {
-    let dp_padding_params = PaddingParameters::default();
     // Apply DP padding for Breakdown Reveal Aggregation
     let attributed_values_padded =
         apply_dp_padding::<_, AttributionOutputs<Replicated<BK>, Replicated<TV>>, B>(
             ctx.narrow(&AggregationStep::PaddingDp),
             attributed_values,
-            dp_padding_params,
+            padding_params,
         )
         .await?;
 
@@ -205,6 +205,7 @@ pub mod tests {
         },
         protocol::ipa_prf::{
             aggregation::breakdown_reveal::breakdown_reveal_aggregation,
+            oprf_padding::PaddingParameters,
             prf_sharding::{AttributionOutputsTestInput, SecretSharedAttributionOutputs},
         },
         secret_sharing::{
@@ -257,12 +258,16 @@ pub mod tests {
                         })
                         .collect();
                     let r: Vec<Replicated<BA8>> =
-                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(ctx, aos)
-                            .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
-                                Vec::transposed_from(&d).unwrap()
-                            })
-                            .await
-                            .unwrap();
+                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
+                            ctx,
+                            aos,
+                            &PaddingParameters::relaxed(),
+                        )
+                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                            Vec::transposed_from(&d).unwrap()
+                        })
+                        .await
+                        .unwrap();
                     r
                 })
                 .await
