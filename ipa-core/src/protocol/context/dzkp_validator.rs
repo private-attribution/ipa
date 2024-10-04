@@ -810,7 +810,15 @@ impl<'a, B: ShardBinding> MaliciousDZKPValidator<'a, B> {
 
 impl<'a, B: ShardBinding> Drop for MaliciousDZKPValidator<'a, B> {
     fn drop(&mut self) {
-        if self.inner_ref.is_some() {
+        // If `validate` has not been called, and we are not unwinding, check that the
+        // validator is not holding unverified multiplies.
+        //  * If `validate` has been called (i.e. the validator was used in the
+        //    non-`validate_record` mode of operation), then `self.inner_ref` is `None`,
+        //    because validation consumed the batcher via `self.inner_ref`.
+        //  * Unwinding can happen at any time, so complaining about incomplete
+        //    validation is likely just extra noise, and the additional panic
+        //    during unwinding could be confusing.
+        if self.inner_ref.is_some() && !std::thread::panicking() {
             self.is_verified().unwrap();
         }
     }
@@ -1247,6 +1255,47 @@ mod tests {
                 });
             }
         }
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "ContextUnsafe(\"DZKPMaliciousContext\")")]
+    async fn missing_validate() {
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
+
+        TestWorld::default()
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context().set_total_records(1);
+
+                a.multiply(&b, m_ctx, RecordId::FIRST).await.unwrap()
+
+                // `validate` should appear here.
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "panicking before validate")]
+    #[allow(unreachable_code)]
+    async fn missing_validate_panic() {
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
+
+        TestWorld::default()
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context().set_total_records(1);
+
+                let _result = a.multiply(&b, m_ctx, RecordId::FIRST).await.unwrap();
+
+                panic!("panicking before validate");
+            })
+            .await;
     }
 
     #[test]
