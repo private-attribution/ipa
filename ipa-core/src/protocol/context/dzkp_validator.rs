@@ -551,9 +551,9 @@ impl Batch {
             .generate_challenges(ctx.narrow(&Step::Challenge))
             .await;
 
+        let m = self.get_number_of_multiplications();
         let (sum_of_uv, p_r_right_prover, q_r_left_prover) = {
             // get number of multiplications
-            let m = self.get_number_of_multiplications();
             tracing::info!("validating {m} multiplications");
             debug_assert_eq!(
                 m,

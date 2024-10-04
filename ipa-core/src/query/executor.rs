@@ -4,7 +4,7 @@ use std::{
     future::{ready, Future},
     pin::Pin,
 };
-
+use std::sync::OnceLock;
 use ::tokio::{
     runtime::{Handle, RuntimeFlavor},
     sync::oneshot,
@@ -17,6 +17,7 @@ use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use tokio::runtime::{Builder, Runtime};
 use typenum::Unsigned;
 
 #[cfg(any(
@@ -69,6 +70,13 @@ where
 
         r
     }
+}
+
+static QUERY_RUNTIME: OnceLock<Runtime> = OnceLock::new();
+fn get_query_runtime() -> &'static Runtime {
+    QUERY_RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread().worker_threads(10).thread_name("query_runtime").enable_all().build().unwrap()
+    })
 }
 
 /// Needless pass by value because IPA v3 does not make use of key registry yet.
@@ -180,7 +188,7 @@ where
 {
     let (tx, rx) = oneshot::channel();
 
-    let join_handle = tokio::spawn(async move {
+    let join_handle = get_query_runtime().spawn(async move {
         let gateway = gateway.borrow();
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
