@@ -199,25 +199,25 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
 /// When batch is validated, `r` is revealed and can never be
 /// used again. In fact, it gets out of scope after successful validation
 /// so no code can get access to it.
-pub struct BatchValidator<'a, F: ExtendableField> {
-    batches_ref: Arc<MacBatcher<'a, F>>,
-    protocol_ctx: MaliciousContext<'a>,
+pub struct BatchValidator<'a, F: ExtendableField, B: ShardBinding> {
+    batches_ref: Arc<MacBatcher<'a, F, B>>,
+    protocol_ctx: MaliciousContext<'a, B>,
 }
 
-impl<'a, F: ExtendableField> BatchValidator<'a, F> {
+impl<'a, F: ExtendableField, B: ShardBinding> BatchValidator<'a, F, B> {
     /// Create a new validator for malicious context.
     ///
     /// ## Panics
     /// If total records is not set.
     #[must_use]
-    pub fn new(ctx: MaliciousContext<'a>) -> Self {
+    pub fn new(ctx: MaliciousContext<'a, B>) -> Self {
         let TotalRecords::Specified(total_records) = ctx.total_records() else {
             panic!("Total records must be specified before creating the validator");
         };
 
         // TODO: Right now we set the batch work to be equal to active_work,
         // but it does not need to be. We can make this configurable if needed.
-        let records_per_batch = ctx.active_work().get().min(total_records.get());
+        let records_per_batch = ctx.active_work().get();
 
         Self {
             protocol_ctx: ctx.narrow(&Step::MaliciousProtocol),
@@ -230,14 +230,14 @@ impl<'a, F: ExtendableField> BatchValidator<'a, F> {
     }
 }
 
-pub struct Malicious<'a, F: ExtendableField> {
+pub struct Malicious<'a, F: ExtendableField, B: ShardBinding> {
     r_share: Replicated<F::ExtendedField>,
     pub(super) accumulator: MaliciousAccumulator<F>,
-    validate_ctx: Base<'a>,
+    validate_ctx: Base<'a, B>,
     offset: usize,
 }
 
-impl<F: ExtendableField> Malicious<'_, F> {
+impl<F: ExtendableField, B: ShardBinding> Malicious<'_, F, B> {
     /// ## Errors
     /// If the two information theoretic MACs are not equal (after multiplying by `r`), this indicates that one of the parties
     /// must have launched an additive attack. At this point the honest parties should abort the protocol. This method throws an
@@ -294,21 +294,21 @@ impl<F: ExtendableField> Malicious<'_, F> {
     }
 }
 
-impl<'a, F> Validator<F> for BatchValidator<'a, F>
+impl<'a, F, B: ShardBinding> Validator<F> for BatchValidator<'a, F, B>
 where
     F: ExtendableField,
 {
-    type Context = UpgradedMaliciousContext<'a, F>;
+    type Context = UpgradedMaliciousContext<'a, F, B>;
 
     fn context(&self) -> Self::Context {
         UpgradedMaliciousContext::new(&self.batches_ref, self.protocol_ctx.clone())
     }
 }
 
-impl<'a, F: ExtendableField> Malicious<'a, F> {
+impl<'a, F: ExtendableField, B: ShardBinding> Malicious<'a, F, B> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: MaliciousContext<'a>, offset: usize) -> Self {
+    pub fn new(ctx: MaliciousContext<'a, B>, offset: usize) -> Self {
         // Each invocation requires 3 calls to PRSS to generate the state.
         // Validation occurs in batches and `offset` indicates which batch
         // we're in right now.
@@ -386,7 +386,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     }
 }
 
-impl<F: ExtendableField> Debug for Malicious<'_, F> {
+impl<F: ExtendableField, B: ShardBinding> Debug for Malicious<'_, F, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }

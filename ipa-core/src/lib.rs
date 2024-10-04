@@ -122,10 +122,10 @@ pub(crate) mod test_executor {
 pub(crate) mod test_executor {
     use std::future::Future;
 
-    pub fn run_with<F, Fut, T, const ITER: usize>(f: F) -> T
+    pub fn run_with<F, Fut, const ITER: usize>(f: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T>,
+        Fut: Future<Output = ()>,
     {
         tokio::runtime::Builder::new_multi_thread()
             // enable_all() is common to use to build Tokio runtime, but it enables both IO and time drivers.
@@ -134,16 +134,16 @@ pub(crate) mod test_executor {
             .enable_time()
             .build()
             .unwrap()
-            .block_on(f())
+            .block_on(f());
     }
 
     #[allow(dead_code)]
-    pub fn run<F, Fut, T>(f: F) -> T
+    pub fn run<F, Fut>(f: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T>,
+        Fut: Future<Output = ()>,
     {
-        run_with::<_, _, _, 1>(f)
+        run_with::<_, _, 1>(f);
     }
 }
 

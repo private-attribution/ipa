@@ -21,8 +21,16 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     let left_channel = ChannelId::new(gateway.role().peer(Direction::Left), gate.clone());
     let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), gate.clone());
 
-    let left_sender = gateway.get_mpc_sender::<PublicKey>(&left_channel, TotalRecords::ONE);
-    let right_sender = gateway.get_mpc_sender::<PublicKey>(&right_channel, TotalRecords::ONE);
+    let left_sender = gateway.get_mpc_sender::<PublicKey>(
+        &left_channel,
+        TotalRecords::ONE,
+        gateway.config().active_work(),
+    );
+    let right_sender = gateway.get_mpc_sender::<PublicKey>(
+        &right_channel,
+        TotalRecords::ONE,
+        gateway.config().active_work(),
+    );
     let left_receiver = gateway.get_mpc_receiver::<PublicKey>(&left_channel);
     let right_receiver = gateway.get_mpc_receiver::<PublicKey>(&right_channel);
 

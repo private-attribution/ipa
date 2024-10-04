@@ -62,9 +62,9 @@ where
     let zs = generate_random_tables_with_peers(shares_len, &ctx_z);
 
     match ctx.role() {
-        Role::H1 => run_h1(&ctx, shares_len, shares, zs).await,
-        Role::H2 => run_h2(&ctx, shares_len, shares, zs).await,
-        Role::H3 => run_h3(&ctx, shares_len, zs).await,
+        Role::H1 => Box::pin(run_h1(&ctx, shares_len, shares, zs)).await,
+        Role::H2 => Box::pin(run_h2(&ctx, shares_len, shares, zs)).await,
+        Role::H3 => Box::pin(run_h3(&ctx, shares_len, zs)).await,
     }
 }
 

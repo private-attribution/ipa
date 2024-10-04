@@ -533,4 +533,82 @@ pub mod query {
 
         pub const AXUM_PATH: &str = "/:query_id/complete";
     }
+
+    pub mod kill {
+        use serde::{Deserialize, Serialize};
+
+        use crate::{
+            helpers::{routing::RouteId, HelperResponse, NoStep, RouteParams},
+            protocol::QueryId,
+        };
+
+        pub struct Request {
+            pub query_id: QueryId,
+        }
+
+        impl RouteParams<RouteId, QueryId, NoStep> for Request {
+            type Params = String;
+
+            fn resource_identifier(&self) -> RouteId {
+                RouteId::KillQuery
+            }
+
+            fn query_id(&self) -> QueryId {
+                self.query_id
+            }
+
+            fn gate(&self) -> NoStep {
+                NoStep
+            }
+
+            fn extra(&self) -> Self::Params {
+                String::new()
+            }
+        }
+
+        impl Request {
+            /// Currently, it is only possible to kill
+            /// a query by issuing an HTTP request manually.
+            /// Maybe report collector can support this API,
+            /// but for now, only tests exercise this path
+            /// hence methods here are hidden behind feature
+            /// flags
+            #[cfg(all(test, unit_test))]
+            pub fn new(query_id: QueryId) -> Self {
+                Self { query_id }
+            }
+
+            #[cfg(all(test, unit_test))]
+            pub fn try_into_http_request(
+                self,
+                scheme: axum::http::uri::Scheme,
+                authority: axum::http::uri::Authority,
+            ) -> crate::net::http_serde::OutgoingRequest {
+                let uri = axum::http::uri::Uri::builder()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}/{}/kill",
+                        crate::net::http_serde::query::BASE_AXUM_PATH,
+                        self.query_id.as_ref()
+                    ))
+                    .build()?;
+                Ok(hyper::Request::post(uri).body(axum::body::Body::empty())?)
+            }
+        }
+
+        #[derive(Clone, Debug, Serialize, Deserialize)]
+        pub struct ResponseBody {
+            pub query_id: QueryId,
+            pub status: String,
+        }
+
+        impl From<HelperResponse> for ResponseBody {
+            fn from(value: HelperResponse) -> Self {
+                serde_json::from_slice(value.into_body().as_slice()).unwrap()
+            }
+        }
+
+        pub const AXUM_PATH: &str = "/:query_id/kill";
+    }
 }

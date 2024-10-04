@@ -12,15 +12,7 @@ pub(crate) enum AggregationStep {
     RevealStep,
     #[step(child = AggregateChunkStep)]
     SumContributions,
-    #[step(child = crate::protocol::context::step::DzkpBatchStep)]
-    AggregateValidate,
 }
-
-/// the number of steps must be kept in sync with `MAX_BREAKDOWNS` defined
-/// [here](https://tinyurl.com/mwnbbnj6)
-#[derive(CompactStep)]
-#[step(count = 512, child = crate::protocol::boolean::step::EightBitStep, name = "b")]
-pub struct BucketStep(usize);
 
 #[derive(CompactStep)]
 #[step(count = 32, child = AggregateValuesStep, name = "depth")]
