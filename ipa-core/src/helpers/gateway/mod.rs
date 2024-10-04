@@ -318,6 +318,7 @@ mod tests {
         stream::StreamExt,
     };
     use proptest::proptest;
+    use tokio::sync::Barrier;
 
     use crate::{
         ff::{
@@ -751,7 +752,11 @@ mod tests {
         ) where
             M: MpcMessage + Clone + PartialEq,
         {
-            let send_notify = Arc::new(tokio::sync::Notify::new());
+            let last_batch_size = total_records % active_work;
+            let last_batch = total_records / active_work;
+
+            let barrier = Arc::new(Barrier::new(active_work));
+            let last_batch_barrier = Arc::new(Barrier::new(last_batch_size));
 
             // perform "multiplication-like" operation (send + subsequent receive)
             // and "validate": block the future until we have at least `active_work`
@@ -762,7 +767,8 @@ mod tests {
                     |(record_id, msg)| {
                         let send_channel = &send_channel;
                         let recv_channel = &recv_channel;
-                        let send_notify = Arc::clone(&send_notify);
+                        let barrier = Arc::clone(&barrier);
+                        let last_batch_barrier = Arc::clone(&last_batch_barrier);
                         async move {
                             send_channel
                                 .send(record_id.into(), msg.clone())
@@ -771,13 +777,12 @@ mod tests {
                             let r = recv_channel.receive(record_id.into()).await.unwrap();
                             // this simulates validate_record API by forcing futures to wait
                             // until the entire batch is validated by the last future in that batch
-                            if record_id % active_work == active_work - 1
-                                || record_id == total_records - 1
-                            {
-                                send_notify.notify_waiters();
+                            if record_id >= last_batch * active_work {
+                                last_batch_barrier.wait().await;
                             } else {
-                                send_notify.notified().await;
+                                barrier.wait().await;
                             }
+
                             assert_eq!(msg, r);
                         }
                     },
