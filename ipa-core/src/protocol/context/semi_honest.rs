@@ -302,14 +302,14 @@ impl<B: ShardBinding, F: ExtendableField> Debug for Upgraded<'_, B, F> {
 }
 
 #[async_trait]
-impl<'a, V: ExtendableField + Vectorizable<N>, const N: usize>
-    Upgradable<Upgraded<'a, NotSharded, V>> for Replicated<V, N>
+impl<'a, V: ExtendableField + Vectorizable<N>, B: ShardBinding, const N: usize>
+    Upgradable<Upgraded<'a, B, V>> for Replicated<V, N>
 {
     type Output = Replicated<V, N>;
 
     async fn upgrade(
         self,
-        _context: Upgraded<'a, NotSharded, V>,
+        _context: Upgraded<'a, B, V>,
         _record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         Ok(self)
