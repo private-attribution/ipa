@@ -34,8 +34,21 @@ const BIT_ARRAY_LEN: usize = 256;
 const BIT_ARRAY_MASK: usize = BIT_ARRAY_LEN - 1;
 const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 
+// The target size of a zero-knowledge proof, in GF(2) multiplies.  Seven intermediate
+// values are stored for each multiply, so the amount memory required is 7 times this
+// value.
+//
+// To enable computing a read size for `OrdereringSender` that achieves good network
+// utilization, the number of records in a proof must be a power of two. Protocols
+// typically compute the size of a proof batch by dividing TARGET_PROOF_SIZE by
+// an approximate number of multiplies per record, and then rounding up to a power
+// of two. Thus, it is not necessary for TARGET_PROOF_SIZE to be a power of two.
+//
+// A smaller value is used for tests, to enable covering some corner cases with a
+// reasonable runtime. Some of these tests use TARGET_PROOF_SIZE directly, so for tests
+// it does need to be a power of two.
 #[cfg(test)]
-pub const TARGET_PROOF_SIZE: usize = 500;
+pub const TARGET_PROOF_SIZE: usize = 512;
 #[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 
@@ -865,7 +878,7 @@ mod tests {
             replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
             Vectorizable,
         },
-        seq_join::seq_join,
+        seq_join::{seq_join, SeqJoin},
         sharding::NotSharded,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
@@ -1250,6 +1263,61 @@ mod tests {
                     */
                 });
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn large_batch() {
+        multi_select_malicious::<BA8>(2 * TARGET_PROOF_SIZE, 2 * TARGET_PROOF_SIZE).await;
+    }
+
+    // Similar to multi_select_malicious, but instead of using `validated_seq_join`, passes
+    // `usize::MAX` as the batch size and does a single `v.validate()`.
+    #[tokio::test]
+    async fn large_single_batch() {
+        let count: usize = TARGET_PROOF_SIZE + 1;
+        let mut rng = thread_rng();
+
+        let bit: Vec<Boolean> = repeat_with(|| rng.gen::<Boolean>()).take(count).collect();
+        let a: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
+        let b: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
+
+        let [ab0, ab1, ab2]: [Vec<Replicated<BA8>>; 3] = TestWorld::default()
+            .malicious(
+                zip(bit.clone(), zip(a.clone(), b.clone())),
+                |ctx, inputs| async move {
+                    let v = ctx
+                        .set_total_records(count)
+                        .dzkp_validator(TEST_DZKP_STEPS, usize::MAX);
+                    let m_ctx = v.context();
+
+                    let result = seq_join(
+                        m_ctx.active_work(),
+                        stream::iter(inputs).enumerate().map(
+                            |(i, (bit_share, (a_share, b_share)))| {
+                                let m_ctx = m_ctx.clone();
+                                async move {
+                                    select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
+                                        .await
+                                }
+                            },
+                        ),
+                    )
+                    .try_collect()
+                    .await
+                    .unwrap();
+
+                    v.validate().await.unwrap();
+
+                    result
+                },
+            )
+            .await;
+
+        let ab: Vec<BA8> = [ab0, ab1, ab2].reconstruct();
+
+        for i in 0..count {
+            assert_eq!(ab[i], if bit[i].into() { a[i] } else { b[i] });
         }
     }
 
