@@ -1,4 +1,4 @@
-use std::{array, num::NonZeroUsize};
+use std::array;
 
 use futures::{future::join3, stream, StreamExt};
 use ipa_step::StepNarrow;
@@ -17,7 +17,7 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
     seq_join::seq_join,
     test_fixture::{ReconstructArr, TestWorld, TestWorldConfig},
-    utils::array::zip3,
+    utils::{array::zip3, NonZeroU32PowerOfTwo},
 };
 
 pub struct Inputs<F: Field + FieldSimd<N>, const N: usize> {
@@ -76,7 +76,7 @@ pub async fn arithmetic<F, const N: usize>(
     [F; N]: IntoShares<Replicated<F, N>>,
     Standard: Distribution<F>,
 {
-    let active = NonZeroUsize::new(active_work).unwrap();
+    let active = NonZeroU32PowerOfTwo::try_from(active_work.next_power_of_two()).unwrap();
     let config = TestWorldConfig {
         gateway_config: GatewayConfig {
             active,
@@ -85,7 +85,7 @@ pub async fn arithmetic<F, const N: usize>(
         initial_gate: Some(Gate::default().narrow(&ProtocolStep::Test)),
         ..Default::default()
     };
-    let world = TestWorld::new_with(config);
+    let world = TestWorld::new_with(&config);
 
     // Re-use contexts for the entire execution because record identifiers are contiguous.
     let contexts = world.contexts();
@@ -96,7 +96,7 @@ pub async fn arithmetic<F, const N: usize>(
         // accumulated. This gives the best performance for vectorized operation.
         let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
         seq_join(
-            active,
+            config.gateway_config.active_work(),
             stream::iter((0..(width / u32::try_from(N).unwrap())).zip(col_data)).map(
                 move |(record, Inputs { a, b })| {
                     circuit(ctx.clone(), RecordId::from(record), depth, a, b)

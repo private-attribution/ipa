@@ -1205,10 +1205,7 @@ mod tests {
 
     fn max_multiplications_per_gate_strategy(record_count: usize) -> impl Strategy<Value = usize> {
         let max_max_mults = record_count.min(128);
-        prop_oneof![
-            1usize..=max_max_mults,
-            (0u32..=max_max_mults.ilog2()).prop_map(|i| 1usize << i)
-        ]
+        (0u32..=max_max_mults.ilog2()).prop_map(|i| 1usize << i)
     }
 
     prop_compose! {
@@ -1595,7 +1592,7 @@ mod tests {
 
         let [h1_batch, h2_batch, h3_batch] = world
             .malicious((a, b), |ctx, (a, b)| async move {
-                let mut validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 10);
+                let mut validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 8);
                 let mctx = validator.context();
                 let _ = a
                     .multiply(&b, mctx.set_total_records(1), RecordId::from(0))

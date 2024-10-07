@@ -248,40 +248,54 @@ impl<I: Debug> Stream for GatewaySendStream<I> {
 
 impl SendChannelConfig {
     fn new<M: Message>(gateway_config: GatewayConfig, total_records: TotalRecords) -> Self {
-        debug_assert!(M::Size::USIZE > 0, "Message size cannot be 0");
+        Self::new_with(gateway_config, total_records, M::Size::USIZE)
+    }
+    fn new_with(
+        gateway_config: GatewayConfig,
+        total_records: TotalRecords,
+        record_size: usize,
+    ) -> Self {
+        assert!(record_size > 0, "Message size cannot be 0");
 
-        let record_size = M::Size::USIZE;
         let total_capacity = gateway_config.active.get() * record_size;
-        Self {
+        // define read size as a multiplier of record size. The multiplier must be
+        // a power of two to align perfectly with total capacity. We don't want to exceed
+        // the target read size, so we pick a power of two <= read_size.
+        let read_size_multiplier =
+            // this computes the highest power of 2 less than or equal to read_size / record_size.
+            // Note, that if record_size is greater than read_size, we round it to 1
+            1 << (std::cmp::max(1, usize::BITS - (gateway_config.read_size.get() / record_size).leading_zeros()) - 1);
+
+        let this = Self {
             total_capacity: total_capacity.try_into().unwrap(),
             record_size: record_size.try_into().unwrap(),
-            read_size: if total_records.is_indeterminate()
-                || gateway_config.read_size.get() <= record_size
-            {
+            read_size: if total_records.is_indeterminate() {
                 record_size
             } else {
-                std::cmp::min(
-                    total_capacity,
-                    // closest multiple of record_size to read_size
-                    gateway_config.read_size.get() / record_size * record_size,
-                )
+                std::cmp::min(total_capacity, read_size_multiplier * record_size)
             }
             .try_into()
             .unwrap(),
             total_records,
-        }
+        };
+
+        assert!(this.total_capacity.get() >= record_size * gateway_config.active.get());
+        assert_eq!(0, this.total_capacity.get() % this.read_size.get());
+
+        this
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod test {
     use std::num::NonZeroUsize;
 
+    use proptest::proptest;
     use typenum::Unsigned;
 
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA256, BA3, BA7},
+            boolean_array::{BA16, BA20, BA256, BA3, BA32, BA7},
             Serializable,
         },
         helpers::{gateway::send::SendChannelConfig, GatewayConfig, TotalRecords},
@@ -379,15 +393,82 @@ mod test {
     fn config_read_size_closest_multiple_to_record_size() {
         assert_eq!(
             6,
-            send_config::<BA20, 12, 7>(TotalRecords::Specified(2.try_into().unwrap()))
+            send_config::<BA20, 16, 7>(TotalRecords::Specified(2.try_into().unwrap()))
                 .read_size
                 .get()
         );
         assert_eq!(
             6,
-            send_config::<BA20, 12, 8>(TotalRecords::Specified(2.try_into().unwrap()))
+            send_config::<BA20, 16, 8>(TotalRecords::Specified(2.try_into().unwrap()))
                 .read_size
                 .get()
         );
+    }
+
+    #[test]
+    fn config_read_size_record_size_misalignment() {
+        ensure_config(Some(15), 90, 16, 3);
+    }
+
+    #[test]
+    fn config_read_size_multiple_of_record_size() {
+        // 4 bytes * 8 = 32 bytes total capacity.
+        // desired read size is 15 bytes, and the closest multiple of BA32
+        // to it that is a power of two is 2 (4 gets us over 15 byte target)
+        assert_eq!(8, send_config::<BA32, 8, 15>(50.into()).read_size.get());
+
+        // here, read size is already a power of two
+        assert_eq!(16, send_config::<BA32, 8, 16>(50.into()).read_size.get());
+
+        // read size can be ridiculously small, config adjusts it to fit
+        // at least one record
+        assert_eq!(3, send_config::<BA20, 8, 1>(50.into()).read_size.get());
+    }
+
+    fn ensure_config(
+        total_records: Option<usize>,
+        active: usize,
+        read_size: usize,
+        record_size: usize,
+    ) {
+        #[allow(clippy::needless_update)] // stall detection feature wants default value
+        let gateway_config = GatewayConfig {
+            active: active.next_power_of_two().try_into().unwrap(),
+            read_size: read_size.try_into().unwrap(),
+            ..Default::default()
+        };
+        let config = SendChannelConfig::new_with(
+            gateway_config,
+            total_records.map_or(TotalRecords::Indeterminate, |v| {
+                TotalRecords::specified(v).unwrap()
+            }),
+            record_size,
+        );
+
+        // total capacity checks
+        assert!(config.total_capacity.get() > 0);
+        assert!(config.total_capacity.get() >= config.read_size.get());
+        assert_eq!(0, config.total_capacity.get() % config.record_size.get());
+        assert_eq!(
+            config.total_capacity.get(),
+            record_size * gateway_config.active.get()
+        );
+
+        // read size checks
+        assert!(config.read_size.get() > 0);
+        assert!(config.read_size.get() >= config.record_size.get());
+        assert_eq!(0, config.total_capacity.get() % config.read_size.get());
+    }
+
+    proptest! {
+        #[test]
+        fn config_prop(
+            total_records in proptest::option::of(1_usize..1 << 32),
+            active in 1_usize..100_000,
+            read_size in 1_usize..32768,
+            record_size in 1_usize..4096,
+        ) {
+            ensure_config(total_records, active, read_size, record_size);
+        }
     }
 }
