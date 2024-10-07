@@ -1,4 +1,4 @@
-use std::{any::type_name, iter, pin::Pin};
+use std::{any::type_name, cmp::max, iter, pin::Pin};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
@@ -97,7 +97,7 @@ pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>
 ///
 /// $\sum_{i = 1}^k 2^{k - i} (b + i - 1) \approx 2^k (b + 1) = N (b + 1)$
 pub fn aggregate_values_proof_chunk(input_width: usize, input_item_bits: usize) -> usize {
-    TARGET_PROOF_SIZE / input_width / (input_item_bits + 1)
+    max(2, TARGET_PROOF_SIZE / input_width / (input_item_bits + 1)).next_power_of_two()
 }
 
 /// Aggregate output contributions

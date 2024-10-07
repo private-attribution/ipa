@@ -22,7 +22,7 @@ use crate::{
     },
     helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
     protocol::{
-        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
+        basics::{select, BooleanArrayMul, BooleanProtocols, Reveal, SecureMul, ShareKnownValue},
         boolean::{
             or::or,
             step::{EightBitStep, ThirtyTwoBitStep},
@@ -33,7 +33,6 @@ use crate::{
             Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
-            aggregation::aggregate_values_proof_chunk,
             boolean_ops::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
@@ -51,7 +50,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
 };
 
@@ -482,7 +481,8 @@ where
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
-    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
     Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
     Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -538,22 +538,9 @@ where
         attribution_window_seconds,
     );
 
-    let validator = sh_ctx.dzkp_validator(
-        MaliciousProtocolSteps {
-            protocol: &Step::Aggregate,
-            validate: &Step::AggregateValidate,
-        },
-        aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap()).next_power_of_two(),
-    );
     let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
-    let result = breakdown_reveal_aggregation::<_, _, _, HV, B>(
-        validator.context(),
-        user_contributions,
-        padding_parameters,
-    )
-    .await;
-    validator.validate().await?;
-    result
+    breakdown_reveal_aggregation::<_, BK, TV, HV, B>(sh_ctx, user_contributions, padding_parameters)
+        .await
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]

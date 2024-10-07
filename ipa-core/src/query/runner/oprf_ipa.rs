@@ -68,7 +68,8 @@ where
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
-    Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
     Replicated<BA20>: BooleanArrayMul<DZKPUpgraded<C>>,
     Replicated<BA3>: BooleanArrayMul<DZKPUpgraded<C>>,
     Vec<Replicated<HV>>:

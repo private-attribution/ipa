@@ -1,9 +1,6 @@
-use std::{
-    convert::Infallible,
-    pin::{pin, Pin},
-};
+use std::{convert::Infallible, mem, pin::pin};
 
-use futures::{stream, Stream};
+use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
 
 use super::{aggregate_values, AggResult};
@@ -16,10 +13,13 @@ use crate::{
     },
     helpers::TotalRecords,
     protocol::{
-        basics::semi_honest_reveal,
-        context::Context,
+        basics::{reveal, Reveal},
+        context::{
+            dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
+            UpgradableContext,
+        },
         ipa_prf::{
-            aggregation::step::AggregationStep,
+            aggregation::{aggregate_values_proof_chunk, step::AggregationStep as Step},
             oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
             shuffle::shuffle_attribution_outputs,
@@ -29,9 +29,10 @@ use crate::{
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        TransposeFrom,
+        TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
+    utils::vec_chunks::vec_chunks,
 };
 
 /// Improved Aggregation a.k.a Aggregation revealing breakdown.
@@ -55,10 +56,11 @@ pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: Context,
+    C: UpgradableContext,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<C, B>,
+    Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     BK: BreakdownKey<B>,
+    Replicated<BK>: Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
     BitDecomposed<Replicated<Boolean, B>>:
@@ -67,17 +69,56 @@ where
     // Apply DP padding for Breakdown Reveal Aggregation
     let attributed_values_padded =
         apply_dp_padding::<_, AttributionOutputs<Replicated<BK>, Replicated<TV>>, B>(
-            ctx.narrow(&AggregationStep::PaddingDp),
+            ctx.narrow(&Step::PaddingDp),
             attributed_values,
             padding_params,
         )
         .await?;
 
-    let attributions = shuffle_attributions(&ctx, attributed_values_padded).await?;
-    let grouped_tvs = reveal_breakdowns(&ctx, attributions).await?;
-    let num_rows = grouped_tvs.max_len;
-    let ctx = ctx.narrow(&AggregationStep::SumContributions);
-    aggregate_values::<_, HV, B>(ctx, grouped_tvs.into_stream(), num_rows).await
+    let mut chunk_counter = 0;
+    let attributions = shuffle_attributions::<_, BK, TV, B>(&ctx, attributed_values_padded).await?;
+    // Revealing the breakdowns does not use the validator, but we need
+    // the validator to obtain an upgraded malicious context.
+    let validator = ctx.clone().dzkp_validator(
+        MaliciousProtocolSteps {
+            protocol: &Step::aggregate_chunk(chunk_counter),
+            validate: &Step::aggregate_chunk_validate(chunk_counter),
+        },
+        usize::MAX,
+    );
+    let grouped_tvs = reveal_breakdowns(&validator.context(), attributions).await?;
+    validator.validate().await?;
+    chunk_counter += 1;
+    let mut intermediate_results: Vec<AggResult<B>> = grouped_tvs.into();
+
+    let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap());
+
+    while intermediate_results.len() > 1 {
+        for chunk in vec_chunks(mem::take(&mut intermediate_results), agg_proof_chunk) {
+            let chunk_len = chunk.len();
+            let validator = ctx.clone().dzkp_validator(
+                MaliciousProtocolSteps {
+                    protocol: &Step::aggregate_chunk(chunk_counter),
+                    validate: &Step::aggregate_chunk_validate(chunk_counter),
+                },
+                agg_proof_chunk,
+            );
+            let result = aggregate_values::<_, HV, B>(
+                validator.context(),
+                stream::iter(chunk).boxed(),
+                chunk_len,
+            )
+            .await?;
+            validator.validate().await?;
+            chunk_counter += 1;
+            intermediate_results.push(Ok(result));
+        }
+    }
+
+    intermediate_results
+        .into_iter()
+        .next()
+        .expect("aggregation input must not be empty")
 }
 
 /// Shuffles attribution Breakdown key and Trigger Value secret shares. Input
@@ -94,7 +135,7 @@ where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
 {
-    let shuffle_ctx = parent_ctx.narrow(&AggregationStep::Shuffle);
+    let shuffle_ctx = parent_ctx.narrow(&Step::Shuffle);
     shuffle_attribution_outputs::<_, BK, TV, BA64>(shuffle_ctx, contribs).await
 }
 
@@ -116,25 +157,19 @@ where
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     Boolean: FieldSimd<B>,
     BK: BreakdownKey<B>,
+    Replicated<BK>: Reveal<C, Output = <BK as Vectorizable<1>>::Array>,
     TV: BooleanArray + U128Conversions,
 {
     let reveal_ctx = parent_ctx
-        .narrow(&AggregationStep::RevealStep)
+        .narrow(&Step::RevealStep)
         .set_total_records(TotalRecords::specified(attributions.len())?);
 
     let reveal_work = stream::iter(attributions).enumerate().map(|(i, ao)| {
         let record_id = RecordId::from(i);
         let reveal_ctx = reveal_ctx.clone();
         async move {
-            let revealed_bk = semi_honest_reveal(
-                reveal_ctx,
-                record_id,
-                None,
-                &ao.attributed_breakdown_key_bits,
-            )
-            .await?
-            // Full reveal is used, meaning it is not possible to return None here
-            .unwrap();
+            let revealed_bk =
+                reveal(reveal_ctx, record_id, &ao.attributed_breakdown_key_bits).await?;
             let revealed_bk = BK::from_array(&revealed_bk);
             let Ok(bk) = usize::try_from(revealed_bk.as_u128()) else {
                 return Err(Error::Internal);
@@ -173,22 +208,24 @@ impl<TV: BooleanArray, const B: usize> GroupedTriggerValues<TV, B> {
             self.max_len = self.tvs[bk].len();
         }
     }
+}
 
-    fn into_stream<'fut>(mut self) -> Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>
-    where
-        Boolean: FieldSimd<B>,
-        BitDecomposed<Replicated<Boolean, B>>:
-            for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
-    {
-        let iter = (0..self.max_len).map(move |_| {
-            let slice: [Replicated<TV>; B] = self
+impl<TV: BooleanArray, const B: usize> From<GroupedTriggerValues<TV, B>> for Vec<AggResult<B>>
+where
+    Boolean: FieldSimd<B>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
+{
+    fn from(mut grouped_tvs: GroupedTriggerValues<TV, B>) -> Vec<AggResult<B>> {
+        let iter = (0..grouped_tvs.max_len).map(move |_| {
+            let slice: [Replicated<TV>; B] = grouped_tvs
                 .tvs
                 .each_mut()
                 .map(|tv| tv.pop().unwrap_or(Replicated::ZERO));
 
             Ok(BitDecomposed::transposed_from(&slice).unwrap_infallible())
         });
-        Box::pin(stream::iter(iter))
+        iter.collect()
     }
 }
 
@@ -249,7 +286,7 @@ pub mod tests {
             }
             inputs.shuffle(&mut rng);
             let result: Vec<_> = world
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
                     let aos = input_rows
                         .into_iter()
                         .map(|ti| SecretSharedAttributionOutputs {

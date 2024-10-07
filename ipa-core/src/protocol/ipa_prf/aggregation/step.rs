@@ -10,8 +10,10 @@ pub(crate) enum AggregationStep {
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
     RevealStep,
-    #[step(child = AggregateChunkStep)]
-    SumContributions,
+    #[step(count = 256, child = AggregateChunkStep)]
+    AggregateChunk(usize),
+    #[step(count = 256, child = crate::protocol::context::step::DzkpBatchStep)]
+    AggregateChunkValidate(usize),
 }
 
 #[derive(CompactStep)]
