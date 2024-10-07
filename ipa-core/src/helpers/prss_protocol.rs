@@ -24,12 +24,12 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     let left_sender = gateway.get_mpc_sender::<PublicKey>(
         &left_channel,
         TotalRecords::ONE,
-        gateway.config().active_work(),
+        gateway.config().active_work_as_power_of_two(),
     );
     let right_sender = gateway.get_mpc_sender::<PublicKey>(
         &right_channel,
         TotalRecords::ONE,
-        gateway.config().active_work(),
+        gateway.config().active_work_as_power_of_two(),
     );
     let left_receiver = gateway.get_mpc_receiver::<PublicKey>(&left_channel);
     let right_receiver = gateway.get_mpc_receiver::<PublicKey>(&right_channel);

@@ -32,8 +32,8 @@ mod seq_join;
 mod serde;
 pub mod sharding;
 mod utils;
-
 pub use app::{AppConfig, HelperApp, Setup as AppSetup};
+pub use utils::NonZeroU32PowerOfTwo;
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]

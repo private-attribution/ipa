@@ -81,7 +81,7 @@ impl<'a, B: ShardBinding> Context<'a, B> {
     }
 
     #[must_use]
-    pub fn set_active_work(self, new_active_work: NonZeroUsize) -> Self {
+    pub fn set_active_work(self, new_active_work: NonZeroU32PowerOfTwo) -> Self {
         Self {
             inner: self.inner.set_active_work(new_active_work),
         }
@@ -172,7 +172,10 @@ impl<B: ShardBinding> Debug for Context<'_, B> {
     }
 }
 
-use crate::sync::{Mutex, Weak};
+use crate::{
+    sync::{Mutex, Weak},
+    utils::NonZeroU32PowerOfTwo,
+};
 
 pub(super) type MacBatcher<'a, F, B> = Mutex<Batcher<'a, validator::Malicious<'a, F, B>>>;
 

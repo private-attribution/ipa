@@ -1,7 +1,6 @@
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
-    num::NonZeroUsize,
 };
 
 use futures::{future::try_join, stream};
@@ -23,6 +22,7 @@ use crate::{
         CompletionHandle, ProtocolResult,
     },
     sync::Arc,
+    utils::NonZeroU32PowerOfTwo,
 };
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party
@@ -45,7 +45,7 @@ use crate::{
 pub struct Processor {
     queries: RunningQueries,
     key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
-    active_work: Option<NonZeroUsize>,
+    active_work: Option<NonZeroU32PowerOfTwo>,
     runtime: IpaRuntime,
 }
 
@@ -121,7 +121,7 @@ impl Processor {
     #[must_use]
     pub fn new(
         key_registry: KeyRegistry<PrivateKeyOnly>,
-        active_work: Option<NonZeroUsize>,
+        active_work: Option<NonZeroU32PowerOfTwo>,
         runtime: IpaRuntime,
     ) -> Self {
         Self {

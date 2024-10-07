@@ -103,7 +103,7 @@ mod test {
 
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {
-                let validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 10);
+                let validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 8);
                 let mctx = validator.context();
                 let result = a
                     .multiply(&b, mctx.set_total_records(1), RecordId::from(0))

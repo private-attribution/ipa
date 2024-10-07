@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, sync::Weak};
+use std::sync::Weak;
 
 use async_trait::async_trait;
 
@@ -14,18 +14,19 @@ use crate::{
     protocol::QueryId,
     query::{NewQueryError, QueryProcessor, QueryStatus},
     sync::Arc,
+    utils::NonZeroU32PowerOfTwo,
 };
 
 #[derive(Default)]
 pub struct AppConfig {
-    active_work: Option<NonZeroUsize>,
+    active_work: Option<NonZeroU32PowerOfTwo>,
     key_registry: Option<KeyRegistry<PrivateKeyOnly>>,
     runtime: IpaRuntime,
 }
 
 impl AppConfig {
     #[must_use]
-    pub fn with_active_work(mut self, active_work: Option<NonZeroUsize>) -> Self {
+    pub fn with_active_work(mut self, active_work: Option<NonZeroU32PowerOfTwo>) -> Self {
         self.active_work = active_work;
         self
     }
