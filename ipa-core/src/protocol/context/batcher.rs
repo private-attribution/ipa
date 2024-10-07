@@ -285,7 +285,10 @@ impl<'a, B> Batcher<'a, B> {
 mod tests {
     use std::{future::ready, pin::pin};
 
-    use futures::future::{poll_immediate, try_join, try_join3, try_join4};
+    use futures::{
+        future::{join_all, poll_immediate, try_join, try_join3, try_join4},
+        FutureExt,
+    };
 
     use super::*;
 
@@ -563,6 +566,55 @@ mod tests {
             result.await,
             Err(Error::RecordIdOutOfRange { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn large_batch() {
+        // This test exercises the case where the preallocated size of `pending_records`
+        // was limited to `TARGET_PROOF_SIZE`, and we need to grow it alter.
+        let batcher = Batcher::new(
+            TARGET_PROOF_SIZE + 1,
+            TotalRecords::specified(TARGET_PROOF_SIZE + 1).unwrap(),
+            Box::new(|_| Vec::new()),
+        );
+
+        let mut futs = (0..TARGET_PROOF_SIZE)
+            .map(|i| {
+                batcher
+                    .lock()
+                    .unwrap()
+                    .get_batch(RecordId::from(i))
+                    .batch
+                    .push(i);
+                batcher
+                    .lock()
+                    .unwrap()
+                    .validate_record(RecordId::from(i), |_i, _b| async { unreachable!() })
+                    .map(Result::unwrap)
+                    .boxed()
+            })
+            .collect::<Vec<_>>();
+
+        batcher
+            .lock()
+            .unwrap()
+            .get_batch(RecordId::from(TARGET_PROOF_SIZE))
+            .batch
+            .push(TARGET_PROOF_SIZE);
+        futs.push(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(TARGET_PROOF_SIZE), |i, b| {
+                    assert!(i == 0 && b.as_slice() == (0..=TARGET_PROOF_SIZE).collect::<Vec<_>>());
+                    ready(Ok(()))
+                })
+                .map(Result::unwrap)
+                .boxed(),
+        );
+        join_all(futs).await;
+
+        assert!(batcher.lock().unwrap().is_empty());
     }
 
     #[test]
