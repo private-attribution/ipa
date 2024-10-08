@@ -91,20 +91,22 @@ impl ClientIdentity {
 /// Wrapper around Hyper's [future](hyper::client::ResponseFuture) interface that keeps around
 /// request endpoint for nicer error messages if request fails.
 #[pin_project]
-pub struct ResponseFuture<'a> {
-    authority: &'a uri::Authority,
+pub struct ResponseFuture {
+    /// There used to be a reference here, but there is really no need for that,
+    /// because `uri::Authority` type uses `Bytes` internally.
+    authority: uri::Authority,
     #[pin]
     inner: hyper_util::client::legacy::ResponseFuture,
 }
 
 /// Similar to [fut](ResponseFuture), wraps the response and keeps the URI authority for better
 /// error messages that show where error is originated from
-pub struct ResponseFromEndpoint<'a> {
-    authority: &'a uri::Authority,
+pub struct ResponseFromEndpoint {
+    authority: uri::Authority,
     inner: Response<Body>,
 }
 
-impl<'a> ResponseFromEndpoint<'a> {
+impl ResponseFromEndpoint {
     pub fn endpoint(&self) -> String {
         self.authority.to_string()
     }
@@ -117,13 +119,13 @@ impl<'a> ResponseFromEndpoint<'a> {
         self.inner.into_body()
     }
 
-    pub fn into_parts(self) -> (&'a uri::Authority, Body) {
+    pub fn into_parts(self) -> (uri::Authority, Body) {
         (self.authority, self.inner.into_body())
     }
 }
 
-impl<'a> Future for ResponseFuture<'a> {
-    type Output = Result<ResponseFromEndpoint<'a>, Error>;
+impl Future for ResponseFuture {
+    type Output = Result<ResponseFromEndpoint, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -132,7 +134,7 @@ impl<'a> Future for ResponseFuture<'a> {
                 let (http_parts, http_body) = resp.into_parts();
                 let axum_resp = Response::from_parts(http_parts, Body::new(http_body));
                 Poll::Ready(Ok(ResponseFromEndpoint {
-                    authority: this.authority,
+                    authority: this.authority.clone(),
                     inner: axum_resp,
                 }))
             }
@@ -278,12 +280,12 @@ impl MpcHelperClient {
         }
     }
 
-    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture<'_> {
+    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture {
         if let Some((k, v)) = self.auth_header.clone() {
             req.headers_mut().insert(k, v);
         }
         ResponseFuture {
-            authority: &self.authority,
+            authority: self.authority.clone(),
             inner: self.client.request(req),
         }
     }
@@ -292,7 +294,7 @@ impl MpcHelperClient {
     ///
     /// # Errors
     /// If there was an error reading the response body or if the request itself failed.
-    pub async fn resp_ok(resp: ResponseFromEndpoint<'_>) -> Result<(), Error> {
+    pub async fn resp_ok(resp: ResponseFromEndpoint) -> Result<(), Error> {
         if resp.status().is_success() {
             Ok(())
         } else {
@@ -304,7 +306,7 @@ impl MpcHelperClient {
     ///
     /// # Errors
     /// If there was an error collecting the response stream.
-    async fn response_to_bytes(resp: ResponseFromEndpoint<'_>) -> Result<Bytes, Error> {
+    async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
         Ok(resp.into_body().collect().await?.to_bytes())
     }
 

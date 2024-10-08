@@ -22,6 +22,7 @@ use crate::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
         TlsConfig,
     },
+    executor::IpaRuntime,
     helpers::{HandlerBox, HelperIdentity, RequestHandler},
     hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
@@ -294,6 +295,7 @@ impl TestServerBuilder {
         let clients = MpcHelperClient::from_conf(&network_config, &identity.clone_with_key());
         let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
         let (transport, server) = HttpTransport::new(
+            IpaRuntime::current(),
             HelperIdentity::ONE,
             server_config,
             network_config.clone(),

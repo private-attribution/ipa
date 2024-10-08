@@ -15,10 +15,12 @@ use ipa_core::{
     },
     config::{hpke_registry, HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     error::BoxError,
+    executor::IpaRuntime,
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpShardTransport, HttpTransport, MpcHelperClient},
     AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
+use tokio::runtime::Runtime;
 use tracing::{error, info};
 
 #[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
@@ -133,9 +135,12 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         private_key_file: sk_path,
     });
 
+    let query_runtime = new_query_runtime();
     let app_config = AppConfig::default()
         .with_key_registry(hpke_registry(mk_encryption.as_ref()).await?)
-        .with_active_work(args.active_work);
+        .with_active_work(args.active_work)
+        .with_runtime(IpaRuntime::from_tokio_runtime(&query_runtime));
+
     let (setup, handler) = AppSetup::new(app_config);
 
     let server_config = ServerConfig {
@@ -155,7 +160,9 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         .override_scheme(&scheme);
     let clients = MpcHelperClient::from_conf(&network_config, &identity);
 
+    let http_runtime = new_http_runtime();
     let (transport, server) = HttpTransport::new(
+        IpaRuntime::from_tokio_runtime(&http_runtime),
         my_identity,
         server_config,
         network_config,
@@ -190,11 +197,59 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         .await;
 
     server_handle.await?;
+    query_runtime.shutdown_background();
 
     Ok(())
 }
 
-#[tokio::main]
+/// Creates a new runtime for HTTP stack. It is useful to provide a dedicated
+/// scheduler to HTTP tasks, to make sure IPA server can respond to requests,
+/// if for some reason query runtime becomes overloaded.
+/// When multi-threading feature is enabled it creates a runtime with thread-per-core,
+/// otherwise a single-threaded runtime is created.
+fn new_http_runtime() -> Runtime {
+    if cfg!(feature = "multi-threading") {
+        tokio::runtime::Builder::new_multi_thread()
+            .thread_name("http-worker")
+            .enable_all()
+            .build()
+            .unwrap()
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("http-worker")
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+}
+
+/// This function creates a runtime suitable for executing MPC queries.
+/// When multi-threading feature is enabled it creates a runtime with thread-per-core,
+/// otherwise a single-threaded runtime is created.
+fn new_query_runtime() -> Runtime {
+    // it is intentional that IO driver is not enabled here (enable_time() call only).
+    // query runtime is supposed to use CPU/memory only, no writes to disk and all
+    // network communication is handled by HTTP runtime.
+    if cfg!(feature = "multi-threading") {
+        tokio::runtime::Builder::new_multi_thread()
+            .thread_name("query-executor")
+            .enable_time()
+            .build()
+            .unwrap()
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("query-executor")
+            .enable_time()
+            .build()
+            .unwrap()
+    }
+}
+
+/// A single thread is enough here, because server spawns additional
+/// runtimes to use in MPC queries and HTTP.
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
