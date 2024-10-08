@@ -9,10 +9,11 @@ pub(crate) enum AggregationStep {
     PaddingDp,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
-    RevealStep,
-    #[step(count = 256, child = AggregateChunkStep)]
+    Reveal,
+    RevealValidate, // unused -- see code
+    #[step(count = 32, child = AggregateChunkStep)]
     AggregateChunk(usize),
-    #[step(count = 256, child = crate::protocol::context::step::DzkpBatchStep)]
+    #[step(count = 32, child = crate::protocol::context::step::DzkpSingleBatchStep)]
     AggregateChunkValidate(usize),
 }
 

@@ -539,8 +539,12 @@ where
     );
 
     let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
-    breakdown_reveal_aggregation::<_, BK, TV, HV, B>(sh_ctx, user_contributions, padding_parameters)
-        .await
+    breakdown_reveal_aggregation::<_, BK, TV, HV, B>(
+        sh_ctx.narrow(&Step::Aggregate),
+        user_contributions,
+        padding_parameters
+    )
+    .await
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]

@@ -75,22 +75,21 @@ where
         )
         .await?;
 
-    let mut chunk_counter = 0;
     let attributions = shuffle_attributions::<_, BK, TV, B>(&ctx, attributed_values_padded).await?;
     // Revealing the breakdowns does not use the validator, but we need
     // the validator to obtain an upgraded malicious context.
     let validator = ctx.clone().dzkp_validator(
         MaliciousProtocolSteps {
-            protocol: &Step::aggregate_chunk(chunk_counter),
-            validate: &Step::aggregate_chunk_validate(chunk_counter),
+            protocol: &Step::Reveal,
+            validate: &Step::RevealValidate,
         },
         usize::MAX,
     );
     let grouped_tvs = reveal_breakdowns(&validator.context(), attributions).await?;
     validator.validate().await?;
-    chunk_counter += 1;
     let mut intermediate_results: Vec<AggResult<B>> = grouped_tvs.into();
 
+    let mut chunk_counter = 0;
     let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap());
 
     while intermediate_results.len() > 1 {
@@ -161,7 +160,6 @@ where
     TV: BooleanArray + U128Conversions,
 {
     let reveal_ctx = parent_ctx
-        .narrow(&Step::RevealStep)
         .set_total_records(TotalRecords::specified(attributions.len())?);
 
     let reveal_work = stream::iter(attributions).enumerate().map(|(i, ao)| {
