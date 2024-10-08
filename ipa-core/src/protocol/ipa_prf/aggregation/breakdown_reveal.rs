@@ -78,8 +78,8 @@ where
         .await?;
 
     let attributions = shuffle_attributions::<_, BK, TV, B>(&ctx, attributed_values_padded).await?;
-    // Revealing the breakdowns does not use the validator, but we need
-    // the validator to obtain an upgraded malicious context.
+    // Revealing the breakdowns doesn't do any multiplies, so won't make it as far as
+    // doing a proof, but we need the validator to obtain an upgraded malicious context.
     let validator = ctx.clone().dzkp_validator(
         MaliciousProtocolSteps {
             protocol: &Step::Reveal,

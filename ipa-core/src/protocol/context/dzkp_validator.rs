@@ -48,7 +48,7 @@ const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 // reasonable runtime. Some of these tests use TARGET_PROOF_SIZE directly, so for tests
 // it does need to be a power of two.
 #[cfg(test)]
-pub const TARGET_PROOF_SIZE: usize = 4096;
+pub const TARGET_PROOF_SIZE: usize = 8192;
 #[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 
