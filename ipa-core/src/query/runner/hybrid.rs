@@ -1,14 +1,17 @@
 use std::{marker::PhantomData, sync::Arc};
 
+use futures::{stream::iter, StreamExt, TryStreamExt};
+
 use crate::{
     error::Error,
     ff::boolean_array::{BA20, BA3, BA8},
     helpers::{
         query::{HybridQueryParams, QuerySize},
-        BodyStream,
+        BodyStream, LengthDelimitedStream,
     },
     hpke::PrivateKeyRegistry,
-    protocol::{context::UpgradableContext, ipa_prf::shuffle::Shuffle},
+    protocol::{context::UpgradableContext, ipa_prf::shuffle::Shuffle, step::ProtocolStep::Hybrid},
+    report::EncryptedOprfReport,
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
@@ -43,45 +46,28 @@ where
             phantom_data: _,
         } = self;
         tracing::info!("New hybrid query: {config:?}");
-        let ctx = ctx.narrow(&IpaPrf);
+        let _ctx = ctx.narrow(&Hybrid);
         let sz = usize::from(query_size);
 
-        let input = if config.plaintext_match_keys {
+        let _input = if config.plaintext_match_keys {
             unimplemented!()
         } else {
-            LengthDelimitedStream::<EncryptedOprfReport<BA8, BA3, BA20, _>, _>::new(input_stream)
-                .map_err(Into::<Error>::into)
-                .map_ok(|enc_reports| {
-                    iter(enc_reports.into_iter().map(|enc_report| {
-                        enc_report
-                            .decrypt(key_registry.as_ref())
-                            .map_err(Into::<Error>::into)
-                    }))
-                })
-                .try_flatten()
-                .take(sz)
-                .zip(repeat(ctx.clone()))
-                .map(|(res, ctx)| {
-                    res.map(|report| {
-                        let is_trigger = Replicated::<Boolean>::share_known_value(
-                            &ctx,
-                            match report.event_type {
-                                EventType::Source => Boolean::ZERO,
-                                EventType::Trigger => Boolean::ONE,
-                            },
-                        );
-
-                        OPRFIPAInputRow {
-                            timestamp: report.timestamp,
-                            match_key: report.match_key,
-                            is_trigger,
-                            breakdown_key: report.breakdown_key,
-                            trigger_value: report.trigger_value,
-                        }
-                    })
-                })
-                .try_collect::<Vec<_>>()
-                .await?
+            let _encrypted_oprf_reports = LengthDelimitedStream::<
+                EncryptedOprfReport<BA8, BA3, BA20, _>,
+                _,
+            >::new(input_stream)
+            .map_err(Into::<Error>::into)
+            .map_ok(|enc_reports| {
+                iter(enc_reports.into_iter().map(|enc_report| {
+                    enc_report
+                        .decrypt(key_registry.as_ref())
+                        .map_err(Into::<Error>::into)
+                }))
+            })
+            .try_flatten()
+            .take(sz)
+            .try_collect::<Vec<_>>()
+            .await?;
         };
 
         unimplemented!()

@@ -2,6 +2,7 @@ pub mod basics;
 pub mod boolean;
 pub mod context;
 pub mod dp;
+pub mod hybrid;
 pub mod ipa_prf;
 pub mod prss;
 pub mod step;

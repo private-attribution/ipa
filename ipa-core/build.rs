@@ -16,6 +16,7 @@ track_steps!(
             step,
         },
         context::step,
+        hybrid::step,
         ipa_prf::{
             boolean_ops::step,
             prf_sharding::step,
