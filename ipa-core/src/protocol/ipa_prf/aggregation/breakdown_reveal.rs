@@ -19,7 +19,9 @@ use crate::{
             UpgradableContext,
         },
         ipa_prf::{
-            aggregation::{aggregate_values_proof_chunk, step::AggregationStep as Step},
+            aggregation::{
+                aggregate_values_proof_chunk, step::AggregationStep as Step, AGGREGATE_DEPTH,
+            },
             oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
             shuffle::shuffle_attribution_outputs,
@@ -89,16 +91,21 @@ where
     validator.validate().await?;
     let mut intermediate_results: Vec<AggResult<B>> = grouped_tvs.into();
 
+    // Any real-world aggregation should be able to complete in two layers (two
+    // iterations of the `while` loop below). Tests with small `TARGET_PROOF_SIZE`
+    // may exceed that.
     let mut chunk_counter = 0;
+    let mut depth = 0;
     let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap());
 
     while intermediate_results.len() > 1 {
+        let mut record_ids = [RecordId::FIRST; AGGREGATE_DEPTH];
         for chunk in vec_chunks(mem::take(&mut intermediate_results), agg_proof_chunk) {
             let chunk_len = chunk.len();
             let validator = ctx.clone().dzkp_validator(
                 MaliciousProtocolSteps {
-                    protocol: &Step::aggregate_chunk(chunk_counter),
-                    validate: &Step::aggregate_chunk_validate(chunk_counter),
+                    protocol: &Step::aggregate(depth),
+                    validate: &Step::aggregate_validate(chunk_counter),
                 },
                 agg_proof_chunk,
             );
@@ -106,12 +113,14 @@ where
                 validator.context(),
                 stream::iter(chunk).boxed(),
                 chunk_len,
+                Some(&mut record_ids),
             )
             .await?;
             validator.validate().await?;
             chunk_counter += 1;
             intermediate_results.push(Ok(result));
         }
+        depth += 1;
     }
 
     intermediate_results
@@ -159,8 +168,7 @@ where
     Replicated<BK>: Reveal<C, Output = <BK as Vectorizable<1>>::Array>,
     TV: BooleanArray + U128Conversions,
 {
-    let reveal_ctx = parent_ctx
-        .set_total_records(TotalRecords::specified(attributions.len())?);
+    let reveal_ctx = parent_ctx.set_total_records(TotalRecords::specified(attributions.len())?);
 
     let reveal_work = stream::iter(attributions).enumerate().map(|(i, ao)| {
         let record_id = RecordId::from(i);

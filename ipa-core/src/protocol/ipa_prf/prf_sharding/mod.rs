@@ -542,7 +542,7 @@ where
     breakdown_reveal_aggregation::<_, BK, TV, HV, B>(
         sh_ctx.narrow(&Step::Aggregate),
         user_contributions,
-        padding_parameters
+        padding_parameters,
     )
     .await
 }

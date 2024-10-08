@@ -11,14 +11,15 @@ pub(crate) enum AggregationStep {
     Shuffle,
     Reveal,
     RevealValidate, // unused -- see code
-    #[step(count = 32, child = AggregateChunkStep)]
-    AggregateChunk(usize),
-    #[step(count = 32, child = crate::protocol::context::step::DzkpSingleBatchStep)]
-    AggregateChunkValidate(usize),
+    #[step(count = 4, child = AggregateChunkStep)]
+    Aggregate(usize),
+    #[step(count = 600, child = crate::protocol::context::step::DzkpSingleBatchStep)]
+    AggregateValidate(usize),
 }
 
+// The step count here is duplicated as the AGGREGATE_DEPTH constant in the code.
 #[derive(CompactStep)]
-#[step(count = 32, child = AggregateValuesStep, name = "depth")]
+#[step(count = 24, child = AggregateValuesStep, name = "depth")]
 pub(crate) struct AggregateChunkStep(usize);
 
 #[derive(CompactStep)]
