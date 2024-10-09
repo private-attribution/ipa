@@ -571,7 +571,7 @@ pub trait DZKPContext: Context {
 mod tests {
     use std::{iter, iter::repeat};
 
-    use futures::{future::join_all, stream::StreamExt, try_join};
+    use futures::{future::join_all, stream, stream::StreamExt, try_join};
     use ipa_step::StepNarrow;
     use rand::{
         distributions::{Distribution, Standard},
@@ -588,8 +588,8 @@ mod tests {
         protocol::{
             basics::ShareKnownValue,
             context::{
-                reshard_iter, step::MaliciousProtocolStep::MaliciousProtocol, upgrade::Upgradable,
-                Context, ShardedContext, UpgradableContext, Validator,
+                reshard_iter, reshard_stream, step::MaliciousProtocolStep::MaliciousProtocol,
+                upgrade::Upgradable, Context, ShardedContext, UpgradableContext, Validator,
             },
             prss::SharedRandomness,
             RecordId,
@@ -867,7 +867,34 @@ mod tests {
 
     /// Ensure global record order across shards is consistent.
     #[test]
-    fn shard_picker() {
+    fn reshard_stream_test() {
+        run(|| async move {
+            const SHARDS: u32 = 5;
+            let world: TestWorld<WithShards<5, RoundRobinInputDistribution>> =
+                TestWorld::with_shards(TestWorldConfig::default());
+
+            let input: Vec<_> = (0..SHARDS).map(BA8::truncate_from).collect();
+            let r = world
+                .semi_honest(input.clone().into_iter(), |ctx, shard_input| async move {
+                    let shard_input = stream::iter(shard_input);
+                    reshard_stream(ctx, shard_input, |_, record_id, _| {
+                        ShardIndex::from(u32::from(record_id) % SHARDS)
+                    })
+                    .await
+                    .unwrap()
+                })
+                .await
+                .into_iter()
+                .flat_map(|v| v.reconstruct())
+                .collect::<Vec<_>>();
+
+            assert_eq!(input, r);
+        });
+    }
+
+    /// Ensure global record order across shards is consistent.
+    #[test]
+    fn reshard_iter_test() {
         run(|| async move {
             const SHARDS: u32 = 5;
             let world: TestWorld<WithShards<5, RoundRobinInputDistribution>> =
