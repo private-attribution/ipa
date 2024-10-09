@@ -94,7 +94,89 @@ pub(crate) mod shim {
 
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod task {
+    #[allow(unused_imports)]
     pub use tokio::task::{JoinError, JoinHandle};
+}
+
+#[cfg(not(feature = "shuttle"))]
+pub mod executor {
+    use std::future::Future;
+
+    use tokio::{runtime::Handle, task::JoinHandle};
+
+    /// In prod we use Tokio scheduler, so this struct just wraps
+    /// its runtime handle and mimics the standard executor API.
+    /// The name was chosen to avoid clashes with tokio runtime
+    /// when importing it
+    #[derive(Clone)]
+    pub struct IpaRuntime(Handle);
+
+    /// Wrapper around Tokio's [`JoinHandle`]
+    pub struct IpaJoinHandle<T>(JoinHandle<T>);
+
+    impl Default for IpaRuntime {
+        fn default() -> Self {
+            Self::current()
+        }
+    }
+
+    impl IpaRuntime {
+        #[must_use]
+        pub fn current() -> Self {
+            Self(Handle::current())
+        }
+
+        #[must_use]
+        pub fn spawn<F>(&self, future: F) -> IpaJoinHandle<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            IpaJoinHandle(self.0.spawn(future))
+        }
+    }
+
+    impl<T> IpaJoinHandle<T> {
+        pub fn abort(self) {
+            self.0.abort();
+        }
+    }
+}
+
+#[cfg(feature = "shuttle")]
+pub(crate) mod executor {
+    use std::future::Future;
+
+    use shuttle_crate::future::{spawn, JoinHandle};
+
+    /// Shuttle does not support more than one runtime
+    /// so we always use its default
+    #[derive(Clone, Default)]
+    pub struct IpaRuntime;
+    pub struct IpaJoinHandle<T>(JoinHandle<T>);
+
+    impl IpaRuntime {
+        #[must_use]
+        pub fn current() -> Self {
+            Self
+        }
+
+        #[must_use]
+        #[allow(clippy::unused_self)] // to conform with runtime API
+        pub fn spawn<F>(&self, future: F) -> IpaJoinHandle<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            IpaJoinHandle(spawn(future))
+        }
+    }
+
+    impl<T> IpaJoinHandle<T> {
+        pub fn abort(self) {
+            self.0.abort();
+        }
+    }
 }
 
 #[cfg(all(feature = "shuttle", test))]
