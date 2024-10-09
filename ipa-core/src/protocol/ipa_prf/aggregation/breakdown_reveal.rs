@@ -107,7 +107,10 @@ where
                     protocol: &Step::aggregate(depth),
                     validate: &Step::aggregate_validate(chunk_counter),
                 },
-                agg_proof_chunk,
+                // We have to specify usize::MAX here because the procession through
+                // record IDs is different at each step of the reduction. The batch
+                // size is limited by `vec_chunks`, above.
+                usize::MAX,
             );
             let result = aggregate_values::<_, HV, B>(
                 validator.context(),
@@ -243,7 +246,7 @@ pub mod tests {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA3, BA5, BA8},
+            boolean_array::{BA16, BA3, BA5},
             U128Conversions,
         },
         protocol::ipa_prf::{
@@ -267,7 +270,8 @@ pub mod tests {
     }
 
     #[test]
-    fn semi_honest_happy_path() {
+    fn malicious_happy_path() {
+        type HV = BA16;
         // if shuttle executor is enabled, run this test only once.
         // it is a very expensive test to explore all possible states,
         // sometimes github bails after 40 minutes of running it
@@ -277,8 +281,11 @@ pub mod tests {
             let mut rng = rand::thread_rng();
             let mut expectation = Vec::new();
             for _ in 0..32 {
-                expectation.push(rng.gen_range(0u128..256));
+                expectation.push(rng.gen_range(0u128..512));
             }
+            // The size of input needed here to get complete coverage (more precisely,
+            // the size of input to the final aggregation using `aggregate_values`)
+            // depends on `TARGET_PROOF_SIZE`.
             let expectation = expectation; // no more mutability for safety
             let mut inputs = Vec::new();
             for (bk, expected_hv) in expectation.iter().enumerate() {
@@ -292,7 +299,7 @@ pub mod tests {
             }
             inputs.shuffle(&mut rng);
             let result: Vec<_> = world
-                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                .malicious(inputs.into_iter(), |ctx, input_rows| async move {
                     let aos = input_rows
                         .into_iter()
                         .map(|ti| SecretSharedAttributionOutputs {
@@ -300,22 +307,20 @@ pub mod tests {
                             capped_attributed_trigger_value: ti.1,
                         })
                         .collect();
-                    let r: Vec<Replicated<BA8>> =
-                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
-                            ctx,
-                            aos,
-                            &PaddingParameters::relaxed(),
-                        )
-                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
-                            Vec::transposed_from(&d).unwrap()
-                        })
-                        .await
-                        .unwrap();
-                    r
+                    breakdown_reveal_aggregation::<_, BA5, BA3, HV, 32>(
+                        ctx,
+                        aos,
+                        &PaddingParameters::relaxed(),
+                    )
+                    .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                        Vec::transposed_from(&d).unwrap()
+                    })
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct();
-            let result = result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>();
+            let result = result.iter().map(|v: &HV| v.as_u128()).collect::<Vec<_>>();
             assert_eq!(32, result.len());
             assert_eq!(result, expectation);
         });
