@@ -21,8 +21,8 @@ use crate::{
         basics::{BooleanArrayMul, Reveal, ShareKnownValue},
         context::{DZKPUpgraded, MacUpgraded, UpgradableContext},
         ipa_prf::{
-            oprf_ipa, oprf_padding::PaddingParameters, prf_eval::PrfSharing, OPRFIPAInputRow,
-            AGG_CHUNK, CONV_CHUNK, PRF_CHUNK, SORT_CHUNK,
+            oprf_ipa, oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle,
+            OPRFIPAInputRow, AGG_CHUNK, CONV_CHUNK, PRF_CHUNK, SORT_CHUNK,
         },
         prss::FromPrss,
         step::ProtocolStep::IpaPrf,
@@ -55,7 +55,7 @@ impl<C, HV, R: PrivateKeyRegistry> OprfIpaQuery<C, HV, R> {
 #[allow(clippy::too_many_lines)]
 impl<C, HV, R> OprfIpaQuery<C, HV, R>
 where
-    C: UpgradableContext,
+    C: UpgradableContext + Shuffle,
     HV: BooleanArray + U128Conversions,
     R: PrivateKeyRegistry,
     Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,
@@ -142,9 +142,9 @@ where
             },
         };
 
-        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        #[cfg(feature = "relaxed-dp")]
         let padding_params = PaddingParameters::relaxed();
-        #[cfg(not(any(test, feature = "cli", feature = "test-fixture")))]
+        #[cfg(not(feature = "relaxed-dp"))]
         let padding_params = PaddingParameters::default();
         match config.per_user_credit_cap {
             8 => oprf_ipa::<_, BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,

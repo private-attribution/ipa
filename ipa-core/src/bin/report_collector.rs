@@ -25,8 +25,8 @@ use ipa_core::{
     net::MpcHelperClient,
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
     test_fixture::{
-        ipa::{ipa_in_the_clear, CappingOrder, IpaQueryStyle, IpaSecurityModel, TestRawDataRecord},
-        EventGenerator, EventGeneratorConfig,
+        ipa::{ipa_in_the_clear, CappingOrder, IpaSecurityModel, TestRawDataRecord},
+        EventGenerator, EventGeneratorConfig, HybridEventGenerator, HybridGeneratorConfig,
     },
 };
 use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
@@ -96,12 +96,24 @@ enum ReportCollectorCommand {
         #[clap(flatten)]
         gen_args: EventGeneratorConfig,
     },
+    GenHybridInputs {
+        /// Number of records to generate
+        #[clap(long, short = 'n')]
+        count: u32,
+
+        /// The seed for random generator.
+        #[clap(long, short = 's')]
+        seed: Option<u64>,
+
+        #[clap(flatten)]
+        gen_args: HybridGeneratorConfig,
+    },
     /// Execute OPRF IPA in a semi-honest majority setting with known test data
     /// and compare results against expectation
     SemiHonestOprfIpaTest(IpaQueryConfig),
     /// Execute OPRF IPA in an honest majority (one malicious helper) setting
     /// with known test data and compare results against expectation
-    MalciousOprfIpaTest(IpaQueryConfig),
+    MaliciousOprfIpaTest(IpaQueryConfig),
     /// Execute OPRF IPA in a semi-honest majority setting with unknown encrypted data
     #[command(visible_alias = "oprf-ipa")]
     SemiHonestOprfIpa {
@@ -164,6 +176,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             seed,
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
+        ReportCollectorCommand::GenHybridInputs {
+            count,
+            seed,
+            gen_args,
+        } => gen_hybrid_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::SemiHonestOprfIpaTest(config) => {
             ipa_test(
                 &args,
@@ -171,18 +188,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::SemiHonest,
                 config,
                 &clients,
-                IpaQueryStyle::Oprf,
             )
             .await?
         }
-        ReportCollectorCommand::MalciousOprfIpaTest(config) => {
+        ReportCollectorCommand::MaliciousOprfIpaTest(config) => {
             ipa_test(
                 &args,
                 &network,
                 IpaSecurityModel::Malicious,
                 config,
                 &clients,
-                IpaQueryStyle::Oprf,
             )
             .await?
         }
@@ -195,7 +210,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::Malicious,
                 ipa_query_config,
                 &clients,
-                IpaQueryStyle::Oprf,
                 encrypted_inputs,
             )
             .await?
@@ -209,12 +223,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::SemiHonest,
                 ipa_query_config,
                 &clients,
-                IpaQueryStyle::Oprf,
                 encrypted_inputs,
             )
             .await?
         }
     };
+
+    Ok(())
+}
+
+fn gen_hybrid_inputs(
+    count: u32,
+    seed: Option<u64>,
+    output_file: Option<PathBuf>,
+    args: HybridGeneratorConfig,
+) -> io::Result<()> {
+    let rng = seed
+        .map(StdRng::seed_from_u64)
+        .unwrap_or_else(StdRng::from_entropy);
+    let event_gen = HybridEventGenerator::with_config(rng, args).take(count as usize);
+
+    let mut writer: Box<dyn Write> = if let Some(path) = output_file {
+        Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
+    } else {
+        Box::new(stdout().lock())
+    };
+
+    for event in event_gen {
+        event.to_csv(&mut writer)?;
+        writer.write_all(b"\n")?;
+    }
 
     Ok(())
 }
@@ -245,20 +283,10 @@ fn gen_inputs(
     Ok(())
 }
 
-/// Panics
-/// if (security_model, query_style) tuple is undefined
-fn get_query_type(
-    security_model: IpaSecurityModel,
-    query_style: &IpaQueryStyle,
-    ipa_query_config: IpaQueryConfig,
-) -> QueryType {
-    match (security_model, query_style) {
-        (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            QueryType::SemiHonestOprfIpa(ipa_query_config)
-        }
-        (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
-            QueryType::MaliciousOprfIpa(ipa_query_config)
-        }
+fn get_query_type(security_model: IpaSecurityModel, ipa_query_config: IpaQueryConfig) -> QueryType {
+    match security_model {
+        IpaSecurityModel::SemiHonest => QueryType::SemiHonestOprfIpa(ipa_query_config),
+        IpaSecurityModel::Malicious => QueryType::MaliciousOprfIpa(ipa_query_config),
     }
 }
 
@@ -306,10 +334,9 @@ async fn ipa(
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
-    query_style: IpaQueryStyle,
     encrypted_inputs: &EncryptedInputs,
 ) -> Result<(), Box<dyn Error>> {
-    let query_type = get_query_type(security_model, &query_style, ipa_query_config);
+    let query_type = get_query_type(security_model, ipa_query_config);
 
     let files = [
         &encrypted_inputs.enc_input_file1,
@@ -331,21 +358,17 @@ async fn ipa(
         .expect("Unable to create query!");
 
     tracing::info!("Starting query for OPRF");
-    let actual = match query_style {
-        IpaQueryStyle::Oprf => {
-            // the value for histogram values (BA32) must be kept in sync with the server-side
-            // implementation, otherwise a runtime reconstruct error will be generated.
-            // see ipa-core/src/query/executor.rs
-            run_query_and_validate::<BA32>(
-                encrypted_oprf_report_streams.streams,
-                encrypted_oprf_report_streams.query_size,
-                helper_clients,
-                query_id,
-                ipa_query_config,
-            )
-            .await
-        }
-    };
+    // the value for histogram values (BA32) must be kept in sync with the server-side
+    // implementation, otherwise a runtime reconstruct error will be generated.
+    // see ipa-core/src/query/executor.rs
+    let actual = run_query_and_validate::<BA32>(
+        encrypted_oprf_report_streams.streams,
+        encrypted_oprf_report_streams.query_size,
+        helper_clients,
+        query_id,
+        ipa_query_config,
+    )
+    .await;
 
     if let Some(ref path) = args.output_file {
         write_ipa_output_file(path, &actual)?;
@@ -361,10 +384,9 @@ async fn ipa_test(
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
-    query_style: IpaQueryStyle,
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
-    let query_type = get_query_type(security_model, &query_style, ipa_query_config);
+    let query_type = get_query_type(security_model, ipa_query_config);
 
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
     let query_config = QueryConfig {
@@ -383,9 +405,7 @@ async fn ipa_test(
             ipa_query_config.per_user_credit_cap,
             ipa_query_config.attribution_window_seconds,
             ipa_query_config.max_breakdown_key,
-            &(match query_style {
-                IpaQueryStyle::Oprf => CappingOrder::CapMostRecentFirst,
-            }),
+            &CappingOrder::CapMostRecentFirst,
         );
 
         // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
@@ -401,21 +421,17 @@ async fn ipa_test(
     let Some(key_registries) = key_registries.init_from(network) else {
         panic!("could not load network file")
     };
-    let actual = match query_style {
-        IpaQueryStyle::Oprf => {
-            // the value for histogram values (BA32) must be kept in sync with the server-side
-            // implementation, otherwise a runtime reconstruct error will be generated.
-            // see ipa-core/src/query/executor.rs
-            playbook_oprf_ipa::<BA32, _>(
-                input_rows,
-                helper_clients,
-                query_id,
-                ipa_query_config,
-                Some((DEFAULT_KEY_ID, key_registries)),
-            )
-            .await
-        }
-    };
+    // the value for histogram values (BA32) must be kept in sync with the server-side
+    // implementation, otherwise a runtime reconstruct error will be generated.
+    // see ipa-core/src/query/executor.rs
+    let actual = playbook_oprf_ipa::<BA32, _>(
+        input_rows,
+        helper_clients,
+        query_id,
+        ipa_query_config,
+        Some((DEFAULT_KEY_ID, key_registries)),
+    )
+    .await;
 
     if let Some(ref path) = args.output_file {
         write_ipa_output_file(path, &actual)?;

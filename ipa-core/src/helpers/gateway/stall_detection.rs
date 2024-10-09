@@ -80,6 +80,7 @@ mod gateway {
         protocol::QueryId,
         sharding::ShardIndex,
         sync::Arc,
+        utils::NonZeroU32PowerOfTwo,
     };
 
     pub struct InstrumentedGateway {
@@ -153,12 +154,13 @@ mod gateway {
             &self,
             channel_id: &HelperChannelId,
             total_records: TotalRecords,
+            active_work: NonZeroU32PowerOfTwo,
         ) -> SendingEnd<Role, M> {
             Observed::wrap(
                 Weak::clone(self.get_sn()),
                 self.inner()
                     .gateway
-                    .get_mpc_sender(channel_id, total_records),
+                    .get_mpc_sender(channel_id, total_records, active_work),
             )
         }
 

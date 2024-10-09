@@ -9,9 +9,11 @@ pub enum ProtocolStep {
     IpaPrf,
     Multiply,
     PrimeFieldAddition,
-    #[cfg(any(test, feature = "test-fixture"))]
-    #[step(count = 10, child = crate::test_fixture::step::TestExecutionStep)]
-    Test(usize),
+    /// Steps used in unit tests are grouped under this one. Ideally it should be
+    /// gated behind test configuration, but it does not work with build.rs that
+    /// does not enable any features when creating protocol gate file
+    #[step(child = TestExecutionStep)]
+    Test,
 
     /// This step includes all the steps that are currently not linked into a top-level protocol.
     ///
@@ -29,22 +31,17 @@ impl<'de> serde::Deserialize<'de> for ProtocolGate {
 
 #[derive(CompactStep)]
 pub enum DeadCodeStep {
-    #[step(child = crate::protocol::basics::step::CheckZeroStep)]
-    CheckZero,
-    #[step(child = crate::protocol::basics::mul::step::MaliciousMultiplyStep)]
-    MaliciousMultiply,
-    #[step(child = crate::protocol::context::step::UpgradeStep)]
-    UpgradeShare,
-    #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
-    MaliciousProtocol,
-    #[step(child = crate::protocol::context::step::ValidateStep)]
-    MaliciousValidation,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedSubtractionStep)]
     SaturatedSubtraction,
     #[step(child = crate::protocol::ipa_prf::prf_sharding::step::FeatureLabelDotProductStep)]
     FeatureLabelDotProduct,
-    #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]
-    ZeroKnowledgeProofValidate,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
     Multiplication,
+}
+
+/// Provides a unique per-iteration context in tests.
+#[derive(CompactStep)]
+pub enum TestExecutionStep {
+    #[step(count = 999)]
+    Iter(usize),
 }

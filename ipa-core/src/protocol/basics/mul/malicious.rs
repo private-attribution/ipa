@@ -16,6 +16,7 @@ use crate::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableFieldSimd},
         semi_honest::AdditiveShare as Replicated,
     },
+    sharding::ShardBinding,
 };
 
 ///
@@ -49,8 +50,8 @@ use crate::{
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn mac_multiply<F, const N: usize>(
-    ctx: UpgradedMaliciousContext<'_, F>,
+pub async fn mac_multiply<F, B: ShardBinding, const N: usize>(
+    ctx: UpgradedMaliciousContext<'_, F, B>,
     record_id: RecordId,
     a: &MaliciousReplicated<F, N>,
     b: &MaliciousReplicated<F, N>,
@@ -108,19 +109,19 @@ where
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<'a, F: ExtendableFieldSimd<N>, const N: usize> SecureMul<UpgradedMaliciousContext<'a, F>>
-    for MaliciousReplicated<F, N>
+impl<'a, F: ExtendableFieldSimd<N>, B: ShardBinding, const N: usize>
+    SecureMul<UpgradedMaliciousContext<'a, F, B>> for MaliciousReplicated<F, N>
 where
     Replicated<F::ExtendedField, N>: FromPrss,
 {
     async fn multiply<'fut>(
         &self,
         rhs: &Self,
-        ctx: UpgradedMaliciousContext<'a, F>,
+        ctx: UpgradedMaliciousContext<'a, F, B>,
         record_id: RecordId,
     ) -> Result<Self, Error>
     where
-        UpgradedMaliciousContext<'a, F>: 'fut,
+        UpgradedMaliciousContext<'a, F, B>: 'fut,
     {
         mac_multiply(ctx, record_id, self, rhs).await
     }

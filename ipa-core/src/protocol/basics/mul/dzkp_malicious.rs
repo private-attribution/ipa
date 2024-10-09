@@ -13,6 +13,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
+    sharding::{NotSharded, ShardBinding},
 };
 
 /// This function implements an MPC multiply using the standard strategy, i.e. via computing the
@@ -27,13 +28,14 @@ use crate::{
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn zkp_multiply<'a, F, const N: usize>(
-    ctx: DZKPUpgradedMaliciousContext<'a>,
+pub async fn zkp_multiply<'a, B, F, const N: usize>(
+    ctx: DZKPUpgradedMaliciousContext<'a, B>,
     record_id: RecordId,
     a: &Replicated<F, N>,
     b: &Replicated<F, N>,
 ) -> Result<Replicated<F, N>, Error>
 where
+    B: ShardBinding,
     F: Field + DZKPCompatibleField<N>,
 {
     // Shared randomness used to mask the values that are sent.
@@ -62,17 +64,17 @@ where
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
-    SecureMul<DZKPUpgradedMaliciousContext<'a>> for Replicated<F, N>
+impl<'a, B: ShardBinding, F: Field + DZKPCompatibleField<N>, const N: usize>
+    SecureMul<DZKPUpgradedMaliciousContext<'a, B>> for Replicated<F, N>
 {
     async fn multiply<'fut>(
         &self,
         rhs: &Self,
-        ctx: DZKPUpgradedMaliciousContext<'a>,
+        ctx: DZKPUpgradedMaliciousContext<'a, B>,
         record_id: RecordId,
     ) -> Result<Self, Error>
     where
-        DZKPUpgradedMaliciousContext<'a>: 'fut,
+        DZKPUpgradedMaliciousContext<'a, NotSharded>: 'fut,
     {
         zkp_multiply(ctx, record_id, self, rhs).await
     }
@@ -84,7 +86,7 @@ mod test {
         ff::boolean::Boolean,
         protocol::{
             basics::SecureMul,
-            context::{dzkp_validator::DZKPValidator, Context, UpgradableContext},
+            context::{dzkp_validator::DZKPValidator, Context, UpgradableContext, TEST_DZKP_STEPS},
             RecordId,
         },
         rand::{thread_rng, Rng},
@@ -101,7 +103,7 @@ mod test {
 
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {
-                let validator = ctx.dzkp_validator(10);
+                let validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 8);
                 let mctx = validator.context();
                 let result = a
                     .multiply(&b, mctx.set_total_records(1), RecordId::from(0))

@@ -85,6 +85,11 @@ enum TestAction {
     /// All helpers add their shares locally and set the resulting share to be the
     /// sum. No communication is required to run the circuit.
     AddInPrimeField,
+    /// A test protocol for sharded MPCs. The goal here is to use
+    /// both shard-to-shard and helper-to-helper communication channels.
+    /// This is exactly what shuffle does and that's why it is picked
+    /// for this purpose.
+    ShardedShuffle,
 }
 
 #[tokio::main]
@@ -102,6 +107,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match args.action {
         TestAction::Multiply => multiply(&args, &clients).await,
         TestAction::AddInPrimeField => add(&args, &clients).await,
+        TestAction::ShardedShuffle => sharded_shuffle(&args, &clients).await,
     };
 
     Ok(())
@@ -158,4 +164,8 @@ async fn add(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
         FieldType::Fp31 => add_in_field::<Fp31>(args, helper_clients).await,
         FieldType::Fp32BitPrime => add_in_field::<Fp32BitPrime>(args, helper_clients).await,
     };
+}
+
+async fn sharded_shuffle(_args: &Args, _helper_clients: &[MpcHelperClient; 3]) {
+    unimplemented!()
 }

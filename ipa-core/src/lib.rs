@@ -32,8 +32,8 @@ mod seq_join;
 mod serde;
 pub mod sharding;
 mod utils;
-
 pub use app::{AppConfig, HelperApp, Setup as AppSetup};
+pub use utils::NonZeroU32PowerOfTwo;
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]
@@ -94,7 +94,89 @@ pub(crate) mod shim {
 
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod task {
+    #[allow(unused_imports)]
     pub use tokio::task::{JoinError, JoinHandle};
+}
+
+#[cfg(not(feature = "shuttle"))]
+pub mod executor {
+    use std::future::Future;
+
+    use tokio::{runtime::Handle, task::JoinHandle};
+
+    /// In prod we use Tokio scheduler, so this struct just wraps
+    /// its runtime handle and mimics the standard executor API.
+    /// The name was chosen to avoid clashes with tokio runtime
+    /// when importing it
+    #[derive(Clone)]
+    pub struct IpaRuntime(Handle);
+
+    /// Wrapper around Tokio's [`JoinHandle`]
+    pub struct IpaJoinHandle<T>(JoinHandle<T>);
+
+    impl Default for IpaRuntime {
+        fn default() -> Self {
+            Self::current()
+        }
+    }
+
+    impl IpaRuntime {
+        #[must_use]
+        pub fn current() -> Self {
+            Self(Handle::current())
+        }
+
+        #[must_use]
+        pub fn spawn<F>(&self, future: F) -> IpaJoinHandle<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            IpaJoinHandle(self.0.spawn(future))
+        }
+    }
+
+    impl<T> IpaJoinHandle<T> {
+        pub fn abort(self) {
+            self.0.abort();
+        }
+    }
+}
+
+#[cfg(feature = "shuttle")]
+pub(crate) mod executor {
+    use std::future::Future;
+
+    use shuttle_crate::future::{spawn, JoinHandle};
+
+    /// Shuttle does not support more than one runtime
+    /// so we always use its default
+    #[derive(Clone, Default)]
+    pub struct IpaRuntime;
+    pub struct IpaJoinHandle<T>(JoinHandle<T>);
+
+    impl IpaRuntime {
+        #[must_use]
+        pub fn current() -> Self {
+            Self
+        }
+
+        #[must_use]
+        #[allow(clippy::unused_self)] // to conform with runtime API
+        pub fn spawn<F>(&self, future: F) -> IpaJoinHandle<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            IpaJoinHandle(spawn(future))
+        }
+    }
+
+    impl<T> IpaJoinHandle<T> {
+        pub fn abort(self) {
+            self.0.abort();
+        }
+    }
 }
 
 #[cfg(all(feature = "shuttle", test))]
@@ -118,14 +200,14 @@ pub(crate) mod test_executor {
     }
 }
 
-#[cfg(all(test, unit_test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod test_executor {
     use std::future::Future;
 
-    pub fn run_with<F, Fut, T, const ITER: usize>(f: F) -> T
+    pub fn run_with<F, Fut, const ITER: usize>(f: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T>,
+        Fut: Future<Output = ()>,
     {
         tokio::runtime::Builder::new_multi_thread()
             // enable_all() is common to use to build Tokio runtime, but it enables both IO and time drivers.
@@ -134,15 +216,16 @@ pub(crate) mod test_executor {
             .enable_time()
             .build()
             .unwrap()
-            .block_on(f())
+            .block_on(f());
     }
 
-    pub fn run<F, Fut, T>(f: F) -> T
+    #[allow(dead_code)]
+    pub fn run<F, Fut>(f: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T>,
+        Fut: Future<Output = ()>,
     {
-        run_with::<_, _, _, 1>(f)
+        run_with::<_, _, 1>(f);
     }
 }
 

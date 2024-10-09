@@ -27,7 +27,6 @@ track_steps!(
         dp::step,
         step,
     },
-    test_fixture::step
 );
 
 fn main() {

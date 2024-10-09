@@ -73,7 +73,7 @@ where
             .await?;
 
     // if carry==1 then {all ones} else {result}
-    bool_or(
+    bool_or::<_, S, _, N>(
         ctx.narrow::<Step>(&Step::Select),
         record_id,
         &result,

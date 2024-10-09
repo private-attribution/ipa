@@ -119,7 +119,8 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
                             | RouteId::PrepareQuery
                             | RouteId::QueryInput
                             | RouteId::QueryStatus
-                            | RouteId::CompleteQuery => {
+                            | RouteId::CompleteQuery
+                            | RouteId::KillQuery => {
                                 handler
                                     .as_ref()
                                     .expect("Handler is set")

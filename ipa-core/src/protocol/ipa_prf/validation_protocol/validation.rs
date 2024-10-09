@@ -10,7 +10,7 @@ use crate::{
         Direction, TotalRecords,
     },
     protocol::{
-        context::{step::ZeroKnowledgeProofValidateStep as Step, Context},
+        context::{step::DzkpProofVerifyStep as Step, Context},
         ipa_prf::{
             malicious_security::{
                 prover::{LargeProofGenerator, SmallProofGenerator},
@@ -245,7 +245,9 @@ impl BatchToVerify {
 
         // send dif_left to the right
         let length = diff_left.len();
-        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
+        let communication_ctx = ctx
+            .narrow(&Step::Diff)
+            .set_total_records(TotalRecords::specified(length)?);
 
         let send_channel =
             communication_ctx.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));

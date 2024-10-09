@@ -10,11 +10,11 @@ use futures::{ready, FutureExt};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    executor::IpaJoinHandle,
     helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
     query::runner::QueryResult,
     sync::Mutex,
-    task::JoinHandle,
 };
 
 /// The status of query processing
@@ -87,7 +87,7 @@ pub struct RunningQuery {
     ///
     /// We could return the result via the `JoinHandle`, except that we want to check the status
     /// of the task, and shuttle doesn't implement `JoinHandle::is_finished`.
-    pub join_handle: JoinHandle<()>,
+    pub join_handle: IpaJoinHandle<()>,
 }
 
 impl RunningQuery {

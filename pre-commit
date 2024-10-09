@@ -82,43 +82,51 @@ check() {
     fi
 }
 
-check "Benchmark compilation" \
-    cargo build --benches --no-default-features --features "enable-benches compact-gate"
-
 check "Clippy checks" \
-    cargo clippy --tests -- -D warnings
-
-check "Clippy concurrency checks" \
-    cargo clippy --tests --features shuttle -- -D warnings
-
-check "Clippy web checks" \
-    cargo clippy --tests --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate" -- -D warnings
-
-# The tests here need to be kept in sync with scripts/coverage-ci.
+    cargo clippy --features="cli test-fixture" --tests -- -D warnings
 
 check "Tests" \
-    cargo test
+    cargo test --features="cli test-fixture relaxed-dp"
 
-check "Web tests" \
-    cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
-
-check "Web tests (descriptive gate)" \
-    cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture"
-
-check "Concurrency tests" \
-    cargo test -p ipa-core --release --features "shuttle multi-threading"
-
-check "Encrypted Input Tests" \
-    cargo test --test encrypted_input --features "cli test-fixture web-app in-memory-infra"
-
-check "IPA benchmark" \
-    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- -n 62 -c 16
-
-check "Arithmetic circuit benchmark" \
-    cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
-
-if [ -z "$EXEC_SLOW_TESTS" ]
+if [ -n "$EXEC_SLOW_TESTS" ]
 then
-  check "Slow tests" \
-      cargo test --release --test "*" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+  check "Benchmark compilation" \
+      cargo build --benches --no-default-features --features "enable-benches compact-gate"
+
+  check "Clippy concurrency checks" \
+      cargo clippy --tests --features shuttle -- -D warnings
+
+  check "Clippy web checks" \
+      cargo clippy --tests --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate" -- -D warnings
+
+  # The tests here need to be kept in sync with scripts/coverage-ci.
+
+  check "Web tests" \
+      cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+  check "Web tests (descriptive gate)" \
+      cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture"
+
+  check "Concurrency tests" \
+      cargo test -p ipa-core --release --features "shuttle multi-threading"
+
+  check "IPA benchmark" \
+      cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- -n 62 -c 16
+
+  check "Arithmetic circuit benchmark" \
+      cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
+
+  check "Slow tests: Compact Gate" \
+      cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+  check "Slow tests: Helper Networks" \
+      cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+  check "Slow tests: Hybrid tests" \
+      cargo test --release --test "hybrid" --features "cli test-fixture"
+
+
+  check "Slow tests: IPA with Relaxed DP" \
+      cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 fi

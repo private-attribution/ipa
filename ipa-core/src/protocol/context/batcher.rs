@@ -3,12 +3,7 @@ use std::{cmp::min, collections::VecDeque, future::Future};
 use bitvec::{bitvec, prelude::BitVec};
 use tokio::sync::watch;
 
-use crate::{
-    error::Error,
-    helpers::TotalRecords,
-    protocol::RecordId,
-    sync::{Arc, Mutex},
-};
+use crate::{error::Error, helpers::TotalRecords, protocol::RecordId, sync::Mutex};
 
 /// Manages validation of batches of records for malicious protocols.
 ///
@@ -88,18 +83,22 @@ impl<'a, B> Batcher<'a, B> {
         records_per_batch: usize,
         total_records: T,
         batch_constructor: Box<dyn Fn(usize) -> B + Send + 'a>,
-    ) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    ) -> Mutex<Self> {
+        Mutex::new(Self {
             batches: VecDeque::new(),
             first_batch: 0,
             records_per_batch,
             total_records: total_records.into(),
             batch_constructor,
-        }))
+        })
     }
 
     pub fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T) {
         self.total_records = self.total_records.overwrite(total_records.into());
+    }
+
+    pub fn records_per_batch(&self) -> usize {
+        self.records_per_batch
     }
 
     fn batch_offset(&self, record_id: RecordId) -> usize {
@@ -115,7 +114,7 @@ impl<'a, B> Batcher<'a, B> {
             while self.batches.len() <= batch_offset {
                 let (validation_result, _) = watch::channel::<bool>(false);
                 let state = BatchState {
-                    batch: (self.batch_constructor)(self.first_batch + batch_offset),
+                    batch: (self.batch_constructor)(self.first_batch + self.batches.len()),
                     validation_result,
                     pending_count: 0,
                     pending_records: bitvec![0; self.records_per_batch],
@@ -295,6 +294,23 @@ mod tests {
             batcher.get_batch(RecordId::from(2)).batch.as_slice(),
             [2, 3]
         );
+    }
+
+    #[test]
+    fn makes_batches_out_of_order() {
+        // Regression test for a bug where, when adding batches i..j to fill in a gap in
+        // the batch deque prior to out-of-order requested batch j, the batcher passed
+        // batch index `j` to the constructor for all of them, as opposed to the correct
+        // sequence of indices i..=j.
+
+        let batcher = Batcher::new(1, 2, Box::new(std::convert::identity));
+        let mut batcher = batcher.lock().unwrap();
+
+        batcher.get_batch(RecordId::from(1));
+        batcher.get_batch(RecordId::from(0));
+
+        assert_eq!(batcher.get_batch(RecordId::from(0)).batch, 0);
+        assert_eq!(batcher.get_batch(RecordId::from(1)).batch, 1);
     }
 
     #[tokio::test]
@@ -550,7 +566,7 @@ mod tests {
                 .push(i);
         }
 
-        let batcher = Arc::into_inner(batcher).unwrap().into_inner().unwrap();
+        let batcher = batcher.into_inner().unwrap();
         assert_eq!(batcher.into_single_batch(), vec![0, 1]);
     }
 
@@ -568,7 +584,7 @@ mod tests {
                 .push(i);
         }
 
-        let batcher = Arc::into_inner(batcher).unwrap().into_inner().unwrap();
+        let batcher = batcher.into_inner().unwrap();
         batcher.into_single_batch();
     }
 
@@ -602,7 +618,7 @@ mod tests {
             });
         assert_eq!(try_join(fut1, fut2).await.unwrap(), ((), ()));
 
-        let batcher = Arc::into_inner(batcher).unwrap().into_inner().unwrap();
+        let batcher = batcher.into_inner().unwrap();
         batcher.into_single_batch();
     }
 }

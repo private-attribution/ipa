@@ -850,7 +850,7 @@ mod concurrency_tests {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
                         gateway_config: GatewayConfig {
-                            active: input.len().try_into().unwrap(),
+                            active: input.len().next_power_of_two().try_into().unwrap(),
                             ..Default::default()
                         },
                         ..Default::default()
@@ -908,7 +908,7 @@ mod concurrency_tests {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
                         gateway_config: GatewayConfig {
-                            active: input.len().try_into().unwrap(),
+                            active: input.len().next_power_of_two().try_into().unwrap(),
                             ..Default::default()
                         },
                         ..Default::default()

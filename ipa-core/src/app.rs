@@ -1,8 +1,9 @@
-use std::{num::NonZeroUsize, sync::Weak};
+use std::sync::Weak;
 
 use async_trait::async_trait;
 
 use crate::{
+    executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         routing::{Addr, RouteId},
@@ -13,17 +14,19 @@ use crate::{
     protocol::QueryId,
     query::{NewQueryError, QueryProcessor, QueryStatus},
     sync::Arc,
+    utils::NonZeroU32PowerOfTwo,
 };
 
 #[derive(Default)]
 pub struct AppConfig {
-    active_work: Option<NonZeroUsize>,
+    active_work: Option<NonZeroU32PowerOfTwo>,
     key_registry: Option<KeyRegistry<PrivateKeyOnly>>,
+    runtime: IpaRuntime,
 }
 
 impl AppConfig {
     #[must_use]
-    pub fn with_active_work(mut self, active_work: Option<NonZeroUsize>) -> Self {
+    pub fn with_active_work(mut self, active_work: Option<NonZeroU32PowerOfTwo>) -> Self {
         self.active_work = active_work;
         self
     }
@@ -31,6 +34,12 @@ impl AppConfig {
     #[must_use]
     pub fn with_key_registry(mut self, key_registry: KeyRegistry<PrivateKeyOnly>) -> Self {
         self.key_registry = Some(key_registry);
+        self
+    }
+
+    #[must_use]
+    pub fn with_runtime(mut self, runtime: IpaRuntime) -> Self {
+        self.runtime = runtime;
         self
     }
 }
@@ -60,7 +69,7 @@ impl Setup {
     #[must_use]
     pub fn new(config: AppConfig) -> (Self, HandlerRef) {
         let key_registry = config.key_registry.unwrap_or_else(KeyRegistry::empty);
-        let query_processor = QueryProcessor::new(key_registry, config.active_work);
+        let query_processor = QueryProcessor::new(key_registry, config.active_work, config.runtime);
         let handler = HandlerBox::empty();
         let this = Self {
             query_processor,
@@ -202,6 +211,10 @@ impl RequestHandler for Inner {
             RouteId::CompleteQuery => {
                 let query_id = ext_query_id(&req)?;
                 HelperResponse::from(qp.complete(query_id).await?)
+            }
+            RouteId::KillQuery => {
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.kill(query_id)?)
             }
         })
     }

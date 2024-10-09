@@ -68,7 +68,7 @@ pub trait ShardConfiguration {
     }
 }
 
-pub trait ShardBinding: Debug + Send + Sync + Clone {}
+pub trait ShardBinding: Debug + Send + Sync + Clone + 'static {}
 
 #[derive(Debug, Copy, Clone)]
 pub struct NotSharded;

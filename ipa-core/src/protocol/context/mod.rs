@@ -9,9 +9,6 @@ pub mod step;
 pub mod upgrade;
 
 mod batcher;
-/// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
-/// this flag can be removed
-#[allow(dead_code)]
 pub mod validator;
 
 use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
@@ -21,12 +18,19 @@ pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
 pub use dzkp_semi_honest::DZKPUpgraded as DZKPUpgradedSemiHonestContext;
 use futures::{stream, Stream, StreamExt};
 use ipa_step::{Step, StepNarrow};
-pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
+pub use malicious::MaliciousProtocolSteps;
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use validator::Validator;
 pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
+
+pub type MaliciousContext<'a, B = NotSharded> = malicious::Context<'a, B>;
+pub type ShardedMaliciousContext<'a> = malicious::Context<'a, Sharded>;
+pub type UpgradedMaliciousContext<'a, F, B = NotSharded> = malicious::Upgraded<'a, F, B>;
+
+#[cfg(all(feature = "in-memory-infra", any(test, feature = "test-fixture")))]
+pub(crate) use malicious::TEST_DZKP_STEPS;
 
 use crate::{
     error::Error,
@@ -42,6 +46,7 @@ use crate::{
     secret_sharing::replicated::malicious::ExtendableField,
     seq_join::SeqJoin,
     sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
+    utils::NonZeroU32PowerOfTwo,
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -109,7 +114,14 @@ pub trait UpgradableContext: Context {
 
     type DZKPValidator: DZKPValidator;
 
-    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator;
+    fn dzkp_validator<S>(
+        self,
+        steps: MaliciousProtocolSteps<S>,
+        max_multiplications_per_gate: usize,
+    ) -> Self::DZKPValidator
+    where
+        Gate: StepNarrow<S>,
+        S: Step + ?Sized;
 }
 
 pub type MacUpgraded<C, F> = <<C as UpgradableContext>::Validator<F> as Validator<F>>::Context;
@@ -153,6 +165,7 @@ pub struct Base<'a, B: ShardBinding = NotSharded> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
+    active_work: NonZeroU32PowerOfTwo,
     /// This indicates whether the system uses sharding or no. It's not ideal that we keep it here
     /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
     /// would be to move it to [`Inner`] struct.
@@ -171,7 +184,16 @@ impl<'a, B: ShardBinding> Base<'a, B> {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
+            active_work: gateway.config().active_work_as_power_of_two(),
             sharding,
+        }
+    }
+
+    #[must_use]
+    pub fn set_active_work(self, new_active_work: NonZeroU32PowerOfTwo) -> Self {
+        Self {
+            active_work: new_active_work,
+            ..self.clone()
         }
     }
 }
@@ -208,6 +230,7 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
             inner: self.inner.clone(),
             gate: self.gate.narrow(step),
             total_records: self.total_records,
+            active_work: self.active_work,
             sharding: self.sharding.clone(),
         }
     }
@@ -217,6 +240,7 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
             inner: self.inner.clone(),
             gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
+            active_work: self.active_work,
             sharding: self.sharding.clone(),
         }
     }
@@ -245,9 +269,11 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
     }
 
     fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M> {
-        self.inner
-            .gateway
-            .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
+        self.inner.gateway.get_mpc_sender(
+            &ChannelId::new(role, self.gate.clone()),
+            self.total_records,
+            self.active_work,
+        )
     }
 
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
@@ -313,7 +339,7 @@ impl ShardConfiguration for Base<'_, Sharded> {
 
 impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
-        self.inner.gateway.config().active_work()
+        self.active_work.to_non_zero_usize()
     }
 }
 

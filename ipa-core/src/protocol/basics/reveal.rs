@@ -98,7 +98,7 @@ where
         ctx.parallel_join(zip(&**self, repeat(ctx.clone())).enumerate().map(
             |(i, (bit, ctx))| async move {
                 generic_reveal(
-                    ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(i)),
+                    ctx.narrow(&TwoHundredFiftySixBitOpStep::from(i)),
                     record_id,
                     excluded,
                     bit,
@@ -321,20 +321,21 @@ where
     }
 }
 
-impl<'a, const N: usize> Reveal<DZKPUpgradedMaliciousContext<'a>> for Replicated<Boolean, N>
+impl<'a, B, const N: usize> Reveal<DZKPUpgradedMaliciousContext<'a, B>> for Replicated<Boolean, N>
 where
+    B: ShardBinding,
     Boolean: Vectorizable<N>,
 {
     type Output = <Boolean as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
-        ctx: DZKPUpgradedMaliciousContext<'a>,
+        ctx: DZKPUpgradedMaliciousContext<'a, B>,
         record_id: RecordId,
         excluded: Option<Role>,
     ) -> Result<Option<Self::Output>, Error>
     where
-        DZKPUpgradedMaliciousContext<'a>: 'fut,
+        DZKPUpgradedMaliciousContext<'a, B>: 'fut,
     {
         malicious_reveal(ctx, record_id, excluded, self).await
     }

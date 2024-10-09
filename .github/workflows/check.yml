@@ -53,7 +53,7 @@ jobs:
 
       - name: Clippy
         if: ${{ success() || failure() }}
-        run: cargo clippy --tests
+        run: cargo clippy --features "cli test-fixture" --tests
 
       - name: Clippy concurrency tests
         if: ${{ success() || failure() }}
@@ -68,16 +68,13 @@ jobs:
         run: cargo build --tests
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --features "cli test-fixture relaxed-dp"
 
       - name: Run tests with multithreading feature enabled
         run: cargo test --features "multi-threading"
 
       - name: Run Web Tests
         run: cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
-
-      - name: Run Integration Tests
-        run: cargo test --test encrypted_input --features "cli test-fixture web-app in-memory-infra"
 
   release:
     name: Release builds and tests
@@ -148,8 +145,11 @@ jobs:
       - name: Run arithmetic bench
         run: cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
 
-      - name: Run compact gate tests
+      - name: Run compact gate tests for HTTP stack
         run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+      - name: Run in-memory compact gate tests
+        run: cargo test --features "compact-gate"
   slow:
     name: Slow tests
     env:
@@ -172,8 +172,17 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
-      - name: End-to-end tests
-        run: cargo test --release --test "*" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+      - name: Integration Tests - Compact Gate
+        run: cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+      - name: Integration Tests - Helper Networks
+        run: cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+
+      - name: Integration Tests - Hybrid
+        run: cargo test --release --test "hybrid" --features "cli test-fixture"
+
+      - name: Integration Tests - IPA with Relaxed DP
+        run: cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
   sanitize:
@@ -192,7 +201,7 @@ jobs:
       - name: Add Rust sources
         run: rustup component add rust-src
       - name: Run tests with sanitizer
-        run: RUSTFLAGS="-Z sanitizer=${{ matrix.sanitizer }} -Z sanitizer-memory-track-origins" cargo test -Z build-std --target $TARGET --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate ${{ matrix.features }}"
+        run: RUSTFLAGS="-Z sanitizer=${{ matrix.sanitizer }} -Z sanitizer-memory-track-origins" cargo test -Z build-std -p ipa-core --target $TARGET --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate ${{ matrix.features }}"
 
   miri:
     runs-on: ubuntu-latest
@@ -236,4 +245,3 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ipa.cov
           fail_ci_if_error: false
-
