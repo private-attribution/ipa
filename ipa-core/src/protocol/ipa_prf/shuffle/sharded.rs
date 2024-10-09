@@ -18,7 +18,7 @@ use crate::{
     ff::{boolean_array::BA64, U128Conversions},
     helpers::{Direction, Error, Role, TotalRecords},
     protocol::{
-        context::{reshard, ShardedContext},
+        context::{reshard_iter, ShardedContext},
         prss::{FromRandom, FromRandomU128, SharedRandomness},
         RecordId,
     },
@@ -88,7 +88,7 @@ trait ShuffleContext: ShardedContext {
         let data = data.into_iter();
         async move {
             let masking_ctx = self.narrow(&ShuffleStep::Mask);
-            let mut resharded = assert_send(reshard(
+            let mut resharded = assert_send(reshard_iter(
                 self.clone(),
                 data.enumerate().map(|(i, item)| {
                     // FIXME(1029): update PRSS trait to compute only left or right part
