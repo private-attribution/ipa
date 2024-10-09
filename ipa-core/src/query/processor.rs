@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::{
     error::Error as ProtocolError,
+    executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
@@ -45,6 +46,7 @@ pub struct Processor {
     queries: RunningQueries,
     key_registry: Arc<KeyRegistry<PrivateKeyOnly>>,
     active_work: Option<NonZeroU32PowerOfTwo>,
+    runtime: IpaRuntime,
 }
 
 impl Default for Processor {
@@ -53,6 +55,7 @@ impl Default for Processor {
             queries: RunningQueries::default(),
             key_registry: Arc::new(KeyRegistry::<PrivateKeyOnly>::empty()),
             active_work: None,
+            runtime: IpaRuntime::current(),
         }
     }
 }
@@ -119,11 +122,13 @@ impl Processor {
     pub fn new(
         key_registry: KeyRegistry<PrivateKeyOnly>,
         active_work: Option<NonZeroU32PowerOfTwo>,
+        runtime: IpaRuntime,
     ) -> Self {
         Self {
             queries: RunningQueries::default(),
             key_registry: Arc::new(key_registry),
             active_work,
+            runtime,
         }
     }
 
@@ -249,6 +254,7 @@ impl Processor {
                     queries.insert(
                         input.query_id,
                         QueryState::Running(executor::execute(
+                            &self.runtime,
                             config,
                             Arc::clone(&self.key_registry),
                             gateway,
@@ -584,6 +590,7 @@ mod tests {
         use std::sync::Arc;
 
         use crate::{
+            executor::IpaRuntime,
             ff::FieldType,
             helpers::{
                 query::{
@@ -603,11 +610,13 @@ mod tests {
 
         #[test]
         fn non_existent_query() {
-            let processor = Processor::default();
-            assert!(matches!(
-                processor.kill(QueryId),
-                Err(QueryKillStatus::NoSuchQuery(QueryId))
-            ));
+            run(|| async {
+                let processor = Processor::default();
+                assert!(matches!(
+                    processor.kill(QueryId),
+                    Err(QueryKillStatus::NoSuchQuery(QueryId))
+                ));
+            });
         }
 
         #[test]
@@ -650,7 +659,7 @@ mod tests {
                 let processor = Processor::default();
                 let (_tx, rx) = tokio::sync::oneshot::channel();
                 let counter = Arc::new(1);
-                let task = tokio::spawn({
+                let task = IpaRuntime::current().spawn({
                     let counter = Arc::clone(&counter);
                     async move {
                         loop {
