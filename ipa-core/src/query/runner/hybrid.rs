@@ -15,7 +15,7 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{context::UpgradableContext, ipa_prf::shuffle::Shuffle, step::ProtocolStep::Hybrid},
-    report::EncryptedOprfReport,
+    report::{hybrid::HybridReport, EncryptedOprfReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
@@ -72,9 +72,11 @@ where
                             let mut guard = seen_encrypted_reports.lock().unwrap();
                             assert!(guard.insert(ciphertext), "Duplicate report found.");
                             drop(guard);
-                            enc_report
-                                .decrypt(key_registry.as_ref())
-                                .map_err(Into::<Error>::into)
+                            HybridReport::<BA8, BA3>::from_encrypted_oprf_report::<R, _, BA20>(
+                                &enc_report,
+                                &key_registry,
+                            )
+                            .map_err(Into::<Error>::into)
                         }
                     }))
                 })
