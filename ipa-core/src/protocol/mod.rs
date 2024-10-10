@@ -23,6 +23,17 @@ pub type Gate = step::ProtocolGate;
 #[cfg(descriptive_gate)]
 pub type Gate = ipa_step::descriptive::Descriptive;
 
+#[cfg(compact_gate)]
+impl ipa_metrics::LabelValue for step::ProtocolGate {
+    fn hash(&self) -> u64 {
+        u64::from(self.index())
+    }
+
+    fn boxed(&self) -> Box<dyn ipa_metrics::LabelValue> {
+        Box::new(self.clone())
+    }
+}
+
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO(615): Generating this unique id may be tricky as it may involve communication between helpers and
 /// them collaborating on constructing this unique id. These details haven't been flushed out yet,

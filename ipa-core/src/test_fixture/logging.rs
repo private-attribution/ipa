@@ -19,7 +19,6 @@ pub fn setup() {
         {
             use std::str::FromStr;
 
-            use metrics_tracing_context::MetricsLayer;
             use tracing::Level;
             use tracing_subscriber::{
                 filter::Directive, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
@@ -43,7 +42,7 @@ pub fn setup() {
                         .from_env_lossy(),
                 )
                 .with(fmt_layer)
-                .with(MetricsLayer::new())
+                .with(ipa_metrics_tracing::MetricsPartitioningLayer)
                 .init();
         }
     });

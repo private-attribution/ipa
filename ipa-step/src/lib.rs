@@ -73,7 +73,7 @@ pub trait CompactStep: Step {
     }
 }
 
-/// A `Gate` implementation is a marker trait for a type that can be used to identify
+/// A `Gate` implementation is provided for a type that can be used to identify
 /// gates in a protocol.  It can be mapped to and from strings and has a default value.
 /// In most cases, implementations will also implement `StepNarrow` for different types,
 /// but this is not strictly required.

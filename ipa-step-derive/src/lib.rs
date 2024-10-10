@@ -165,6 +165,17 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
                 <Self as ::std::fmt::Display>::fmt(self, f)
             }
         }
+
+        impl #name {
+            /// Returns the current index. It matches the index of the latest step
+            /// this gate has been narrowed to.
+            ///
+            /// If gate hasn't been narrowed yet, it returns the index of the default value.
+            #[must_use]
+            pub fn index(&self) -> ::ipa_step::CompactGateIndex {
+                self.0
+            }
+        }
     };
 
     // This environment variable is set by build scripts,

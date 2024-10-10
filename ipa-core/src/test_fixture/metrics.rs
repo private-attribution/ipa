@@ -1,8 +1,6 @@
-use metrics::KeyName;
-use metrics_tracing_context::TracingContextLayer;
-use metrics_util::{
-    debugging::{DebuggingRecorder, Snapshotter},
-    layers::Layer,
+use ipa_metrics::{
+    MetricsCollector, MetricsCollectorController, MetricsContext, MetricsCurrentThreadContext,
+    MetricsProducer,
 };
 use once_cell::sync::OnceCell;
 use rand::distributions::Alphanumeric;
@@ -10,37 +8,32 @@ use tracing::{Level, Span};
 
 use crate::{
     rand::{thread_rng, Rng},
-    telemetry::{metrics::register, stats::Metrics},
+    telemetry::{stats::Metrics},
     test_fixture::logging,
 };
 
 // TODO: move to OnceCell from std once it is stabilized
-static ONCE: OnceCell<Snapshotter> = OnceCell::new();
+static ONCE: OnceCell<(MetricsProducer, MetricsCollectorController)> = OnceCell::new();
 
 fn setup() {
     // logging is required to import span fields as metric values
     logging::setup();
 
     ONCE.get_or_init(|| {
-        assert!(
-            metrics::try_recorder().is_none(),
-            "metric recorder has already been installed"
-        );
+        let (collector, producer, controller) = ipa_metrics::installer();
 
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        // Leaking the recorder is necessary for metrics infrastructure to work.
-        // it does not use `seq_join` or `parallel_join`.
-        #[allow(clippy::disallowed_methods)]
-        let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
+        // we can't set up the current thread as metric collector. It is possible
+        // that it will be shut down right after this call and we will lose metrics.
+        std::thread::Builder::new()
+            .name("ipa-metric-collector".to_string())
+            .spawn(move || {
+                // todo: expose the join handle to drop the thread
+                collector.install();
+                MetricsCollector::wait_for_shutdown();
+            })
+            .unwrap(); // no null bytes
 
-        #[cfg(not(feature = "disable-metrics"))]
-        metrics::set_recorder(recorder).unwrap();
-
-        // register metrics
-        register();
-
-        snapshotter
+        (producer, controller)
     });
 }
 
@@ -78,6 +71,14 @@ impl MetricsHandle {
     pub fn span(&self) -> Span {
         setup();
 
+        // safety: we call setup that initializes metrics right above this.
+        let (producer, _) = ONCE.get().unwrap();
+        // connect current thread to the metrics collector, if not installed yet
+        if !MetricsCurrentThreadContext::is_connected() {
+            tracing::warn!("metrics started on {:?}", std::thread::current().id());
+            producer.install();
+        }
+
         // Metrics collection with attributes/labels is expensive. Enabling it for all tests
         // resulted in doubling the time it takes to finish them. Tests must explicitly opt-in to
         // use this feature.
@@ -87,10 +88,18 @@ impl MetricsHandle {
         // print them.
         match self.level {
             Level::INFO => {
-                tracing::info_span!("", "metrics_id" = self.id)
+                tracing::info_span!(
+                    "",
+                    "metrics_id" = self.id,
+                    "metrics-partition" = to_u128(&self.id)
+                )
             }
             Level::DEBUG => {
-                tracing::debug_span!("", "metrics_id" = self.id)
+                tracing::debug_span!(
+                    "",
+                    "metrics_id" = self.id,
+                    "metrics-partition" = to_u128(&self.id)
+                )
             }
             _ => {
                 panic!("Only Info and Debug levels are supported")
@@ -104,20 +113,32 @@ impl MetricsHandle {
     /// if metrics recorder is not installed
     #[must_use]
     pub fn snapshot(&self) -> Metrics {
-        let snapshot = ONCE.get().unwrap().snapshot();
+        let (_, controller) = ONCE.get().expect("metrics must be installed");
+        let store = controller
+            .snapshot()
+            .expect("metrics snapshot must be available");
 
-        Metrics::with_filter(snapshot, |labels| {
-            labels.iter().any(|label| label.value().eq(&self.id))
-        })
+        // TODO: this is plain wrong, we need to get the snapshot from the collector thread.
+        // because we may use parallel seq_join
+        // let snapshot = MetricsContext::current_thread(|ctx| {
+        let metrics = Metrics::from_partition(&store, to_u128(&self.id));
+        metrics
     }
 
-    pub fn get_counter_value<K: Into<KeyName>>(&self, key_name: K) -> Option<u64> {
+    pub fn get_counter_value<K: Into<&'static str>>(&self, key_name: K) -> Option<u64> {
         let snapshot = self.snapshot();
         snapshot
             .counters
             .get(&key_name.into())
             .map(|v| v.total_value)
     }
+}
+
+fn to_u128(input: &str) -> u128 {
+    let mut c = [0_u8; 16];
+    c[0..8].copy_from_slice(input.as_bytes());
+
+    u128::from_le_bytes(c)
 }
 
 #[cfg(feature = "web-app")]
