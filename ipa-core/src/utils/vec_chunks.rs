@@ -1,25 +1,31 @@
-use std::{cmp::min, mem};
+use std::cmp::min;
 
-pub struct VecChunks<T> {
+pub struct VecChunks<T: Clone> {
     vec: Vec<T>,
+    pos: usize,
     chunk_size: usize,
 }
 
-impl<T> Iterator for VecChunks<T> {
+impl<T: Clone> Iterator for VecChunks<T> {
     type Item = Vec<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let pos = min(self.vec.len(), self.chunk_size);
-        (pos != 0).then(|| {
-            let rest = self.vec.split_off(pos);
-            mem::replace(&mut self.vec, rest)
+        let start = self.pos;
+        let len = min(self.vec.len() - start, self.chunk_size);
+        (len != 0).then(|| {
+            self.pos += len;
+            self.vec[start..start + len].to_vec()
         })
     }
 }
 
-pub fn vec_chunks<T>(vec: Vec<T>, chunk_size: usize) -> impl Iterator<Item = Vec<T>> {
+pub fn vec_chunks<T: Clone>(vec: Vec<T>, chunk_size: usize) -> impl Iterator<Item = Vec<T>> {
     assert!(chunk_size != 0);
-    VecChunks { vec, chunk_size }
+    VecChunks {
+        vec,
+        pos: 0,
+        chunk_size,
+    }
 }
 
 #[cfg(all(test, unit_test))]

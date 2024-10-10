@@ -3,7 +3,7 @@ use std::{convert::Infallible, mem, pin::pin};
 use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
 
-use super::{aggregate_values, AggResult};
+use super::aggregate_values;
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
@@ -89,7 +89,7 @@ where
     );
     let grouped_tvs = reveal_breakdowns(&validator.context(), attributions).await?;
     validator.validate().await?;
-    let mut intermediate_results: Vec<AggResult<B>> = grouped_tvs.into();
+    let mut intermediate_results: Vec<BitDecomposed<Replicated<Boolean, B>>> = grouped_tvs.into();
 
     // Any real-world aggregation should be able to complete in two layers (two
     // iterations of the `while` loop below). Tests with small `TARGET_PROOF_SIZE`
@@ -114,22 +114,22 @@ where
             );
             let result = aggregate_values::<_, HV, B>(
                 validator.context(),
-                stream::iter(chunk).boxed(),
+                stream::iter(chunk).map(Ok).boxed(),
                 chunk_len,
                 Some(&mut record_ids),
             )
             .await?;
             validator.validate().await?;
             chunk_counter += 1;
-            intermediate_results.push(Ok(result));
+            intermediate_results.push(result);
         }
         depth += 1;
     }
 
-    intermediate_results
+    Ok(intermediate_results
         .into_iter()
         .next()
-        .expect("aggregation input must not be empty")
+        .expect("aggregation input must not be empty"))
 }
 
 /// Shuffles attribution Breakdown key and Trigger Value secret shares. Input
@@ -219,20 +219,23 @@ impl<TV: BooleanArray, const B: usize> GroupedTriggerValues<TV, B> {
     }
 }
 
-impl<TV: BooleanArray, const B: usize> From<GroupedTriggerValues<TV, B>> for Vec<AggResult<B>>
+impl<TV: BooleanArray, const B: usize> From<GroupedTriggerValues<TV, B>>
+    for Vec<BitDecomposed<Replicated<Boolean, B>>>
 where
     Boolean: FieldSimd<B>,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
 {
-    fn from(mut grouped_tvs: GroupedTriggerValues<TV, B>) -> Vec<AggResult<B>> {
+    fn from(
+        mut grouped_tvs: GroupedTriggerValues<TV, B>,
+    ) -> Vec<BitDecomposed<Replicated<Boolean, B>>> {
         let iter = (0..grouped_tvs.max_len).map(move |_| {
             let slice: [Replicated<TV>; B] = grouped_tvs
                 .tvs
                 .each_mut()
                 .map(|tv| tv.pop().unwrap_or(Replicated::ZERO));
 
-            Ok(BitDecomposed::transposed_from(&slice).unwrap_infallible())
+            BitDecomposed::transposed_from(&slice).unwrap_infallible()
         });
         iter.collect()
     }
