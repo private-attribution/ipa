@@ -34,8 +34,6 @@ use hyper::{body::Incoming, header::HeaderName, Request};
 use metrics::increment_counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use rustls_pki_types::CertificateDer;
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
 use tokio_rustls::server::TlsStream;
 use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;

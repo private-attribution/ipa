@@ -70,7 +70,7 @@ pub(crate) mod rand {
 
 #[cfg(all(feature = "shuttle", test))]
 pub(crate) mod task {
-    pub use shuttle::future::{JoinError, JoinHandle};
+    pub use shuttle::future::JoinError;
 }
 
 #[cfg(feature = "shuttle")]
@@ -154,6 +154,7 @@ pub mod executor {
     }
 
     /// allow using [`IpaRuntime`] as Hyper executor
+    #[cfg(feature = "web-app")]
     impl<Fut> hyper::rt::Executor<Fut> for IpaRuntime
     where
         Fut: Future + Send + 'static,
@@ -206,6 +207,17 @@ pub(crate) mod executor {
     pub struct IpaRuntime;
     #[pin_project::pin_project]
     pub struct IpaJoinHandle<T>(#[pin] JoinHandle<T>);
+
+    #[cfg(feature = "web-app")]
+    impl<Fut> hyper::rt::Executor<Fut> for IpaRuntime
+    where
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        fn execute(&self, fut: Fut) {
+            drop(self.spawn(fut));
+        }
+    }
 
     impl IpaRuntime {
         #[must_use]

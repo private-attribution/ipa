@@ -508,8 +508,12 @@ pub(crate) mod tests {
             certificate: None,
             hpke_config: None,
         };
-        let client =
-            MpcHelperClient::new(&ClientConfig::default(), peer_config, ClientIdentity::None);
+        let client = MpcHelperClient::new(
+            IpaRuntime::current(),
+            &ClientConfig::default(),
+            peer_config,
+            ClientIdentity::None,
+        );
 
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
         // it in the client config, so the connection should fail with a certificate error.
