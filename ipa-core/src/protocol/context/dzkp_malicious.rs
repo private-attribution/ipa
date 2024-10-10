@@ -38,7 +38,7 @@ impl<'a, B: ShardBinding> DZKPUpgraded<'a, B> {
         base_ctx: MaliciousContext<'a, B>,
     ) -> Self {
         let records_per_batch = validator_inner.batcher.lock().unwrap().records_per_batch();
-        let active_work = if records_per_batch == 1 {
+        let active_work = if records_per_batch == 1 || records_per_batch == usize::MAX {
             // If records_per_batch is 1, let active_work be anything. This only happens
             // in tests; there shouldn't be a risk of deadlocks with one record per
             // batch; and UnorderedReceiver capacity (which is set from active_work)
