@@ -17,6 +17,7 @@ use tokio::time::sleep;
 pub use self::ipa::{playbook_oprf_ipa, run_query_and_validate};
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
+    executor::IpaRuntime,
     ff::boolean_array::{BA20, BA3, BA8},
     helpers::query::DpMechanism,
     net::{ClientIdentity, MpcHelperClient},
@@ -211,7 +212,8 @@ pub async fn make_clients(
 
     // Note: This closure is only called when the selected action uses clients.
 
-    let clients = MpcHelperClient::from_conf(&network, &ClientIdentity::None);
+    let clients =
+        MpcHelperClient::from_conf(&IpaRuntime::current(), &network, &ClientIdentity::None);
     while wait > 0 && !clients_ready(&clients).await {
         tracing::debug!("waiting for servers to come up");
         sleep(Duration::from_secs(1)).await;

@@ -153,6 +153,19 @@ pub mod executor {
         }
     }
 
+    /// allow using [`IpaRuntime`] as Hyper executor
+    impl<Fut> hyper::rt::Executor<Fut> for IpaRuntime
+    where
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        fn execute(&self, fut: Fut) {
+            // Dropping the handle does not terminate the task
+            // Clippy wants us to be explicit here.
+            drop(self.spawn(fut));
+        }
+    }
+
     impl<T> IpaJoinHandle<T> {
         pub fn abort(&self) {
             self.0.abort();

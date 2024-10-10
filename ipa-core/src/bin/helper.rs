@@ -158,9 +158,12 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let network_config_path = args.network.as_deref().unwrap();
     let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?
         .override_scheme(&scheme);
-    let clients = MpcHelperClient::from_conf(&network_config, &identity);
-
     let http_runtime = new_http_runtime();
+    let clients = MpcHelperClient::from_conf(
+        &IpaRuntime::from_tokio_runtime(&http_runtime),
+        &network_config,
+        &identity,
+    );
     let (transport, server) = HttpTransport::new(
         IpaRuntime::from_tokio_runtime(&http_runtime),
         my_identity,
@@ -197,8 +200,8 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         )
         .await;
 
-    server_handle.await?;
-    query_runtime.shutdown_background();
+    server_handle.await;
+    [query_runtime, http_runtime].map(Runtime::shutdown_background);
 
     Ok(())
 }

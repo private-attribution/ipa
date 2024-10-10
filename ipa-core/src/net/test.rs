@@ -201,7 +201,7 @@ impl TestConfigBuilder {
 
 pub struct TestServer {
     pub addr: SocketAddr,
-    pub handle: JoinHandle<()>,
+    pub handle: IpaJoinHandle<()>,
     pub transport: Arc<HttpTransport>,
     pub server: MpcHelperServer,
     pub client: MpcHelperClient,
@@ -291,7 +291,11 @@ impl TestServerBuilder {
         else {
             panic!("TestConfig should have allocated ports");
         };
-        let clients = MpcHelperClient::from_conf(&network_config, &identity.clone_with_key());
+        let clients = MpcHelperClient::from_conf(
+            &IpaRuntime::current(),
+            &network_config,
+            &identity.clone_with_key(),
+        );
         let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
         let (transport, server) = HttpTransport::new(
             IpaRuntime::current(),
@@ -309,7 +313,12 @@ impl TestServerBuilder {
         // At some point it might be appropriate to return two clients here -- the first being
         // another helper and the second being a report collector. For now we use the same client
         // for both types of calls.
-        let client = MpcHelperClient::new(&network_config.client, h1_peer_config, identity);
+        let client = MpcHelperClient::new(
+            IpaRuntime::current(),
+            &network_config.client,
+            h1_peer_config,
+            identity,
+        );
         TestServer {
             addr,
             handle,

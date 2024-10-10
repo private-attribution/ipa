@@ -18,7 +18,7 @@ use hyper::{header::HeaderName, http::HeaderValue, Request, Response, StatusCode
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::{
     client::legacy::{connect::HttpConnector, Client},
-    rt::{TokioExecutor, TokioTimer},
+    rt::TokioTimer,
 };
 use pin_project::pin_project;
 use rustls::RootCertStore;
@@ -29,6 +29,7 @@ use crate::{
         ClientConfig, HyperClientConfigurator, NetworkConfig, OwnedCertificate, OwnedPrivateKey,
         PeerConfig,
     },
+    executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
@@ -170,10 +171,19 @@ impl MpcHelperClient {
     /// Authentication is not required when calling the report collector APIs.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(conf: &NetworkConfig, identity: &ClientIdentity) -> [MpcHelperClient; 3] {
-        conf.peers()
-            .each_ref()
-            .map(|peer_conf| Self::new(&conf.client, peer_conf.clone(), identity.clone_with_key()))
+    pub fn from_conf(
+        runtime: &IpaRuntime,
+        conf: &NetworkConfig,
+        identity: &ClientIdentity,
+    ) -> [MpcHelperClient; 3] {
+        conf.peers().each_ref().map(|peer_conf| {
+            Self::new(
+                runtime.clone(),
+                &conf.client,
+                peer_conf.clone(),
+                identity.clone_with_key(),
+            )
+        })
     }
 
     /// Create a new client with the given configuration
@@ -185,6 +195,7 @@ impl MpcHelperClient {
     /// If some aspect of the configuration is not valid.
     #[must_use]
     pub fn new(
+        runtime: IpaRuntime,
         client_config: &ClientConfig,
         peer_config: PeerConfig,
         identity: ClientIdentity,
@@ -249,19 +260,27 @@ impl MpcHelperClient {
                 None,
             )
         };
-        Self::new_internal(peer_config.url, connector, auth_header, client_config)
+        Self::new_internal(
+            runtime,
+            peer_config.url,
+            connector,
+            auth_header,
+            client_config,
+        )
     }
 
     #[must_use]
     fn new_internal<C: HyperClientConfigurator>(
+        runtime: IpaRuntime,
         addr: Uri,
         connector: HttpsConnector<HttpConnector>,
         auth_header: Option<(HeaderName, HeaderValue)>,
         conf: &C,
     ) -> Self {
-        let mut builder = Client::builder(TokioExecutor::new());
+        let mut builder = Client::builder(runtime);
         // the following timer is necessary for http2, in particular for any timeouts
         // and waits the clients will need to make
+        // TODO: implement IpaTimer to allow wrapping other than Tokio runtimes
         builder.timer(TokioTimer::new());
         let client = conf.configure(&mut builder).build(connector);
         let Parts {
