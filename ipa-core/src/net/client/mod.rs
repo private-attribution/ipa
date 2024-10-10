@@ -18,7 +18,7 @@ use hyper::{header::HeaderName, http::HeaderValue, Request, Response, StatusCode
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::{
     client::legacy::{connect::HttpConnector, Client},
-    rt::{TokioExecutor, TokioTimer},
+    rt::TokioTimer,
 };
 use pin_project::pin_project;
 use rustls::RootCertStore;
@@ -29,6 +29,7 @@ use crate::{
         ClientConfig, HyperClientConfigurator, NetworkConfig, OwnedCertificate, OwnedPrivateKey,
         PeerConfig,
     },
+    executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
@@ -91,20 +92,22 @@ impl ClientIdentity {
 /// Wrapper around Hyper's [future](hyper::client::ResponseFuture) interface that keeps around
 /// request endpoint for nicer error messages if request fails.
 #[pin_project]
-pub struct ResponseFuture<'a> {
-    authority: &'a uri::Authority,
+pub struct ResponseFuture {
+    /// There used to be a reference here, but there is really no need for that,
+    /// because `uri::Authority` type uses `Bytes` internally.
+    authority: uri::Authority,
     #[pin]
     inner: hyper_util::client::legacy::ResponseFuture,
 }
 
 /// Similar to [fut](ResponseFuture), wraps the response and keeps the URI authority for better
 /// error messages that show where error is originated from
-pub struct ResponseFromEndpoint<'a> {
-    authority: &'a uri::Authority,
+pub struct ResponseFromEndpoint {
+    authority: uri::Authority,
     inner: Response<Body>,
 }
 
-impl<'a> ResponseFromEndpoint<'a> {
+impl ResponseFromEndpoint {
     pub fn endpoint(&self) -> String {
         self.authority.to_string()
     }
@@ -117,13 +120,13 @@ impl<'a> ResponseFromEndpoint<'a> {
         self.inner.into_body()
     }
 
-    pub fn into_parts(self) -> (&'a uri::Authority, Body) {
+    pub fn into_parts(self) -> (uri::Authority, Body) {
         (self.authority, self.inner.into_body())
     }
 }
 
-impl<'a> Future for ResponseFuture<'a> {
-    type Output = Result<ResponseFromEndpoint<'a>, Error>;
+impl Future for ResponseFuture {
+    type Output = Result<ResponseFromEndpoint, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -132,7 +135,7 @@ impl<'a> Future for ResponseFuture<'a> {
                 let (http_parts, http_body) = resp.into_parts();
                 let axum_resp = Response::from_parts(http_parts, Body::new(http_body));
                 Poll::Ready(Ok(ResponseFromEndpoint {
-                    authority: this.authority,
+                    authority: this.authority.clone(),
                     inner: axum_resp,
                 }))
             }
@@ -168,10 +171,19 @@ impl MpcHelperClient {
     /// Authentication is not required when calling the report collector APIs.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(conf: &NetworkConfig, identity: &ClientIdentity) -> [MpcHelperClient; 3] {
-        conf.peers()
-            .each_ref()
-            .map(|peer_conf| Self::new(&conf.client, peer_conf.clone(), identity.clone_with_key()))
+    pub fn from_conf(
+        runtime: &IpaRuntime,
+        conf: &NetworkConfig,
+        identity: &ClientIdentity,
+    ) -> [MpcHelperClient; 3] {
+        conf.peers().each_ref().map(|peer_conf| {
+            Self::new(
+                runtime.clone(),
+                &conf.client,
+                peer_conf.clone(),
+                identity.clone_with_key(),
+            )
+        })
     }
 
     /// Create a new client with the given configuration
@@ -183,6 +195,7 @@ impl MpcHelperClient {
     /// If some aspect of the configuration is not valid.
     #[must_use]
     pub fn new(
+        runtime: IpaRuntime,
         client_config: &ClientConfig,
         peer_config: PeerConfig,
         identity: ClientIdentity,
@@ -247,19 +260,27 @@ impl MpcHelperClient {
                 None,
             )
         };
-        Self::new_internal(peer_config.url, connector, auth_header, client_config)
+        Self::new_internal(
+            runtime,
+            peer_config.url,
+            connector,
+            auth_header,
+            client_config,
+        )
     }
 
     #[must_use]
     fn new_internal<C: HyperClientConfigurator>(
+        runtime: IpaRuntime,
         addr: Uri,
         connector: HttpsConnector<HttpConnector>,
         auth_header: Option<(HeaderName, HeaderValue)>,
         conf: &C,
     ) -> Self {
-        let mut builder = Client::builder(TokioExecutor::new());
+        let mut builder = Client::builder(runtime);
         // the following timer is necessary for http2, in particular for any timeouts
         // and waits the clients will need to make
+        // TODO: implement IpaTimer to allow wrapping other than Tokio runtimes
         builder.timer(TokioTimer::new());
         let client = conf.configure(&mut builder).build(connector);
         let Parts {
@@ -278,12 +299,12 @@ impl MpcHelperClient {
         }
     }
 
-    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture<'_> {
+    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture {
         if let Some((k, v)) = self.auth_header.clone() {
             req.headers_mut().insert(k, v);
         }
         ResponseFuture {
-            authority: &self.authority,
+            authority: self.authority.clone(),
             inner: self.client.request(req),
         }
     }
@@ -292,7 +313,7 @@ impl MpcHelperClient {
     ///
     /// # Errors
     /// If there was an error reading the response body or if the request itself failed.
-    pub async fn resp_ok(resp: ResponseFromEndpoint<'_>) -> Result<(), Error> {
+    pub async fn resp_ok(resp: ResponseFromEndpoint) -> Result<(), Error> {
         if resp.status().is_success() {
             Ok(())
         } else {
@@ -304,7 +325,7 @@ impl MpcHelperClient {
     ///
     /// # Errors
     /// If there was an error collecting the response stream.
-    async fn response_to_bytes(resp: ResponseFromEndpoint<'_>) -> Result<Bytes, Error> {
+    async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
         Ok(resp.into_body().collect().await?.to_bytes())
     }
 
@@ -487,8 +508,12 @@ pub(crate) mod tests {
             certificate: None,
             hpke_config: None,
         };
-        let client =
-            MpcHelperClient::new(&ClientConfig::default(), peer_config, ClientIdentity::None);
+        let client = MpcHelperClient::new(
+            IpaRuntime::current(),
+            &ClientConfig::default(),
+            peer_config,
+            ClientIdentity::None,
+        );
 
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
         // it in the client config, so the connection should fail with a certificate error.
