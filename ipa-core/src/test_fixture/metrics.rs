@@ -2,19 +2,13 @@ use ipa_metrics::{
     MetricsCollector, MetricsCollectorController, MetricsContext, MetricsCurrentThreadContext,
     MetricsProducer,
 };
-use metrics::KeyName;
-use metrics_tracing_context::TracingContextLayer;
-use metrics_util::{
-    debugging::{DebuggingRecorder, Snapshotter},
-    layers::Layer,
-};
 use once_cell::sync::OnceCell;
 use rand::distributions::Alphanumeric;
 use tracing::{Level, Span};
 
 use crate::{
     rand::{thread_rng, Rng},
-    telemetry::{metrics::register, stats::Metrics},
+    telemetry::{stats::Metrics},
     test_fixture::logging,
 };
 
@@ -26,10 +20,6 @@ fn setup() {
     logging::setup();
 
     ONCE.get_or_init(|| {
-        assert!(
-            metrics::try_recorder().is_none(),
-            "metric recorder has already been installed"
-        );
         let (collector, producer, controller) = ipa_metrics::installer();
 
         // we can't set up the current thread as metric collector. It is possible
@@ -42,19 +32,6 @@ fn setup() {
                 MetricsCollector::wait_for_shutdown();
             })
             .unwrap(); // no null bytes
-
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        // Leaking the recorder is necessary for metrics infrastructure to work.
-        // it does not use `seq_join` or `parallel_join`.
-        #[allow(clippy::disallowed_methods)]
-        let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
-
-        #[cfg(not(feature = "disable-metrics"))]
-        metrics::set_recorder(recorder).unwrap();
-
-        // register metrics
-        register();
 
         (producer, controller)
     });
@@ -146,15 +123,9 @@ impl MetricsHandle {
         // let snapshot = MetricsContext::current_thread(|ctx| {
         let metrics = Metrics::from_partition(&store, to_u128(&self.id));
         metrics
-
-        // let snapshot = ONCE.get().unwrap().snapshot();
-        //
-        // Metrics::with_filter(snapshot, |labels| {
-        //     labels.iter().any(|label| label.value().eq(&self.id))
-        // })
     }
 
-    pub fn get_counter_value<K: Into<KeyName>>(&self, key_name: K) -> Option<u64> {
+    pub fn get_counter_value<K: Into<&'static str>>(&self, key_name: K) -> Option<u64> {
         let snapshot = self.snapshot();
         snapshot
             .counters

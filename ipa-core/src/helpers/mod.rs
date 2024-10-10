@@ -5,7 +5,7 @@
 
 use std::{
     convert::Infallible,
-    fmt::{Debug, Display, Formatter, Write},
+    fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
 };
 

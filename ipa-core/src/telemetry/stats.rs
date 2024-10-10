@@ -7,11 +7,6 @@ use std::{
 };
 
 use ipa_metrics::{MetricPartition, MetricsStore};
-use metrics::{Key, KeyName, Label, SharedString};
-use metrics_util::{
-    debugging::{DebugValue, Snapshot},
-    CompositeKey, MetricKind,
-};
 
 use crate::{helpers::Role, protocol::Gate, telemetry::labels};
 
@@ -19,7 +14,7 @@ use crate::{helpers::Role, protocol::Gate, telemetry::labels};
 #[derive(Debug, Default)]
 pub struct CounterDetails {
     pub total_value: u64,
-    pub dimensions: HashMap<SharedString, HashMap<SharedString, u64>>,
+    pub dimensions: HashMap<&'static str, HashMap<String, u64>>,
 }
 
 /// Container for metrics, their descriptions and values they've accumulated.
@@ -38,34 +33,41 @@ pub struct CounterDetails {
 /// X1 and X2 cannot be greater than X, but these values may overlap, i.e. X1 + X2 >= X
 #[derive(Default)]
 pub struct Metrics {
-    pub counters: HashMap<KeyName, CounterDetails>,
-    pub metric_description: HashMap<KeyName, SharedString>,
+    pub counters: HashMap<&'static str, CounterDetails>,
+}
+
+pub struct CompositeKey {
+    pub key: &'static str,
+    pub labels: Vec<Label>,
+}
+
+#[derive(Clone)]
+pub struct Label {
+    pub name: &'static str,
+    pub value: String,
 }
 
 impl CounterDetails {
-    pub fn add(&mut self, key: &CompositeKey, val: &DebugValue) {
-        let DebugValue::Counter(val) = val else {
-            unreachable!()
-        };
-        for label in key.key().labels() {
-            let (label_key, label_val) = label.clone().into_parts();
-            let dimension_values = self.dimensions.entry(label_key).or_default();
+    pub fn add(&mut self, key: &CompositeKey, val: u64) {
+        for label in &key.labels {
+            let Label { name, value } = label.clone();
+            let dimension_values = self.dimensions.entry(name).or_default();
 
-            *dimension_values.entry(label_val).or_insert(0) += val;
+            *dimension_values.entry(value).or_insert(0) += val;
         }
 
         self.total_value += val;
     }
 
     #[must_use]
-    pub fn iter(&self) -> Iter<'_, SharedString, HashMap<SharedString, u64>> {
+    pub fn iter(&self) -> Iter<'_, &'static str, HashMap<String, u64>> {
         self.dimensions.iter()
     }
 }
 
 impl<'a> IntoIterator for &'a CounterDetails {
     type Item = <Self::IntoIter as Iterator>::Item;
-    type IntoIter = Iter<'a, SharedString, HashMap<SharedString, u64>>;
+    type IntoIter = Iter<'a, &'static str, HashMap<String, u64>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -77,23 +79,22 @@ impl Metrics {
         let v = metrics_store.with_partition(partition, |store| {
             let mut this = Self::default();
             for (counter, value) in store.counters() {
-                let key = Key::from_parts(
-                    counter.key(),
-                    counter
+                let composite_key = CompositeKey {
+                    key: counter.key(),
+                    labels: counter
                         .labels()
-                        .map(|l| Label::new(l.name(), l.str_value()))
+                        .map(|l| Label { name: l.name(), value: l.str_value() })
                         .collect::<Vec<_>>(),
-                );
-                let composite_key = CompositeKey::new(MetricKind::Counter, key);
-                match this.counters.entry(counter.key().into()) {
+                };
+                match this.counters.entry(composite_key.key) {
                     Entry::Occupied(mut entry) => {
                         entry
                             .get_mut()
-                            .add(&composite_key, &DebugValue::Counter(value));
+                            .add(&composite_key, value)
                     }
                     Entry::Vacant(entry) => {
                         let mut counter_details = CounterDetails::default();
-                        counter_details.add(&composite_key, &DebugValue::Counter(value));
+                        counter_details.add(&composite_key, value);
                         entry.insert(counter_details);
                     }
                 }
@@ -105,45 +106,10 @@ impl Metrics {
         v.expect(&format!("Partition {partition} does not exist"))
     }
 
-    pub fn from_snapshot(snapshot: Snapshot) -> Self {
-        const ALWAYS_TRUE: fn(&[Label]) -> bool = |_| true;
-        Self::with_filter(snapshot, ALWAYS_TRUE)
-    }
-
-    /// Consumes the provided snapshot and filters out metrics that don't satisfy `filter_fn`
-    /// conditions.
-    #[must_use]
-    pub fn with_filter<F: Fn(&[Label]) -> bool>(snapshot: Snapshot, filter_fn: F) -> Self {
-        let mut this = Metrics {
-            counters: HashMap::new(),
-            metric_description: HashMap::new(),
-        };
-
-        let snapshot = snapshot.into_vec();
-        for (ckey, _, descr, val) in snapshot {
-            let (key_name, labels) = ckey.key().clone().into_parts();
-            if !filter_fn(labels.as_slice()) {
-                continue;
-            }
-            let entry = this.counters.entry(key_name.clone()).or_default();
-
-            if let Some(descr) = descr {
-                this.metric_description.insert(key_name, descr);
-            }
-
-            match ckey.kind() {
-                MetricKind::Counter => entry.add(&ckey, &val),
-                MetricKind::Gauge | MetricKind::Histogram => unimplemented!(),
-            }
-        }
-
-        this
-    }
-
     #[must_use]
     pub fn get_counter(&self, name: &'static str) -> u64 {
         self.counters
-            .get::<KeyName>(&name.into())
+            .get(name)
             .map_or(0, |details| details.total_value)
     }
 
@@ -156,7 +122,7 @@ impl Metrics {
     pub fn assert_metric(&self, name: &'static str) -> MetricAssertion {
         let details = self
             .counters
-            .get::<KeyName>(&name.into())
+            .get(name)
             .unwrap_or_else(|| panic!("{name} metric does not exist in the snapshot"));
         MetricAssertion {
             name,
@@ -170,7 +136,7 @@ impl Metrics {
     /// returns an IO error if it fails to write to the provided writer.
     pub fn print(&self, w: &mut impl std::io::Write) -> Result<(), std::io::Error> {
         let mut metrics_table = comfy_table::Table::new();
-        metrics_table.set_header(vec!["metric", "description", "value", "dimensions"]);
+        metrics_table.set_header(vec!["metric", "value", "dimensions"]);
 
         for (key_name, counter_stats) in &self.counters {
             let mut dim_cell_content = String::new();
@@ -182,10 +148,7 @@ impl Metrics {
             }
 
             metrics_table.add_row(vec![
-                key_name.as_str(),
-                self.metric_description
-                    .get(key_name)
-                    .unwrap_or(&SharedString::from("")),
+                key_name,
                 counter_stats.total_value.to_string().as_str(),
                 dim_cell_content.as_str(),
             ]);
@@ -244,7 +207,7 @@ impl<'a> MetricAssertion<'a> {
         self.clone()
     }
 
-    fn get_dimension(&self, name: &'static str) -> &HashMap<SharedString, u64> {
+    fn get_dimension(&self, name: &'static str) -> &HashMap<String, u64> {
         self.snapshot.dimensions.get(name).unwrap_or_else(|| {
             panic!(
                 "No metric '{}' recorded per dimension '{name:?}'",

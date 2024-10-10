@@ -1,14 +1,12 @@
 use std::io::{stderr, IsTerminal};
 
 use clap::Parser;
-use metrics_tracing_context::MetricsLayer;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
     fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
 };
 
 use crate::{
-    cli::{install_collector, metric_collector::CollectorHandle},
     error::set_global_panic_hook,
 };
 
@@ -23,10 +21,7 @@ pub struct Verbosity {
     verbose: u8,
 }
 
-pub struct LoggingHandle {
-    #[allow(dead_code)] // we care about handle's drop semantic so it is ok to not read it
-    metrics_handle: Option<CollectorHandle>,
-}
+pub struct LoggingHandle;
 
 impl Verbosity {
     #[must_use]
@@ -42,14 +37,11 @@ impl Verbosity {
             .with(fmt_layer)
             .init();
 
-        let handle = LoggingHandle {
-            metrics_handle: None
-        };
         set_global_panic_hook();
 
         info!("Logging setup at level {}", filter_layer);
 
-        handle
+        LoggingHandle
     }
 
     fn log_filter(&self) -> EnvFilter {

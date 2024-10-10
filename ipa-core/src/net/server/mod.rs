@@ -30,7 +30,7 @@ use futures::{
     future::{ready, BoxFuture, Either, Ready},
     Future, FutureExt,
 };
-use hyper::{body::Incoming, header::HeaderName, Request, Version};
+use hyper::{body::Incoming, header::HeaderName, Request};
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use rustls_pki_types::CertificateDer;
 #[cfg(all(feature = "shuttle", test))]
@@ -484,7 +484,6 @@ mod e2e_tests {
         },
         rt::{TokioExecutor, TokioTimer},
     };
-    use metrics_util::debugging::Snapshotter;
     use rustls::{
         client::danger::{ServerCertVerified, ServerCertVerifier},
         pki_types::ServerName,
@@ -641,9 +640,6 @@ mod e2e_tests {
 
         // request
         let expected = expected_req(addr.to_string());
-
-        let snapshot = Snapshotter::current_thread_snapshot();
-        assert!(snapshot.is_none());
 
         let request_count = 10;
         for _ in 0..request_count {
