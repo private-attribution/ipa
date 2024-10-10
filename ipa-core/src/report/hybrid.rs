@@ -91,6 +91,38 @@ where
         >: ArrayLength,
     {
         let encrypted_oprf_report = EncryptedOprfReport::<BK, V, TS, B>::from_bytes(data)?;
+        let hybrid_report = Self::from_encrypted_oprf_report(&encrypted_oprf_report, key_registry)?;
+        Ok(hybrid_report)
+    }
+
+    /// ## Errors
+    /// If the report fails to decrypt
+    pub fn from_encrypted_oprf_report<P, B, TS>(
+        encrypted_oprf_report: &EncryptedOprfReport<BK, V, TS, B>,
+        key_registry: &P,
+    ) -> Result<Self, InvalidReportError>
+    where
+        P: PrivateKeyRegistry,
+        B: Deref<Target = [u8]>,
+        TS: SharedValue, // this is only needed for the backport from EncryptedOprfReport
+        Replicated<BK>: Serializable,
+        Replicated<V>: Serializable,
+        Replicated<TS>: Serializable,
+        <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
+            Add<<Replicated<TS> as Serializable>::Size>,
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+            <Replicated<TS> as Serializable>::Size,
+        >: Add<U16>,
+        Sum<
+            Sum<
+                Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+                <Replicated<TS> as Serializable>::Size,
+            >,
+            U16,
+        >: ArrayLength,
+    {
         let oprf_report = encrypted_oprf_report.decrypt(key_registry)?;
         match oprf_report.event_type {
             EventType::Source => Ok(Self::Impression(HybridImpressionReport {
@@ -114,7 +146,7 @@ mod test {
     use crate::{
         ff::boolean_array::{BA20, BA3, BA8},
         hpke::{KeyPair, KeyRegistry},
-        report::{EventType, OprfReport},
+        report::{EncryptedOprfReport, EventType, OprfReport},
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
@@ -152,13 +184,22 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let hybrid_report2 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
-            enc_report_bytes.as_slice(),
+        let enc_report = EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap();
+        let hybrid_report2 = HybridReport::<BA8, BA3>::from_encrypted_oprf_report::<_, _, BA20>(
+            &enc_report,
             &key_registry,
         )
         .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
+
+        let hybrid_report3 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
+            enc_report_bytes.as_slice(),
+            &key_registry,
+        )
+        .unwrap();
+
+        assert_eq!(hybrid_report, hybrid_report3);
     }
 
     #[test]
@@ -179,12 +220,20 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let hybrid_report2 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
+        let enc_report = EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap();
+        let hybrid_report2 = HybridReport::<BA8, BA3>::from_encrypted_oprf_report::<_, _, BA20>(
+            &enc_report,
+            &key_registry,
+        )
+        .unwrap();
+        assert_eq!(hybrid_report, hybrid_report2);
+
+        let hybrid_report3 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
             enc_report_bytes.as_slice(),
             &key_registry,
         )
         .unwrap();
 
-        assert_eq!(hybrid_report, hybrid_report2);
+        assert_eq!(hybrid_report, hybrid_report3);
     }
 }
