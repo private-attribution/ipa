@@ -15,14 +15,13 @@ use std::{
 
 use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
-use tokio::task::JoinHandle;
 
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
         TlsConfig,
     },
-    executor::IpaRuntime,
+    executor::{IpaJoinHandle, IpaRuntime},
     helpers::{HandlerBox, HelperIdentity, RequestHandler},
     hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
@@ -302,7 +301,9 @@ impl TestServerBuilder {
             clients,
             handler,
         );
-        let (addr, handle) = server.start_on(Some(server_socket), self.metrics).await;
+        let (addr, handle) = server
+            .start_on(&IpaRuntime::current(), Some(server_socket), self.metrics)
+            .await;
         // Get the config for HelperIdentity::ONE
         let h1_peer_config = network_config.peers.into_iter().next().unwrap();
         // At some point it might be appropriate to return two clients here -- the first being

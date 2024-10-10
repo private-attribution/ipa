@@ -190,6 +190,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
 
     let (_addr, server_handle) = server
         .start_on(
+            &IpaRuntime::from_tokio_runtime(&http_runtime),
             listener,
             // TODO, trace based on the content of the query.
             None as Option<()>,

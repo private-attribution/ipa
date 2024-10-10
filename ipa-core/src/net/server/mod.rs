@@ -28,7 +28,7 @@ use axum_server::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::{
     future::{ready, BoxFuture, Either, Ready},
-    Future, FutureExt,
+    FutureExt,
 };
 use hyper::{body::Incoming, header::HeaderName, Request};
 use metrics::increment_counter;
@@ -44,13 +44,13 @@ use tracing::{error, Span};
 use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
+    executor::{IpaJoinHandle, IpaRuntime},
     helpers::HelperIdentity,
     net::{
         parse_certificate_and_private_key_bytes, server::config::HttpServerConfig, Error,
         HttpTransport, CRYPTO_PROVIDER,
     },
     sync::Arc,
-    task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
 };
 
@@ -121,9 +121,10 @@ impl MpcHelperServer {
     /// configured, it must be valid.)
     pub async fn start_on<T: TracingSpanMaker>(
         &self,
+        runtime: &IpaRuntime,
         listener: Option<TcpListener>,
         tracing: T,
-    ) -> (SocketAddr, JoinHandle<()>) {
+    ) -> (SocketAddr, IpaJoinHandle<()>) {
         // This should probably come from the server config.
         // Note that listening on 0.0.0.0 requires accepting a MacOS security
         // warning on each test run.
@@ -147,20 +148,27 @@ impl MpcHelperServer {
                 let svc = svc
                     .layer(layer_fn(SetClientIdentityFromHeader::new))
                     .into_make_service();
-                spawn_server(axum_server::from_tcp(listener), handle.clone(), svc).await
+                spawn_server(
+                    runtime,
+                    axum_server::from_tcp(listener),
+                    handle.clone(),
+                    svc,
+                )
+                .await
             }
             (true, None) => {
                 let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
                 let svc = svc
                     .layer(layer_fn(SetClientIdentityFromHeader::new))
                     .into_make_service();
-                spawn_server(axum_server::bind(addr), handle.clone(), svc).await
+                spawn_server(runtime, axum_server::bind(addr), handle.clone(), svc).await
             }
             (false, Some(listener)) => {
                 let rustls_config = rustls_config(&self.config, &self.network_config)
                     .await
                     .expect("invalid TLS configuration");
                 spawn_server(
+                    runtime,
                     axum_server::from_tcp_rustls(listener, rustls_config).map(|a| {
                         ClientCertRecognizingAcceptor::new(a, self.network_config.clone())
                     }),
@@ -175,6 +183,7 @@ impl MpcHelperServer {
                     .await
                     .expect("invalid TLS configuration");
                 spawn_server(
+                    runtime,
                     axum_server::bind_rustls(addr, rustls_config).map(|a| {
                         ClientCertRecognizingAcceptor::new(a, self.network_config.clone())
                     }),
@@ -201,30 +210,24 @@ impl MpcHelperServer {
         );
         (bound_addr, task_handle)
     }
-
-    pub fn start<T: TracingSpanMaker>(
-        &self,
-        tracing: T,
-    ) -> impl Future<Output = (SocketAddr, JoinHandle<()>)> + '_ {
-        self.start_on(None, tracing)
-    }
 }
 
 /// Spawns a new server with the given configuration.
 /// This function glues Tower, Axum, Hyper and Axum-Server together, hence the trait bounds.
 #[allow(clippy::unused_async)]
 async fn spawn_server<A>(
+    runtime: &IpaRuntime,
     mut server: Server<A>,
     handle: Handle,
     svc: IntoMakeService<Router>,
-) -> JoinHandle<()>
+) -> IpaJoinHandle<()>
 where
     A: Accept<TcpStream, Router> + Clone + Send + Sync + 'static,
     A::Stream: AsyncRead + AsyncWrite + Unpin + Send,
     A::Service: SendService<Request<Incoming>> + Send + Service<Request<Incoming>>,
     A::Future: Send,
 {
-    tokio::spawn({
+    runtime.spawn({
         async move {
             // Apply configuration
             HttpServerConfig::apply(&mut server.http_builder().http2());
