@@ -56,9 +56,13 @@ where
         let seen_encrypted_reports: Arc<Mutex<HashSet<Vec<u8>>>> =
             Arc::new(Mutex::new(HashSet::with_capacity(sz)));
 
-        let _input = if config.plaintext_match_keys {
-            unimplemented!()
-        } else {
+        if config.plaintext_match_keys {
+            return Err(Error::Unsupported(
+                "Hybrid queries do not currently support plaintext match keys".to_string(),
+            ));
+        }
+
+        let _input =
             LengthDelimitedStream::<EncryptedOprfReport<BA8, BA3, BA20, _>, _>::new(input_stream)
                 .map_err(Into::<Error>::into)
                 .map_ok(move |enc_reports| {
@@ -83,8 +87,7 @@ where
                 .try_flatten()
                 .take(sz)
                 .try_collect::<Vec<_>>()
-                .await?
-        };
+                .await?;
 
         unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
     }
@@ -271,6 +274,70 @@ mod tests {
                 with_dp: 0,
                 epsilon: 5.0,
                 plaintext_match_keys: false,
+            };
+            let input = BodyStream::from(buffer);
+
+            HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                query_params,
+                Arc::clone(&key_registry),
+            )
+            .execute(ctx, query_size, input)
+        }))
+        .await;
+    }
+
+    // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
+    #[tokio::test]
+    #[should_panic(
+        expected = "called `Result::unwrap()` on an `Err` value: Unsupported(\"Hybrid queries do not currently support plaintext match keys\")"
+    )]
+    async fn unsupported_plaintext_match_keys_hybrid_query() {
+        // TODO: When Encryption/Decryption exists for HybridReports
+        // update these to use that, rather than generating OprfReports
+        let records: Vec<TestRawDataRecord> = vec![
+            TestRawDataRecord {
+                timestamp: 0,
+                user_id: 12345,
+                is_trigger_report: false,
+                breakdown_key: 2,
+                trigger_value: 0,
+            },
+            TestRawDataRecord {
+                timestamp: 4,
+                user_id: 68362,
+                is_trigger_report: false,
+                breakdown_key: 1,
+                trigger_value: 0,
+            },
+        ];
+
+        let query_size = QuerySize::try_from(records.len()).unwrap();
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let key_id = DEFAULT_KEY_ID;
+        let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
+
+        let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+
+        let shares: [Vec<OprfReport<BA8, BA3, BA20>>; 3] = records.into_iter().share();
+        for (buf, shares) in zip(&mut buffers, shares) {
+            for share in shares {
+                share
+                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, buf)
+                    .unwrap();
+            }
+        }
+
+        let world = TestWorld::default();
+        let contexts = world.contexts();
+        #[allow(clippy::large_futures)]
+        let _results = join3v(buffers.into_iter().zip(contexts).map(|(buffer, ctx)| {
+            let query_params = HybridQueryParams {
+                per_user_credit_cap: 8,
+                max_breakdown_key: 3,
+                with_dp: 0,
+                epsilon: 5.0,
+                plaintext_match_keys: true,
             };
             let input = BodyStream::from(buffer);
 
