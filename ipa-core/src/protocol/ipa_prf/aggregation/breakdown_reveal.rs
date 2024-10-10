@@ -243,10 +243,12 @@ pub mod tests {
     use futures::TryFutureExt;
     use rand::{seq::SliceRandom, Rng};
 
+    #[cfg(not(feature = "shuttle"))]
+    use crate::{ff::boolean_array::BA16, test_executor::run};
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA16, BA3, BA5},
+            boolean_array::{BA3, BA5, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::{
@@ -270,13 +272,65 @@ pub mod tests {
     }
 
     #[test]
-    fn malicious_happy_path() {
-        type HV = BA16;
+    fn semi_honest_happy_path() {
         // if shuttle executor is enabled, run this test only once.
         // it is a very expensive test to explore all possible states,
         // sometimes github bails after 40 minutes of running it
         // (workers there are really slow).
         run_with::<_, _, 3>(|| async {
+            let world = TestWorld::default();
+            let mut rng = rand::thread_rng();
+            let mut expectation = Vec::new();
+            for _ in 0..32 {
+                expectation.push(rng.gen_range(0u128..256));
+            }
+            let expectation = expectation; // no more mutability for safety
+            let mut inputs = Vec::new();
+            for (bk, expected_hv) in expectation.iter().enumerate() {
+                let mut remainder = *expected_hv;
+                while remainder > 7 {
+                    let tv = rng.gen_range(0u128..8);
+                    remainder -= tv;
+                    inputs.push(input_row(bk, tv));
+                }
+                inputs.push(input_row(bk, remainder));
+            }
+            inputs.shuffle(&mut rng);
+            let result: Vec<_> = world
+                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                    let aos = input_rows
+                        .into_iter()
+                        .map(|ti| SecretSharedAttributionOutputs {
+                            attributed_breakdown_key_bits: ti.0,
+                            capped_attributed_trigger_value: ti.1,
+                        })
+                        .collect();
+                    let r: Vec<Replicated<BA8>> =
+                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
+                            ctx,
+                            aos,
+                            &PaddingParameters::relaxed(),
+                        )
+                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                            Vec::transposed_from(&d).unwrap()
+                        })
+                        .await
+                        .unwrap();
+                    r
+                })
+                .await
+                .reconstruct();
+            let result = result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>();
+            assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
+    }
+
+    #[test]
+    #[cfg(not(feature = "shuttle"))] // too slow
+    fn malicious_happy_path() {
+        type HV = BA16;
+        run(|| async {
             let world = TestWorld::default();
             let mut rng = rand::thread_rng();
             let mut expectation = Vec::new();
