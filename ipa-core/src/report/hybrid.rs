@@ -144,6 +144,8 @@ pub trait UniqueBytes {
 }
 
 impl UniqueBytes for EncryptedHybridReport {
+    /// We use the first 16 bytes of the ciphertext for collision-detection
+    /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
     fn unique_bytes(&self) -> Vec<u8> {
         let start: usize = EncapsulationSize::USIZE;
         let end: usize = start + 16;
