@@ -7,6 +7,8 @@ pub enum ProtocolStep {
     Prss,
     #[step(child = crate::protocol::ipa_prf::step::IpaPrfStep)]
     IpaPrf,
+    #[step(child = crate::protocol::hybrid::step::HybridStep)]
+    Hybrid,
     Multiply,
     PrimeFieldAddition,
     /// Steps used in unit tests are grouped under this one. Ideally it should be
