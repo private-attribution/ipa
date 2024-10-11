@@ -1,9 +1,14 @@
-use std::ops::{Add, Deref};
+use std::{
+    collections::HashSet,
+    ops::{Add, Deref},
+};
 
+use bytes::Bytes;
 use generic_array::ArrayLength;
 use typenum::{Sum, U16};
 
 use crate::{
+    error::Error,
     ff::{boolean_array::BA64, Serializable},
     hpke::PrivateKeyRegistry,
     report::{EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier},
@@ -90,50 +95,190 @@ where
             U16,
         >: ArrayLength,
     {
-        let encrypted_oprf_report = EncryptedOprfReport::<BK, V, TS, B>::from_bytes(data)?;
-        let hybrid_report = Self::from_encrypted_oprf_report(&encrypted_oprf_report, key_registry)?;
+        let encrypted_hybrid_report =
+            EncryptedHybridReport(EncryptedOprfReport::<BK, V, TS, B>::from_bytes(data)?);
+        let hybrid_report = encrypted_hybrid_report.decrypt(key_registry)?;
         Ok(hybrid_report)
     }
+}
 
-    /// ## Errors
-    /// If the report fails to decrypt
-    pub fn from_encrypted_oprf_report<P, B, TS>(
-        encrypted_oprf_report: &EncryptedOprfReport<BK, V, TS, B>,
-        key_registry: &P,
-    ) -> Result<Self, InvalidReportError>
-    where
-        P: PrivateKeyRegistry,
-        B: Deref<Target = [u8]>,
-        TS: SharedValue, // this is only needed for the backport from EncryptedOprfReport
-        Replicated<BK>: Serializable,
-        Replicated<V>: Serializable,
-        Replicated<TS>: Serializable,
-        <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-            Add<<Replicated<TS> as Serializable>::Size>,
+#[derive(Clone)]
+pub struct EncryptedHybridReport<BK, V, TS, B>(EncryptedOprfReport<BK, V, TS, B>)
+where
+    B: Deref<Target = [u8]>,
+    BK: SharedValue,
+    V: SharedValue,
+    TS: SharedValue,
+    Replicated<BK>: Serializable,
+    Replicated<V>: Serializable,
+    Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
+    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
+        Add<<Replicated<TS> as Serializable>::Size>,
+    Sum<
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+        <Replicated<TS> as Serializable>::Size,
+    >: Add<U16>,
+    Sum<
         Sum<
             Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
             <Replicated<TS> as Serializable>::Size,
-        >: Add<U16>,
+        >,
+        U16,
+    >: ArrayLength;
+
+impl<BK, V, TS, B> EncryptedHybridReport<BK, V, TS, B>
+where
+    B: Deref<Target = [u8]>,
+    BK: SharedValue,
+    V: SharedValue,
+    TS: SharedValue,
+    Replicated<BK>: Serializable,
+    Replicated<V>: Serializable,
+    Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
+    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
+        Add<<Replicated<TS> as Serializable>::Size>,
+    Sum<
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+        <Replicated<TS> as Serializable>::Size,
+    >: Add<U16>,
+    Sum<
         Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U16,
-        >: ArrayLength,
-    {
-        let oprf_report = encrypted_oprf_report.decrypt(key_registry)?;
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+            <Replicated<TS> as Serializable>::Size,
+        >,
+        U16,
+    >: ArrayLength,
+{
+    /// ## Errors
+    /// If the report fails to decrypt
+    pub fn decrypt<P: PrivateKeyRegistry>(
+        &self,
+        key_registry: &P,
+    ) -> Result<HybridReport<BK, V>, InvalidReportError> {
+        let oprf_report = self.0.decrypt(key_registry)?;
         match oprf_report.event_type {
-            EventType::Source => Ok(Self::Impression(HybridImpressionReport {
+            EventType::Source => Ok(HybridReport::Impression(HybridImpressionReport {
                 match_key: oprf_report.match_key,
                 breakdown_key: oprf_report.breakdown_key,
             })),
-            EventType::Trigger => Ok(Self::Conversion(HybridConversionReport {
+            EventType::Trigger => Ok(HybridReport::Conversion(HybridConversionReport {
                 match_key: oprf_report.match_key,
                 value: oprf_report.trigger_value,
             })),
         }
+    }
+}
+
+impl<BK, V, TS> TryFrom<Bytes> for EncryptedHybridReport<BK, V, TS, Bytes>
+where
+    BK: SharedValue,
+    V: SharedValue,
+    TS: SharedValue,
+    Replicated<BK>: Serializable,
+    Replicated<V>: Serializable,
+    Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
+    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
+        Add<<Replicated<TS> as Serializable>::Size>,
+    Sum<
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+        <Replicated<TS> as Serializable>::Size,
+    >: Add<U16>,
+    Sum<
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+            <Replicated<TS> as Serializable>::Size,
+        >,
+        U16,
+    >: ArrayLength,
+{
+    type Error = InvalidReportError;
+
+    fn try_from(bytes: Bytes) -> Result<Self, InvalidReportError> {
+        let report = EncryptedOprfReport::from_bytes(bytes).unwrap();
+        Ok(EncryptedHybridReport(report))
+    }
+}
+
+pub trait UniqueBytes {
+    fn unique_bytes(&self) -> Vec<u8>;
+}
+
+impl<BK, V, TS, B> UniqueBytes for EncryptedHybridReport<BK, V, TS, B>
+where
+    B: Deref<Target = [u8]>,
+    BK: SharedValue,
+    V: SharedValue,
+    TS: SharedValue,
+    Replicated<BK>: Serializable,
+    Replicated<V>: Serializable,
+    Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
+    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
+        Add<<Replicated<TS> as Serializable>::Size>,
+    Sum<
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+        <Replicated<TS> as Serializable>::Size,
+    >: Add<U16>,
+    Sum<
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+            <Replicated<TS> as Serializable>::Size,
+        >,
+        U16,
+    >: ArrayLength,
+{
+    fn unique_bytes(&self) -> Vec<u8> {
+        self.0.mk_ciphertext().to_vec()
+    }
+}
+
+#[derive(Debug)]
+pub struct UniqueBytesValidator {
+    hash_set: HashSet<Vec<u8>>,
+    incrementer: usize,
+}
+
+impl UniqueBytesValidator {
+    #[must_use]
+    pub fn new(size: usize) -> Self {
+        UniqueBytesValidator {
+            hash_set: HashSet::<Vec<u8>>::with_capacity(size),
+            incrementer: 0,
+        }
+    }
+
+    fn insert(&mut self, value: Vec<u8>) -> bool {
+        let r = self.hash_set.insert(value);
+        if r {
+            self.incrementer += 1;
+        }
+        r
+    }
+
+    /// Checks that item is unique among all checked thus far
+    ///
+    /// ## Errors
+    /// if the item inserted is not unique among all checked thus far
+    pub fn check_duplicate<U: UniqueBytes>(&mut self, item: &U) -> Result<(), Error> {
+        if self.insert(item.unique_bytes()) {
+            Ok(())
+        } else {
+            Err(Error::DuplicateCiphertext(self.incrementer))
+        }
+    }
+
+    /// Checks that an iter of items is unique among the iter and any other items checked thus far
+    ///
+    /// ## Errors
+    /// if the and item inserted is not unique among all in this batch and checked previously
+    pub fn check_duplicates<U: UniqueBytes>(&mut self, items: &[U]) -> Result<(), Error> {
+        items
+            .iter()
+            .try_for_each(|item| self.check_duplicate(item))?;
+        Ok(())
     }
 }
 
@@ -142,8 +287,12 @@ mod test {
 
     use rand::{distributions::Alphanumeric, rngs::ThreadRng, thread_rng, Rng};
 
-    use super::{HybridConversionReport, HybridImpressionReport, HybridReport};
+    use super::{
+        EncryptedHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
+        UniqueBytes, UniqueBytesValidator,
+    };
     use crate::{
+        error::Error,
         ff::boolean_array::{BA20, BA3, BA8},
         hpke::{KeyPair, KeyRegistry},
         report::{EncryptedOprfReport, EventType, OprfReport},
@@ -166,6 +315,13 @@ mod test {
         }
     }
 
+    fn generate_random_bytes(size: usize) -> Vec<u8> {
+        let mut rng = thread_rng();
+        let mut bytes = vec![0u8; size];
+        rng.fill(&mut bytes[..]);
+        bytes
+    }
+
     #[test]
     fn convert_to_hybrid_impression_report() {
         let mut rng = thread_rng();
@@ -184,12 +340,10 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let enc_report = EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap();
-        let hybrid_report2 = HybridReport::<BA8, BA3>::from_encrypted_oprf_report::<_, _, BA20>(
-            &enc_report,
-            &key_registry,
-        )
-        .unwrap();
+        let enc_report = EncryptedHybridReport::<BA8, BA3, BA20, _>(
+            EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap(),
+        );
+        let hybrid_report2 = enc_report.decrypt(&key_registry).unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
 
@@ -220,12 +374,10 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let enc_report = EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap();
-        let hybrid_report2 = HybridReport::<BA8, BA3>::from_encrypted_oprf_report::<_, _, BA20>(
-            &enc_report,
-            &key_registry,
-        )
-        .unwrap();
+        let enc_report = EncryptedHybridReport::<BA8, BA3, BA20, _>(
+            EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap(),
+        );
+        let hybrid_report2 = enc_report.decrypt(&key_registry).unwrap();
         assert_eq!(hybrid_report, hybrid_report2);
 
         let hybrid_report3 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
@@ -235,5 +387,62 @@ mod test {
         .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report3);
+    }
+
+    #[test]
+    fn unique_encrypted_hybrid_reports() {
+        #[derive(Clone)]
+        pub struct UniqueByteHolder {
+            bytes: Vec<u8>,
+        }
+
+        impl UniqueByteHolder {
+            pub fn new(size: usize) -> Self {
+                let bytes = generate_random_bytes(size);
+                UniqueByteHolder { bytes }
+            }
+        }
+
+        impl UniqueBytes for UniqueByteHolder {
+            fn unique_bytes(&self) -> Vec<u8> {
+                self.bytes.clone()
+            }
+        }
+
+        let bytes1 = UniqueByteHolder::new(4);
+        let bytes2 = UniqueByteHolder::new(4);
+        let bytes3 = UniqueByteHolder::new(4);
+        let bytes4 = UniqueByteHolder::new(4);
+
+        let mut unique_bytes = UniqueBytesValidator::new(4);
+
+        unique_bytes.check_duplicate(&bytes1).unwrap();
+
+        unique_bytes
+            .check_duplicates(&[bytes2.clone(), bytes3.clone()])
+            .unwrap();
+        let expected_err = unique_bytes.check_duplicate(&bytes2);
+
+        assert!(
+            expected_err.is_err(),
+            "Expected an error, but got Ok instead"
+        );
+
+        expected_err.unwrap_or_else(|err| match err {
+            Error::DuplicateCiphertext(value) => assert_eq!(value, 3),
+            _ => panic!("Expected DuplicateCiphertext error, got: {err}"),
+        });
+
+        let expected_err = unique_bytes.check_duplicates(&[bytes4, bytes3]);
+
+        assert!(
+            expected_err.is_err(),
+            "Expected an error, but got Ok instead"
+        );
+
+        expected_err.unwrap_or_else(|err| match err {
+            Error::DuplicateCiphertext(value) => assert_eq!(value, 4),
+            _ => panic!("Expected DuplicateCiphertext error, got: {err}"),
+        });
     }
 }

@@ -1,8 +1,4 @@
-use std::{
-    collections::HashSet,
-    marker::PhantomData,
-    sync::{Arc, Mutex},
-};
+use std::{marker::PhantomData, sync::Arc};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
 
@@ -15,9 +11,14 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{context::UpgradableContext, ipa_prf::shuffle::Shuffle, step::ProtocolStep::Hybrid},
-    report::{hybrid::HybridReport, EncryptedOprfReport},
+    report::hybrid::{EncryptedHybridReport, UniqueBytesValidator},
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
+
+pub type BreakdownKey = BA8;
+pub type Value = BA3;
+// TODO: remove this when encryption/decryption works for HybridReports
+pub type Timestamp = BA20;
 
 pub struct Query<C, HV, R: PrivateKeyRegistry> {
     config: HybridQueryParams,
@@ -53,8 +54,7 @@ where
         let _ctx = ctx.narrow(&Hybrid);
         let sz = usize::from(query_size);
 
-        let seen_encrypted_reports: Arc<Mutex<HashSet<Vec<u8>>>> =
-            Arc::new(Mutex::new(HashSet::with_capacity(sz)));
+        let mut unique_encrypted_hybrid_reports = UniqueBytesValidator::new(sz);
 
         if config.plaintext_match_keys {
             return Err(Error::Unsupported(
@@ -62,32 +62,28 @@ where
             ));
         }
 
-        let _input =
-            LengthDelimitedStream::<EncryptedOprfReport<BA8, BA3, BA20, _>, _>::new(input_stream)
-                .map_err(Into::<Error>::into)
-                .map_ok(move |enc_reports| {
-                    iter(enc_reports.into_iter().map({
-                        let seen_encrypted_reports =
-                            Arc::<Mutex<HashSet<Vec<u8>>>>::clone(&seen_encrypted_reports);
+        let _input = LengthDelimitedStream::<
+            EncryptedHybridReport<BreakdownKey, Value, Timestamp, _>,
+            _,
+        >::new(input_stream)
+        .map_err(Into::<Error>::into)
+        .map_ok(|enc_reports| {
+            unique_encrypted_hybrid_reports
+                .check_duplicates(&enc_reports)
+                .unwrap();
 
-                        let key_registry = Arc::<R>::clone(&key_registry);
-                        move |enc_report| {
-                            let ciphertext = enc_report.mk_ciphertext().to_owned();
-                            let mut guard = seen_encrypted_reports.lock().unwrap();
-                            assert!(guard.insert(ciphertext), "Duplicate report found.");
-                            drop(guard);
-                            HybridReport::<BA8, BA3>::from_encrypted_oprf_report::<R, _, BA20>(
-                                &enc_report,
-                                &key_registry,
-                            )
-                            .map_err(Into::<Error>::into)
-                        }
-                    }))
-                })
-                .try_flatten()
-                .take(sz)
-                .try_collect::<Vec<_>>()
-                .await?;
+            iter(enc_reports.into_iter().map({
+                |enc_report| {
+                    enc_report
+                        .decrypt(key_registry.as_ref())
+                        .map_err(Into::<Error>::into)
+                }
+            }))
+        })
+        .try_flatten()
+        .take(sz)
+        .try_collect::<Vec<_>>()
+        .await?;
 
         unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
     }
@@ -218,8 +214,9 @@ mod tests {
         );
     }
 
+    // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
     #[tokio::test]
-    #[should_panic(expected = "Duplicate report found.")]
+    #[should_panic(expected = "DuplicateCiphertext(2)")]
     async fn duplicate_encrypted_hybrid_reports() {
         // TODO: When Encryption/Decryption exists for HybridReports
         // update these to use that, rather than generating OprfReports
@@ -289,7 +286,7 @@ mod tests {
     // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
     #[tokio::test]
     #[should_panic(
-        expected = "called `Result::unwrap()` on an `Err` value: Unsupported(\"Hybrid queries do not currently support plaintext match keys\")"
+        expected = "Unsupported(\"Hybrid queries do not currently support plaintext match keys\")"
     )]
     async fn unsupported_plaintext_match_keys_hybrid_query() {
         // TODO: When Encryption/Decryption exists for HybridReports

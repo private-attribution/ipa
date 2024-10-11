@@ -104,6 +104,8 @@ pub enum Error {
     },
     #[error("The verification of the shuffle failed: {0}")]
     ShuffleValidationFailed(String),
+    #[error("Duplicate ciphertext found on input {0}")]
+    DuplicateCiphertext(usize),
 }
 
 impl Default for Error {
