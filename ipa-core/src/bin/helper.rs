@@ -22,6 +22,7 @@ use ipa_core::{
 };
 use tokio::runtime::Runtime;
 use tracing::{error, info};
+use ipa_core::cli::LoggingHandle;
 use ipa_metrics::{MetricsCurrentThreadContext};
 
 #[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
@@ -113,7 +114,7 @@ fn read_file(path: &Path) -> Result<BufReader<fs::File>, BoxError> {
         .map_err(|e| format!("failed to open file {}: {e:?}", path.display()))?)
 }
 
-async fn server(args: ServerArgs) -> Result<(), BoxError> {
+async fn server(handle: LoggingHandle, args: ServerArgs) -> Result<(), BoxError> {
     let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
 
     let (identity, server_tls) = match (args.tls_cert, args.tls_key) {
@@ -136,7 +137,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         private_key_file: sk_path,
     });
 
-    let query_runtime = new_query_runtime();
+    let query_runtime = new_query_runtime(&handle);
     let app_config = AppConfig::default()
         .with_key_registry(hpke_registry(mk_encryption.as_ref()).await?)
         .with_active_work(args.active_work)
@@ -159,7 +160,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let network_config_path = args.network.as_deref().unwrap();
     let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?
         .override_scheme(&scheme);
-    let http_runtime = new_http_runtime();
+    let http_runtime = new_http_runtime(&handle);
     let clients = MpcHelperClient::from_conf(
         &IpaRuntime::from_tokio_runtime(&http_runtime),
         &network_config,
@@ -212,11 +213,23 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
 /// if for some reason query runtime becomes overloaded.
 /// When multi-threading feature is enabled it creates a runtime with thread-per-core,
 /// otherwise a single-threaded runtime is created.
-fn new_http_runtime() -> Runtime {
+fn new_http_runtime(handle: &LoggingHandle) -> Runtime {
     if cfg!(feature = "multi-threading") {
         tokio::runtime::Builder::new_multi_thread()
             .thread_name("http-worker")
             .enable_all()
+            .on_thread_start({
+                let producer = handle.producer.clone();
+                move || {
+                    producer.install();
+                }
+            })
+            .on_thread_stop(|| {
+                MetricsCurrentThreadContext::flush()
+            })
+            .on_thread_park(|| {
+                MetricsCurrentThreadContext::flush()
+            })
             .build()
             .unwrap()
     } else {
@@ -224,6 +237,18 @@ fn new_http_runtime() -> Runtime {
             .worker_threads(1)
             .thread_name("http-worker")
             .enable_all()
+            .on_thread_start({
+                let producer = handle.producer.clone();
+                move || {
+                    producer.install();
+                }
+            })
+            .on_thread_stop(|| {
+                MetricsCurrentThreadContext::flush()
+            })
+            .on_thread_park(|| {
+                MetricsCurrentThreadContext::flush()
+            })
             .build()
             .unwrap()
     }
@@ -232,7 +257,7 @@ fn new_http_runtime() -> Runtime {
 /// This function creates a runtime suitable for executing MPC queries.
 /// When multi-threading feature is enabled it creates a runtime with thread-per-core,
 /// otherwise a single-threaded runtime is created.
-fn new_query_runtime() -> Runtime {
+fn new_query_runtime(handle: &LoggingHandle) -> Runtime {
     // it is intentional that IO driver is not enabled here (enable_time() call only).
     // query runtime is supposed to use CPU/memory only, no writes to disk and all
     // network communication is handled by HTTP runtime.
@@ -240,6 +265,18 @@ fn new_query_runtime() -> Runtime {
         tokio::runtime::Builder::new_multi_thread()
             .thread_name("query-executor")
             .enable_time()
+            .on_thread_start({
+                let producer = handle.producer.clone();
+                move || {
+                    producer.install();
+                }
+            })
+            .on_thread_stop(|| {
+                MetricsCurrentThreadContext::flush()
+            })
+            .on_thread_park(|| {
+                MetricsCurrentThreadContext::flush()
+            })
             .build()
             .unwrap()
     } else {
@@ -247,6 +284,18 @@ fn new_query_runtime() -> Runtime {
             .worker_threads(1)
             .thread_name("query-executor")
             .enable_time()
+            .on_thread_start({
+                let producer = handle.producer.clone();
+                move || {
+                    producer.install();
+                }
+            })
+            .on_thread_stop(|| {
+                MetricsCurrentThreadContext::flush()
+            })
+            .on_thread_park(|| {
+                MetricsCurrentThreadContext::flush()
+            })
             .build()
             .unwrap()
     }
@@ -259,23 +308,23 @@ pub async fn main() {
     let args = Args::parse();
     let handle = args.logging.setup_logging();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .on_thread_start({
-            let producer = handle.producer.clone();
-            move || {
-                producer.install();
-            }
-        })
-        .on_thread_stop(|| {
-            MetricsCurrentThreadContext::flush()
-        })
-        .on_thread_park(|| {
-            MetricsCurrentThreadContext::flush()
-        }).build().unwrap();
+    // let rt = tokio::runtime::Builder::new_multi_thread()
+    //     .enable_all()
+    //     .on_thread_start({
+    //         let producer = handle.producer.clone();
+    //         move || {
+    //             producer.install();
+    //         }
+    //     })
+    //     .on_thread_stop(|| {
+    //         MetricsCurrentThreadContext::flush()
+    //     })
+    //     .on_thread_park(|| {
+    //         MetricsCurrentThreadContext::flush()
+    //     }).build().unwrap();
 
     let res = match args.command {
-        None => rt.spawn(server(args.server)).await.unwrap(),
+        None => server(handle, args.server).await,
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
         Some(HelperCommand::Confgen(args)) => client_config_setup(args),

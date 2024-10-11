@@ -42,22 +42,21 @@ impl Verbosity {
             .with(filter_layer)
             .with(fmt_layer);
 
-        if cfg!(feature = "disable-metrics") {
-            registry.init();
-        } else {
-            registry.init();
-        }
+        registry.init();
 
         set_global_panic_hook();
         let (collector, producer, controller) = ipa_metrics::installer();
 
         std::thread::spawn(|| {
             collector.install();
+            let mut last_bytes_sent = 0;
             loop {
                 MetricsCollector::with_current_mut(|store| {
                     let store = store.recv_one();
-                    if !store.is_empty() {
-                        tracing::info!("total bytes sent, so far: {}", store.counter_value(&metric_name!(BYTES_SENT)));
+                    let new_bytes_sent = store.counter_value(&metric_name!(BYTES_SENT));
+                    if !store.is_empty() && last_bytes_sent != new_bytes_sent {
+                        tracing::info!("total bytes sent, so far: {}, before: {}", new_bytes_sent, last_bytes_sent);
+                        last_bytes_sent = new_bytes_sent;
                     }
                 });
             }
