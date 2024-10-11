@@ -64,11 +64,13 @@ where
 
         let _input = LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
             .map_err(Into::<Error>::into)
-            .map_ok(|enc_reports| {
-                unique_encrypted_hybrid_reports
-                    .check_duplicates(&enc_reports)
-                    .unwrap();
-                enc_reports
+            .and_then(|enc_reports| {
+                future::ready(
+                    unique_encrypted_hybrid_reports
+                        .check_duplicates(&enc_reports)
+                        .map(|()| enc_reports)
+                        .map_err(Into::<Error>::into),
+                )
             })
             .map_ok(|enc_reports| {
                 iter(enc_reports.into_iter().map({
