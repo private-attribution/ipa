@@ -156,7 +156,7 @@ impl UniqueBytes for EncryptedHybridReport {
 #[derive(Debug)]
 pub struct UniqueBytesValidator {
     hash_set: HashSet<Vec<u8>>,
-    incrementer: usize,
+    check_counter: usize,
 }
 
 impl UniqueBytesValidator {
@@ -164,16 +164,12 @@ impl UniqueBytesValidator {
     pub fn new(size: usize) -> Self {
         UniqueBytesValidator {
             hash_set: HashSet::<Vec<u8>>::with_capacity(size),
-            incrementer: 0,
+            check_counter: 0,
         }
     }
 
     fn insert(&mut self, value: Vec<u8>) -> bool {
-        let r = self.hash_set.insert(value);
-        if r {
-            self.incrementer += 1;
-        }
-        r
+        self.hash_set.insert(value)
     }
 
     /// Checks that item is unique among all checked thus far
@@ -181,10 +177,11 @@ impl UniqueBytesValidator {
     /// ## Errors
     /// if the item inserted is not unique among all checked thus far
     pub fn check_duplicate<U: UniqueBytes>(&mut self, item: &U) -> Result<(), Error> {
+        self.check_counter += 1;
         if self.insert(item.unique_bytes()) {
             Ok(())
         } else {
-            Err(Error::DuplicateBytes(self.incrementer))
+            Err(Error::DuplicateBytes(self.check_counter))
         }
     }
 
@@ -330,27 +327,9 @@ mod test {
             .check_duplicates(&[bytes2.clone(), bytes3.clone()])
             .unwrap();
         let expected_err = unique_bytes.check_duplicate(&bytes2);
-
-        assert!(
-            expected_err.is_err(),
-            "Expected an error, but got Ok instead"
-        );
-
-        expected_err.unwrap_or_else(|err| match err {
-            Error::DuplicateBytes(value) => assert_eq!(value, 3),
-            _ => panic!("Expected DuplicateBytes error, got: {err}"),
-        });
+        assert!(matches!(expected_err, Err(Error::DuplicateBytes(4))));
 
         let expected_err = unique_bytes.check_duplicates(&[bytes4, bytes3]);
-
-        assert!(
-            expected_err.is_err(),
-            "Expected an error, but got Ok instead"
-        );
-
-        expected_err.unwrap_or_else(|err| match err {
-            Error::DuplicateBytes(value) => assert_eq!(value, 4),
-            _ => panic!("Expected DuplicateBytes error, got: {err}"),
-        });
+        assert!(matches!(expected_err, Err(Error::DuplicateBytes(6))));
     }
 }
