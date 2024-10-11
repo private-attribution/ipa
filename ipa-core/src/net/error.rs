@@ -73,7 +73,7 @@ impl Error {
     ///
     /// # Panics
     /// If the response is not a failure (4xx/5xx status)
-    pub async fn from_failed_resp(resp: ResponseFromEndpoint<'_>) -> Self {
+    pub async fn from_failed_resp(resp: ResponseFromEndpoint) -> Self {
         let status = resp.status();
         assert!(status.is_client_error() || status.is_server_error()); // must be failure
         let (endpoint, body) = resp.into_parts();

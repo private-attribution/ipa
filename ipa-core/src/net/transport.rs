@@ -11,6 +11,7 @@ use pin_project::{pin_project, pinned_drop};
 
 use crate::{
     config::{NetworkConfig, ServerConfig},
+    executor::IpaRuntime,
     helpers::{
         query::QueryConfig,
         routing::{Addr, RouteId},
@@ -27,6 +28,7 @@ use crate::{
 /// HTTP transport for IPA helper service.
 /// TODO: rename to MPC
 pub struct HttpTransport {
+    http_runtime: IpaRuntime,
     identity: HelperIdentity,
     clients: [MpcHelperClient; 3],
     // TODO(615): supporting multiple queries likely require a hashmap here. It will be ok if we
@@ -62,23 +64,26 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
 impl HttpTransport {
     #[must_use]
     pub fn new(
+        runtime: IpaRuntime,
         identity: HelperIdentity,
         server_config: ServerConfig,
         network_config: NetworkConfig,
         clients: [MpcHelperClient; 3],
         handler: Option<HandlerRef>,
     ) -> (Arc<Self>, MpcHelperServer) {
-        let transport = Self::new_internal(identity, clients, handler);
+        let transport = Self::new_internal(runtime, identity, clients, handler);
         let server = MpcHelperServer::new(Arc::clone(&transport), server_config, network_config);
         (transport, server)
     }
 
     fn new_internal(
+        runtime: IpaRuntime,
         identity: HelperIdentity,
         clients: [MpcHelperClient; 3],
         handler: Option<HandlerRef>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            http_runtime: runtime,
             identity,
             clients,
             handler,
@@ -195,11 +200,16 @@ impl Transport for Arc<HttpTransport> {
                 let step =
                     <Option<Gate>>::from(route.gate()).expect("step required when sending records");
                 let resp_future = self.clients[dest].step(query_id, &step, data)?;
-                // we don't need to spawn a task here. Gateway's sender interface already does that
-                // so this can just poll this future.
-                resp_future
-                    .map_err(Into::into)
-                    .and_then(MpcHelperClient::resp_ok)
+
+                // Use a dedicated HTTP runtime to poll this future for several reasons:
+                // - avoid blocking this task, if the current runtime is overloaded
+                // - use the runtime that enables IO (current runtime may not).
+                self.http_runtime
+                    .spawn(
+                        resp_future
+                            .map_err(Into::into)
+                            .and_then(MpcHelperClient::resp_ok),
+                    )
                     .await?;
                 Ok(())
             }
@@ -383,15 +393,22 @@ mod tests {
                         get_test_identity(id)
                     };
                     let (setup, handler) = AppSetup::new(AppConfig::default());
-                    let clients = MpcHelperClient::from_conf(network_config, &identity);
+                    let clients = MpcHelperClient::from_conf(
+                        &IpaRuntime::current(),
+                        network_config,
+                        &identity,
+                    );
                     let (transport, server) = HttpTransport::new(
+                        IpaRuntime::current(),
                         id,
                         server_config,
                         network_config.clone(),
                         clients,
                         Some(handler),
                     );
-                    server.start_on(Some(socket), ()).await;
+                    server
+                        .start_on(&IpaRuntime::current(), Some(socket), ())
+                        .await;
 
                     setup.connect(transport, HttpShardTransport)
                 },
@@ -404,7 +421,11 @@ mod tests {
     }
 
     async fn test_three_helpers(mut conf: TestConfig) {
-        let clients = MpcHelperClient::from_conf(&conf.network, &ClientIdentity::None);
+        let clients = MpcHelperClient::from_conf(
+            &IpaRuntime::current(),
+            &conf.network,
+            &ClientIdentity::None,
+        );
         let _helpers = make_helpers(
             conf.sockets.take().unwrap(),
             conf.servers,
@@ -419,7 +440,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn happy_case_twice() {
         let mut conf = TestConfigBuilder::with_open_ports().build();
-        let clients = MpcHelperClient::from_conf(&conf.network, &ClientIdentity::None);
+        let clients = MpcHelperClient::from_conf(
+            &IpaRuntime::current(),
+            &conf.network,
+            &ClientIdentity::None,
+        );
         let _helpers = make_helpers(
             conf.sockets.take().unwrap(),
             conf.servers,
