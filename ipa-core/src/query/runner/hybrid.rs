@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, sync::Arc};
 
-use futures::{stream::iter, StreamExt, TryStreamExt};
+use futures::{future, stream::iter, StreamExt, TryStreamExt};
 
 use crate::{
     error::Error,
@@ -68,7 +68,9 @@ where
                 unique_encrypted_hybrid_reports
                     .check_duplicates(&enc_reports)
                     .unwrap();
-
+                enc_reports
+            })
+            .map_ok(|enc_reports| {
                 iter(enc_reports.into_iter().map({
                     |enc_report| {
                         enc_report
