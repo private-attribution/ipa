@@ -8,7 +8,7 @@ use typenum::{Sum, Unsigned, U16};
 use crate::{
     error::Error,
     ff::{boolean_array::BA64, Serializable},
-    hpke::{EncapsulationSize, PrivateKeyRegistry, PublicKeyRegistry},
+    hpke::{EncapsulationSize, PrivateKeyRegistry, PublicKeyRegistry, TagSize},
     report::{EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
@@ -129,6 +129,17 @@ impl EncryptedHybridReport {
             })),
         }
     }
+
+    /// TODO: update these when we produce a proper encapsulation of
+    /// `EncryptedHybridReport`, rather than pigggybacking on `EncryptedOprfReport`
+    pub fn mk_ciphertext(&self) -> &[u8] {
+        let encap_key_mk_offset: usize = 0;
+        let ciphertext_mk_offset: usize = encap_key_mk_offset + EncapsulationSize::USIZE;
+        let encap_key_btt_offset: usize =
+            ciphertext_mk_offset + TagSize::USIZE + <Replicated<BA64> as Serializable>::Size::USIZE;
+
+        &self.bytes[ciphertext_mk_offset..encap_key_btt_offset]
+    }
 }
 
 impl TryFrom<Bytes> for EncryptedHybridReport {
@@ -144,12 +155,10 @@ pub trait UniqueBytes {
 }
 
 impl UniqueBytes for EncryptedHybridReport {
-    /// We use the first 16 bytes of the ciphertext for collision-detection
+    /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
     /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
     fn unique_bytes(&self) -> Vec<u8> {
-        let start: usize = EncapsulationSize::USIZE;
-        let end: usize = start + 16;
-        self.bytes[start..end].to_vec()
+        self.mk_ciphertext()[0..TagSize::USIZE].to_vec()
     }
 }
 
