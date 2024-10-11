@@ -113,20 +113,12 @@ mod tests {
         test_fixture::{ipa::TestRawDataRecord, join3v, Reconstruct, TestWorld},
     };
 
-    #[tokio::test]
-    // placeholder until the protocol is complete. can be updated to make sure we
-    // get to the unimplemented() call
-    #[should_panic(
-        expected = "not implemented: query::runnner::HybridQuery.execute is not fully implemented"
-    )]
-    async fn encrypted_hybrid_reports() {
-        // While this test currently checks for an unimplemented panic it is
-        // designed to test for a correct result for a complete implementation.
-        const EXPECTED: &[u128] = &[0, 8, 5];
+    const EXPECTED: &[u128] = &[0, 8, 5];
 
+    fn build_records() -> Vec<TestRawDataRecord> {
         // TODO: When Encryption/Decryption exists for HybridReports
         // update these to use that, rather than generating OprfReports
-        let records: Vec<TestRawDataRecord> = vec![
+        vec![
             TestRawDataRecord {
                 timestamp: 0,
                 user_id: 12345,
@@ -169,17 +161,22 @@ mod tests {
                 breakdown_key: 1,
                 trigger_value: 7,
             },
-        ];
+        ]
+    }
 
-        let query_size = QuerySize::try_from(records.len()).unwrap();
+    struct BufferAndKeyRegistry {
+        buffers: [Vec<u8>; 3],
+        key_registry: Arc<KeyRegistry<KeyPair>>,
+    }
 
+    fn build_buffers_from_records(records: &[TestRawDataRecord]) -> BufferAndKeyRegistry {
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
         let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
 
         let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
 
-        let shares: [Vec<OprfReport<BA8, BA3, BA20>>; 3] = records.into_iter().share();
+        let shares: [Vec<OprfReport<BA8, BA3, BA20>>; 3] = records.iter().cloned().share();
         for (buf, shares) in zip(&mut buffers, shares) {
             for share in shares {
                 share
@@ -187,6 +184,30 @@ mod tests {
                     .unwrap();
             }
         }
+        BufferAndKeyRegistry {
+            buffers,
+            key_registry,
+        }
+    }
+
+    #[tokio::test]
+    // placeholder until the protocol is complete. can be updated to make sure we
+    // get to the unimplemented() call
+    #[should_panic(
+        expected = "not implemented: query::runnner::HybridQuery.execute is not fully implemented"
+    )]
+    async fn encrypted_hybrid_reports() {
+        // While this test currently checks for an unimplemented panic it is
+        // designed to test for a correct result for a complete implementation.
+
+        let records = build_records();
+        let query_size = QuerySize::try_from(records.len()).unwrap();
+
+        let BufferAndKeyRegistry {
+            buffers,
+            key_registry,
+        } = build_buffers_from_records(&records);
+
         let world = TestWorld::default();
         let contexts = world.contexts();
         #[allow(clippy::large_futures)]
@@ -221,42 +242,16 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "DuplicateBytes(3)")]
     async fn duplicate_encrypted_hybrid_reports() {
-        // TODO: When Encryption/Decryption exists for HybridReports
-        // update these to use that, rather than generating OprfReports
-        let records: Vec<TestRawDataRecord> = vec![
-            TestRawDataRecord {
-                timestamp: 0,
-                user_id: 12345,
-                is_trigger_report: false,
-                breakdown_key: 2,
-                trigger_value: 0,
-            },
-            TestRawDataRecord {
-                timestamp: 4,
-                user_id: 68362,
-                is_trigger_report: false,
-                breakdown_key: 1,
-                trigger_value: 0,
-            },
-        ];
+        let all_records = build_records();
+        let records = &all_records[..2].to_vec();
+
+        let BufferAndKeyRegistry {
+            mut buffers,
+            key_registry,
+        } = build_buffers_from_records(records);
 
         // this is double, since we duplicate the data below
         let query_size = QuerySize::try_from(records.len() * 2).unwrap();
-
-        let mut rng = StdRng::seed_from_u64(42);
-        let key_id = DEFAULT_KEY_ID;
-        let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
-
-        let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
-
-        let shares: [Vec<OprfReport<BA8, BA3, BA20>>; 3] = records.into_iter().share();
-        for (buf, shares) in zip(&mut buffers, shares) {
-            for share in shares {
-                share
-                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, buf)
-                    .unwrap();
-            }
-        }
 
         // duplicate all the data
         for buffer in &mut buffers {
@@ -292,41 +287,14 @@ mod tests {
         expected = "Unsupported(\"Hybrid queries do not currently support plaintext match keys\")"
     )]
     async fn unsupported_plaintext_match_keys_hybrid_query() {
-        // TODO: When Encryption/Decryption exists for HybridReports
-        // update these to use that, rather than generating OprfReports
-        let records: Vec<TestRawDataRecord> = vec![
-            TestRawDataRecord {
-                timestamp: 0,
-                user_id: 12345,
-                is_trigger_report: false,
-                breakdown_key: 2,
-                trigger_value: 0,
-            },
-            TestRawDataRecord {
-                timestamp: 4,
-                user_id: 68362,
-                is_trigger_report: false,
-                breakdown_key: 1,
-                trigger_value: 0,
-            },
-        ];
-
+        let all_records = build_records();
+        let records = &all_records[..2].to_vec();
         let query_size = QuerySize::try_from(records.len()).unwrap();
 
-        let mut rng = StdRng::seed_from_u64(42);
-        let key_id = DEFAULT_KEY_ID;
-        let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
-
-        let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
-
-        let shares: [Vec<OprfReport<BA8, BA3, BA20>>; 3] = records.into_iter().share();
-        for (buf, shares) in zip(&mut buffers, shares) {
-            for share in shares {
-                share
-                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, buf)
-                    .unwrap();
-            }
-        }
+        let BufferAndKeyRegistry {
+            buffers,
+            key_registry,
+        } = build_buffers_from_records(records);
 
         let world = TestWorld::default();
         let contexts = world.contexts();
