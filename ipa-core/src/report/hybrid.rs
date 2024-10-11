@@ -163,7 +163,7 @@ impl UniqueBytesValidator {
     #[must_use]
     pub fn new(size: usize) -> Self {
         UniqueBytesValidator {
-            hash_set: HashSet::<Vec<u8>>::with_capacity(size),
+            hash_set: HashSet::with_capacity(size),
             check_counter: 0,
         }
     }
