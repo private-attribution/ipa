@@ -32,23 +32,28 @@ impl Verbosity {
     #[must_use]
     pub fn setup_logging(&self) -> LoggingHandle {
         let filter_layer = self.log_filter();
+        info!("Logging setup at level {}", filter_layer);
+
         let fmt_layer = fmt::layer()
             .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
             .with_ansi(std::io::stderr().is_terminal())
             .with_writer(stderr);
 
-        tracing_subscriber::registry()
-            .with(self.log_filter())
-            .with(fmt_layer)
-            .with(MetricsLayer::new())
-            .init();
+        let registry = tracing_subscriber::registry()
+            .with(filter_layer)
+            .with(fmt_layer);
+
+        if cfg!(feature = "disable-metrics") {
+            registry.init();
+        } else {
+            registry.with(MetricsLayer::new()).init();
+        }
 
         let handle = LoggingHandle {
-            metrics_handle: (!self.quiet).then(install_collector),
+            metrics_handle: (!self.quiet && !cfg!(feature = "disable-metrics"))
+                .then(install_collector),
         };
         set_global_panic_hook();
-
-        info!("Logging setup at level {}", filter_layer);
 
         handle
     }
