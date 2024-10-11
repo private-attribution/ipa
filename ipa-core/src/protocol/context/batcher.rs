@@ -3,7 +3,12 @@ use std::{cmp::min, collections::VecDeque, future::Future};
 use bitvec::{bitvec, prelude::BitVec};
 use tokio::sync::watch;
 
-use crate::{error::Error, helpers::TotalRecords, protocol::RecordId, sync::Mutex};
+use crate::{
+    error::Error,
+    helpers::TotalRecords,
+    protocol::{context::dzkp_validator::TARGET_PROOF_SIZE, RecordId},
+    sync::Mutex,
+};
 
 /// Manages validation of batches of records for malicious protocols.
 ///
@@ -111,13 +116,14 @@ impl<'a, B> Batcher<'a, B> {
     fn get_batch_by_offset(&mut self, batch_offset: usize) -> &mut BatchState<B> {
         if self.batches.len() <= batch_offset {
             self.batches.reserve(batch_offset - self.batches.len() + 1);
+            let pending_records_capacity = self.records_per_batch.min(TARGET_PROOF_SIZE);
             while self.batches.len() <= batch_offset {
                 let (validation_result, _) = watch::channel::<bool>(false);
                 let state = BatchState {
                     batch: (self.batch_constructor)(self.first_batch + self.batches.len()),
                     validation_result,
                     pending_count: 0,
-                    pending_records: bitvec![0; self.records_per_batch],
+                    pending_records: bitvec![0; pending_records_capacity],
                 };
                 self.batches.push_back(Some(state));
             }
@@ -152,10 +158,16 @@ impl<'a, B> Batcher<'a, B> {
         let total_count = min(self.records_per_batch, remaining_records);
         let record_offset_in_batch = usize::from(record_id) - first_record_in_batch;
         let batch = self.get_batch_by_offset(batch_offset);
-        assert!(
-            !batch.pending_records[record_offset_in_batch],
-            "validate_record called twice for record {record_id}",
-        );
+        if batch.pending_records.len() <= record_offset_in_batch {
+            batch
+                .pending_records
+                .resize(record_offset_in_batch + 1, false);
+        } else {
+            assert!(
+                !batch.pending_records[record_offset_in_batch],
+                "validate_record called twice for record {record_id}",
+            );
+        }
         // This assertion is stricter than the bounds check in `BitVec::set` when the
         // batch size is not a multiple of 8, or for a partial final batch.
         assert!(
@@ -273,7 +285,10 @@ impl<'a, B> Batcher<'a, B> {
 mod tests {
     use std::{future::ready, pin::pin};
 
-    use futures::future::{poll_immediate, try_join, try_join3, try_join4};
+    use futures::{
+        future::{join_all, poll_immediate, try_join, try_join3, try_join4},
+        FutureExt,
+    };
 
     use super::*;
 
@@ -551,6 +566,55 @@ mod tests {
             result.await,
             Err(Error::RecordIdOutOfRange { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn large_batch() {
+        // This test exercises the case where the preallocated size of `pending_records`
+        // was limited to `TARGET_PROOF_SIZE`, and we need to grow it alter.
+        let batcher = Batcher::new(
+            TARGET_PROOF_SIZE + 1,
+            TotalRecords::specified(TARGET_PROOF_SIZE + 1).unwrap(),
+            Box::new(|_| Vec::new()),
+        );
+
+        let mut futs = (0..TARGET_PROOF_SIZE)
+            .map(|i| {
+                batcher
+                    .lock()
+                    .unwrap()
+                    .get_batch(RecordId::from(i))
+                    .batch
+                    .push(i);
+                batcher
+                    .lock()
+                    .unwrap()
+                    .validate_record(RecordId::from(i), |_i, _b| async { unreachable!() })
+                    .map(Result::unwrap)
+                    .boxed()
+            })
+            .collect::<Vec<_>>();
+
+        batcher
+            .lock()
+            .unwrap()
+            .get_batch(RecordId::from(TARGET_PROOF_SIZE))
+            .batch
+            .push(TARGET_PROOF_SIZE);
+        futs.push(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(TARGET_PROOF_SIZE), |i, b| {
+                    assert!(i == 0 && b.as_slice() == (0..=TARGET_PROOF_SIZE).collect::<Vec<_>>());
+                    ready(Ok(()))
+                })
+                .map(Result::unwrap)
+                .boxed(),
+        );
+        join_all(futs).await;
+
+        assert!(batcher.lock().unwrap().is_empty());
     }
 
     #[test]
