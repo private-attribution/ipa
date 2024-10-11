@@ -182,7 +182,7 @@ impl UniqueBytesValidator {
         if self.insert(item.unique_bytes()) {
             Ok(())
         } else {
-            Err(Error::DuplicateCiphertext(self.incrementer))
+            Err(Error::DuplicateBytes(self.incrementer))
         }
     }
 
@@ -335,8 +335,8 @@ mod test {
         );
 
         expected_err.unwrap_or_else(|err| match err {
-            Error::DuplicateCiphertext(value) => assert_eq!(value, 3),
-            _ => panic!("Expected DuplicateCiphertext error, got: {err}"),
+            Error::DuplicateBytes(value) => assert_eq!(value, 3),
+            _ => panic!("Expected DuplicateBytes error, got: {err}"),
         });
 
         let expected_err = unique_bytes.check_duplicates(&[bytes4, bytes3]);
@@ -347,8 +347,8 @@ mod test {
         );
 
         expected_err.unwrap_or_else(|err| match err {
-            Error::DuplicateCiphertext(value) => assert_eq!(value, 4),
-            _ => panic!("Expected DuplicateCiphertext error, got: {err}"),
+            Error::DuplicateBytes(value) => assert_eq!(value, 4),
+            _ => panic!("Expected DuplicateBytes error, got: {err}"),
         });
     }
 }

@@ -213,7 +213,7 @@ mod tests {
 
     // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
     #[tokio::test]
-    #[should_panic(expected = "DuplicateCiphertext(2)")]
+    #[should_panic(expected = "DuplicateBytes(2)")]
     async fn duplicate_encrypted_hybrid_reports() {
         // TODO: When Encryption/Decryption exists for HybridReports
         // update these to use that, rather than generating OprfReports
