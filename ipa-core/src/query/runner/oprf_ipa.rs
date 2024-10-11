@@ -147,13 +147,15 @@ where
         #[cfg(not(feature = "relaxed-dp"))]
         let padding_params = PaddingParameters::default();
         match config.per_user_credit_cap {
+            1 => oprf_ipa::<_, BA8, BA3, HV, BA20, 1, 256>(ctx, input, aws, dp_params, padding_params).await,
+            2 | 4 => oprf_ipa::<_, BA8, BA3, HV, BA20, 2, 256>(ctx, input, aws, dp_params, padding_params).await,
             8 => oprf_ipa::<_, BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,
             16 => oprf_ipa::<_, BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params, padding_params).await,
             32 => oprf_ipa::<_, BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws, dp_params, padding_params).await,
             64 => oprf_ipa::<_, BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws, dp_params, padding_params).await,
             128 => oprf_ipa::<_, BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws, dp_params, padding_params).await,
             _ => panic!(
-                "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
+                "Invalid value specified for per-user cap: {:?}. Must be one of 1, 2, 4, 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap
             ),
         }

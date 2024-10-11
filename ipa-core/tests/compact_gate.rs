@@ -42,11 +42,6 @@ fn compact_gate_cap_2_no_window_semi_honest_encryped_input() {
 }
 
 #[test]
-fn compact_gate_cap_3_no_window_semi_honest_encryped_input() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 3, 0, true);
-}
-
-#[test]
 fn compact_gate_cap_4_no_window_semi_honest_encryped_input() {
     test_compact_gate(IpaSecurityModel::SemiHonest, 4, 0, true);
 }
