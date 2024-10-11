@@ -243,7 +243,8 @@ where
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
-    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
     Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
     Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -754,7 +755,7 @@ mod compact_gate_tests {
     fn step_count_limit() {
         // This is an arbitrary limit intended to catch changes that unintentionally
         // blow up the step count. It can be increased, within reason.
-        const STEP_COUNT_LIMIT: u32 = 24_000;
+        const STEP_COUNT_LIMIT: u32 = 35_000;
         assert!(
             ProtocolStep::STEP_COUNT < STEP_COUNT_LIMIT,
             "Step count of {actual} exceeds limit of {STEP_COUNT_LIMIT}.",

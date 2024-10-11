@@ -1,4 +1,4 @@
-use std::{any::type_name, iter, pin::Pin};
+use std::{any::type_name, cmp::max, iter, pin::Pin};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
@@ -97,8 +97,12 @@ pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>
 ///
 /// $\sum_{i = 1}^k 2^{k - i} (b + i - 1) \approx 2^k (b + 1) = N (b + 1)$
 pub fn aggregate_values_proof_chunk(input_width: usize, input_item_bits: usize) -> usize {
-    TARGET_PROOF_SIZE / input_width / (input_item_bits + 1)
+    max(2, TARGET_PROOF_SIZE / input_width / (input_item_bits + 1)).next_power_of_two()
 }
+
+// This is the step count for AggregateChunkStep. We need it to size RecordId arrays.
+// This value must be at least the log of the aggregation chunk size.
+pub const AGGREGATE_DEPTH: usize = 24;
 
 /// Aggregate output contributions
 ///
@@ -121,6 +125,7 @@ pub async fn aggregate_values<'ctx, 'fut, C, OV, const B: usize>(
     ctx: C,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
+    record_ids: Option<&mut [RecordId; AGGREGATE_DEPTH]>,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     'ctx: 'fut,
@@ -138,24 +143,31 @@ where
         OV::BITS,
     );
 
+    let mut record_id_store = None;
+    let record_ids =
+        record_ids.unwrap_or_else(|| record_id_store.insert([RecordId::FIRST; AGGREGATE_DEPTH]));
+
     let mut depth = 0;
     while num_rows > 1 {
         // Indeterminate TotalRecords is currently required because aggregation does not poll
         // futures in parallel (thus cannot reach a batch of records).
         //
         // We reduce pairwise, passing through the odd record at the end if there is one, so the
-        // number of outputs (`next_num_rows`) gets rounded up. If calculating an explicit total
-        // records, that would get rounded down.
+        // number of outputs (`next_num_rows`) gets rounded up. The number of addition operations
+        // (number of used record IDs) gets rounded down.
         let par_agg_ctx = ctx
             .narrow(&AggregateChunkStep::from(depth))
             .set_total_records(TotalRecords::Indeterminate);
         let next_num_rows = (num_rows + 1) / 2;
+        let base_record_id = record_ids[depth];
+        record_ids[depth] += num_rows / 2;
         aggregated_stream = Box::pin(
             FixedLength::new(aggregated_stream, num_rows)
                 .try_chunks(2)
                 .enumerate()
                 .then(move |(i, chunk_res)| {
                     let ctx = par_agg_ctx.clone();
+                    let record_id = base_record_id + i;
                     async move {
                         match chunk_res {
                             Err(e) => {
@@ -170,7 +182,6 @@ where
                                 assert_eq!(chunk_pair.len(), 2);
                                 let b = chunk_pair.pop().unwrap();
                                 let a = chunk_pair.pop().unwrap();
-                                let record_id = RecordId::from(i);
                                 if a.len() < usize::try_from(OV::BITS).unwrap() {
                                     // If we have enough output bits, add and keep the carry.
                                     let (mut sum, carry) = integer_add::<_, AdditionStep, B>(
@@ -198,7 +209,7 @@ where
                         "reduce",
                         depth = depth,
                         rows = num_rows,
-                        record = i
+                        record = u32::from(record_id),
                     ))
                 }),
         );
@@ -268,7 +279,7 @@ pub mod tests {
             let result: BitDecomposed<BA8> = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -291,7 +302,7 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -317,7 +328,7 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -345,7 +356,7 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -372,7 +383,7 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -391,7 +402,7 @@ pub mod tests {
         run(|| async move {
             let result = TestWorld::default()
                 .upgraded_semi_honest((), |ctx, ()| {
-                    aggregate_values::<_, BA8, 8>(ctx, stream::empty().boxed(), 0)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::empty().boxed(), 0, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -412,7 +423,7 @@ pub mod tests {
             let result = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await;
 
@@ -432,7 +443,7 @@ pub mod tests {
             let _ = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() + 1;
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -454,7 +465,7 @@ pub mod tests {
             let _ = TestWorld::default()
                 .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() - 1;
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
                 .await
                 .map(Result::unwrap)
@@ -540,6 +551,7 @@ pub mod tests {
                         ctx,
                         stream::iter(inputs).boxed(),
                         num_rows,
+                        None,
                     )
                 })
                 .await
