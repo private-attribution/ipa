@@ -120,6 +120,8 @@ mod tests {
         expected = "not implemented: query::runnner::HybridQuery.execute is not fully implemented"
     )]
     async fn encrypted_hybrid_reports() {
+        // While this test currently checks for an unimplemented panic it is
+        // designed to test for a correct result for a complete implementation.
         const EXPECTED: &[u128] = &[0, 8, 5];
 
         // TODO: When Encryption/Decryption exists for HybridReports
