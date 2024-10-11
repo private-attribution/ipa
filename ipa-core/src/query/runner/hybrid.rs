@@ -62,28 +62,25 @@ where
             ));
         }
 
-        let _input = LengthDelimitedStream::<
-            EncryptedHybridReport<BreakdownKey, Value, Timestamp, _>,
-            _,
-        >::new(input_stream)
-        .map_err(Into::<Error>::into)
-        .map_ok(|enc_reports| {
-            unique_encrypted_hybrid_reports
-                .check_duplicates(&enc_reports)
-                .unwrap();
+        let _input = LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
+            .map_err(Into::<Error>::into)
+            .map_ok(|enc_reports| {
+                unique_encrypted_hybrid_reports
+                    .check_duplicates(&enc_reports)
+                    .unwrap();
 
-            iter(enc_reports.into_iter().map({
-                |enc_report| {
-                    enc_report
-                        .decrypt(key_registry.as_ref())
-                        .map_err(Into::<Error>::into)
-                }
-            }))
-        })
-        .try_flatten()
-        .take(sz)
-        .try_collect::<Vec<_>>()
-        .await?;
+                iter(enc_reports.into_iter().map({
+                    |enc_report| {
+                        enc_report
+                            .decrypt::<R, BreakdownKey, Value, Timestamp>(key_registry.as_ref())
+                            .map_err(Into::<Error>::into)
+                    }
+                }))
+            })
+            .try_flatten()
+            .take(sz)
+            .try_collect::<Vec<_>>()
+            .await?;
 
         unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
     }

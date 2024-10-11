@@ -1,16 +1,14 @@
-use std::{
-    collections::HashSet,
-    ops::{Add, Deref},
-};
+use std::{collections::HashSet, ops::Add};
 
 use bytes::Bytes;
 use generic_array::ArrayLength;
-use typenum::{Sum, U16};
+use rand_core::{CryptoRng, RngCore};
+use typenum::{Sum, Unsigned, U16};
 
 use crate::{
     error::Error,
     ff::{boolean_array::BA64, Serializable},
-    hpke::PrivateKeyRegistry,
+    hpke::{EncapsulationSize, PrivateKeyRegistry, PublicKeyRegistry},
     report::{EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
@@ -70,13 +68,35 @@ where
     BK: SharedValue,
     V: SharedValue,
 {
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt<R: CryptoRng + RngCore>(
+        &self,
+        _key_id: KeyIdentifier,
+        _key_registry: &impl PublicKeyRegistry,
+        _rng: &mut R,
+    ) -> Result<Vec<u8>, InvalidReportError> {
+        unimplemented!()
+    }
+}
+
+#[derive(Clone)]
+pub struct EncryptedHybridReport {
+    bytes: Bytes,
+}
+
+impl EncryptedHybridReport {
     /// ## Errors
-    /// If the report contents are invalid.
-    pub fn from_bytes<P, B, TS>(data: B, key_registry: &P) -> Result<Self, InvalidReportError>
+    /// If the report fails to decrypt
+    pub fn decrypt<P, BK, V, TS>(
+        &self,
+        key_registry: &P,
+    ) -> Result<HybridReport<BK, V>, InvalidReportError>
     where
         P: PrivateKeyRegistry,
-        B: Deref<Target = [u8]>,
-        TS: SharedValue, // this is only needed for the backport from EncryptedOprfReport
+        BK: SharedValue,
+        V: SharedValue,
+        TS: SharedValue,
         Replicated<BK>: Serializable,
         Replicated<V>: Serializable,
         Replicated<TS>: Serializable,
@@ -95,69 +115,9 @@ where
             U16,
         >: ArrayLength,
     {
-        let encrypted_hybrid_report =
-            EncryptedHybridReport(EncryptedOprfReport::<BK, V, TS, B>::from_bytes(data)?);
-        let hybrid_report = encrypted_hybrid_report.decrypt(key_registry)?;
-        Ok(hybrid_report)
-    }
-}
-
-#[derive(Clone)]
-pub struct EncryptedHybridReport<BK, V, TS, B>(EncryptedOprfReport<BK, V, TS, B>)
-where
-    B: Deref<Target = [u8]>,
-    BK: SharedValue,
-    V: SharedValue,
-    TS: SharedValue,
-    Replicated<BK>: Serializable,
-    Replicated<V>: Serializable,
-    Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-        <Replicated<TS> as Serializable>::Size,
-    >: Add<U16>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U16,
-    >: ArrayLength;
-
-impl<BK, V, TS, B> EncryptedHybridReport<BK, V, TS, B>
-where
-    B: Deref<Target = [u8]>,
-    BK: SharedValue,
-    V: SharedValue,
-    TS: SharedValue,
-    Replicated<BK>: Serializable,
-    Replicated<V>: Serializable,
-    Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-        <Replicated<TS> as Serializable>::Size,
-    >: Add<U16>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U16,
-    >: ArrayLength,
-{
-    /// ## Errors
-    /// If the report fails to decrypt
-    pub fn decrypt<P: PrivateKeyRegistry>(
-        &self,
-        key_registry: &P,
-    ) -> Result<HybridReport<BK, V>, InvalidReportError> {
-        let oprf_report = self.0.decrypt(key_registry)?;
+        let encrypted_oprf_report =
+            EncryptedOprfReport::<BK, V, TS, Bytes>::try_from(self.bytes.clone())?;
+        let oprf_report = encrypted_oprf_report.decrypt(key_registry)?;
         match oprf_report.event_type {
             EventType::Source => Ok(HybridReport::Impression(HybridImpressionReport {
                 match_key: oprf_report.match_key,
@@ -171,34 +131,11 @@ where
     }
 }
 
-impl<BK, V, TS> TryFrom<Bytes> for EncryptedHybridReport<BK, V, TS, Bytes>
-where
-    BK: SharedValue,
-    V: SharedValue,
-    TS: SharedValue,
-    Replicated<BK>: Serializable,
-    Replicated<V>: Serializable,
-    Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-        <Replicated<TS> as Serializable>::Size,
-    >: Add<U16>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U16,
-    >: ArrayLength,
-{
+impl TryFrom<Bytes> for EncryptedHybridReport {
     type Error = InvalidReportError;
 
     fn try_from(bytes: Bytes) -> Result<Self, InvalidReportError> {
-        let report = EncryptedOprfReport::from_bytes(bytes).unwrap();
-        Ok(EncryptedHybridReport(report))
+        Ok(EncryptedHybridReport { bytes })
     }
 }
 
@@ -206,32 +143,11 @@ pub trait UniqueBytes {
     fn unique_bytes(&self) -> Vec<u8>;
 }
 
-impl<BK, V, TS, B> UniqueBytes for EncryptedHybridReport<BK, V, TS, B>
-where
-    B: Deref<Target = [u8]>,
-    BK: SharedValue,
-    V: SharedValue,
-    TS: SharedValue,
-    Replicated<BK>: Serializable,
-    Replicated<V>: Serializable,
-    Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-        <Replicated<TS> as Serializable>::Size,
-    >: Add<U16>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U16,
-    >: ArrayLength,
-{
+impl UniqueBytes for EncryptedHybridReport {
     fn unique_bytes(&self) -> Vec<u8> {
-        self.0.mk_ciphertext().to_vec()
+        let start: usize = EncapsulationSize::USIZE;
+        let end: usize = start + 16;
+        self.bytes[start..end].to_vec()
     }
 }
 
@@ -295,7 +211,7 @@ mod test {
         error::Error,
         ff::boolean_array::{BA20, BA3, BA8},
         hpke::{KeyPair, KeyRegistry},
-        report::{EncryptedOprfReport, EventType, OprfReport},
+        report::{EventType, OprfReport},
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
@@ -340,20 +256,15 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let enc_report = EncryptedHybridReport::<BA8, BA3, BA20, _>(
-            EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap(),
-        );
-        let hybrid_report2 = enc_report.decrypt(&key_registry).unwrap();
+        let enc_report = EncryptedHybridReport {
+            bytes: enc_report_bytes.into(),
+        };
+
+        let hybrid_report2 = enc_report
+            .decrypt::<_, BA8, BA3, BA20>(&key_registry)
+            .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
-
-        let hybrid_report3 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
-            enc_report_bytes.as_slice(),
-            &key_registry,
-        )
-        .unwrap();
-
-        assert_eq!(hybrid_report, hybrid_report3);
     }
 
     #[test]
@@ -374,19 +285,14 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let enc_report = EncryptedHybridReport::<BA8, BA3, BA20, _>(
-            EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap(),
-        );
-        let hybrid_report2 = enc_report.decrypt(&key_registry).unwrap();
+        let enc_report = EncryptedHybridReport {
+            bytes: enc_report_bytes.into(),
+        };
+        let hybrid_report2 = enc_report
+            .decrypt::<_, BA8, BA3, BA20>(&key_registry)
+            .unwrap();
+
         assert_eq!(hybrid_report, hybrid_report2);
-
-        let hybrid_report3 = HybridReport::<BA8, BA3>::from_bytes::<_, _, BA20>(
-            enc_report_bytes.as_slice(),
-            &key_registry,
-        )
-        .unwrap();
-
-        assert_eq!(hybrid_report, hybrid_report3);
     }
 
     #[test]
