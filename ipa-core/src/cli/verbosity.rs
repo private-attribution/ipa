@@ -31,20 +31,26 @@ impl Verbosity {
     #[must_use]
     pub fn setup_logging(&self) -> LoggingHandle {
         let filter_layer = self.log_filter();
+        info!("Logging setup at level {}", filter_layer);
+
         let fmt_layer = fmt::layer()
             .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
             .with_ansi(std::io::stderr().is_terminal())
             .with_writer(stderr);
 
-        tracing_subscriber::registry()
-            .with(self.log_filter())
-            .with(fmt_layer)
-            .init();
+        let registry = tracing_subscriber::registry()
+            .with(filter_layer)
+            .with(fmt_layer);
+
+        if cfg!(feature = "disable-metrics") {
+            registry.init();
+        } else {
+            registry.init();
+        }
 
         set_global_panic_hook();
         let (collector, producer, controller) = ipa_metrics::installer();
 
-        info!("Logging setup at level {}", filter_layer);
         std::thread::spawn(|| {
             collector.install();
             loop {
