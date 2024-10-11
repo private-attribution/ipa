@@ -102,6 +102,8 @@ impl MetricsContext {
                     eprintln!("Failed to send metrics: disconnected");
                 }
             }
+        } else {
+            eprintln!("MetricsContext is not connected to the collector thread");
         }
     }
 }

@@ -20,6 +20,7 @@ use ipa_core::{
     AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tracing::{error, info};
+use ipa_metrics::{MetricsCurrentThreadContext};
 
 #[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
 #[global_allocator]
@@ -197,10 +198,25 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
 #[tokio::main]
 pub async fn main() {
     let args = Args::parse();
-    let _handle = args.logging.setup_logging();
+    let handle = args.logging.setup_logging();
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .on_thread_start({
+            let producer = handle.producer.clone();
+            move || {
+                producer.install();
+            }
+        })
+        .on_thread_stop(|| {
+            MetricsCurrentThreadContext::flush()
+        })
+        .on_thread_park(|| {
+            MetricsCurrentThreadContext::flush()
+        }).build().unwrap();
 
     let res = match args.command {
-        None => server(args.server).await,
+        None => rt.spawn(server(args.server)).await.unwrap(),
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
         Some(HelperCommand::Confgen(args)) => client_config_setup(args),

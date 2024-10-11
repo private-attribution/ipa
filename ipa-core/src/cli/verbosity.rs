@@ -5,10 +5,11 @@ use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
     fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
 };
-
+use ipa_metrics::{metric_name, MetricsCollector, MetricsCollectorController, MetricsProducer};
 use crate::{
     error::set_global_panic_hook,
 };
+use crate::telemetry::metrics::BYTES_SENT;
 
 #[derive(Debug, Parser)]
 pub struct Verbosity {
@@ -21,7 +22,10 @@ pub struct Verbosity {
     verbose: u8,
 }
 
-pub struct LoggingHandle;
+pub struct LoggingHandle {
+    pub producer: MetricsProducer,
+    pub controller: MetricsCollectorController,
+}
 
 impl Verbosity {
     #[must_use]
@@ -38,10 +42,25 @@ impl Verbosity {
             .init();
 
         set_global_panic_hook();
+        let (collector, producer, controller) = ipa_metrics::installer();
 
         info!("Logging setup at level {}", filter_layer);
+        std::thread::spawn(|| {
+            collector.install();
+            loop {
+                MetricsCollector::with_current_mut(|store| {
+                    let store = store.recv_one();
+                    if !store.is_empty() {
+                        tracing::info!("total bytes sent, so far: {}", store.counter_value(&metric_name!(BYTES_SENT)));
+                    }
+                });
+            }
+        });
 
-        LoggingHandle
+        LoggingHandle {
+            producer,
+            controller
+        }
     }
 
     fn log_filter(&self) -> EnvFilter {

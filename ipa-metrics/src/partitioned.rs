@@ -37,7 +37,7 @@ thread_local! {
 /// For safety, it will panic if partition is not set. If partitioning
 /// is not required, turn off the `partitions` feature and
 /// use [`Store`] instead
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PartitionedStore {
     inner: hashbrown::HashMap<Partition, Store, FxBuildHasher>,
     default_store: Store,
@@ -85,7 +85,7 @@ impl PartitionedStore {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.inner.is_empty() && self.default_store.is_empty()
     }
 
     pub fn merge(&mut self, other: Self) {
@@ -150,13 +150,6 @@ mod tests {
         );
     }
 
-    // #[test]
-    // #[should_panic(expected = "Partition must be set before PartitionedStore can be used.")]
-    // fn current_panic() {
-    //     let mut store = PartitionedStore::new();
-    //     store.with_current_partition(|_| unreachable!());
-    // }
-
     #[test]
     fn current_partition() {
         let metric = metric_name!("foo");
@@ -174,5 +167,16 @@ mod tests {
             6,
             store.with_current_partition(|store| store.counter(&metric).get())
         );
+    }
+
+
+    #[test]
+    fn empty() {
+        let mut store = PartitionedStore::new();
+        store.with_current_partition(|store| {
+            store.counter(&metric_name!("foo")).inc(1);
+        });
+
+        assert!(!store.is_empty());
     }
 }

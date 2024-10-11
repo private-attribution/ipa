@@ -54,7 +54,7 @@ impl MetricsProducer {
 }
 
 #[must_use]
-struct ProducerDropHandle;
+pub struct ProducerDropHandle;
 
 impl Drop for ProducerDropHandle {
     fn drop(&mut self) {
@@ -119,6 +119,27 @@ impl MetricsCollector {
         }
     }
 
+    pub fn with_current_mut<F: FnOnce(&mut Self) -> T, T>(f: F) -> T {
+        COLLECTOR.with_borrow_mut(|c| {
+            let collector = c.as_mut().expect("Collector is installed");
+            f(collector)
+        })
+    }
+
+    pub fn try_recv_one(&mut self) -> &MetricsStore {
+        if let Ok(store) = self.rx.try_recv() {
+            self.local_store.merge(store)
+        }
+        &self.local_store
+    }
+
+    pub fn recv_one(&mut self) -> &MetricsStore {
+        if let Ok(store) = self.rx.recv() {
+            self.local_store.merge(store)
+        }
+        &self.local_store
+    }
+
     pub fn recv_all(&mut self) {
         loop {
             match self.rx.recv() {
@@ -143,6 +164,7 @@ impl MetricsCollector {
             collector.event_loop();
         });
     }
+
 }
 
 impl Drop for MetricsCollector {
