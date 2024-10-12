@@ -97,7 +97,6 @@ impl MetricsCollector {
         loop {
             crossbeam_channel::select! {
                 recv(self.rx) -> msg => {
-                    eprintln!("received new snapshot");
                     self.local_store.merge(msg.unwrap());
                 }
                 recv(self.command_rx) -> cmd => {
@@ -107,10 +106,6 @@ impl MetricsCollector {
                         }
                         Err(_) => {
                             eprintln!("disconnected");
-                            break;
-                        }
-                        _ => {
-                            eprintln!("unknown command");
                             break;
                         }
                     }

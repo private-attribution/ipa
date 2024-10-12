@@ -1,5 +1,5 @@
 use std::io::{stderr, IsTerminal};
-
+use std::time::Duration;
 use clap::Parser;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
@@ -9,7 +9,7 @@ use ipa_metrics::{metric_name, MetricsCollector, MetricsCollectorController, Met
 use crate::{
     error::set_global_panic_hook,
 };
-use crate::telemetry::metrics::BYTES_SENT;
+use crate::telemetry::metrics::{BYTES_SENT, RECORDS_SENT};
 
 #[derive(Debug, Parser)]
 pub struct Verbosity {
@@ -24,7 +24,6 @@ pub struct Verbosity {
 
 pub struct LoggingHandle {
     pub producer: MetricsProducer,
-    pub controller: MetricsCollectorController,
 }
 
 impl Verbosity {
@@ -47,24 +46,26 @@ impl Verbosity {
         set_global_panic_hook();
         let (collector, producer, controller) = ipa_metrics::installer();
 
-        std::thread::spawn(|| {
+        std::thread::spawn(move || {
             collector.install();
-            let mut last_bytes_sent = 0;
+            MetricsCollector::wait_for_shutdown();
+        });
+        std::thread::spawn(move || {
+            let mut before = 0;
             loop {
-                MetricsCollector::with_current_mut(|store| {
-                    let store = store.recv_one();
-                    let new_bytes_sent = store.counter_value(&metric_name!(BYTES_SENT));
-                    if !store.is_empty() && last_bytes_sent != new_bytes_sent {
-                        tracing::info!("total bytes sent, so far: {}, before: {}", new_bytes_sent, last_bytes_sent);
-                        last_bytes_sent = new_bytes_sent;
-                    }
-                });
+                std::thread::sleep(Duration::from_secs(10));
+                let snapshot = controller.snapshot().unwrap();
+                let after = snapshot.counter_value(&metric_name!(BYTES_SENT));
+                let records_sent = snapshot.counter_value(&metric_name!(RECORDS_SENT));
+                if after > before {
+                    tracing::info!("Metrics Snapshot: MB sent: {}, records sent: {}", after / 1024, records_sent);
+                    before = after;
+                }
             }
         });
 
         LoggingHandle {
             producer,
-            controller
         }
     }
 
