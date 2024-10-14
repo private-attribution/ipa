@@ -15,6 +15,7 @@ use ::tokio::{
     net::TcpStream,
 };
 use axum::{
+    http::HeaderValue,
     response::{IntoResponse, Response},
     routing::IntoMakeService,
     Router,
@@ -43,7 +44,7 @@ use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     executor::{IpaJoinHandle, IpaRuntime},
-    helpers::HelperIdentity,
+    helpers::{HelperIdentity, TransportIdentity},
     net::{
         parse_certificate_and_private_key_bytes, server::config::HttpServerConfig, Error,
         HttpTransport, CRYPTO_PROVIDER,
@@ -443,6 +444,13 @@ impl<S> SetClientIdentityFromHeader<S> {
     fn new(inner: S) -> Self {
         Self { inner }
     }
+
+    fn parse_client_id(header_value: &HeaderValue) -> Result<ClientIdentity, Error> {
+        let header_str = header_value.to_str()?;
+        HelperIdentity::from_str(header_str)
+            .map_err(|e| Error::InvalidHeader(Box::new(e)))
+            .map(ClientIdentity)
+    }
 }
 
 impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
@@ -459,10 +467,10 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
 
     fn call(&mut self, mut req: Request<B>) -> Self::Future {
         if let Some(header_value) = req.headers().get(&HTTP_CLIENT_ID_HEADER) {
-            let id_result = serde_json::from_slice(header_value.as_ref())
+            let id_result = Self::parse_client_id(header_value)
                 .map_err(|e| Error::InvalidHeader(format!("{HTTP_CLIENT_ID_HEADER}: {e}").into()));
             match id_result {
-                Ok(id) => req.extensions_mut().insert(ClientIdentity(id)),
+                Ok(id) => req.extensions_mut().insert(id),
                 Err(err) => return ready(Ok(err.into_response())).right_future(),
             };
         }
@@ -722,6 +730,7 @@ mod e2e_tests {
         let expected = expected_req(addr.to_string());
         let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
         let response = client.request(req).await.unwrap();
+        println!("{}", response.status());
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_eq!(

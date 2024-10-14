@@ -21,7 +21,7 @@ use crate::{
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{Gate, QueryId},
-    sharding::ShardIndex,
+    sharding::{Ring, ShardIndex},
     sync::Arc,
 };
 
@@ -208,7 +208,7 @@ impl Transport for Arc<HttpTransport> {
                     .spawn(
                         resp_future
                             .map_err(Into::into)
-                            .and_then(MpcHelperClient::resp_ok),
+                            .and_then(MpcHelperClient::<Ring>::resp_ok),
                     )
                     .await?;
                 Ok(())

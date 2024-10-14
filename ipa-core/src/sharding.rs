@@ -3,9 +3,53 @@ use std::{
     num::TryFromIntError,
 };
 
+use serde::{Deserialize, Serialize};
+
+use crate::helpers::{HelperIdentity, TransportIdentity};
+
+/// This simple trait is used to make aware on what transport dimnsion one is running. Structs like
+/// [`crate::net::client::MpcHelperClient<R>`] use it to know whether they are talking to other
+/// servers as Shards inside a Helper or as a Helper talking to another Helper in a Ring. This
+/// trait can be used to limit the functions exposed by a struct impl depending on the context that
+/// it's being used. Continuing the previous example, the functions a
+/// [`crate::net::client::MpcHelperClient<R>`] provides are dependent on whether it's communicating
+/// with another Shard or another Helper.
+///
+/// This trait is a safety restriction so that structs or traits only expose an API that's
+/// meaningful for their specific context. When used as a generic bound, it also spreads through
+/// the types making it harder to be misused or combining incompatible types, e.g. Using a
+/// [`ShardIndex`] with a [`Ring`].
+pub trait TransportRestriction: Debug + Send + Sync + Clone + 'static {
+    /// The meaningful identity used in this transport dimension.
+    type Identity: TransportIdentity;
+}
+
+/// This marker is used to restrict communication inside a single Helper, with other shards.
+#[derive(Debug, Copy, Clone)]
+pub struct Sharding;
+
+/// This marker is used to restrict communication inter Helpers. This communication usually has
+/// more restrictions. 3 Hosts with the same sharding index are conencted in a Ring.
+#[derive(Debug, Copy, Clone)]
+pub struct Ring;
+
+impl TransportRestriction for Sharding {
+    type Identity = ShardIndex;
+}
+impl TransportRestriction for Ring {
+    type Identity = HelperIdentity;
+}
+
 /// A unique zero-based index of the helper shard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ShardIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[serde(from = "u32")]
+pub struct ShardIndex(pub u32);
+
+impl From<ShardIndex> for u32 {
+    fn from(value: ShardIndex) -> Self {
+        value.0
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct Sharded {
