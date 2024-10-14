@@ -11,7 +11,7 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{context::UpgradableContext, ipa_prf::shuffle::Shuffle, step::ProtocolStep::Hybrid},
-    report::hybrid::{EncryptedHybridReport, UniqueBytesValidator},
+    report::hybrid::{EncryptedHybridReport, UniqueTag, UniqueTagValidator},
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
@@ -54,7 +54,7 @@ where
         let _ctx = ctx.narrow(&Hybrid);
         let sz = usize::from(query_size);
 
-        let mut unique_encrypted_hybrid_reports = UniqueBytesValidator::new(sz);
+        let mut unique_encrypted_hybrid_reports = UniqueTagValidator::new(sz);
 
         if config.plaintext_match_keys {
             return Err(Error::Unsupported(
@@ -65,6 +65,13 @@ where
         let _input = LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
             .map_err(Into::<Error>::into)
             .and_then(|enc_reports| {
+                let _unique_tags = iter(
+                    enc_reports
+                        .clone()
+                        .into_iter()
+                        .map(|enc_report| UniqueTag::from_unique_bytes(&enc_report)),
+                );
+
                 future::ready(
                     unique_encrypted_hybrid_reports
                         .check_duplicates(&enc_reports)

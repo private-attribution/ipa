@@ -150,37 +150,60 @@ impl TryFrom<Bytes> for EncryptedHybridReport {
     }
 }
 
+const TAG_SIZE: usize = TagSize::USIZE;
+
+#[derive(Clone)]
+pub struct UniqueTag {
+    bytes: [u8; TAG_SIZE],
+}
+
 pub trait UniqueBytes {
-    fn unique_bytes(&self) -> Vec<u8>;
+    fn unique_bytes(&self) -> [u8; TAG_SIZE];
+}
+
+impl UniqueBytes for UniqueTag {
+    fn unique_bytes(&self) -> [u8; TAG_SIZE] {
+        self.bytes
+    }
 }
 
 impl UniqueBytes for EncryptedHybridReport {
     /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
     /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
-    fn unique_bytes(&self) -> Vec<u8> {
-        self.mk_ciphertext()[0..TagSize::USIZE].to_vec()
+    fn unique_bytes(&self) -> [u8; TAG_SIZE] {
+        let slice = &self.mk_ciphertext()[0..TAG_SIZE];
+        let mut array = [0u8; TAG_SIZE];
+        array.copy_from_slice(slice);
+        array
+    }
+}
+
+impl UniqueTag {
+    // Function to attempt to create a UniqueTag from a UniqueBytes implementor
+    pub fn from_unique_bytes<T: UniqueBytes>(item: &T) -> Self {
+        UniqueTag {
+            bytes: item.unique_bytes(),
+        }
     }
 }
 
 #[derive(Debug)]
-pub struct UniqueBytesValidator {
-    hash_set: HashSet<Vec<u8>>,
+pub struct UniqueTagValidator {
+    hash_set: HashSet<[u8; TAG_SIZE]>,
     check_counter: usize,
 }
 
-impl UniqueBytesValidator {
+impl UniqueTagValidator {
     #[must_use]
     pub fn new(size: usize) -> Self {
-        UniqueBytesValidator {
+        UniqueTagValidator {
             hash_set: HashSet::with_capacity(size),
             check_counter: 0,
         }
     }
-
-    fn insert(&mut self, value: Vec<u8>) -> bool {
+    fn insert(&mut self, value: [u8; TAG_SIZE]) -> bool {
         self.hash_set.insert(value)
     }
-
     /// Checks that item is unique among all checked thus far
     ///
     /// ## Errors
@@ -193,7 +216,6 @@ impl UniqueBytesValidator {
             Err(Error::DuplicateBytes(self.check_counter))
         }
     }
-
     /// Checks that an iter of items is unique among the iter and any other items checked thus far
     ///
     /// ## Errors
@@ -213,7 +235,7 @@ mod test {
 
     use super::{
         EncryptedHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
-        UniqueBytes, UniqueBytesValidator,
+        UniqueTag, UniqueTagValidator,
     };
     use crate::{
         error::Error,
@@ -239,9 +261,9 @@ mod test {
         }
     }
 
-    fn generate_random_bytes(size: usize) -> Vec<u8> {
+    fn generate_random_bytes() -> [u8; 16] {
         let mut rng = thread_rng();
-        let mut bytes = vec![0u8; size];
+        let mut bytes = [0u8; 16];
         rng.fill(&mut bytes[..]);
         bytes
     }
@@ -305,40 +327,30 @@ mod test {
 
     #[test]
     fn unique_encrypted_hybrid_reports() {
-        #[derive(Clone)]
-        pub struct UniqueByteHolder {
-            bytes: Vec<u8>,
-        }
+        let tag1 = UniqueTag {
+            bytes: generate_random_bytes(),
+        };
+        let tag2 = UniqueTag {
+            bytes: generate_random_bytes(),
+        };
+        let tag3 = UniqueTag {
+            bytes: generate_random_bytes(),
+        };
+        let tag4 = UniqueTag {
+            bytes: generate_random_bytes(),
+        };
 
-        impl UniqueByteHolder {
-            pub fn new(size: usize) -> Self {
-                let bytes = generate_random_bytes(size);
-                UniqueByteHolder { bytes }
-            }
-        }
+        let mut unique_bytes = UniqueTagValidator::new(4);
 
-        impl UniqueBytes for UniqueByteHolder {
-            fn unique_bytes(&self) -> Vec<u8> {
-                self.bytes.clone()
-            }
-        }
-
-        let bytes1 = UniqueByteHolder::new(4);
-        let bytes2 = UniqueByteHolder::new(4);
-        let bytes3 = UniqueByteHolder::new(4);
-        let bytes4 = UniqueByteHolder::new(4);
-
-        let mut unique_bytes = UniqueBytesValidator::new(4);
-
-        unique_bytes.check_duplicate(&bytes1).unwrap();
+        unique_bytes.check_duplicate(&tag1).unwrap();
 
         unique_bytes
-            .check_duplicates(&[bytes2.clone(), bytes3.clone()])
+            .check_duplicates(&[tag2.clone(), tag3.clone()])
             .unwrap();
-        let expected_err = unique_bytes.check_duplicate(&bytes2);
+        let expected_err = unique_bytes.check_duplicate(&tag2);
         assert!(matches!(expected_err, Err(Error::DuplicateBytes(4))));
 
-        let expected_err = unique_bytes.check_duplicates(&[bytes4, bytes3]);
+        let expected_err = unique_bytes.check_duplicates(&[tag4, tag3]);
         assert!(matches!(expected_err, Err(Error::DuplicateBytes(6))));
     }
 }
