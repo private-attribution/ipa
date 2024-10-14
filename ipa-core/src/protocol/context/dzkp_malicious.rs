@@ -43,6 +43,10 @@ impl<'a, B: ShardBinding> DZKPUpgraded<'a, B> {
             // in tests; there shouldn't be a risk of deadlocks with one record per
             // batch; and UnorderedReceiver capacity (which is set from active_work)
             // must be at least two.
+            //
+            // Also rely on the protocol to ensure an appropriate active_work if
+            // records_per_batch is `usize::MAX` (unlimited batch size). Allocating
+            // storage for `usize::MAX` active records won't work.
             base_ctx.active_work()
         } else {
             // Adjust active_work to match records_per_batch. If it is less, we will
