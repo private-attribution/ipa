@@ -1,7 +1,7 @@
-use std::{collections::HashSet, ops::Add};
+use std::{collections::HashSet, convert::Infallible, ops::Add};
 
 use bytes::Bytes;
-use generic_array::ArrayLength;
+use generic_array::{ArrayLength, GenericArray};
 use rand_core::{CryptoRng, RngCore};
 use typenum::{Sum, Unsigned, U16};
 
@@ -184,6 +184,23 @@ impl UniqueTag {
         UniqueTag {
             bytes: item.unique_bytes(),
         }
+    }
+}
+
+// This will vaild at compile time if TAG_SIZE doesn't match U16
+const _: [(); 16] = [(); TAG_SIZE];
+
+impl Serializable for UniqueTag {
+    type Size = U16; // This must match TAG_SIZE
+    type DeserializationError = Infallible;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        buf.copy_from_slice(&self.bytes);
+    }
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        let mut bytes = [0u8; TAG_SIZE];
+        bytes.copy_from_slice(buf.as_slice());
+        Ok(UniqueTag { bytes })
     }
 }
 
