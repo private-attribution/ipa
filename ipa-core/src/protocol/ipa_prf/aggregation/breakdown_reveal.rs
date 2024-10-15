@@ -1,4 +1,4 @@
-use std::{convert::Infallible, mem, pin::pin};
+use std::{convert::Infallible, pin::pin};
 
 use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
@@ -34,7 +34,6 @@ use crate::{
         TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
-    utils::vec_chunks::vec_chunks,
 };
 
 /// Improved Aggregation a.k.a Aggregation revealing breakdown.
@@ -100,7 +99,8 @@ where
 
     while intermediate_results.len() > 1 {
         let mut record_ids = [RecordId::FIRST; AGGREGATE_DEPTH];
-        for chunk in vec_chunks(mem::take(&mut intermediate_results), agg_proof_chunk) {
+        let mut next_intermediate_results = Vec::new();
+        for chunk in intermediate_results.chunks(agg_proof_chunk) {
             let chunk_len = chunk.len();
             let validator = ctx.clone().dzkp_validator(
                 MaliciousProtocolSteps {
@@ -109,21 +109,22 @@ where
                 },
                 // We have to specify usize::MAX here because the procession through
                 // record IDs is different at each step of the reduction. The batch
-                // size is limited by `vec_chunks`, above.
+                // size is limited by `intermediate_results.chunks()`, above.
                 usize::MAX,
             );
             let result = aggregate_values::<_, HV, B>(
                 validator.context(),
-                stream::iter(chunk).map(Ok).boxed(),
+                stream::iter(chunk).map(|v| Ok(v.clone())).boxed(),
                 chunk_len,
                 Some(&mut record_ids),
             )
             .await?;
             validator.validate().await?;
             chunk_counter += 1;
-            intermediate_results.push(result);
+            next_intermediate_results.push(result);
         }
         depth += 1;
+        intermediate_results = next_intermediate_results;
     }
 
     Ok(intermediate_results
