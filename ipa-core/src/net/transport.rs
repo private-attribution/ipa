@@ -388,7 +388,7 @@ mod tests {
             zip(HelperIdentity::make_three(), zip(sockets, server_config)).map(
                 |(id, (socket, server_config))| async move {
                     let identity = if disable_https {
-                        ClientIdentity::Helper(id)
+                        ClientIdentity::Header(id)
                     } else {
                         get_test_identity(id)
                     };

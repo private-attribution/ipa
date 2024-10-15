@@ -520,6 +520,7 @@ pub(crate) mod tests {
             hpke_config: None,
         };
         let client = MpcHelperClient::new(
+            IpaRuntime::current(),
             &ClientConfig::default(),
             peer_config,
             ClientIdentity::<Ring>::None,
@@ -691,7 +692,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        MpcHelperClient::<IntraHelper>::resp_ok(resp).await.unwrap();
+        MpcHelperClient::<Ring>::resp_ok(resp).await.unwrap();
 
         let mut stream = Arc::clone(&transport)
             .receive(HelperIdentity::ONE, (QueryId, expected_step.clone()))
