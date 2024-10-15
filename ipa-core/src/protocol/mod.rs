@@ -152,7 +152,7 @@ pub struct RecordIdRange(Range<RecordId>);
 impl RecordIdRange {
     pub const ALL: RecordIdRange = RecordIdRange(RecordId(0)..RecordId(u32::MAX));
 
-    #[cfg(test)]
+    #[cfg(all(test, unit_test))]
     fn peek_first(&self) -> RecordId {
         self.0.start
     }
