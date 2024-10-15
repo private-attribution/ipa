@@ -55,6 +55,8 @@ pub(crate) mod shuffle;
 pub(crate) mod step;
 pub mod validation_protocol;
 
+pub use malicious_security::prover::{LargeProofGenerator, SmallProofGenerator};
+
 /// Match key type
 pub type MatchKey = BA64;
 /// Match key size
@@ -755,7 +757,7 @@ mod compact_gate_tests {
     fn step_count_limit() {
         // This is an arbitrary limit intended to catch changes that unintentionally
         // blow up the step count. It can be increased, within reason.
-        const STEP_COUNT_LIMIT: u32 = 35_000;
+        const STEP_COUNT_LIMIT: u32 = 24_000;
         assert!(
             ProtocolStep::STEP_COUNT < STEP_COUNT_LIMIT,
             "Step count of {actual} exceeds limit of {STEP_COUNT_LIMIT}.",

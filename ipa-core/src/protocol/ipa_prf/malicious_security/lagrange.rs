@@ -50,6 +50,16 @@ where
     }
 }
 
+impl<F, const N: usize> Default for CanonicalLagrangeDenominator<F, N>
+where
+    F: PrimeField + TryFrom<u128>,
+    <F as TryFrom<u128>>::Error: Debug,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// `LagrangeTable` is a precomputed table for the Lagrange evaluation.
 /// Allows to compute points on the polynomial, i.e. output points,
 /// given enough points on the polynomial, i.e. input points,

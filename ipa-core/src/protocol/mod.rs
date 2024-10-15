@@ -10,7 +10,7 @@ pub mod step;
 use std::{
     fmt::{Debug, Display, Formatter},
     hash::Hash,
-    ops::{Add, AddAssign},
+    ops::{Add, AddAssign, Range},
 };
 
 pub use basics::{BasicProtocols, BooleanProtocols};
@@ -144,6 +144,34 @@ impl Add<usize> for RecordId {
 impl AddAssign<usize> for RecordId {
     fn add_assign(&mut self, rhs: usize) {
         self.0 += u32::try_from(rhs).unwrap();
+    }
+}
+
+pub struct RecordIdRange(Range<RecordId>);
+
+impl RecordIdRange {
+    pub const ALL: RecordIdRange = RecordIdRange(RecordId(0)..RecordId(u32::MAX));
+
+    #[cfg(test)]
+    fn peek_first(&self) -> RecordId {
+        self.0.start
+    }
+}
+impl Iterator for RecordIdRange {
+    type Item = RecordId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.0.start < self.0.end).then(|| {
+            let val = self.0.start;
+            self.0.start += 1;
+            val
+        })
+    }
+}
+
+impl From<Range<RecordId>> for RecordIdRange {
+    fn from(value: Range<RecordId>) -> Self {
+        Self(value)
     }
 }
 

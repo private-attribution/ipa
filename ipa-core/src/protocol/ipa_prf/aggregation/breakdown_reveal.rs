@@ -105,7 +105,7 @@ where
             let validator = ctx.clone().dzkp_validator(
                 MaliciousProtocolSteps {
                     protocol: &Step::aggregate(depth),
-                    validate: &Step::aggregate_validate(chunk_counter),
+                    validate: &Step::AggregateValidate,
                 },
                 // We have to specify usize::MAX here because the procession through
                 // record IDs is different at each step of the reduction. The batch
@@ -119,7 +119,7 @@ where
                 Some(&mut record_ids),
             )
             .await?;
-            validator.validate().await?;
+            validator.validate_indexed(chunk_counter).await?;
             chunk_counter += 1;
             next_intermediate_results.push(result);
         }
