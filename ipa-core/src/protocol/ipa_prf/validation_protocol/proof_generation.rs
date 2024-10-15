@@ -108,15 +108,23 @@ impl ProofBatch {
                 ProofBatch::polynomials_from_inputs(uv_tuple_inputs),
             );
 
-        // approximate length of proof vector (rounded up)
-        let uv_len_bits: u32 = usize::BITS - uv_values.len().leading_zeros();
-        let small_recursion_factor_bits: u32 = usize::BITS - SRF.leading_zeros();
-        let expected_len = 1 << (uv_len_bits - small_recursion_factor_bits);
+        // `MAX_PROOF_RECURSION - 2` because:
+        //  * The first level of recursion has already happened.
+        //  * We need (SRF - 1) at the last level to have room for the masks.
+        let max_uv_values: usize =
+            (SRF - 1) * SRF.pow(u32::try_from(MAX_PROOF_RECURSION - 2).unwrap());
+        assert!(
+            uv_values.len() <= max_uv_values,
+            "Proof batch is too large: have {} uv_values, max is {}",
+            uv_values.len(),
+            max_uv_values,
+        );
 
         // storage for other proofs
-        let mut my_proofs_left_shares = Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
+        let mut my_proofs_left_shares =
+            Vec::<[Fp61BitPrime; SPL]>::with_capacity(MAX_PROOF_RECURSION - 1);
         let mut shares_of_proofs_from_prover_left =
-            Vec::<[Fp61BitPrime; SPL]>::with_capacity(expected_len);
+            Vec::<[Fp61BitPrime; SPL]>::with_capacity(MAX_PROOF_RECURSION - 1);
 
         // generate masks
         // Prover `P_i` and verifier `P_{i-1}` both compute p(x)
