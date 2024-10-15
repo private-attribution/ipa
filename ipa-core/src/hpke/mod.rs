@@ -126,6 +126,36 @@ pub fn open_in_place<'a, R: PrivateKeyRegistry>(
     Ok(pt)
 }
 
+/// Version of `open_in_place` that doesn't require Info struct.
+pub fn hybrid_open_in_place<'a, R: PrivateKeyRegistry>(
+    key_registry: &R,
+    enc: &[u8],
+    ciphertext: &'a mut [u8],
+    key_id: u8,
+    info: &[u8],
+) -> Result<&'a [u8], CryptError> {
+    let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
+    let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
+    let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
+    let sk = key_registry
+        .private_key(key_id)
+        .ok_or(CryptError::NoSuchKey(key_id))?;
+
+    single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
+        &OpModeR::Base,
+        sk,
+        &encap_key,
+        &info,
+        ct,
+        &[],
+        &tag,
+    )?;
+
+    // at this point ct is no longer a pointer to the ciphertext.
+    let pt = ct;
+    Ok(pt)
+}
+
 // Avoids a clippy "complex type" warning on the return type from `seal_in_place`.
 // Not intended to be widely used.
 pub(crate) type Ciphertext<'a> = (
@@ -144,6 +174,31 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
 ) -> Result<Ciphertext<'a>, CryptError> {
     let key_id = info.key_id;
     let info = info.to_bytes();
+    let pk_r = key_registry
+        .public_key(key_id)
+        .ok_or(CryptError::NoSuchKey(key_id))?;
+
+    let (encap_key, tag) = single_shot_seal_in_place_detached::<IpaAead, IpaKdf, IpaKem, _>(
+        &OpModeS::Base,
+        pk_r,
+        &info,
+        plaintext,
+        &[],
+        rng,
+    )?;
+
+    // at this point `plaintext` is no longer a pointer to the plaintext.
+    Ok((encap_key, plaintext, tag))
+}
+
+/// Version of `seal_in_place` that doesn't require Info struct.
+pub(crate) fn hybrid_seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
+    key_registry: &K,
+    plaintext: &'a mut [u8],
+    key_id: u8,
+    info: &[u8],
+    rng: &mut R,
+) -> Result<Ciphertext<'a>, CryptError> {
     let pk_r = key_registry
         .public_key(key_id)
         .ok_or(CryptError::NoSuchKey(key_id))?;
