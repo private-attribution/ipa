@@ -24,6 +24,7 @@ use ipa_core::{
     helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     net::MpcHelperClient,
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
+    sharding::Ring,
     test_fixture::{
         ipa::{ipa_in_the_clear, CappingOrder, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig, HybridEventGenerator, HybridGeneratorConfig,
@@ -380,7 +381,7 @@ async fn ipa(
 
 async fn ipa_test(
     args: &Args,
-    network: &NetworkConfig,
+    network: &NetworkConfig<Ring>,
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],

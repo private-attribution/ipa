@@ -385,7 +385,7 @@ impl MpcHelperClient<Ring> {
     #[allow(clippy::missing_panics_doc)]
     pub fn from_conf(
         runtime: &IpaRuntime,
-        conf: &NetworkConfig,
+        conf: &NetworkConfig<Ring>,
         identity: &ClientIdentity<Ring>,
     ) -> [Self; 3] {
         conf.peers().each_ref().map(|peer_conf| {

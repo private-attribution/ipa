@@ -2,7 +2,7 @@ use axum::{extract::Path, response::IntoResponse, routing::post, Extension, Json
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::PrepareQuery, BodyStream, Transport},
+    helpers::{query::PrepareQuery, BodyStream, HelperIdentity, Transport},
     net::{
         http_serde::{
             self,
@@ -20,7 +20,7 @@ use crate::{
 /// processing of that query.
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
-    _: Extension<ClientIdentity>, // require that client is an authenticated helper
+    _: Extension<ClientIdentity<HelperIdentity>>, // require that client is an authenticated helper
     Path(query_id): Path<QueryId>,
     QueryConfigQueryParams(config): QueryConfigQueryParams,
     Json(RequestBody { roles }): Json<RequestBody>,
@@ -100,7 +100,7 @@ mod tests {
     // since we tested `QueryType` with `create`, skip it here
     // More lenient version of Request, specifically so to test failure scenarios
     struct OverrideReq {
-        client_id: Option<ClientIdentity>,
+        client_id: Option<ClientIdentity<HelperIdentity>>,
         query_id: String,
         field_type: String,
         size: Option<i32>,

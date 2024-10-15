@@ -25,6 +25,7 @@ use crate::{
     helpers::{HandlerBox, HelperIdentity, RequestHandler},
     hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
+    sharding::Ring,
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
@@ -33,7 +34,7 @@ pub const DEFAULT_TEST_PORTS: [u16; 3] = [3000, 3001, 3002];
 
 pub struct TestConfig {
     pub disable_https: bool,
-    pub network: NetworkConfig,
+    pub network: NetworkConfig<Ring>,
     pub servers: [ServerConfig; 3],
     pub sockets: Option<[TcpListener; 3]>,
 }
@@ -174,16 +175,13 @@ impl TestConfigBuilder {
                     ))
                 },
             })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        let network = NetworkConfig {
+            .collect::<Vec<_>>();
+        let network = NetworkConfig::<Ring>::new_ring(
             peers,
-            client: self
-                .use_http1
+            self.use_http1
                 .then(ClientConfig::use_http1)
                 .unwrap_or_default(),
-        };
+        );
         let servers = if self.disable_https {
             ports.map(|ports| server_config_insecure_http(ports, !self.disable_matchkey_encryption))
         } else {
@@ -203,7 +201,7 @@ pub struct TestServer {
     pub addr: SocketAddr,
     pub handle: IpaJoinHandle<()>,
     pub transport: Arc<HttpTransport>,
-    pub server: MpcHelperServer,
+    pub server: MpcHelperServer<Ring>,
     pub client: MpcHelperClient,
     pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
 }
