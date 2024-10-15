@@ -181,7 +181,6 @@ impl NetworkConfig<Ring> {
             .try_into()
             .unwrap_or_else(|v: Vec<_>| panic!("Expected a Vec of length 3 but it was {}", v.len()))
     }
-
 }
 
 #[derive(Clone, Debug, Deserialize)]
