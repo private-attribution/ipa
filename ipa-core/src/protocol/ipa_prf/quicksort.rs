@@ -405,15 +405,15 @@ pub mod tests {
             // (With no impact on proof size, because there is a proof per pass.)
             let ranges = (0..COUNT)
                 .step_by(8)
-                .map(|i| i..min(i + 8, records.len()))
+                .map(|i| i..min(i + 8, COUNT))
                 .collect::<Vec<_>>();
 
             // convert expected into more readable format
             let mut expected: Vec<u128> =
                 records.clone().into_iter().map(|x| x.as_u128()).collect();
             // sort expected
-            for range in &ranges {
-                expected[range.clone()].sort_unstable();
+            for range in ranges.iter().cloned() {
+                expected[range].sort_unstable();
             }
 
             // compute mpc sort
