@@ -494,6 +494,15 @@ impl Batch {
     /// Creates a new `Batch` for multiplication intermediates from multiple gates. The
     /// first record is specified by `first_record`, or if that is `None`, is set
     /// automatically for each gate the first time a segment from that gate is added.
+    ///
+    /// Once the first record is set, attempting to add a segment before the first
+    /// record will panic. It is likely, but not guaranteed, that protocol execution
+    /// proceeds in order, so a problem here can easily escape testing.
+    ///  * When using the `Batcher` in multi-batch mode, `first_record` is calculated
+    ///    from the batch index and the number of records in a batch, so there is no
+    ///    possibility of attempting to add a record before the start of the batch.
+    ///  * The only protocol that manages batches explicitly is the aggregation protocol
+    ///    (`breakdown_reveal_aggregation`). It is structured to operate in order.
     fn new(first_record: Option<RecordId>, max_multiplications_per_gate: usize) -> Self {
         Self {
             max_multiplications_per_gate,
