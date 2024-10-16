@@ -60,14 +60,17 @@ pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 // This is a hard limit. Each GF(2) multiply generates four G values and four H values,
 // and the last level of the proof is limited to (small_recursion_factor - 1), so the
 // restriction is:
-// $$
-// large_recursion_factor * (small_recursion_factor - 1)
-//     * small_recursion_factor ^ (depth - 2) >= 4 * target_proof_size
-// $$
+//
+// $$ large_recursion_factor * (small_recursion_factor - 1)
+//     * small_recursion_factor ^ (depth - 2) >= 4 * target_proof_size $$
+//
 // With large_recursion_factor = 32 and small_recursion_factor = 8, this means:
+//
 // $$ depth >= log_8 (8/7 * target_proof_size) $$
-// Because multiplication intermediate storage gets rounded up to blocks of 256, leaving
-// some margin is advised.
+//
+// Because the number of records in a proof batch is often rounded up to a power of two
+// (and less significantly, because multiplication intermediate storage gets rounded up
+// to blocks of 256), leaving some margin is advised.
 //
 // The implementation requires that MAX_PROOF_RECURSION is at least 2.
 pub const MAX_PROOF_RECURSION: usize = 9;
