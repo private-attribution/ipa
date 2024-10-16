@@ -1,6 +1,9 @@
-use std::fmt::{Display, Formatter};
-use std::marker::PhantomData;
-use std::{collections::HashSet, ops::Add, ops::Deref};
+use std::{
+    collections::HashSet,
+    fmt::{Display, Formatter},
+    marker::PhantomData,
+    ops::{Add, Deref},
+};
 
 use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
@@ -15,8 +18,10 @@ use crate::{
         hybrid_open_in_place, hybrid_seal_in_place, CryptError, EncapsulationSize,
         PrivateKeyRegistry, PublicKeyRegistry, TagSize,
     },
-    report::hybrid_info::HybridImpressionInfo,
-    report::{EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier},
+    report::{
+        hybrid_info::HybridImpressionInfo, EncryptedOprfReport, EventType, InvalidReportError,
+        KeyIdentifier,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
 
@@ -327,10 +332,10 @@ where
                 .map_err(|e| {
                     InvalidHybridReportError::DeserializationError("matchkey", e.into())
                 })?,
-            breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(
-                &plaintext_btt[..],
-            ))
-            .map_err(|e| InvalidHybridReportError::DeserializationError("is_trigger", e.into()))?,
+            breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(plaintext_btt))
+                .map_err(|e| {
+                InvalidHybridReportError::DeserializationError("is_trigger", e.into())
+            })?,
         })
     }
 }
@@ -474,8 +479,10 @@ mod test {
     };
     use crate::{
         error::Error,
-        ff::boolean_array::{BA20, BA3, BA8},
-        ff::Serializable,
+        ff::{
+            boolean_array::{BA20, BA3, BA8},
+            Serializable,
+        },
         hpke::{KeyPair, KeyRegistry},
         report::{EventType, OprfReport},
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -611,7 +618,7 @@ mod test {
             breakdown_key: oprf_report.breakdown_key.clone(),
         };
         let mut hybrid_impression_report_bytes =
-            vec![0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
+            [0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
         hybrid_impression_report.serialize(GenericArray::from_mut_slice(
             &mut hybrid_impression_report_bytes[..],
         ));

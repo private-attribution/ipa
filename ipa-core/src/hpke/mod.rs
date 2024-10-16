@@ -127,6 +127,8 @@ pub fn open_in_place<'a, R: PrivateKeyRegistry>(
 }
 
 /// Version of `open_in_place` that doesn't require Info struct.
+/// ## Errors
+/// If ciphertext cannot be opened for any reason.
 pub fn hybrid_open_in_place<'a, R: PrivateKeyRegistry>(
     key_registry: &R,
     enc: &[u8],
@@ -145,7 +147,7 @@ pub fn hybrid_open_in_place<'a, R: PrivateKeyRegistry>(
         &OpModeR::Base,
         sk,
         &encap_key,
-        &info,
+        info,
         ct,
         &[],
         &tag,
@@ -192,6 +194,8 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
 }
 
 /// Version of `seal_in_place` that doesn't require Info struct.
+/// ## Errors
+/// If the match key cannot be sealed for any reason.
 pub(crate) fn hybrid_seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
     key_registry: &K,
     plaintext: &'a mut [u8],
@@ -206,7 +210,7 @@ pub(crate) fn hybrid_seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegis
     let (encap_key, tag) = single_shot_seal_in_place_detached::<IpaAead, IpaKdf, IpaKem, _>(
         &OpModeS::Base,
         pk_r,
-        &info,
+        info,
         plaintext,
         &[],
         rng,

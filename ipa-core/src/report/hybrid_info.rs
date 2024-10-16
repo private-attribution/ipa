@@ -1,7 +1,4 @@
-use crate::{
-    report::KeyIdentifier,
-    report::hybrid::NonAsciiStringError,
-};
+use crate::report::{hybrid::NonAsciiStringError, KeyIdentifier};
 
 const DOMAIN: &str = "private-attribution";
 
