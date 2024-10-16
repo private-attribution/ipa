@@ -707,6 +707,20 @@ pub trait DZKPValidator: Send + Sync {
     }
 }
 
+// Wrapper to avoid https://github.com/rust-lang/rust/issues/100013.
+pub fn validated_seq_join<'st, V, S, F, O>(
+    validator: V,
+    source: S,
+) -> impl Stream<Item = Result<O, Error>> + Send + 'st
+where
+    V: DZKPValidator + 'st,
+    S: Stream<Item = F> + Send + 'st,
+    F: Future<Output = Result<O, Error>> + Send + 'st,
+    O: Send + Sync + 'static,
+{
+    validator.validated_seq_join(source)
+}
+
 #[derive(Clone)]
 pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
     context: SemiHonestDZKPUpgraded<'a, B>,
