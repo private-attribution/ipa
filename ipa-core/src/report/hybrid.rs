@@ -91,7 +91,7 @@ where
     <<Replicated<BK> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
 {
     type Size = <<Replicated<BK> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output;
-    type DeserializationError = InvalidHybridReportError; //<Replicated<BK> as Serializable>::DeserializationError;
+    type DeserializationError = InvalidHybridReportError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
@@ -422,6 +422,21 @@ impl UniqueBytes for EncryptedHybridReport {
     }
 }
 
+impl<BK, B> UniqueBytes for EncryptedHybridImpressionReport<BK, B>
+where
+    B: Deref<Target = [u8]>,
+    BK: SharedValue,
+    Replicated<BK>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<U16>,
+    <<Replicated<BK> as Serializable>::Size as Add<U16>>::Output: ArrayLength,
+{
+    /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
+    /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
+    fn unique_bytes(&self) -> Vec<u8> {
+        self.mk_ciphertext()[0..TagSize::USIZE].to_vec()
+    }
+}
+
 #[derive(Debug)]
 pub struct UniqueBytesValidator {
     hash_set: HashSet<Vec<u8>>,
@@ -484,7 +499,9 @@ mod test {
             Serializable,
         },
         hpke::{KeyPair, KeyRegistry},
-        report::{EventType, OprfReport},
+        report::{
+            hybrid::NonAsciiStringError, hybrid_info::HybridImpressionInfo, EventType, OprfReport,
+        },
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
@@ -653,5 +670,12 @@ mod test {
         let dec_report: HybridImpressionReport<BA8> = enc_report.decrypt(&key_registry).unwrap();
 
         assert_eq!(dec_report, hybrid_impression_report);
+    }
+
+    #[test]
+    fn non_ascii_string() {
+        let non_ascii_string = "☃️☃️☃️";
+        let err = HybridImpressionInfo::new(0, non_ascii_string).unwrap_err();
+        assert!(matches!(err, NonAsciiStringError { input: _ }));
     }
 }
