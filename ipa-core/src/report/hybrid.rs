@@ -1,19 +1,22 @@
-use std::{collections::HashSet, ops::Add, ops::Deref};
-use std::marker::PhantomData;
 use std::fmt::{Display, Formatter};
+use std::marker::PhantomData;
+use std::{collections::HashSet, ops::Add, ops::Deref};
 
-use bytes::{Bytes, BufMut};
+use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
 use typenum::{Sum, Unsigned, U16};
 
 use crate::{
-    error::{Error, BoxError},
+    error::{BoxError, Error},
     ff::{boolean_array::BA64, Serializable},
-    hpke::{hybrid_open_in_place, hybrid_seal_in_place, EncapsulationSize, PrivateKeyRegistry, PublicKeyRegistry, TagSize, CryptError},
-    report::{EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier},
+    hpke::{
+        hybrid_open_in_place, hybrid_seal_in_place, CryptError, EncapsulationSize,
+        PrivateKeyRegistry, PublicKeyRegistry, TagSize,
+    },
     report::hybrid_info::HybridImpressionInfo,
+    report::{EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
 
@@ -321,7 +324,9 @@ where
 
         Ok(HybridImpressionReport::<BK> {
             match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
-                .map_err(|e| InvalidHybridReportError::DeserializationError("matchkey", e.into()))?,
+                .map_err(|e| {
+                    InvalidHybridReportError::DeserializationError("matchkey", e.into())
+                })?,
             breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(
                 &plaintext_btt[..],
             ))
@@ -463,8 +468,9 @@ mod test {
     use typenum::Unsigned;
 
     use super::{
-        EncryptedHybridReport, EncryptedHybridImpressionReport, GenericArray, HybridConversionReport, HybridImpressionReport, HybridReport,
-        UniqueBytes, UniqueBytesValidator,
+        EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
+        HybridConversionReport, HybridImpressionReport, HybridReport, UniqueBytes,
+        UniqueBytesValidator,
     };
     use crate::{
         error::Error,
