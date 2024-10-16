@@ -59,22 +59,6 @@ pub struct NetworkConfig<R: TransportRestriction = Ring> {
 }
 
 impl<R: TransportRestriction> NetworkConfig<R> {
-    /// Reads config from string. Expects config to be toml format.
-    /// To read file, use `fs::read_to_string`
-    ///
-    /// # Errors
-    /// if `input` is in an invalid format
-    pub fn from_toml_str(input: &str) -> Result<Self, Error> {
-        use config::{Config, File, FileFormat};
-
-        let conf: Self = Config::builder()
-            .add_source(File::from_str(input, FileFormat::Toml))
-            .build()?
-            .try_deserialize()?;
-
-        Ok(conf)
-    }
-
     /// # Panics
     /// If `PathAndQuery::from_str("")` fails
     #[must_use]
@@ -169,6 +153,24 @@ impl NetworkConfig<Ring> {
             client,
             identities: HelperIdentity::make_three().to_vec(),
         }
+    }
+
+    /// Reads config from string. Expects config to be toml format.
+    /// To read file, use `fs::read_to_string`
+    ///
+    /// # Errors
+    /// if `input` is in an invalid format
+    pub fn from_toml_str(input: &str) -> Result<Self, Error> {
+        use config::{Config, File, FileFormat};
+
+        let mut conf: Self = Config::builder()
+            .add_source(File::from_str(input, FileFormat::Toml))
+            .build()?
+            .try_deserialize()?;
+
+        conf.identities = HelperIdentity::make_three().to_vec();
+
+        Ok(conf)
     }
 
     /// Clones the internal configs and returns them as an array.
