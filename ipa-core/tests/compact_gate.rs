@@ -32,6 +32,21 @@ fn compact_gate_cap_8_no_window_semi_honest_encryped_input() {
 }
 
 #[test]
+fn compact_gate_cap_1_no_window_semi_honest_encryped_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 1, 0, true);
+}
+
+#[test]
+fn compact_gate_cap_2_no_window_semi_honest_encryped_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 2, 0, true);
+}
+
+#[test]
+fn compact_gate_cap_4_no_window_semi_honest_encryped_input() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 4, 0, true);
+}
+
+#[test]
 fn compact_gate_cap_8_no_window_semi_honest_plaintext_input() {
     test_compact_gate(IpaSecurityModel::SemiHonest, 8, 0, false);
 }
