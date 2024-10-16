@@ -15,8 +15,8 @@ use crate::{
     error::{BoxError, Error},
     ff::{boolean_array::BA64, Serializable},
     hpke::{
-        hybrid_open_in_place, hybrid_seal_in_place, CryptError, EncapsulationSize,
-        PrivateKeyRegistry, PublicKeyRegistry, TagSize,
+        open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
+        PublicKeyRegistry, TagSize,
     },
     report::{
         hybrid_info::HybridImpressionInfo, EncryptedOprfReport, EventType, InvalidReportError,
@@ -163,7 +163,7 @@ where
         self.breakdown_key
             .serialize(GenericArray::from_mut_slice(&mut plaintext_btt[..]));
 
-        let (encap_key_mk, ciphertext_mk, tag_mk) = hybrid_seal_in_place(
+        let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
             key_registry,
             plaintext_mk.as_mut(),
             key_id,
@@ -171,7 +171,7 @@ where
             rng,
         )?;
 
-        let (encap_key_btt, ciphertext_btt, tag_btt) = hybrid_seal_in_place(
+        let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
             key_registry,
             plaintext_btt.as_mut(),
             key_id,
@@ -309,7 +309,7 @@ where
 
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
-        let plaintext_mk = hybrid_open_in_place(
+        let plaintext_mk = open_in_place(
             key_registry,
             self.encap_key_mk(),
             &mut ct_mk,
@@ -319,7 +319,7 @@ where
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
 
-        let plaintext_btt = hybrid_open_in_place(
+        let plaintext_btt = open_in_place(
             key_registry,
             self.encap_key_btt(),
             &mut ct_btt,
