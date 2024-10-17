@@ -107,6 +107,7 @@ impl From<i32> for RecordId {
 
 impl RecordId {
     pub(crate) const FIRST: Self = Self(0);
+    pub(crate) const LAST: Self = Self(u32::MAX);
 }
 
 impl From<RecordId> for u128 {
@@ -150,22 +151,18 @@ impl AddAssign<usize> for RecordId {
 pub struct RecordIdRange(Range<RecordId>);
 
 impl RecordIdRange {
-    pub const ALL: RecordIdRange = RecordIdRange(RecordId(0)..RecordId(u32::MAX));
+    pub const ALL: RecordIdRange = RecordIdRange(RecordId::FIRST..RecordId::LAST);
 
     #[cfg(all(test, unit_test))]
     fn peek_first(&self) -> RecordId {
         self.0.start
     }
-}
-impl Iterator for RecordIdRange {
-    type Item = RecordId;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.0.start < self.0.end).then(|| {
-            let val = self.0.start;
-            self.0.start += 1;
-            val
-        })
+    fn expect_next(&mut self) -> RecordId {
+        assert!(self.0.start < self.0.end, "RecordIdRange exhausted");
+        let val = self.0.start;
+        self.0.start += 1;
+        val
     }
 }
 

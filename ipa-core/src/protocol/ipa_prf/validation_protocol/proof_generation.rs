@@ -131,12 +131,12 @@ impl ProofBatch {
         // therefore the "right" share computed by this verifier corresponds to that which
         // was used by the prover to the right.
         let (my_p_mask, p_mask_from_right_prover) =
-            ctx.prss().generate_fields(prss_record_ids.next().unwrap());
+            ctx.prss().generate_fields(prss_record_ids.expect_next());
         // Prover `P_i` and verifier `P_{i+1}` both compute q(x)
         // therefore the "left" share computed by this verifier corresponds to that which
         // was used by the prover to the left.
         let (q_mask_from_left_prover, my_q_mask) =
-            ctx.prss().generate_fields(prss_record_ids.next().unwrap());
+            ctx.prss().generate_fields(prss_record_ids.expect_next());
 
         let denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, SRF>::new();
         let lagrange_table = LagrangeTable::<Fp61BitPrime, SRF, SLL>::from(denominator);
