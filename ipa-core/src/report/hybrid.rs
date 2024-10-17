@@ -12,7 +12,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::{Sum, Unsigned, U16};
 
 use crate::{
-    error::{BoxError, Error},
+    error::{BoxError, Error, UnwrapInfallible},
     ff::{boolean_array::BA64, Serializable},
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
@@ -316,9 +316,10 @@ where
 
         Ok(HybridImpressionReport::<BK> {
             match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
-                .map_err(|e| {
-                    InvalidHybridReportError::DeserializationError("matchkey", e.into())
-                })?,
+                .unwrap_infallible(),
+            /* .map_err(|e| {
+                InvalidHybridReportError::DeserializationError("matchkey", e.into())
+            })?,*/
             breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(plaintext_btt))
                 .map_err(|e| {
                 InvalidHybridReportError::DeserializationError("is_trigger", e.into())
@@ -398,14 +399,14 @@ impl TryFrom<Bytes> for EncryptedHybridReport {
 }
 
 pub trait UniqueBytes {
-    fn unique_bytes(&self) -> Vec<u8>;
+    fn unique_bytes(&self) -> &[u8];
 }
 
 impl UniqueBytes for EncryptedHybridReport {
     /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
     /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
-    fn unique_bytes(&self) -> Vec<u8> {
-        self.mk_ciphertext()[0..TagSize::USIZE].to_vec()
+    fn unique_bytes(&self) -> &[u8] {
+        &self.mk_ciphertext()[0..TagSize::USIZE]
     }
 }
 
@@ -419,8 +420,8 @@ where
 {
     /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
     /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
-    fn unique_bytes(&self) -> Vec<u8> {
-        self.mk_ciphertext()[0..TagSize::USIZE].to_vec()
+    fn unique_bytes(&self) -> &[u8] {
+        &self.mk_ciphertext()[0..TagSize::USIZE]
     }
 }
 
@@ -449,7 +450,7 @@ impl UniqueBytesValidator {
     /// if the item inserted is not unique among all checked thus far
     pub fn check_duplicate<U: UniqueBytes>(&mut self, item: &U) -> Result<(), Error> {
         self.check_counter += 1;
-        if self.insert(item.unique_bytes()) {
+        if self.insert(item.unique_bytes().to_vec()) {
             Ok(())
         } else {
             Err(Error::DuplicateBytes(self.check_counter))
@@ -587,8 +588,8 @@ mod test {
         }
 
         impl UniqueBytes for UniqueByteHolder {
-            fn unique_bytes(&self) -> Vec<u8> {
-                self.bytes.clone()
+            fn unique_bytes(&self) -> &[u8] {
+                &self.bytes
             }
         }
 
