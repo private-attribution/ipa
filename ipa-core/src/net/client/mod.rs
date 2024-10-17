@@ -25,6 +25,7 @@ use pin_project::pin_project;
 use rustls::RootCertStore;
 use tracing::error;
 
+use super::{ConnectionFlavor, Helper};
 use crate::{
     config::{
         ClientConfig, HyperClientConfigurator, NetworkConfig, OwnedCertificate, OwnedPrivateKey,
@@ -35,13 +36,12 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         TransportIdentity,
     },
-    net::{http_serde, Error, CRYPTO_PROVIDER, HTTP_CLIENT_ID_HEADER},
+    net::{http_serde, Error, CRYPTO_PROVIDER},
     protocol::{Gate, QueryId},
-    sharding::{Ring, TransportRestriction},
 };
 
-#[derive(Default, Debug)]
-pub enum ClientIdentity<R: TransportRestriction = Ring> {
+#[derive(Default)]
+pub enum ClientIdentity<R: ConnectionFlavor = Helper> {
     /// Claim the specified helper identity without any additional authentication.
     ///
     /// This is only supported for HTTP clients.
@@ -57,7 +57,7 @@ pub enum ClientIdentity<R: TransportRestriction = Ring> {
     None,
 }
 
-impl<R: TransportRestriction> ClientIdentity<R> {
+impl<R: ConnectionFlavor> ClientIdentity<R> {
     /// Authenticates clients with an X.509 certificate using the provided certificate and private
     /// key. Certificate must be in PEM format, private key encoding must be [`PKCS8`].
     ///
@@ -149,13 +149,33 @@ impl Future for ResponseFuture {
     }
 }
 
+/// Helper to read a possible error response to a request that returns nothing on success
+///
+/// # Errors
+/// If there was an error reading the response body or if the request itself failed.
+pub async fn resp_ok(resp: ResponseFromEndpoint) -> Result<(), Error> {
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(Error::from_failed_resp(resp).await)
+    }
+}
+
+/// Reads the entire response from the server into Bytes
+///
+/// # Errors
+/// If there was an error collecting the response stream.
+async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
+    Ok(resp.into_body().collect().await?.to_bytes())
+}
+
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
 ///       separated from prepare/step data etc.
 /// TODO: It probably isn't necessary to always use `[MpcHelperClient; 3]`. Instead, a single
 ///       client can be configured to talk to all three helpers.
 #[derive(Debug, Clone)]
-pub struct MpcHelperClient<R: TransportRestriction = Ring> {
+pub struct MpcHelperClient<R: ConnectionFlavor = Helper> {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     scheme: uri::Scheme,
     authority: uri::Authority,
@@ -163,7 +183,7 @@ pub struct MpcHelperClient<R: TransportRestriction = Ring> {
     _restriction: PhantomData<R>,
 }
 
-impl<R: TransportRestriction> MpcHelperClient<R> {
+impl<R: ConnectionFlavor> MpcHelperClient<R> {
     /// Create a new client with the given configuration
     ///
     /// `identity`, if present, configures whether and how the client will authenticate to the server
@@ -177,7 +197,6 @@ impl<R: TransportRestriction> MpcHelperClient<R> {
         client_config: &ClientConfig,
         peer_config: PeerConfig,
         identity: ClientIdentity<R>,
-        header_name: &'static HeaderName,
     ) -> Self {
         let (connector, auth_header) = if peer_config.url.scheme() == Some(&Scheme::HTTP) {
             // This connector works for both http and https. A regular HttpConnector would suffice,
@@ -188,7 +207,7 @@ impl<R: TransportRestriction> MpcHelperClient<R> {
                     None
                 }
                 ClientIdentity::Header(id) => Some((
-                    header_name.clone(),
+                    R::identity_header(),
                     HeaderValue::from_str(id.as_str().as_ref()).unwrap(),
                 )),
                 ClientIdentity::None => None,
@@ -292,26 +311,6 @@ impl<R: TransportRestriction> MpcHelperClient<R> {
         }
     }
 
-    /// Helper to read a possible error response to a request that returns nothing on success
-    ///
-    /// # Errors
-    /// If there was an error reading the response body or if the request itself failed.
-    pub async fn resp_ok(resp: ResponseFromEndpoint) -> Result<(), Error> {
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            Err(Error::from_failed_resp(resp).await)
-        }
-    }
-
-    /// Reads the entire response from the server into Bytes
-    ///
-    /// # Errors
-    /// If there was an error collecting the response stream.
-    async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
-        Ok(resp.into_body().collect().await?.to_bytes())
-    }
-
     /// Responds with whatever input is passed to it
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
@@ -323,7 +322,7 @@ impl<R: TransportRestriction> MpcHelperClient<R> {
         let resp = self.request(req).await?;
         let status = resp.status();
         if status.is_success() {
-            let bytes = Self::response_to_bytes(resp).await?;
+            let bytes = response_to_bytes(resp).await?;
             let http_serde::echo::Request {
                 mut query_params, ..
             } = serde_json::from_slice(&bytes)?;
@@ -368,11 +367,11 @@ impl<R: TransportRestriction> MpcHelperClient<R> {
         let req = http_serde::query::prepare::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.request(req).await?;
-        Self::resp_ok(resp).await
+        resp_ok(resp).await
     }
 }
 
-impl MpcHelperClient<Ring> {
+impl MpcHelperClient<Helper> {
     /// Create a set of clients for the MPC helpers in the supplied helper network configuration.
     ///
     /// This function returns a set of three clients, which may be used to talk to each of the
@@ -386,7 +385,7 @@ impl MpcHelperClient<Ring> {
     pub fn from_conf(
         runtime: &IpaRuntime,
         conf: &NetworkConfig,
-        identity: &ClientIdentity<Ring>,
+        identity: &ClientIdentity<Helper>,
     ) -> [Self; 3] {
         conf.peers().each_ref().map(|peer_conf| {
             Self::new(
@@ -394,7 +393,6 @@ impl MpcHelperClient<Ring> {
                 &conf.client,
                 peer_conf.clone(),
                 identity.clone_with_key(),
-                &HTTP_CLIENT_ID_HEADER,
             )
         })
     }
@@ -408,7 +406,7 @@ impl MpcHelperClient<Ring> {
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            let bytes = Self::response_to_bytes(resp).await?;
+            let bytes = response_to_bytes(resp).await?;
             let http_serde::query::create::ResponseBody { query_id } =
                 serde_json::from_slice(&bytes)?;
             Ok(query_id)
@@ -426,7 +424,7 @@ impl MpcHelperClient<Ring> {
         let req = http_serde::query::input::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.request(req).await?;
-        Self::resp_ok(resp).await
+        resp_ok(resp).await
     }
 
     /// Retrieve the status of a query.
@@ -443,7 +441,7 @@ impl MpcHelperClient<Ring> {
 
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            let bytes = Self::response_to_bytes(resp).await?;
+            let bytes = response_to_bytes(resp).await?;
             let http_serde::query::status::ResponseBody { status } =
                 serde_json::from_slice(&bytes)?;
             Ok(status)
@@ -523,8 +521,7 @@ pub(crate) mod tests {
             IpaRuntime::current(),
             &ClientConfig::default(),
             peer_config,
-            ClientIdentity::<Ring>::None,
-            &HTTP_CLIENT_ID_HEADER,
+            ClientIdentity::<Helper>::None,
         );
 
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
@@ -692,7 +689,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        MpcHelperClient::<Ring>::resp_ok(resp).await.unwrap();
+        resp_ok(resp).await.unwrap();
 
         let mut stream = Arc::clone(&transport)
             .receive(HelperIdentity::ONE, (QueryId, expected_step.clone()))

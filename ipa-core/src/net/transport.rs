@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use futures::{Stream, TryFutureExt};
 use pin_project::{pin_project, pinned_drop};
 
+use super::client::resp_ok;
 use crate::{
     config::{NetworkConfig, ServerConfig},
     executor::IpaRuntime,
@@ -21,7 +22,7 @@ use crate::{
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{Gate, QueryId},
-    sharding::{Ring, ShardIndex},
+    sharding::ShardIndex,
     sync::Arc,
 };
 
@@ -205,11 +206,7 @@ impl Transport for Arc<HttpTransport> {
                 // - avoid blocking this task, if the current runtime is overloaded
                 // - use the runtime that enables IO (current runtime may not).
                 self.http_runtime
-                    .spawn(
-                        resp_future
-                            .map_err(Into::into)
-                            .and_then(MpcHelperClient::<Ring>::resp_ok),
-                    )
+                    .spawn(resp_future.map_err(Into::into).and_then(resp_ok))
                     .await?;
                 Ok(())
             }

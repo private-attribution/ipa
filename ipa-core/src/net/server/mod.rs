@@ -31,7 +31,7 @@ use futures::{
     future::{ready, BoxFuture, Either, Ready},
     FutureExt,
 };
-use hyper::{body::Incoming, header::HeaderName, Request};
+use hyper::{body::Incoming, Request};
 use metrics::increment_counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use rustls_pki_types::CertificateDer;
@@ -40,6 +40,7 @@ use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
 
+use super::HTTP_HELPER_ID_HEADER;
 use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
@@ -325,6 +326,17 @@ impl Deref for ClientIdentity {
     }
 }
 
+impl TryFrom<HeaderValue> for ClientIdentity {
+    type Error = Error;
+
+    fn try_from(value: HeaderValue) -> Result<Self, Self::Error> {
+        let header_str = value.to_str()?;
+        HelperIdentity::from_str(header_str)
+            .map_err(|e| Error::InvalidHeader(Box::new(e)))
+            .map(ClientIdentity)
+    }
+}
+
 /// `Accept`or that sets an axum `Extension` indiciating the authenticated remote helper identity.
 #[derive(Clone)]
 struct ClientCertRecognizingAcceptor {
@@ -427,10 +439,6 @@ impl<B, S: Service<Request<B>>> Service<Request<B>> for SetClientIdentityFromCer
     }
 }
 
-/// Name of the header that passes the client identity when not using HTTPS.
-pub static HTTP_CLIENT_ID_HEADER: HeaderName =
-    HeaderName::from_static("x-unverified-client-identity");
-
 /// Service wrapper that gets a client helper identity from a header.
 ///
 /// Since this allows a client to claim any identity, it is completely
@@ -443,13 +451,6 @@ struct SetClientIdentityFromHeader<S> {
 impl<S> SetClientIdentityFromHeader<S> {
     fn new(inner: S) -> Self {
         Self { inner }
-    }
-
-    fn parse_client_id(header_value: &HeaderValue) -> Result<ClientIdentity, Error> {
-        let header_str = header_value.to_str()?;
-        HelperIdentity::from_str(header_str)
-            .map_err(|e| Error::InvalidHeader(Box::new(e)))
-            .map(ClientIdentity)
     }
 }
 
@@ -466,9 +467,9 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
     }
 
     fn call(&mut self, mut req: Request<B>) -> Self::Future {
-        if let Some(header_value) = req.headers().get(&HTTP_CLIENT_ID_HEADER) {
-            let id_result = Self::parse_client_id(header_value)
-                .map_err(|e| Error::InvalidHeader(format!("{HTTP_CLIENT_ID_HEADER}: {e}").into()));
+        if let Some(header_value) = req.headers().get(&HTTP_HELPER_ID_HEADER) {
+            let id_result = ClientIdentity::try_from(header_value.clone())
+                .map_err(|e| Error::InvalidHeader(format!("{HTTP_HELPER_ID_HEADER}: {e}").into()));
             match id_result {
                 Ok(id) => req.extensions_mut().insert(id),
                 Err(err) => return ready(Ok(err.into_response())).right_future(),
@@ -730,7 +731,7 @@ mod e2e_tests {
         let expected = expected_req(addr.to_string());
         let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
         let response = client.request(req).await.unwrap();
-        println!("{}", response.status());
+
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_eq!(
