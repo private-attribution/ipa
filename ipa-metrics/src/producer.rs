@@ -43,6 +43,6 @@ pub struct ProducerDropHandle;
 
 impl Drop for ProducerDropHandle {
     fn drop(&mut self) {
-        CurrentThreadContext::flush()
+        CurrentThreadContext::flush();
     }
 }

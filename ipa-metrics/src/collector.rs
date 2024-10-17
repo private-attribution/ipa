@@ -10,9 +10,11 @@ thread_local! {
     static COLLECTOR: RefCell<Option<MetricsCollector>> = const { RefCell::new(None) }
 }
 
+/// Convenience struct to block the current thread on metric collection
 pub struct Installed;
 
 impl Installed {
+    #[allow(clippy::unused_self)]
     pub fn block_until_shutdown(&self) -> MetricsStore {
         MetricsCollector::with_current_mut(|c| {
             c.event_loop();
@@ -29,6 +31,11 @@ pub struct MetricsCollector {
 }
 
 impl MetricsCollector {
+    /// This installs metrics collection mechanism to current thread.
+    ///
+    /// ## Panics
+    /// It panics if there is another collector system already installed.
+    #[allow(clippy::must_use_candidate)]
     pub fn install(self) -> Installed {
         COLLECTOR.with_borrow_mut(|c| {
             assert!(c.replace(self).is_none(), "Already initialized");
@@ -49,7 +56,7 @@ impl MetricsCollector {
                     Ok(store) => {
                         tracing::trace!("Collector received more data: {store:?}");
                         println!("Collector received more data: {store:?}");
-                        self.local_store.merge(store)
+                        self.local_store.merge(store);
                     }
                     Err(e) => {
                         tracing::debug!("No more threads collecting metrics. Disconnected: {e}");
@@ -76,7 +83,7 @@ impl MetricsCollector {
         }
     }
 
-    pub fn with_current_mut<F: FnOnce(&mut Self) -> T, T>(f: F) -> T {
+    fn with_current_mut<F: FnOnce(&mut Self) -> T, T>(f: F) -> T {
         COLLECTOR.with_borrow_mut(|c| {
             let collector = c.as_mut().expect("Collector is installed");
             f(collector)
@@ -97,7 +104,7 @@ mod tests {
         thread::{Scope, ScopedJoinHandle},
     };
 
-    use crate::{counter, installer, producer::Producer, thread_installer};
+    use crate::{counter, install, install_new_thread, producer::Producer};
 
     struct MeteredScope<'scope, 'env: 'scope>(&'scope Scope<'scope, 'env>, Producer);
 
@@ -131,7 +138,7 @@ mod tests {
 
     #[test]
     fn start_stop() {
-        let (collector, producer, controller) = installer();
+        let (collector, producer, controller) = install();
         let handle = thread::spawn(|| {
             let store = collector.install().block_until_shutdown();
             store.counter_val(counter!("foo"))
@@ -144,19 +151,23 @@ mod tests {
             controller.stop().unwrap();
         });
 
-        assert_eq!(8, handle.join().unwrap())
+        assert_eq!(8, handle.join().unwrap());
     }
 
     #[test]
     fn with_thread() {
-        let (producer, controller, handle) = thread_installer().unwrap();
+        let (producer, controller, handle) = install_new_thread().unwrap();
         thread::scope(move |s| {
             let s = s.metered(producer);
             s.spawn(|| counter!("baz", 4));
             s.spawn(|| counter!("bar", 1));
-            s.spawn(|| controller.stop().unwrap());
+            s.spawn(|| {
+                let snapshot = controller.snapshot().unwrap();
+                println!("snapshot: {snapshot:?}");
+                controller.stop().unwrap();
+            });
         });
 
-        handle.join().unwrap() // Collector thread should be terminated by now
+        handle.join().unwrap(); // Collector thread should be terminated by now
     }
 }

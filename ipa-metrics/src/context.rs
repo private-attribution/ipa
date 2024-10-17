@@ -29,11 +29,11 @@ impl CurrentThreadContext {
     }
 
     pub fn flush() {
-        METRICS_CTX.with_borrow_mut(|ctx| ctx.flush());
+        METRICS_CTX.with_borrow_mut(MetricsContext::flush);
     }
 
     pub fn is_connected() -> bool {
-        METRICS_CTX.with_borrow(|ctx| ctx.is_connected())
+        METRICS_CTX.with_borrow(MetricsContext::is_connected)
     }
 
     pub fn store<F: FnOnce(&MetricsStore) -> T, T>(f: F) -> T {
@@ -63,6 +63,7 @@ impl Default for MetricsContext {
 }
 
 impl MetricsContext {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             store: MetricsStore::new(),
@@ -78,6 +79,7 @@ impl MetricsContext {
         self.tx = Some(tx);
     }
 
+    #[must_use]
     pub fn store(&self) -> &MetricsStore {
         &self.store
     }
@@ -98,7 +100,7 @@ impl MetricsContext {
         if self.is_connected() {
             let store = mem::take(&mut self.store);
             match self.tx.as_ref().unwrap().send(store) {
-                Ok(_) => {}
+                Ok(()) => {}
                 Err(e) => {
                     tracing::warn!("MetricsContext is not connected: {e}");
                 }
@@ -124,13 +126,13 @@ impl Drop for MetricsContext {
 mod tests {
     use std::thread;
 
-    use crate::{CurrentThreadPartitionContext, MetricsContext};
+    use crate::MetricsContext;
 
     /// Each thread has its local store by default, and it is exclusive to it
     #[test]
     #[cfg(feature = "partitions")]
     fn local_store() {
-        use crate::context::CurrentThreadContext;
+        use crate::{context::CurrentThreadContext, CurrentThreadPartitionContext};
 
         CurrentThreadPartitionContext::set(0xdeadbeef);
         counter!("foo", 7);
@@ -152,7 +154,7 @@ mod tests {
 
     #[test]
     fn default() {
-        assert_eq!(0, MetricsContext::default().store().len())
+        assert_eq!(0, MetricsContext::default().store().len());
     }
 
     #[test]
@@ -160,11 +162,9 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let mut ctx = MetricsContext::new();
         ctx.init(tx);
-        let handle = thread::spawn(move || {
-            if let Ok(_) = rx.recv() {
-                panic!("Context sent empty store");
-            }
-        });
+        let handle =
+            thread::spawn(move || assert!(rx.recv().is_err(), "Context sent non-empty store"));
+
         ctx.flush();
         drop(ctx);
         handle.join().unwrap();

@@ -21,13 +21,14 @@ impl Default for Store {
 }
 
 impl Store {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             counters: hashbrown::HashMap::with_hasher(FxBuildHasher),
         }
     }
 
-    pub(crate) fn merge(&mut self, other: Self) {
+    pub fn merge(&mut self, other: Self) {
         for (k, v) in other.counters {
             let hash_builder = self.counters.hasher();
             let hash = hash_builder.hash_one(&k);
@@ -40,12 +41,6 @@ impl Store {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.counters.is_empty()
-    }
-}
-
-impl Store {
     pub fn counter<'a, const LABELS: usize, B: Borrow<MetricName<'a, LABELS>>>(
         &'a mut self,
         key: B,
@@ -84,15 +79,21 @@ impl Store {
         let mut answer = 0;
         for (metric, value) in &self.counters {
             if metric.partial_match(key) {
-                answer += value
+                answer += value;
             }
         }
 
         answer
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.counters.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

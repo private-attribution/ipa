@@ -1,3 +1,7 @@
+#![deny(clippy::pedantic)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::module_name_repetitions)]
+
 mod collector;
 mod context;
 mod controller;
@@ -25,7 +29,8 @@ pub use producer::Producer as MetricsProducer;
 #[cfg(not(feature = "partitions"))]
 pub use store::Store as MetricsStore;
 
-pub fn installer() -> (
+#[must_use]
+pub fn install() -> (
     MetricsCollector,
     MetricsProducer,
     MetricsCollectorController,
@@ -43,9 +48,13 @@ pub fn installer() -> (
     )
 }
 
-pub fn thread_installer(
+/// Same as [`installer]` but spawns a new thread to run the collector.
+///
+/// ## Errors
+/// if thread cannot be started
+pub fn install_new_thread(
 ) -> io::Result<(MetricsProducer, MetricsCollectorController, JoinHandle<()>)> {
-    let (collector, producer, controller) = installer();
+    let (collector, producer, controller) = install();
     let handle = std::thread::Builder::new()
         .name("metric-collector".to_string())
         .spawn(|| {

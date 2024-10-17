@@ -38,6 +38,7 @@ pub struct Label<'lv> {
 }
 
 impl Label<'_> {
+    #[must_use]
     pub fn to_owned(&self) -> OwnedLabel {
         OwnedLabel {
             name: self.name,
@@ -104,7 +105,7 @@ impl OwnedLabel {
 
 impl Hash for OwnedLabel {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.as_borrowed().hash(state)
+        self.as_borrowed().hash(state);
     }
 }
 
@@ -137,7 +138,7 @@ mod tests {
         assert_ne!(compute_hash(&foo_1), compute_hash(&foo_2));
         assert_ne!(foo_2.to_owned(), foo_1);
 
-        assert_eq!(compute_hash(&foo_1), compute_hash(foo_1.to_owned()))
+        assert_eq!(compute_hash(&foo_1), compute_hash(foo_1.to_owned()));
     }
 
     #[test]

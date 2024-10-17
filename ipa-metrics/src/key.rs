@@ -76,6 +76,9 @@ pub struct Name<'lv, const LABELS: usize = 0> {
 }
 
 impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
+    /// Constructs this instance from key and labels.
+    /// ## Panics
+    /// If number of labels exceeds `MAX_LABELS`.
     pub fn from_parts<I: Into<&'static str>>(key: I, labels: [Label<'lv>; LABELS]) -> Self {
         assert!(
             LABELS <= MAX_LABELS,
@@ -116,6 +119,7 @@ pub struct OwnedName {
 }
 
 impl OwnedName {
+    #[must_use]
     pub fn key(&self) -> &'static str {
         self.key
     }
@@ -125,11 +129,12 @@ impl OwnedName {
     }
 
     /// Checks that a subset of labels in `self` matches all values in `other`.
+    #[must_use]
     pub fn partial_match<const LABELS: usize>(&self, other: &Name<'_, LABELS>) -> bool {
-        if self.key != other.key {
-            false
-        } else {
+        if self.key == other.key {
             other.labels.iter().all(|l| self.find_label(l))
+        } else {
+            false
         }
     }
 
@@ -142,7 +147,7 @@ impl<const LABELS: usize> Hash for Name<'_, LABELS> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.key.as_bytes());
         for label in &self.labels {
-            label.hash(state)
+            label.hash(state);
         }
     }
 }
@@ -157,14 +162,13 @@ impl From<&'static str> for Name<'_, 0> {
 }
 
 pub trait UniqueElements {
+    #[must_use]
     fn enforce_unique(self) -> Self;
 }
 
 impl UniqueElements for [Label<'_>; 2] {
     fn enforce_unique(self) -> Self {
-        if self[0].name == self[1].name {
-            panic!("label names must be unique")
-        }
+        assert_ne!(self[0].name, self[1].name, "label names must be unique");
 
         self
     }
@@ -202,7 +206,7 @@ impl Hash for OwnedName {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.key.as_bytes());
         for label in self.labels.iter().flatten() {
-            label.hash(state)
+            label.hash(state);
         }
     }
 }
