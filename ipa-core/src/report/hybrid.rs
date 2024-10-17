@@ -41,24 +41,11 @@ impl Display for NonAsciiStringError {
 
 impl std::error::Error for NonAsciiStringError {}
 
-impl From<&'_ [u8]> for NonAsciiStringError {
-    fn from(input: &[u8]) -> Self {
-        Self {
-            input: String::from_utf8(
-                input
-                    .iter()
-                    .copied()
-                    .flat_map(std::ascii::escape_default)
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap(),
-        }
-    }
-}
-
 impl From<&'_ str> for NonAsciiStringError {
     fn from(input: &str) -> Self {
-        Self::from(input.as_bytes())
+        Self {
+            input: input.to_string(),
+        }
     }
 }
 
