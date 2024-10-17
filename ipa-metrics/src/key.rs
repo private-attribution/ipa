@@ -114,16 +114,11 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 /// This is the key inside metric stores which are simple hashmaps.
 #[derive(Debug, Clone)]
 pub struct OwnedName {
-    pub(super) key: &'static str,
+    key: &'static str,
     labels: [Option<OwnedLabel>; 5],
 }
 
 impl OwnedName {
-    #[must_use]
-    pub fn key(&self) -> &'static str {
-        self.key
-    }
-
     pub fn labels(&self) -> impl Iterator<Item = &OwnedLabel> {
         self.labels.iter().filter_map(|l| l.as_ref())
     }

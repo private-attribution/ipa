@@ -76,14 +76,12 @@ impl Store {
         key: B,
     ) -> CounterValue {
         let key = key.borrow();
-        let mut answer = 0;
-        for (metric, value) in &self.counters {
-            if metric.partial_match(key) {
-                answer += value;
-            }
-        }
 
-        answer
+        self.counters
+            .iter()
+            .filter(|(counter, _)| counter.partial_match(key))
+            .map(|(_, val)| val)
+            .sum()
     }
 
     #[must_use]
@@ -205,5 +203,22 @@ mod tests {
         );
         assert_eq!(2, store.counter_val(&counter!("foo", "h1" => &1)));
         assert_eq!(2, store.counter_val(&counter!("foo", "h2" => &"2")));
+    }
+
+    #[test]
+    fn len_empty() {
+        let mut store = Store::default();
+        assert!(store.is_empty());
+        assert_eq!(0, store.len());
+
+        store.counter(counter!("foo")).inc(1);
+        assert!(!store.is_empty());
+        assert_eq!(1, store.len());
+
+        store.counter(counter!("foo")).inc(1);
+        assert_eq!(1, store.len());
+
+        store.counter(counter!("bar")).inc(1);
+        assert_eq!(2, store.len());
     }
 }

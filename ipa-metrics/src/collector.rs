@@ -66,7 +66,6 @@ impl MetricsCollector {
                 i if i == command_idx => match next_op.recv(&self.command_rx) {
                     Ok(ControllerCommand::Snapshot(tx)) => {
                         tracing::trace!("Snapshot request received");
-                        println!("snapshot request received");
                         tx.send(self.local_store.clone()).unwrap();
                     }
                     Ok(ControllerCommand::Stop(tx)) => {

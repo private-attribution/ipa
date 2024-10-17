@@ -72,6 +72,8 @@ impl PartialEq for Label<'_> {
     }
 }
 
+/// Same as [`Label`] but owns the values. This instance is stored
+/// inside metric hashmaps as they need to own the keys.
 pub struct OwnedLabel {
     pub name: &'static str,
     pub val: Box<dyn Value>,
@@ -92,14 +94,6 @@ impl OwnedLabel {
             name: self.name,
             val: self.val.as_ref(),
         }
-    }
-
-    pub fn name(&self) -> &'static str {
-        self.name
-    }
-
-    pub fn str_value(&self) -> String {
-        self.val.to_string()
     }
 }
 
@@ -157,5 +151,20 @@ mod tests {
             compute_hash(&metric_name!("foo", "l1" => &1)),
             compute_hash(&metric_name!("foo", "l1" => &1, "l2" => &1)),
         );
+    }
+
+    #[test]
+    fn clone() {
+        let metric = metric_name!("foo", "l1" => &1).to_owned();
+        assert_eq!(&metric.labels().next(), &metric.labels().next().clone());
+    }
+
+    #[test]
+    fn fields() {
+        let metric = metric_name!("foo", "l1" => &1).to_owned();
+        let label = metric.labels().next().unwrap().to_owned();
+
+        assert_eq!(label.name, "l1");
+        assert_eq!(label.val.to_string(), "1");
     }
 }

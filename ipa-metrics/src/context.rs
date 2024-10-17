@@ -32,10 +32,6 @@ impl CurrentThreadContext {
         METRICS_CTX.with_borrow_mut(MetricsContext::flush);
     }
 
-    pub fn is_connected() -> bool {
-        METRICS_CTX.with_borrow(MetricsContext::is_connected)
-    }
-
     pub fn store<F: FnOnce(&MetricsStore) -> T, T>(f: F) -> T {
         METRICS_CTX.with_borrow(|ctx| f(ctx.store()))
     }
