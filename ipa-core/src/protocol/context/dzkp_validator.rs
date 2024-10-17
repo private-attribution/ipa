@@ -1414,10 +1414,16 @@ mod tests {
         )
     }
 
+    impl Batch {
+        fn with_implicit_first_record(max_multiplications_per_gate: usize) -> Self {
+            Batch::new(None, max_multiplications_per_gate)
+        }
+    }
+
     #[test]
     fn batch_allocation_small() {
         const SIZE: usize = 1;
-        let mut batch = Batch::new(None, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
         let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
@@ -1432,7 +1438,7 @@ mod tests {
     #[test]
     fn batch_allocation_big() {
         const SIZE: usize = 2 * TARGET_PROOF_SIZE;
-        let mut batch = Batch::new(None, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
         let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
@@ -1453,7 +1459,7 @@ mod tests {
     #[test]
     fn batch_fill() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(None, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
         let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
@@ -1469,7 +1475,7 @@ mod tests {
 
     #[test]
     fn batch_fill_out_of_order() {
-        let mut batch = Batch::new(None, 3);
+        let mut batch = Batch::with_implicit_first_record(3);
         let ba0 = BA256::from((0, 0));
         let ba1 = BA256::from((0, 1));
         let ba2 = BA256::from((0, 2));
@@ -1502,7 +1508,8 @@ mod tests {
 
     #[test]
     fn batch_fill_at_offset() {
-        let mut batch = Batch::new(None, 3);
+        const SIZE: usize = 3;
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let ba0 = BA256::from((0, 0));
         let ba1 = BA256::from((0, 1));
         let ba2 = BA256::from((0, 2));
@@ -1535,7 +1542,8 @@ mod tests {
 
     #[test]
     fn batch_explicit_first_record() {
-        let mut batch = Batch::new(Some(RecordId::from(4)), 3);
+        const SIZE: usize = 3;
+        let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
         let ba6 = BA256::from((0, 6));
         let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
             &ba6,
@@ -1551,7 +1559,7 @@ mod tests {
     #[test]
     fn batch_is_empty() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(None, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         assert!(batch.is_empty());
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
@@ -1568,7 +1576,7 @@ mod tests {
     )]
     fn batch_underflow() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(None, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
         let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
@@ -1584,7 +1592,7 @@ mod tests {
     )]
     fn batch_overflow() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(None, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
         let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
@@ -1720,13 +1728,13 @@ mod tests {
         // test for small and large segments, i.e. 8bit and 512 bit
         for segment_size in [8usize, 512usize] {
             // generate batch for the prover
-            let mut batch_prover = Batch::new(None, 1024 / segment_size);
+            let mut batch_prover = Batch::with_implicit_first_record(1024 / segment_size);
 
             // generate batch for the verifier on the left of the prover
-            let mut batch_left = Batch::new(None, 1024 / segment_size);
+            let mut batch_left = Batch::with_implicit_first_record(1024 / segment_size);
 
             // generate batch for the verifier on the right of the prover
-            let mut batch_right = Batch::new(None, 1024 / segment_size);
+            let mut batch_right = Batch::with_implicit_first_record(1024 / segment_size);
 
             // fill the batches with random values
             populate_batch(
