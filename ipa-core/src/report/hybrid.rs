@@ -187,8 +187,13 @@ impl UniqueTag {
         }
     }
 
-    // Maps the tag into a consistent shard.
-    // Note that ShardIndex is limited to u32, so we only use the first 4 bytes.
+    /// Maps the tag into a consistent shard.
+    /// Note that `ShardIndex` is limited to u32, so we only use the first 4 bytes.
+    ///
+    /// ## Panics
+    /// if the `TAG_SIZE < 4`
+    /// note: ~10 below this, we have a compile time check that `TAG_SIZE = 16`
+    #[must_use]
     pub fn shard_picker(&self, shard_count: ShardIndex) -> ShardIndex {
         let num = u32::from_le_bytes(
             self.bytes[0..4]

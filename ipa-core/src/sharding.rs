@@ -100,7 +100,7 @@ impl From<ShardIndex> for usize {
 
 impl From<ShardIndex> for u32 {
     fn from(value: ShardIndex) -> Self {
-        u32::from(value.0)
+        value.0
     }
 }
 

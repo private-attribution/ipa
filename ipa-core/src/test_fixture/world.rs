@@ -215,16 +215,16 @@ impl<const SHARDS: usize, D: Distribute> TestWorld<WithShards<SHARDS, D>> {
     #[must_use]
     pub fn contexts(&self) -> [Vec<ShardedSemiHonestContext<'_>>; 3] {
         let gate = &self.next_gate();
-        self.shards()
-            .iter()
-            .map(|shard| shard.contexts(&gate))
-            .fold([Vec::new(), Vec::new(), Vec::new()], |mut acc, contexts| {
+        self.shards().iter().map(|shard| shard.contexts(gate)).fold(
+            [Vec::new(), Vec::new(), Vec::new()],
+            |mut acc, contexts| {
                 // Distribute contexts into the respective vectors.
                 for (vec, context) in acc.iter_mut().zip(contexts.iter()) {
                     vec.push(context.clone());
                 }
                 acc
-            })
+            },
+        )
     }
     /// Creates malicious protocol contexts for 3 helpers across all shards
     ///

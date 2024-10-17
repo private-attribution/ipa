@@ -166,6 +166,9 @@ where
     let outer2 = it.next().unwrap().into_iter();
 
     assert!(it.next().is_none());
+
+    // only used for tests
+    #[allow(clippy::disallowed_methods)]
     futures::future::join_all(
         outer0
             .zip(outer1)

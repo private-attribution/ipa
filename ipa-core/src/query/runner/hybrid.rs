@@ -89,11 +89,14 @@ where
         let resharded_tags = reshard_iter(ctx.clone(), tags, |ctx, _, tag| {
             tag.shard_picker(ctx.shard_count())
         })
-        .await
-        .unwrap();
+        .await?;
 
-        let mut unique_encrypted_hybrid_reports = UniqueTagValidator::new(sz);
-        unique_encrypted_hybrid_reports.check_duplicates(&resharded_tags)?;
+        // this should use ? but until this returns a result,
+        //we want to capture the panic for the test
+        let mut unique_encrypted_hybrid_reports = UniqueTagValidator::new(resharded_tags.len());
+        unique_encrypted_hybrid_reports
+            .check_duplicates(&resharded_tags)
+            .unwrap();
 
         unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
     }
@@ -116,7 +119,7 @@ mod tests {
             BodyStream,
         },
         hpke::{KeyPair, KeyRegistry},
-        query::runner::HybridQuery,
+        query::runner::hybrid::Query as HybridQuery,
         report::{OprfReport, DEFAULT_KEY_ID},
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::{
@@ -265,13 +268,8 @@ mod tests {
                         .execute(ctx, query_size, input)
                     })
             },
-        ));
-
-        let results = tokio::time::timeout(tokio::time::Duration::from_secs(30), async {
-            results.await
-        })
-        .await
-        .unwrap();
+        ))
+        .await;
 
         let results: Vec<[Vec<AdditiveShare<BA16>>; 3]> = results
             .chunks(3)
@@ -285,7 +283,7 @@ mod tests {
             .collect();
 
         assert_eq!(
-            results.into_iter().nth(0).unwrap().reconstruct()[0..3]
+            results.into_iter().next().unwrap().reconstruct()[0..3]
                 .iter()
                 .map(U128Conversions::as_u128)
                 .collect::<Vec<u128>>(),
@@ -295,45 +293,71 @@ mod tests {
 
     // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
     #[tokio::test]
-    #[should_panic(expected = "DuplicateBytes(3)")]
+    #[should_panic(expected = "DuplicateBytes")]
     async fn duplicate_encrypted_hybrid_reports() {
-        let all_records = build_records();
-        let records = &all_records[..2].to_vec();
+        const SHARDS: usize = 2;
+        let records = build_records();
 
         let BufferAndKeyRegistry {
             mut buffers,
             key_registry,
-        } = build_buffers_from_records(records);
+            query_sizes,
+        } = build_buffers_from_records(&records, SHARDS);
 
         // this is double, since we duplicate the data below
-        let query_size = QuerySize::try_from(records.len() * 2).unwrap();
+        let query_sizes = query_sizes
+            .into_iter()
+            .map(|query_size| QuerySize::try_from(usize::from(query_size) * 2).unwrap())
+            .collect::<Vec<_>>();
 
-        // duplicate all the data
-        for buffer in &mut buffers {
-            let original = buffer.clone();
-            buffer.extend(original);
+        // duplicate all the data across shards
+
+        for helper_buffers in &mut buffers {
+            // Get the last shard buffer to use for the first shard buffer extension
+            let last_shard_buffer = helper_buffers.last().unwrap().clone();
+            let len = helper_buffers.len();
+            for i in 0..len {
+                if i > 0 {
+                    let previous = &helper_buffers[i - 1].clone();
+                    helper_buffers[i].extend_from_slice(previous);
+                } else {
+                    helper_buffers[i].extend_from_slice(&last_shard_buffer);
+                }
+            }
         }
 
-        let world = TestWorld::default();
+        let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
+            TestWorld::with_shards(TestWorldConfig::default());
         let contexts = world.contexts();
-        #[allow(clippy::large_futures)]
-        let _results = join3v(buffers.into_iter().zip(contexts).map(|(buffer, ctx)| {
-            let query_params = HybridQueryParams {
-                per_user_credit_cap: 8,
-                max_breakdown_key: 3,
-                with_dp: 0,
-                epsilon: 5.0,
-                plaintext_match_keys: false,
-            };
-            let input = BodyStream::from(buffer);
 
-            HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
-                query_params,
-                Arc::clone(&key_registry),
-            )
-            .execute(ctx, query_size, input)
-        }))
+        #[allow(clippy::large_futures)]
+        let results = join3v0(buffers.into_iter().zip(contexts).map(
+            |(helper_buffers, helper_ctxs)| {
+                helper_buffers
+                    .into_iter()
+                    .zip(helper_ctxs)
+                    .zip(query_sizes.clone())
+                    .map(|((buffer, ctx), query_size)| {
+                        let query_params = HybridQueryParams {
+                            per_user_credit_cap: 8,
+                            max_breakdown_key: 3,
+                            with_dp: 0,
+                            epsilon: 5.0,
+                            plaintext_match_keys: false,
+                        };
+                        let input = BodyStream::from(buffer);
+
+                        HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                            query_params,
+                            Arc::clone(&key_registry),
+                        )
+                        .execute(ctx, query_size, input)
+                    })
+            },
+        ))
         .await;
+
+        results.into_iter().map(|r| r.unwrap()).for_each(drop);
     }
 
     // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
@@ -342,34 +366,46 @@ mod tests {
         expected = "Unsupported(\"Hybrid queries do not currently support plaintext match keys\")"
     )]
     async fn unsupported_plaintext_match_keys_hybrid_query() {
-        let all_records = build_records();
-        let records = &all_records[..2].to_vec();
-        let query_size = QuerySize::try_from(records.len()).unwrap();
+        const SHARDS: usize = 2;
+        let records = build_records();
 
         let BufferAndKeyRegistry {
             buffers,
             key_registry,
-        } = build_buffers_from_records(records);
+            query_sizes,
+        } = build_buffers_from_records(&records, SHARDS);
 
-        let world = TestWorld::default();
+        let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
+            TestWorld::with_shards(TestWorldConfig::default());
         let contexts = world.contexts();
-        #[allow(clippy::large_futures)]
-        let _results = join3v(buffers.into_iter().zip(contexts).map(|(buffer, ctx)| {
-            let query_params = HybridQueryParams {
-                per_user_credit_cap: 8,
-                max_breakdown_key: 3,
-                with_dp: 0,
-                epsilon: 5.0,
-                plaintext_match_keys: true,
-            };
-            let input = BodyStream::from(buffer);
 
-            HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
-                query_params,
-                Arc::clone(&key_registry),
-            )
-            .execute(ctx, query_size, input)
-        }))
+        #[allow(clippy::large_futures)]
+        let results = join3v0(buffers.into_iter().zip(contexts).map(
+            |(helper_buffers, helper_ctxs)| {
+                helper_buffers
+                    .into_iter()
+                    .zip(helper_ctxs)
+                    .zip(query_sizes.clone())
+                    .map(|((buffer, ctx), query_size)| {
+                        let query_params = HybridQueryParams {
+                            per_user_credit_cap: 8,
+                            max_breakdown_key: 3,
+                            with_dp: 0,
+                            epsilon: 5.0,
+                            plaintext_match_keys: true,
+                        };
+                        let input = BodyStream::from(buffer);
+
+                        HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                            query_params,
+                            Arc::clone(&key_registry),
+                        )
+                        .execute(ctx, query_size, input)
+                    })
+            },
+        ))
         .await;
+
+        results.into_iter().map(|r| r.unwrap()).for_each(drop);
     }
 }
