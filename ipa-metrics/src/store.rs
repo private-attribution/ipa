@@ -3,18 +3,14 @@ use std::{borrow::Borrow, hash::BuildHasher};
 use hashbrown::hash_map::RawEntryMut;
 use rustc_hash::FxBuildHasher;
 
-use crate::{
-    key::{OwnedMetricName, OwnedName},
-    kind::CounterValue,
-    MetricName,
-};
+use crate::{key::OwnedMetricName, kind::CounterValue, MetricName};
 
 /// A basic store. Currently only supports counters.
+/// Counters and other metrics are stored to optimize writes. That means, one lookup
+/// per write. The cost of assembling the total count across all dimensions is absorbed
+/// by readers
 #[derive(Clone, Debug)]
 pub struct Store {
-    // Counters and other metrics are stored to optimize writes. That means, one lookup
-    // per write. The cost of assembling the total count across all dimensions is absorbed
-    // by readers
     counters: hashbrown::HashMap<OwnedMetricName, CounterValue, FxBuildHasher>,
 }
 
@@ -50,10 +46,11 @@ impl Store {
 }
 
 impl Store {
-    pub fn counter<const LABELS: usize>(
-        &mut self,
-        key: &MetricName<'_, LABELS>,
-    ) -> CounterHandle<'_, LABELS> {
+    pub fn counter<'a, const LABELS: usize, B: Borrow<MetricName<'a, LABELS>>>(
+        &'a mut self,
+        key: B,
+    ) -> CounterHandle<'a, LABELS> {
+        let key = key.borrow();
         let hash_builder = self.counters.hasher();
         let hash = hash_builder.hash_one(key);
         let entry = self
@@ -71,26 +68,27 @@ impl Store {
         }
     }
 
-    /// Returns the value for the specified metric across all dimensions.
+    /// Returns the value for the specified metric taking into account
+    /// its dimensionality. That is (foo, dim1 = 1, dim2 = 2) will be
+    /// different from (foo, dim1 = 1).
     /// The cost of this operation is `O(N*M)` where `N` - number of unique metrics
-    /// and `M` - number of all dimensions across all metrics.
+    /// registered in this store and `M` number of dimensions.
     ///
     /// Note that the cost can be improved if it ever becomes a bottleneck by
     /// creating a specialized two-level map (metric -> label -> value).
-    pub fn counter_value<'a, B: Borrow<MetricName<'a>>>(&'a self, key: B) -> CounterValue {
+    pub fn counter_val<'a, const LABELS: usize, B: Borrow<MetricName<'a, LABELS>>>(
+        &'a self,
+        key: B,
+    ) -> CounterValue {
         let key = key.borrow();
         let mut answer = 0;
         for (metric, value) in &self.counters {
-            if metric.key == key.key {
+            if metric.partial_match(key) {
                 answer += value
             }
         }
 
         answer
-    }
-
-    pub fn counters(&self) -> impl Iterator<Item = (&OwnedName, CounterValue)> {
-        self.counters.iter().map(|(key, value)| (key, *value))
     }
 
     pub fn len(&self) -> usize {
@@ -116,7 +114,7 @@ impl<const LABELS: usize> CounterHandle<'_, LABELS> {
 mod tests {
     use std::hash::{DefaultHasher, Hash, Hasher};
 
-    use crate::{metric_name, store::Store, LabelValue};
+    use crate::{counter, metric_name, store::Store, LabelValue};
 
     impl LabelValue for &'static str {
         fn hash(&self) -> u64 {
@@ -184,18 +182,27 @@ mod tests {
     fn counter_value() {
         let mut store = Store::default();
         store
-            .counter(&metric_name!("foo", "h1" => &1, "h2" => &"1"))
+            .counter(counter!("foo", "h1" => &1, "h2" => &"1"))
             .inc(1);
         store
-            .counter(&metric_name!("foo", "h1" => &1, "h2" => &"2"))
+            .counter(counter!("foo", "h1" => &1, "h2" => &"2"))
             .inc(1);
         store
-            .counter(&metric_name!("foo", "h1" => &2, "h2" => &"1"))
+            .counter(counter!("foo", "h1" => &2, "h2" => &"1"))
             .inc(1);
         store
-            .counter(&metric_name!("foo", "h1" => &2, "h2" => &"2"))
+            .counter(counter!("foo", "h1" => &2, "h2" => &"2"))
             .inc(1);
+        store
+            .counter(counter!("bar", "h1" => &1, "h2" => &"1"))
+            .inc(3);
 
-        assert_eq!(4, store.counter_value(&metric_name!("foo")));
+        assert_eq!(4, store.counter_val(counter!("foo")));
+        assert_eq!(
+            1,
+            store.counter_val(&counter!("foo", "h1" => &1, "h2" => &"2"))
+        );
+        assert_eq!(2, store.counter_val(&counter!("foo", "h1" => &1)));
+        assert_eq!(2, store.counter_val(&counter!("foo", "h2" => &"2")));
     }
 }

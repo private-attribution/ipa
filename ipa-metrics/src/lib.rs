@@ -18,7 +18,7 @@ pub use key::{MetricName, OwnedName, UniqueElements};
 pub use label::{Label, LabelValue};
 #[cfg(feature = "partitions")]
 pub use partitioned::{
-    current_partition, set_or_unset_partition, set_partition, Partition as MetricPartition,
+    CurrentThreadContext as CurrentThreadPartitionContext, Partition as MetricPartition,
     PartitionedStore as MetricsStore,
 };
 pub use producer::Producer as MetricsProducer;

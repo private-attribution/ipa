@@ -123,6 +123,19 @@ impl OwnedName {
     pub fn labels(&self) -> impl Iterator<Item = &OwnedLabel> {
         self.labels.iter().filter_map(|l| l.as_ref())
     }
+
+    /// Checks that a subset of labels in `self` matches all values in `other`.
+    pub fn partial_match<const LABELS: usize>(&self, other: &Name<'_, LABELS>) -> bool {
+        if self.key != other.key {
+            false
+        } else {
+            other.labels.iter().all(|l| self.find_label(l))
+        }
+    }
+
+    fn find_label(&self, label: &Label<'_>) -> bool {
+        self.labels().any(|l| l.as_borrowed().eq(label))
+    }
 }
 
 impl<const LABELS: usize> Hash for Name<'_, LABELS> {

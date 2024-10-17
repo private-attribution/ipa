@@ -134,7 +134,7 @@ mod tests {
         let (collector, producer, controller) = installer();
         let handle = thread::spawn(|| {
             let store = collector.install().block_until_shutdown();
-            store.counter_value(counter!("foo"))
+            store.counter_val(counter!("foo"))
         });
 
         thread::scope(move |s| {

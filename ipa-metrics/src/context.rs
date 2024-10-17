@@ -91,6 +91,10 @@ impl MetricsContext {
     }
 
     fn flush(&mut self) {
+        if self.store.is_empty() {
+            return;
+        }
+
         if self.is_connected() {
             let store = mem::take(&mut self.store);
             match self.tx.as_ref().unwrap().send(store) {
@@ -118,7 +122,9 @@ impl Drop for MetricsContext {
 
 #[cfg(test)]
 mod tests {
-    use crate::MetricsContext;
+    use std::thread;
+
+    use crate::{CurrentThreadPartitionContext, MetricsContext};
 
     /// Each thread has its local store by default, and it is exclusive to it
     #[test]
@@ -126,7 +132,7 @@ mod tests {
     fn local_store() {
         use crate::context::CurrentThreadContext;
 
-        crate::set_partition(0xdeadbeef);
+        CurrentThreadPartitionContext::set(0xdeadbeef);
         counter!("foo", 7);
 
         std::thread::spawn(|| {
@@ -134,18 +140,33 @@ mod tests {
             counter!("foo", 5);
             assert_eq!(
                 5,
-                CurrentThreadContext::store(|store| store.counter_value(&counter!("foo")))
+                CurrentThreadContext::store(|store| store.counter_val(counter!("foo")))
             );
         });
 
         assert_eq!(
             7,
-            CurrentThreadContext::store(|store| store.counter_value(&counter!("foo")))
+            CurrentThreadContext::store(|store| store.counter_val(counter!("foo")))
         );
     }
 
     #[test]
     fn default() {
         assert_eq!(0, MetricsContext::default().store().len())
+    }
+
+    #[test]
+    fn ignore_empty_store_on_flush() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut ctx = MetricsContext::new();
+        ctx.init(tx);
+        let handle = thread::spawn(move || {
+            if let Ok(_) = rx.recv() {
+                panic!("Context sent empty store");
+            }
+        });
+        ctx.flush();
+        drop(ctx);
+        handle.join().unwrap();
     }
 }
