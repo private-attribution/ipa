@@ -31,8 +31,7 @@ pub use transport::{HttpShardTransport, HttpTransport};
 const APPLICATION_JSON: &str = "application/json";
 const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
 static HTTP_HELPER_ID_HEADER: HeaderName = HeaderName::from_static("x-unverified-helper-identity");
-pub static HTTP_SHARD_INDEX_HEADER: HeaderName =
-    HeaderName::from_static("x-unverified-shard-index");
+static HTTP_SHARD_INDEX_HEADER: HeaderName = HeaderName::from_static("x-unverified-shard-index");
 
 /// This has the same meaning as const defined in h2 crate, but we don't import it directly.
 /// According to the [`spec`] it cannot exceed 2^31 - 1.
