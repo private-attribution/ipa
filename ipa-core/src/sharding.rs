@@ -3,6 +3,8 @@ use std::{
     num::TryFromIntError,
 };
 
+use ipa_metrics::LabelValue;
+
 /// A unique zero-based index of the helper shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ShardIndex(u32);
@@ -26,6 +28,16 @@ impl ShardConfiguration for Sharded {
 impl Display for ShardIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl LabelValue for ShardIndex {
+    fn hash(&self) -> u64 {
+        u64::from(self.0)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
     }
 }
 

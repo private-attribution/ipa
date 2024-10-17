@@ -31,7 +31,6 @@ use futures::{
     FutureExt,
 };
 use hyper::{body::Incoming, header::HeaderName, Request};
-use metrics::increment_counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use rustls_pki_types::CertificateDer;
 use tokio_rustls::server::TlsStream;
@@ -130,13 +129,12 @@ impl MpcHelperServer {
         const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::LOCALHOST;
         #[cfg(not(test))]
         const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
-
         let svc = self.router().layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |_request: &hyper::Request<_>| tracing.make_span())
                 .on_request(|request: &hyper::Request<_>, _: &Span| {
-                    increment_counter!(RequestProtocolVersion::from(request.version()));
-                    increment_counter!(REQUESTS_RECEIVED);
+                    ipa_metrics::counter!(RequestProtocolVersion::from(request.version()), 1);
+                    ipa_metrics::counter!(REQUESTS_RECEIVED, 1);
                 }),
         );
         let handle = Handle::new();
@@ -227,6 +225,8 @@ where
 {
     runtime.spawn({
         async move {
+            eprintln!("server started on {:?}", std::thread::current().id());
+            tracing::warn!("server started on {:?}", std::thread::current().id());
             // Apply configuration
             HttpServerConfig::apply(&mut server.http_builder().http2());
             // Start serving
@@ -485,7 +485,6 @@ mod e2e_tests {
         },
         rt::{TokioExecutor, TokioTimer},
     };
-    use metrics_util::debugging::Snapshotter;
     use rustls::{
         client::danger::{ServerCertVerified, ServerCertVerifier},
         pki_types::ServerName,
@@ -642,9 +641,6 @@ mod e2e_tests {
 
         // request
         let expected = expected_req(addr.to_string());
-
-        let snapshot = Snapshotter::current_thread_snapshot();
-        assert!(snapshot.is_none());
 
         let request_count = 10;
         for _ in 0..request_count {

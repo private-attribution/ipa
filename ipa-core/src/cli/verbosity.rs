@@ -1,16 +1,15 @@
 use std::io::{stderr, IsTerminal};
-
+use std::time::Duration;
 use clap::Parser;
-use metrics_tracing_context::MetricsLayer;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
     fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
 };
-
+use ipa_metrics::{metric_name, MetricsCollector, MetricsCollectorController, MetricsProducer};
 use crate::{
-    cli::{install_collector, metric_collector::CollectorHandle},
     error::set_global_panic_hook,
 };
+use crate::telemetry::metrics::{BYTES_SENT, RECORDS_SENT};
 
 #[derive(Debug, Parser)]
 pub struct Verbosity {
@@ -24,8 +23,7 @@ pub struct Verbosity {
 }
 
 pub struct LoggingHandle {
-    #[allow(dead_code)] // we care about handle's drop semantic so it is ok to not read it
-    metrics_handle: Option<CollectorHandle>,
+    pub producer: MetricsProducer,
 }
 
 impl Verbosity {
@@ -43,19 +41,32 @@ impl Verbosity {
             .with(filter_layer)
             .with(fmt_layer);
 
-        if cfg!(feature = "disable-metrics") {
-            registry.init();
-        } else {
-            registry.with(MetricsLayer::new()).init();
-        }
+        registry.init();
 
-        let handle = LoggingHandle {
-            metrics_handle: (!self.quiet && !cfg!(feature = "disable-metrics"))
-                .then(install_collector),
-        };
         set_global_panic_hook();
+        let (collector, producer, controller) = ipa_metrics::installer();
 
-        handle
+        std::thread::spawn(move || {
+            collector.install();
+            MetricsCollector::wait_for_shutdown();
+        });
+        std::thread::spawn(move || {
+            let mut before = 0;
+            loop {
+                std::thread::sleep(Duration::from_secs(10));
+                let snapshot = controller.snapshot().unwrap();
+                let after = snapshot.counter_value(&metric_name!(BYTES_SENT));
+                let records_sent = snapshot.counter_value(&metric_name!(RECORDS_SENT));
+                if after > before {
+                    tracing::info!("Metrics Snapshot: MB sent: {}, records sent: {}", after / 1024, records_sent);
+                    before = after;
+                }
+            }
+        });
+
+        LoggingHandle {
+            producer,
+        }
     }
 
     fn log_filter(&self) -> EnvFilter {
