@@ -11,6 +11,7 @@ use crate::{
     hpke::{EncapsulationSize, PrivateKeyRegistry, PublicKeyRegistry, TagSize},
     report::{EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+    sharding::ShardIndex,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -152,7 +153,7 @@ impl TryFrom<Bytes> for EncryptedHybridReport {
 
 const TAG_SIZE: usize = TagSize::USIZE;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UniqueTag {
     bytes: [u8; TAG_SIZE],
 }
@@ -184,6 +185,18 @@ impl UniqueTag {
         UniqueTag {
             bytes: item.unique_bytes(),
         }
+    }
+
+    // Maps the tag into a consistent shard.
+    // Note that ShardIndex is limited to u32, so we only use the first 4 bytes.
+    pub fn shard_picker(&self, shard_count: ShardIndex) -> ShardIndex {
+        let num = u32::from_le_bytes(
+            self.bytes[0..4]
+                .try_into()
+                .expect("This is larger than 4 bytes"),
+        );
+        let shard_count = u32::from(shard_count);
+        ShardIndex::from(num % shard_count)
     }
 }
 

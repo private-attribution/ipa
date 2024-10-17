@@ -24,7 +24,7 @@ use std::{fmt::Debug, future::Future};
 #[cfg(feature = "in-memory-infra")]
 pub use app::TestApp;
 pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
-use futures::{FutureExt, TryFuture};
+use futures::{future::JoinAll, FutureExt, TryFuture};
 pub use hybrid_event_gen::{
     Config as HybridGeneratorConfig, EventGenerator as HybridEventGenerator,
 };
@@ -145,6 +145,34 @@ where
     let fut2 = it.next().unwrap();
     assert!(it.next().is_none());
     join3(fut0, fut1, fut2)
+}
+
+/// Wrapper for joining the first item from three iterator in an iterator into an array.
+/// # Panics
+/// If the tasks return `Err` or if `a` is the wrong length.
+pub fn join3v0<T, I, V>(a: V) -> JoinAll<T>
+where
+    V: IntoIterator<Item = I>,
+    I: IntoIterator<Item = T>,
+    T: TryFuture,
+    T::Output: Debug,
+    T::Ok: Debug,
+    T::Error: Debug,
+{
+    let mut it = a.into_iter();
+
+    let outer0 = it.next().unwrap().into_iter();
+    let outer1 = it.next().unwrap().into_iter();
+    let outer2 = it.next().unwrap().into_iter();
+
+    assert!(it.next().is_none());
+    futures::future::join_all(
+        outer0
+            .zip(outer1)
+            .zip(outer2)
+            .flat_map(|((fut0, fut1), fut2)| vec![fut0, fut1, fut2])
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `Z`

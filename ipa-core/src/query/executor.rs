@@ -39,7 +39,7 @@ use crate::{
         Gate,
     },
     query::{
-        runner::{HybridQuery, OprfIpaQuery, QueryResult},
+        runner::{OprfIpaQuery, QueryResult},
         state::RunningQuery,
     },
     sync::Arc,
@@ -164,20 +164,7 @@ pub fn execute<R: PrivateKeyRegistry>(
                 )
             },
         ),
-        (QueryType::SemiHonestHybrid(query_params), _) => do_query(
-            runtime,
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    HybridQuery::<_, BA32, R>::new(query_params, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
+        (QueryType::SemiHonestHybrid(_), _) => todo!(),
     }
 }
 
