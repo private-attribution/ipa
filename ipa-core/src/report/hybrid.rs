@@ -317,9 +317,6 @@ where
         Ok(HybridImpressionReport::<BK> {
             match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
                 .unwrap_infallible(),
-            /* .map_err(|e| {
-                InvalidHybridReportError::DeserializationError("matchkey", e.into())
-            })?,*/
             breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(plaintext_btt))
                 .map_err(|e| {
                 InvalidHybridReportError::DeserializationError("is_trigger", e.into())
