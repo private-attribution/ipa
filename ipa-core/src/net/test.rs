@@ -273,7 +273,7 @@ impl TestServerBuilder {
 
     pub async fn build(self) -> TestServer {
         let identity = if self.disable_https {
-            ClientIdentity::Helper(HelperIdentity::ONE)
+            ClientIdentity::Header(HelperIdentity::ONE)
         } else {
             get_test_identity(HelperIdentity::ONE)
         };
@@ -297,6 +297,7 @@ impl TestServerBuilder {
             &identity.clone_with_key(),
         );
         let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
+        let client = clients[0].clone();
         let (transport, server) = HttpTransport::new(
             IpaRuntime::current(),
             HelperIdentity::ONE,
@@ -308,17 +309,6 @@ impl TestServerBuilder {
         let (addr, handle) = server
             .start_on(&IpaRuntime::current(), Some(server_socket), self.metrics)
             .await;
-        // Get the config for HelperIdentity::ONE
-        let h1_peer_config = network_config.peers.into_iter().next().unwrap();
-        // At some point it might be appropriate to return two clients here -- the first being
-        // another helper and the second being a report collector. For now we use the same client
-        // for both types of calls.
-        let client = MpcHelperClient::new(
-            IpaRuntime::current(),
-            &network_config.client,
-            h1_peer_config,
-            identity,
-        );
         TestServer {
             addr,
             handle,

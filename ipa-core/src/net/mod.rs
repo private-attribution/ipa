@@ -1,13 +1,19 @@
 use std::{
+    fmt::Debug,
     io::{self, BufRead},
     sync::Arc,
 };
 
+use hyper::header::HeaderName;
 use once_cell::sync::Lazy;
 use rustls::crypto::CryptoProvider;
 use rustls_pki_types::CertificateDer;
 
-use crate::config::{OwnedCertificate, OwnedPrivateKey};
+use crate::{
+    config::{OwnedCertificate, OwnedPrivateKey},
+    helpers::{HelperIdentity, TransportIdentity},
+    sharding::ShardIndex,
+};
 
 mod client;
 mod error;
@@ -22,8 +28,11 @@ pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
 pub use transport::{HttpShardTransport, HttpTransport};
 
-pub const APPLICATION_JSON: &str = "application/json";
-pub const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
+const APPLICATION_JSON: &str = "application/json";
+const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
+static HTTP_HELPER_ID_HEADER: HeaderName = HeaderName::from_static("x-unverified-helper-identity");
+pub static HTTP_SHARD_INDEX_HEADER: HeaderName =
+    HeaderName::from_static("x-unverified-shard-index");
 
 /// This has the same meaning as const defined in h2 crate, but we don't import it directly.
 /// According to the [`spec`] it cannot exceed 2^31 - 1.
@@ -37,6 +46,51 @@ pub(crate) const MAX_HTTP2_CONCURRENT_STREAMS: u32 = 5000;
 /// Provides access to IPAs Crypto Provider (AWS Libcrypto).
 static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
     Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
+
+/// This simple trait is used to make aware on what transport dimnsion one is running. Structs like
+/// [`MpcHelperClient<F>`] use it to know whether they are talking to other servers as Shards
+/// inside a Helper or as a Helper talking to another Helper in a Ring. This trait can be used to
+/// limit the functions exposed by a struct impl, depending on the context that it's being used.
+/// Continuing the previous example, the functions a [`MpcHelperClient<F>`] provides are dependent
+/// on whether it's communicating with another Shard or another Helper.
+///
+/// This trait is a safety restriction so that structs or traits only expose an API that's
+/// meaningful for their specific context. When used as a generic bound, it also spreads through
+/// the types making it harder to be misused or combining incompatible types, e.g. Using a
+/// [`ShardIndex`] with a [`Shard`].
+pub trait ConnectionFlavor: Debug + Send + Sync + Clone + 'static {
+    /// The meaningful identity used in this transport dimension.
+    type Identity: TransportIdentity;
+
+    /// The header to be used to identify a HTTP request
+    fn identity_header() -> HeaderName;
+}
+
+/// Shard-to-shard communication marker.
+/// This marker is used to restrict communication inside a single Helper, with other shards.
+#[derive(Debug, Copy, Clone)]
+pub struct Shard;
+
+/// Helper-to-helper communication marker.
+/// This marker is used to restrict communication between Helpers. This communication usually has
+/// more restrictions. 3 Hosts with the same sharding index are conencted in a Ring.
+#[derive(Debug, Copy, Clone)]
+pub struct Helper;
+
+impl ConnectionFlavor for Shard {
+    type Identity = ShardIndex;
+
+    fn identity_header() -> HeaderName {
+        HTTP_SHARD_INDEX_HEADER.clone()
+    }
+}
+impl ConnectionFlavor for Helper {
+    type Identity = HelperIdentity;
+
+    fn identity_header() -> HeaderName {
+        HTTP_HELPER_ID_HEADER.clone()
+    }
+}
 
 /// Reads certificates and a private key from the corresponding readers
 ///

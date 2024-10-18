@@ -127,7 +127,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
                 }),
             )
         }
-        (None, None) => (ClientIdentity::Helper(my_identity), None),
+        (None, None) => (ClientIdentity::Header(my_identity), None),
         _ => panic!("should have been rejected by clap"),
     };
 

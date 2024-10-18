@@ -5,7 +5,13 @@ use std::{
 
 /// A unique zero-based index of the helper shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ShardIndex(u32);
+pub struct ShardIndex(pub u32);
+
+impl From<ShardIndex> for u32 {
+    fn from(value: ShardIndex) -> Self {
+        value.0
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct Sharded {
