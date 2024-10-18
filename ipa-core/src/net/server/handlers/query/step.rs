@@ -1,7 +1,7 @@
 use axum::{extract::Path, routing::post, Extension, Router};
 
 use crate::{
-    helpers::{BodyStream, Transport},
+    helpers::{BodyStream, HelperIdentity, Transport},
     net::{
         http_serde,
         server::{ClientIdentity, Error},
@@ -15,7 +15,7 @@ use crate::{
 #[tracing::instrument(level = "trace", "step", skip_all, fields(from = ?**from, gate = ?gate))]
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
-    from: Extension<ClientIdentity>,
+    from: Extension<ClientIdentity<HelperIdentity>>,
     Path((query_id, gate)): Path<(QueryId, Gate)>,
     body: BodyStream,
 ) -> Result<(), Error> {
@@ -76,7 +76,7 @@ mod tests {
     }
 
     struct OverrideReq {
-        client_id: Option<ClientIdentity>,
+        client_id: Option<ClientIdentity<HelperIdentity>>,
         query_id: String,
         gate: Gate,
         payload: Vec<u8>,

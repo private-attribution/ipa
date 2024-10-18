@@ -8,7 +8,7 @@ use crate::{
     sync::Arc,
 };
 
-pub fn router(transport: Arc<HttpTransport>) -> Router {
+pub fn ring_router(transport: Arc<HttpTransport>) -> Router {
     echo::router().nest(
         http_serde::query::BASE_AXUM_PATH,
         Router::new()
