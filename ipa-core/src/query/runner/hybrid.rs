@@ -126,7 +126,7 @@ mod tests {
         report::{OprfReport, DEFAULT_KEY_ID},
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::{
-            ipa::TestRawDataRecord, join3v0, Reconstruct, RoundRobinInputDistribution, TestWorld,
+            flatten3v, ipa::TestRawDataRecord, Reconstruct, RoundRobinInputDistribution, TestWorld,
             TestWorldConfig, WithShards,
         },
     };
@@ -248,7 +248,7 @@ mod tests {
         let contexts = world.contexts();
 
         #[allow(clippy::large_futures)]
-        let results = join3v0(buffers.into_iter().zip(contexts).map(
+        let results = flatten3v(buffers.into_iter().zip(contexts).map(
             |(helper_buffers, helper_ctxs)| {
                 helper_buffers
                     .into_iter()
@@ -334,7 +334,7 @@ mod tests {
         let contexts = world.contexts();
 
         #[allow(clippy::large_futures)]
-        let results = join3v0(buffers.into_iter().zip(contexts).map(
+        let results = flatten3v(buffers.into_iter().zip(contexts).map(
             |(helper_buffers, helper_ctxs)| {
                 helper_buffers
                     .into_iter()
@@ -383,7 +383,7 @@ mod tests {
         let contexts = world.contexts();
 
         #[allow(clippy::large_futures)]
-        let results = join3v0(buffers.into_iter().zip(contexts).map(
+        let results = flatten3v(buffers.into_iter().zip(contexts).map(
             |(helper_buffers, helper_ctxs)| {
                 helper_buffers
                     .into_iter()

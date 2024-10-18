@@ -24,7 +24,7 @@ use std::{fmt::Debug, future::Future};
 #[cfg(feature = "in-memory-infra")]
 pub use app::TestApp;
 pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
-use futures::{future::JoinAll, FutureExt, TryFuture};
+use futures::{FutureExt, TryFuture};
 pub use hybrid_event_gen::{
     Config as HybridGeneratorConfig, EventGenerator as HybridEventGenerator,
 };
@@ -147,10 +147,10 @@ where
     join3(fut0, fut1, fut2)
 }
 
-/// Wrapper for joining the first item from three iterator in an iterator into an array.
+/// Wrapper for flattening 3 vecs of vecs into a single future
 /// # Panics
 /// If the tasks return `Err` or if `a` is the wrong length.
-pub fn join3v0<T, I, V>(a: V) -> JoinAll<T>
+pub fn flatten3v<T, I, V>(a: V) -> impl Future<Output = Vec<<T as Future>::Output>>
 where
     V: IntoIterator<Item = I>,
     I: IntoIterator<Item = T>,
