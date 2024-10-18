@@ -117,14 +117,7 @@ impl PartitionedStore {
         &'a mut self,
         key: B,
     ) -> CounterHandle<'a, LABELS> {
-        if let Some(partition) = CurrentThreadContext::get() {
-            self.inner
-                .entry(partition)
-                .or_insert_with(Store::default)
-                .counter(key)
-        } else {
-            self.default_store.counter(key)
-        }
+        self.get_mut(CurrentThreadContext::get()).counter(key)
     }
 
     #[must_use]
