@@ -12,6 +12,7 @@ use crate::{
     hpke::PrivateKeyRegistry,
     protocol::{
         context::{reshard_iter, ShardedContext},
+        hybrid::step::HybridStep,
         step::ProtocolStep::Hybrid,
     },
     report::hybrid::{EncryptedHybridReport, HybridReport, UniqueTag, UniqueTagValidator},
@@ -86,9 +87,11 @@ where
                 )
                 .await?;
 
-        let resharded_tags = reshard_iter(ctx.clone(), tags, |ctx, _, tag| {
-            tag.shard_picker(ctx.shard_count())
-        })
+        let resharded_tags = reshard_iter(
+            ctx.narrow(&HybridStep::ReshardByTag),
+            tags,
+            |ctx, _, tag| tag.shard_picker(ctx.shard_count()),
+        )
         .await?;
 
         // this should use ? but until this returns a result,
