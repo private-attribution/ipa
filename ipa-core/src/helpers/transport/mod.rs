@@ -44,21 +44,46 @@ pub trait Identity:
     Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + 'static
 {
     fn as_str(&self) -> Cow<'static, str>;
+
+    /// Parses a ref to a string representation of this identity
+    ///
+    /// # Errors
+    /// If there where any problems parsing the identity.
+    fn from_str(s: &str) -> Result<Self, crate::error::Error>;
 }
 
 impl Identity for ShardIndex {
     fn as_str(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
     }
+
+    fn from_str(s: &str) -> Result<Self, crate::error::Error> {
+        s.parse::<u32>()
+            .map_err(|_e| {
+                crate::error::Error::InvalidId(format!("The string {s} is an invalid Shard Index"))
+            })
+            .map(ShardIndex::from)
+    }
 }
 impl Identity for HelperIdentity {
     fn as_str(&self) -> Cow<'static, str> {
         Cow::Borrowed(match *self {
-            Self::ONE => "A",
-            Self::TWO => "B",
-            Self::THREE => "C",
+            Self::ONE => Self::ONE_STR,
+            Self::TWO => Self::TWO_STR,
+            Self::THREE => Self::THREE_STR,
             _ => unreachable!(),
         })
+    }
+
+    fn from_str(s: &str) -> Result<Self, crate::error::Error> {
+        match s {
+            Self::ONE_STR => Ok(Self::ONE),
+            Self::TWO_STR => Ok(Self::TWO),
+            Self::THREE_STR => Ok(Self::THREE),
+            _ => Err(crate::error::Error::InvalidId(format!(
+                "The string {s} is an invalid Helper Identity"
+            ))),
+        }
     }
 }
 
@@ -67,6 +92,17 @@ impl Identity for HelperIdentity {
 impl Identity for Role {
     fn as_str(&self) -> Cow<'static, str> {
         Cow::Borrowed(Role::as_static_str(self))
+    }
+
+    fn from_str(s: &str) -> Result<Self, crate::error::Error> {
+        match s {
+            Self::H1_STR => Ok(Self::H1),
+            Self::H2_STR => Ok(Self::H2),
+            Self::H3_STR => Ok(Self::H3),
+            _ => Err(crate::error::Error::InvalidId(format!(
+                "The string {s} is an invalid Role"
+            ))),
+        }
     }
 }
 
@@ -227,5 +263,55 @@ pub trait Transport: Clone + Send + Sync + 'static {
     #[must_use]
     fn clone_ref(&self) -> Self {
         <Self as Clone>::clone(self)
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use crate::{
+        helpers::{HelperIdentity, Role, TransportIdentity},
+        sharding::ShardIndex,
+    };
+
+    #[test]
+    fn helper_from_str() {
+        assert_eq!(HelperIdentity::from_str("A").unwrap(), HelperIdentity::ONE);
+        assert_eq!(HelperIdentity::from_str("B").unwrap(), HelperIdentity::TWO);
+        assert_eq!(
+            HelperIdentity::from_str("C").unwrap(),
+            HelperIdentity::THREE
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "The string H1 is an invalid Helper Identity")]
+    fn invalid_helper_from_str() {
+        assert_eq!(HelperIdentity::from_str("H1").unwrap(), HelperIdentity::ONE);
+    }
+
+    #[test]
+    fn shard_from_str() {
+        assert_eq!(ShardIndex::from_str("42").unwrap(), ShardIndex::from(42));
+        assert_eq!(ShardIndex::from_str("9").unwrap(), ShardIndex::from(9));
+        assert_eq!(ShardIndex::from_str("0").unwrap(), ShardIndex::from(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "The string -1 is an invalid Shard Index")]
+    fn invalid_shard_from_str() {
+        assert_eq!(ShardIndex::from_str("-1").unwrap(), ShardIndex::from(0));
+    }
+
+    #[test]
+    fn role_from_str() {
+        assert_eq!(Role::from_str("H1").unwrap(), Role::H1);
+        assert_eq!(Role::from_str("H2").unwrap(), Role::H2);
+        assert_eq!(Role::from_str("H3").unwrap(), Role::H3);
+    }
+
+    #[test]
+    #[should_panic(expected = "The string A is an invalid Role")]
+    fn invalid_role_from_str() {
+        assert_eq!(Role::from_str("A").unwrap(), Role::H1);
     }
 }
