@@ -17,7 +17,10 @@ use std::{io, thread::JoinHandle};
 
 pub use collector::MetricsCollector;
 pub use context::{CurrentThreadContext as MetricsCurrentThreadContext, MetricsContext};
-pub use controller::{Command as ControllerCommand, Controller as MetricsCollectorController};
+pub use controller::{
+    Command as ControllerCommand, Controller as MetricsCollectorController,
+    Status as ControllerStatus,
+};
 pub use key::{MetricName, OwnedName, UniqueElements};
 pub use label::{Label, LabelValue};
 #[cfg(feature = "partitions")]

@@ -2,9 +2,22 @@ use crossbeam_channel::Sender;
 
 use crate::MetricsStore;
 
+/// Indicates the current status of collector thread
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Status {
+    /// There are at least one active thread that can send
+    /// the store snapshots to the collector. Collector is actively
+    /// listening for new snapshots.
+    Active,
+    /// All threads have been disconnected from this collector,
+    /// and it is currently awaiting shutdown via [`Command::Stop`]
+    Disconnected,
+}
+
 pub enum Command {
     Snapshot(Sender<MetricsStore>),
     Stop(Sender<()>),
+    Status(Sender<Status>),
 }
 
 /// Handle to communicate with centralized metrics collection system.
@@ -57,6 +70,29 @@ impl Controller {
         self.tx
             .send(Command::Stop(tx))
             .map_err(|e| format!("An error occurred while requesting termination: {e}"))?;
+        rx.recv().map_err(|e| format!("Disconnected channel: {e}"))
+    }
+
+    /// Request current collector status.
+    ///
+    /// ## Errors
+    /// If collector thread is disconnected or an error occurs while sending
+    /// or receiving data from the collector thread.
+    ///
+    /// ## Example
+    /// ```rust
+    /// use ipa_metrics::{install_new_thread, ControllerStatus};
+    ///
+    /// let (_, controller, _handle) = install_new_thread().unwrap();
+    /// let status = controller.status().unwrap();
+    /// println!("Collector status: {status:?}");
+    /// ```
+    #[inline]
+    pub fn status(&self) -> Result<Status, String> {
+        let (tx, rx) = crossbeam_channel::bounded(0);
+        self.tx
+            .send(Command::Status(tx))
+            .map_err(|e| format!("An error occurred while requesting status: {e}"))?;
         rx.recv().map_err(|e| format!("Disconnected channel: {e}"))
     }
 }

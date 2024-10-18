@@ -2,7 +2,10 @@ use std::cell::RefCell;
 
 use crossbeam_channel::{Receiver, Select};
 
-use crate::{ControllerCommand, MetricsStore};
+use crate::{
+    controller::{Command, Status},
+    ControllerCommand, MetricsStore,
+};
 
 thread_local! {
     /// Collector that is installed in a thread. It is responsible for receiving metrics from
@@ -48,6 +51,7 @@ impl MetricsCollector {
         let mut select = Select::new();
         let data_idx = select.recv(&self.rx);
         let command_idx = select.recv(&self.command_rx);
+        let mut state = Status::Active;
 
         loop {
             let next_op = select.select();
@@ -55,12 +59,12 @@ impl MetricsCollector {
                 i if i == data_idx => match next_op.recv(&self.rx) {
                     Ok(store) => {
                         tracing::trace!("Collector received more data: {store:?}");
-                        println!("Collector received more data: {store:?}");
                         self.local_store.merge(store);
                     }
                     Err(e) => {
                         tracing::debug!("No more threads collecting metrics. Disconnected: {e}");
                         select.remove(data_idx);
+                        state = Status::Disconnected;
                     }
                 },
                 i if i == command_idx => match next_op.recv(&self.command_rx) {
@@ -69,8 +73,12 @@ impl MetricsCollector {
                         tx.send(self.local_store.clone()).unwrap();
                     }
                     Ok(ControllerCommand::Stop(tx)) => {
+                        tracing::trace!("Stop signal received");
                         tx.send(()).unwrap();
                         break;
+                    }
+                    Ok(Command::Status(tx)) => {
+                        tx.send(state).unwrap();
                     }
                     Err(e) => {
                         tracing::debug!("Metric controller is disconnected: {e}");
@@ -103,7 +111,7 @@ mod tests {
         thread::{Scope, ScopedJoinHandle},
     };
 
-    use crate::{counter, install, install_new_thread, producer::Producer};
+    use crate::{controller::Status, counter, install, install_new_thread, producer::Producer};
 
     struct MeteredScope<'scope, 'env: 'scope>(&'scope Scope<'scope, 'env>, Producer);
 
@@ -147,6 +155,8 @@ mod tests {
             let s = s.metered(producer);
             s.spawn(|| counter!("foo", 3)).join().unwrap();
             s.spawn(|| counter!("foo", 5)).join().unwrap();
+            drop(s); // this causes collector to eventually stop receiving signals
+            while controller.status().unwrap() == Status::Active {}
             controller.stop().unwrap();
         });
 
