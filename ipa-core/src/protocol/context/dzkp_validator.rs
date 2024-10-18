@@ -1,4 +1,4 @@
-use std::{cmp, collections::BTreeMap, fmt::Debug, future::ready};
+use std::{collections::BTreeMap, fmt::Debug, future::ready};
 
 use async_trait::async_trait;
 use bitvec::prelude::{BitArray, BitSlice, Lsb0};
@@ -107,6 +107,31 @@ impl MultiplicationInputsBlock {
             prss_right: BitArray::try_from(prss_right)?,
             z_right: BitArray::try_from(z_right)?,
         })
+    }
+
+    /// set using bitslices
+    /// ## Errors
+    /// Errors when length of slices is not 256 bit
+    #[allow(clippy::too_many_arguments)]
+    fn set(
+        &mut self,
+        x_left: &BitSliceType,
+        x_right: &BitSliceType,
+        y_left: &BitSliceType,
+        y_right: &BitSliceType,
+        prss_left: &BitSliceType,
+        prss_right: &BitSliceType,
+        z_right: &BitSliceType,
+    ) -> Result<(), BoxError> {
+        self.x_left = BitArray::try_from(x_left)?;
+        self.x_right = BitArray::try_from(x_right)?;
+        self.y_left = BitArray::try_from(y_left)?;
+        self.y_right = BitArray::try_from(y_right)?;
+        self.prss_left = BitArray::try_from(prss_left)?;
+        self.prss_right = BitArray::try_from(prss_right)?;
+        self.z_right = BitArray::try_from(z_right)?;
+
+        Ok(())
     }
 
     /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
@@ -237,29 +262,29 @@ impl<'a> SegmentEntry<'a> {
 
 /// `MultiplicationInputsBatch` stores a batch of multiplication inputs in a vector of `MultiplicationInputsBlock`.
 /// `first_record` is the first `RecordId` for the current batch.
-/// `last_record` keeps track of the highest record that has been added to the batch.
 /// `max_multiplications` is the maximum amount of multiplications performed within a this batch.
 /// It is used to determine the vector length during the allocation.
 /// If there are more multiplications, it will cause a panic!
 /// `multiplication_bit_size` is the bit size of a single multiplication. The size will be consistent
 /// across all multiplications of a gate.
-/// `is_empty` keeps track of whether any value has been added
 #[derive(Clone, Debug)]
 struct MultiplicationInputsBatch {
-    first_record: RecordId,
-    last_record: RecordId,
+    first_record: Option<RecordId>,
     max_multiplications: usize,
     multiplication_bit_size: usize,
-    is_empty: bool,
     vec: Vec<MultiplicationInputsBlock>,
 }
 
 impl MultiplicationInputsBatch {
-    /// Creates a new store for multiplication intermediates for records starting from
-    /// `first_record`. The size of the allocated vector is
+    /// Creates a new store for multiplication intermediates. The first record is
+    /// specified by `first_record`, or if that is `None`, is set automatically the
+    /// first time a segment is added to the batch. Once the first record is set,
+    /// attempting to add a segment before the first record will panic.
+    ///
+    /// The size of the allocated vector is
     /// `ceil((max_multiplications * multiplication_bit_size) / BIT_ARRAY_LEN)`.
     fn new(
-        first_record: RecordId,
+        first_record: Option<RecordId>,
         max_multiplications: usize,
         multiplication_bit_size: usize,
     ) -> Self {
@@ -277,10 +302,8 @@ impl MultiplicationInputsBatch {
         );
         Self {
             first_record,
-            last_record: first_record,
             max_multiplications,
             multiplication_bit_size,
-            is_empty: false,
             vec: Vec::with_capacity((capacity_bits + BIT_ARRAY_MASK) >> BIT_ARRAY_SHIFT),
         }
     }
@@ -293,7 +316,7 @@ impl MultiplicationInputsBatch {
 
     /// returns whether the store is empty
     fn is_empty(&self) -> bool {
-        self.is_empty
+        self.vec.is_empty()
     }
 
     /// `insert_segment` allows to include a new segment in `MultiplicationInputsBatch`.
@@ -308,21 +331,27 @@ impl MultiplicationInputsBatch {
         // check segment size
         debug_assert_eq!(segment.len(), self.multiplication_bit_size);
 
+        let first_record = *self.first_record.get_or_insert(record_id);
+
         // panics when record_id is out of bounds
-        assert!(record_id >= self.first_record);
         assert!(
-            usize::from(record_id) < self.max_multiplications + usize::from(self.first_record),
+            record_id >= first_record,
+            "record_id out of range in insert_segment. record {record_id} is before \
+             first record {first_record}",
+        );
+        assert!(
+            usize::from(record_id)
+                < self
+                    .max_multiplications
+                    .saturating_add(usize::from(first_record)),
             "record_id out of range in insert_segment. record {record_id} is beyond \
              segment of length {} starting at {}",
             self.max_multiplications,
-            self.first_record,
+            first_record,
         );
 
-        // update last record
-        self.last_record = cmp::max(self.last_record, record_id);
-
         // panics when record_id is too large to fit in, i.e. when it is out of bounds
-        if segment.len() <= 256 {
+        if segment.len() < 256 {
             self.insert_segment_small(record_id, segment);
         } else {
             self.insert_segment_large(record_id, &segment);
@@ -337,15 +366,8 @@ impl MultiplicationInputsBatch {
     /// than the first record of the batch, i.e. `first_record`
     /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment_small(&mut self, record_id: RecordId, segment: Segment) {
-        // check length
-        debug_assert!(segment.len() <= 256);
-
-        // panics when record_id is out of bounds
-        assert!(record_id >= self.first_record);
-        assert!(usize::from(record_id) < self.max_multiplications + usize::from(self.first_record));
-
         // panics when record_id is less than first_record
-        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record.unwrap());
         // round up segment length to a power of two since we want to have divisors of 256
         let length = segment.len().next_power_of_two();
 
@@ -386,14 +408,7 @@ impl MultiplicationInputsBatch {
     /// than the first record of the batch, i.e. `first_record`
     /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment_large(&mut self, record_id: RecordId, segment: &Segment) {
-        // check length
-        debug_assert_eq!(segment.len() % 256, 0);
-
-        // panics when record_id is out of bounds
-        assert!(record_id >= self.first_record);
-        assert!(usize::from(record_id) < self.max_multiplications + usize::from(self.first_record));
-
-        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record.unwrap());
         let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
         let length_in_blocks = segment.len() >> BIT_ARRAY_SHIFT;
         if self.vec.len() < block_id {
@@ -402,8 +417,9 @@ impl MultiplicationInputsBatch {
         }
 
         for i in 0..length_in_blocks {
-            self.vec.push(
-                MultiplicationInputsBlock::clone_from(
+            if self.vec.len() > block_id + i {
+                MultiplicationInputsBlock::set(
+                    &mut self.vec[block_id + i],
                     &segment.x_left.0[256 * i..256 * (i + 1)],
                     &segment.x_right.0[256 * i..256 * (i + 1)],
                     &segment.y_left.0[256 * i..256 * (i + 1)],
@@ -412,8 +428,21 @@ impl MultiplicationInputsBatch {
                     &segment.prss_right.0[256 * i..256 * (i + 1)],
                     &segment.z_right.0[256 * i..256 * (i + 1)],
                 )
-                .unwrap(),
-            );
+                .unwrap();
+            } else {
+                self.vec.push(
+                    MultiplicationInputsBlock::clone_from(
+                        &segment.x_left.0[256 * i..256 * (i + 1)],
+                        &segment.x_right.0[256 * i..256 * (i + 1)],
+                        &segment.y_left.0[256 * i..256 * (i + 1)],
+                        &segment.y_right.0[256 * i..256 * (i + 1)],
+                        &segment.prss_left.0[256 * i..256 * (i + 1)],
+                        &segment.prss_right.0[256 * i..256 * (i + 1)],
+                        &segment.z_right.0[256 * i..256 * (i + 1)],
+                    )
+                    .unwrap(),
+                );
+            }
         }
     }
 
@@ -457,12 +486,24 @@ impl MultiplicationInputsBatch {
 #[derive(Debug)]
 pub(super) struct Batch {
     max_multiplications_per_gate: usize,
-    first_record: RecordId,
+    first_record: Option<RecordId>,
     inner: BTreeMap<Gate, MultiplicationInputsBatch>,
 }
 
 impl Batch {
-    fn new(first_record: RecordId, max_multiplications_per_gate: usize) -> Self {
+    /// Creates a new `Batch` for multiplication intermediates from multiple gates. The
+    /// first record is specified by `first_record`, or if that is `None`, is set
+    /// automatically for each gate the first time a segment from that gate is added.
+    ///
+    /// Once the first record is set, attempting to add a segment before the first
+    /// record will panic. It is likely, but not guaranteed, that protocol execution
+    /// proceeds in order, so a problem here can easily escape testing.
+    ///  * When using the `Batcher` in multi-batch mode, `first_record` is calculated
+    ///    from the batch index and the number of records in a batch, so there is no
+    ///    possibility of attempting to add a record before the start of the batch.
+    ///  * The only protocol that manages batches explicitly is the aggregation protocol
+    ///    (`breakdown_reveal_aggregation`). It is structured to operate in order.
+    fn new(first_record: Option<RecordId>, max_multiplications_per_gate: usize) -> Self {
         Self {
             max_multiplications_per_gate,
             first_record,
@@ -802,10 +843,9 @@ impl<'a, B: ShardBinding> MaliciousDZKPValidator<'a, B> {
             max_multiplications_per_gate,
             ctx.total_records(),
             Box::new(move |batch_index| {
-                Batch::new(
-                    RecordId::from(batch_index * max_multiplications_per_gate),
-                    max_multiplications_per_gate,
-                )
+                let first_record = (max_multiplications_per_gate != usize::MAX)
+                    .then(|| RecordId::from(batch_index * max_multiplications_per_gate));
+                Batch::new(first_record, max_multiplications_per_gate)
             }),
         );
         let inner = Arc::new(MaliciousDZKPValidatorInner {
@@ -1362,22 +1402,33 @@ mod tests {
             .await;
     }
 
+    fn segment_from_entry(entry: SegmentEntry) -> Segment {
+        Segment::from_entries(
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry,
+        )
+    }
+
+    impl Batch {
+        fn with_implicit_first_record(max_multiplications_per_gate: usize) -> Self {
+            Batch::new(None, max_multiplications_per_gate)
+        }
+    }
+
     #[test]
     fn batch_allocation_small() {
         const SIZE: usize = 1;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         batch.push(Gate::default(), RecordId::FIRST, segment);
         assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 1);
         assert!(batch.inner.get(&Gate::default()).unwrap().vec.capacity() >= SIZE);
@@ -1387,19 +1438,12 @@ mod tests {
     #[test]
     fn batch_allocation_big() {
         const SIZE: usize = 2 * TARGET_PROOF_SIZE;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         batch.push(Gate::default(), RecordId::FIRST, segment);
         assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 1);
         assert!(
@@ -1415,19 +1459,12 @@ mod tests {
     #[test]
     fn batch_fill() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         for i in 0..SIZE {
             batch.push(Gate::default(), RecordId::from(i), segment.clone());
         }
@@ -1437,24 +1474,130 @@ mod tests {
     }
 
     #[test]
+    fn batch_fill_out_of_order() {
+        let mut batch = Batch::with_implicit_first_record(3);
+        let ba0 = BA256::from((0, 0));
+        let ba1 = BA256::from((0, 1));
+        let ba2 = BA256::from((0, 2));
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba0,
+        ));
+        batch.push(Gate::default(), RecordId::from(0), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba2,
+        ));
+        batch.push(Gate::default(), RecordId::from(2), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba1,
+        ));
+        batch.push(Gate::default(), RecordId::from(1), segment.clone());
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+            ba0.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+            ba1.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+            ba2.as_bitslice()
+        );
+    }
+
+    #[test]
+    fn batch_fill_at_offset() {
+        const SIZE: usize = 3;
+        let mut batch = Batch::with_implicit_first_record(SIZE);
+        let ba0 = BA256::from((0, 0));
+        let ba1 = BA256::from((0, 1));
+        let ba2 = BA256::from((0, 2));
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba0,
+        ));
+        batch.push(Gate::default(), RecordId::from(4), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba1,
+        ));
+        batch.push(Gate::default(), RecordId::from(5), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba2,
+        ));
+        batch.push(Gate::default(), RecordId::from(6), segment.clone());
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+            ba0.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+            ba1.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+            ba2.as_bitslice()
+        );
+    }
+
+    #[test]
+    fn batch_explicit_first_record() {
+        const SIZE: usize = 3;
+        let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
+        let ba6 = BA256::from((0, 6));
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba6,
+        ));
+        batch.push(Gate::default(), RecordId::from(6), segment.clone());
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+            ba6.as_bitslice()
+        );
+    }
+
+    #[test]
+    fn batch_is_empty() {
+        const SIZE: usize = 10;
+        let mut batch = Batch::with_implicit_first_record(SIZE);
+        assert!(batch.is_empty());
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
+        batch.push(Gate::default(), RecordId::FIRST, segment);
+        assert!(!batch.is_empty());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "record_id out of range in insert_segment. record 0 is before first record 10"
+    )]
+    fn batch_underflow() {
+        const SIZE: usize = 10;
+        let mut batch = Batch::with_implicit_first_record(SIZE);
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
+        batch.push(Gate::default(), RecordId::from(10), segment.clone());
+        batch.push(Gate::default(), RecordId::from(0), segment.clone());
+    }
+
+    #[test]
     #[should_panic(
         expected = "record_id out of range in insert_segment. record 10 is beyond segment of length 10 starting at 0"
     )]
     fn batch_overflow() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         for i in 0..=SIZE {
             batch.push(Gate::default(), RecordId::from(i), segment.clone());
         }
@@ -1585,13 +1728,13 @@ mod tests {
         // test for small and large segments, i.e. 8bit and 512 bit
         for segment_size in [8usize, 512usize] {
             // generate batch for the prover
-            let mut batch_prover = Batch::new(RecordId::FIRST, 1024 / segment_size);
+            let mut batch_prover = Batch::with_implicit_first_record(1024 / segment_size);
 
             // generate batch for the verifier on the left of the prover
-            let mut batch_left = Batch::new(RecordId::FIRST, 1024 / segment_size);
+            let mut batch_left = Batch::with_implicit_first_record(1024 / segment_size);
 
             // generate batch for the verifier on the right of the prover
-            let mut batch_right = Batch::new(RecordId::FIRST, 1024 / segment_size);
+            let mut batch_right = Batch::with_implicit_first_record(1024 / segment_size);
 
             // fill the batches with random values
             populate_batch(

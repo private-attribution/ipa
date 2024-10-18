@@ -495,7 +495,7 @@ mod tests {
             let inputs = [1_u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
                 .map(BA8::truncate_from)
                 .to_vec();
-            let mut result = sharded_shuffle::<3, D>(inputs.clone()).await;
+            let mut result = sharded_shuffle::<SHARDS, D>(inputs.clone()).await;
 
             assert_ne!(inputs, result);
             result.sort_by_key(U128Conversions::as_u128);
