@@ -18,11 +18,7 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
-pub type BreakdownKey = BA8;
-pub type Value = BA3;
-// TODO: remove this when encryption/decryption works for HybridReports
-pub type Timestamp = BA20;
-
+#[allow(dead_code)]
 pub struct Query<C, HV, R: PrivateKeyRegistry> {
     config: HybridQueryParams,
     key_registry: Arc<R>,
@@ -53,6 +49,7 @@ where
             key_registry,
             phantom_data: _,
         } = self;
+
         tracing::info!("New hybrid query: {config:?}");
         let ctx = ctx.narrow(&Hybrid);
         let sz = usize::from(query_size);
@@ -63,14 +60,14 @@ where
             ));
         }
 
-        let (_decrypted_reports, tags): (Vec<HybridReport<BreakdownKey, Value>>, Vec<UniqueTag>) =
+        let (_decrypted_reports, tags): (Vec<HybridReport<BA8, BA3>>, Vec<UniqueTag>) =
             LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
                 .map_err(Into::<Error>::into)
                 .map_ok(|enc_reports| {
                     iter(enc_reports.into_iter().map({
                         |enc_report| {
                             let dec_report = enc_report
-                                .decrypt::<R, BreakdownKey, Value, Timestamp>(key_registry.as_ref())
+                                .decrypt::<R, BA8, BA3, BA20>(key_registry.as_ref())
                                 .map_err(Into::<Error>::into);
                             let unique_tag = UniqueTag::from_unique_bytes(&enc_report);
                             dec_report.map(|dec_report1| (dec_report1, unique_tag))
