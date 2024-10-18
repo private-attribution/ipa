@@ -495,7 +495,7 @@ impl UniqueTagValidator {
     /// if the item inserted is not unique among all checked thus far
     pub fn check_duplicate<U: UniqueBytes>(&mut self, item: &U) -> Result<(), Error> {
         self.check_counter += 1;
-        if self.insert(item.unique_bytes().to_vec()) {
+        if self.insert(item.unique_bytes()) {
             Ok(())
         } else {
             Err(Error::DuplicateBytes(self.check_counter))
@@ -521,9 +521,8 @@ mod test {
 
     use super::{
         EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
-        HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag, UniqueTagValidator,
-        EncryptedHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
-        UniqueTag, UniqueTagValidator,
+        HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag,
+        UniqueTagValidator,
     };
     use crate::{
         error::Error,
