@@ -1,4 +1,4 @@
-use std::{convert::Infallible, mem, pin::pin};
+use std::{convert::Infallible, pin::pin};
 
 use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
@@ -34,7 +34,6 @@ use crate::{
         TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
-    utils::vec_chunks::vec_chunks,
 };
 
 /// Improved Aggregation a.k.a Aggregation revealing breakdown.
@@ -51,6 +50,19 @@ use crate::{
 /// 2. Reveal breakdown keys. This is the key difference to the previous
 ///    aggregation (see [`reveal_breakdowns`]).
 /// 3. Add all values for each breakdown.
+///
+/// This protocol explicitly manages proof batches for DZKP-based malicious security by
+/// processing chunks of values from `intermediate_results.chunks()`. Procession
+/// through record IDs is not uniform for all of the gates in the protocol. The first
+/// layer of the reduction adds N pairs of records, the second layer adds N/2 pairs of
+/// records, etc. This has a few consequences:
+///   * We must specify a batch size of `usize::MAX` when calling `dzkp_validator`.
+///   * We must track record IDs across chunks, so that subsequent chunks can
+///     start from the last record ID that was used in the previous chunk.
+///   * Because the first record ID in the proof batch is set implicitly, we must
+///     guarantee that it submits multiplication intermediates before any other
+///     record. This is currently ensured by the serial operation of the aggregation
+///     protocol (i.e. by not using `seq_join`).
 #[tracing::instrument(name = "breakdown_reveal_aggregation", skip_all, fields(total = attributed_values.len()))]
 pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     ctx: C,
@@ -100,30 +112,29 @@ where
 
     while intermediate_results.len() > 1 {
         let mut record_ids = [RecordId::FIRST; AGGREGATE_DEPTH];
-        for chunk in vec_chunks(mem::take(&mut intermediate_results), agg_proof_chunk) {
+        let mut next_intermediate_results = Vec::new();
+        for chunk in intermediate_results.chunks(agg_proof_chunk) {
             let chunk_len = chunk.len();
             let validator = ctx.clone().dzkp_validator(
                 MaliciousProtocolSteps {
                     protocol: &Step::aggregate(depth),
                     validate: &Step::aggregate_validate(chunk_counter),
                 },
-                // We have to specify usize::MAX here because the procession through
-                // record IDs is different at each step of the reduction. The batch
-                // size is limited by `vec_chunks`, above.
-                usize::MAX,
+                usize::MAX, // See note about batching above.
             );
             let result = aggregate_values::<_, HV, B>(
                 validator.context(),
-                stream::iter(chunk).map(Ok).boxed(),
+                stream::iter(chunk).map(|v| Ok(v.clone())).boxed(),
                 chunk_len,
                 Some(&mut record_ids),
             )
             .await?;
             validator.validate().await?;
             chunk_counter += 1;
-            intermediate_results.push(result);
+            next_intermediate_results.push(result);
         }
         depth += 1;
+        intermediate_results = next_intermediate_results;
     }
 
     Ok(intermediate_results
