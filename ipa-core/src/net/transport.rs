@@ -21,7 +21,7 @@ use crate::{
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{Gate, QueryId},
-    sharding::ShardIndex,
+    sharding::{Ring, ShardIndex},
     sync::Arc,
 };
 
@@ -67,12 +67,13 @@ impl HttpTransport {
         runtime: IpaRuntime,
         identity: HelperIdentity,
         server_config: ServerConfig,
-        network_config: NetworkConfig,
+        network_config: NetworkConfig<Ring>,
         clients: [MpcHelperClient; 3],
         handler: Option<HandlerRef>,
-    ) -> (Arc<Self>, MpcHelperServer) {
+    ) -> (Arc<Self>, MpcHelperServer<Ring>) {
         let transport = Self::new_internal(runtime, identity, clients, handler);
-        let server = MpcHelperServer::new(Arc::clone(&transport), server_config, network_config);
+        let server =
+            MpcHelperServer::new_ring(Arc::clone(&transport), server_config, network_config);
         (transport, server)
     }
 
@@ -208,7 +209,7 @@ impl Transport for Arc<HttpTransport> {
                     .spawn(
                         resp_future
                             .map_err(Into::into)
-                            .and_then(MpcHelperClient::resp_ok),
+                            .and_then(MpcHelperClient::<Ring>::resp_ok),
                     )
                     .await?;
                 Ok(())
@@ -381,14 +382,14 @@ mod tests {
     async fn make_helpers(
         sockets: [TcpListener; 3],
         server_config: [ServerConfig; 3],
-        network_config: &NetworkConfig,
+        network_config: &NetworkConfig<Ring>,
         disable_https: bool,
     ) -> [HelperApp; 3] {
         join_all(
             zip(HelperIdentity::make_three(), zip(sockets, server_config)).map(
                 |(id, (socket, server_config))| async move {
                     let identity = if disable_https {
-                        ClientIdentity::Helper(id)
+                        ClientIdentity::Header(id)
                     } else {
                         get_test_identity(id)
                     };

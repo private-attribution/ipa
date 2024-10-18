@@ -244,7 +244,7 @@ this is not toml!
     }
 
     #[test]
-    #[should_panic = "invalid length 2, expected an array of length 3"]
+    #[should_panic = "Expected a Vec of length 3 but it was 2"]
     fn encrypt_incomplete_network_file() {
         let input_file = sample_data::write_csv(sample_data::test_ipa_data().take(10)).unwrap();
 

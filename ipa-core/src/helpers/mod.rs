@@ -181,6 +181,10 @@ impl HelperIdentity {
     pub const TWO: Self = Self { id: 2 };
     pub const THREE: Self = Self { id: 3 };
 
+    pub const ONE_STR: &'static str = "A";
+    pub const TWO_STR: &'static str = "B";
+    pub const THREE_STR: &'static str = "C";
+
     /// Given a helper identity, return an array of the identities of the other two helpers.
     // The order that helpers are returned here is not intended to be meaningful, however,
     // it is currently used directly to determine the assignment of roles in

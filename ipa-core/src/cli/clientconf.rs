@@ -186,7 +186,7 @@ fn assert_network_config(config_toml: &Map<String, Value>, config_str: &str) {
     else {
         panic!("peers section in toml config is not a table");
     };
-    for (i, peer_config_actual) in nw_config.peers.iter().enumerate() {
+    for (i, peer_config_actual) in nw_config.peers().iter().enumerate() {
         assert_peer_config(&peer_config_expected[i], peer_config_actual);
     }
 }
