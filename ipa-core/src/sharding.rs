@@ -112,6 +112,14 @@ impl TryFrom<usize> for ShardIndex {
     }
 }
 
+impl TryFrom<u128> for ShardIndex {
+    type Error = TryFromIntError;
+
+    fn try_from(value: u128) -> Result<Self, Self::Error> {
+        u32::try_from(value).map(Self)
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::iter::empty;

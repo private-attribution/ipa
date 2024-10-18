@@ -1,5 +1,6 @@
 use std::{collections::HashSet, convert::Infallible, ops::Add};
 
+use assertions::const_assert;
 use bytes::Bytes;
 use generic_array::{ArrayLength, GenericArray};
 use rand_core::{CryptoRng, RngCore};
@@ -180,6 +181,12 @@ impl UniqueBytes for EncryptedHybridReport {
 }
 
 impl UniqueTag {
+    fn _compile_check() {
+        // This will vaild at compile time if TAG_SIZE doesn't match U16
+        // the macro expansion needs to be wrapped in a function
+        const_assert!(TAG_SIZE == 16);
+    }
+
     // Function to attempt to create a UniqueTag from a UniqueBytes implementor
     pub fn from_unique_bytes<T: UniqueBytes>(item: &T) -> Self {
         UniqueTag {
@@ -188,25 +195,17 @@ impl UniqueTag {
     }
 
     /// Maps the tag into a consistent shard.
-    /// Note that `ShardIndex` is limited to u32, so we only use the first 4 bytes.
     ///
     /// ## Panics
-    /// if the `TAG_SIZE < 4`
+    /// if the `TAG_SIZE != 16`
     /// note: ~10 below this, we have a compile time check that `TAG_SIZE = 16`
     #[must_use]
     pub fn shard_picker(&self, shard_count: ShardIndex) -> ShardIndex {
-        let num = u32::from_le_bytes(
-            self.bytes[0..4]
-                .try_into()
-                .expect("This is larger than 4 bytes"),
-        );
-        let shard_count = u32::from(shard_count);
-        ShardIndex::from(num % shard_count)
+        let num = u128::from_le_bytes(self.bytes);
+        let shard_count = u128::from(shard_count);
+        ShardIndex::try_from(num % shard_count).expect("Modulo a u32 will fit in u32")
     }
 }
-
-// This will vaild at compile time if TAG_SIZE doesn't match U16
-const _: [(); 16] = [(); TAG_SIZE];
 
 impl Serializable for UniqueTag {
     type Size = U16; // This must match TAG_SIZE
