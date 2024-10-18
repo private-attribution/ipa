@@ -7,6 +7,7 @@ use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
+    ops::Not,
 };
 
 use generic_array::GenericArray;
@@ -265,6 +266,17 @@ pub struct RoleAssignment {
 pub enum Direction {
     Left,
     Right,
+}
+
+impl Not for Direction {
+    type Output = Self;
+
+    fn not(self) -> Self {
+        match self {
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+        }
+    }
 }
 
 impl Role {
