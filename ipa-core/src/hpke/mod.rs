@@ -100,10 +100,9 @@ pub fn open_in_place<'a, R: PrivateKeyRegistry>(
     key_registry: &R,
     enc: &[u8],
     ciphertext: &'a mut [u8],
-    info: &Info,
+    key_id: u8,
+    info: &[u8],
 ) -> Result<&'a [u8], CryptError> {
-    let key_id = info.key_id;
-    let info = info.to_bytes();
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
     let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
@@ -115,7 +114,7 @@ pub fn open_in_place<'a, R: PrivateKeyRegistry>(
         &OpModeR::Base,
         sk,
         &encap_key,
-        &info,
+        info,
         ct,
         &[],
         &tag,
@@ -139,11 +138,10 @@ pub(crate) type Ciphertext<'a> = (
 pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
     key_registry: &K,
     plaintext: &'a mut [u8],
-    info: &'a Info,
+    key_id: u8,
+    info: &[u8],
     rng: &mut R,
 ) -> Result<Ciphertext<'a>, CryptError> {
-    let key_id = info.key_id;
-    let info = info.to_bytes();
     let pk_r = key_registry
         .public_key(key_id)
         .ok_or(CryptError::NoSuchKey(key_id))?;
@@ -151,7 +149,7 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
     let (encap_key, tag) = single_shot_seal_in_place_detached::<IpaAead, IpaKdf, IpaKem, _>(
         &OpModeS::Base,
         pk_r,
-        &info,
+        info,
         plaintext,
         &[],
         rng,
@@ -233,7 +231,8 @@ mod tests {
             let (encap_key, ciphertext, tag) = seal_in_place(
                 &self.registry,
                 plaintext.as_mut_slice(),
-                &info,
+                info.key_id,
+                &info.to_bytes(),
                 &mut self.rng,
             )
             .unwrap();
@@ -282,7 +281,13 @@ mod tests {
                 Self::SITE_DOMAIN,
             )
             .unwrap();
-            open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), &info)?;
+            open_in_place(
+                &self.registry,
+                &enc.enc,
+                enc.ct.as_mut(),
+                info.key_id,
+                &info.to_bytes(),
+            )?;
 
             // TODO: fix once array split is a thing.
             Ok(XorReplicated::deserialize_infallible(
@@ -467,7 +472,7 @@ mod tests {
                     _ => panic!("bad test setup: only 5 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
                 };
 
-                open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, &info).unwrap_err();
+                open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info.key_id, &info.to_bytes()).unwrap_err();
             }
         }
     }
