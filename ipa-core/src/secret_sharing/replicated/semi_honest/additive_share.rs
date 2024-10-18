@@ -76,6 +76,13 @@ impl<V: SharedValue + Vectorizable<N>, const N: usize> AdditiveShare<V, N> {
         <V as Vectorizable<N>>::Array::ZERO_ARRAY,
         <V as Vectorizable<N>>::Array::ZERO_ARRAY,
     );
+
+    /// Returns the size this instance would occupy on the wire or disk.
+    /// In other words, it does not include padding/alignment.
+    #[must_use]
+    pub const fn size() -> usize {
+        2 * <<V as Vectorizable<N>>::Array as Serializable>::Size::USIZE
+    }
 }
 
 impl<V: SharedValue> AdditiveShare<V> {
@@ -634,6 +641,14 @@ mod tests {
         mult_by_constant_test_case((0, 1, 0), 2, 2);
         mult_by_constant_test_case((0, 0, 1), 2, 2);
         mult_by_constant_test_case((0, 0, 0), 2, 0);
+    }
+
+    #[test]
+    fn test_size() {
+        const FP31_SZ: usize = AdditiveShare::<Fp31>::size();
+        const VEC_FP32: usize = AdditiveShare::<Fp32BitPrime, 32>::size();
+        assert_eq!(2, FP31_SZ);
+        assert_eq!(256, VEC_FP32);
     }
 
     impl<V: SharedValue, const N: usize> Arbitrary for AdditiveShare<V, N>
