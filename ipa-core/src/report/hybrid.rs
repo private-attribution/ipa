@@ -295,11 +295,11 @@ mod test {
         }
     }
 
-    fn generate_random_bytes() -> [u8; 16] {
+    fn generate_random_tag() -> UniqueTag {
         let mut rng = thread_rng();
         let mut bytes = [0u8; 16];
         rng.fill(&mut bytes[..]);
-        bytes
+        UniqueTag { bytes }
     }
 
     #[test]
@@ -361,18 +361,10 @@ mod test {
 
     #[test]
     fn unique_encrypted_hybrid_reports() {
-        let tag1 = UniqueTag {
-            bytes: generate_random_bytes(),
-        };
-        let tag2 = UniqueTag {
-            bytes: generate_random_bytes(),
-        };
-        let tag3 = UniqueTag {
-            bytes: generate_random_bytes(),
-        };
-        let tag4 = UniqueTag {
-            bytes: generate_random_bytes(),
-        };
+        let tag1 = generate_random_tag();
+        let tag2 = generate_random_tag();
+        let tag3 = generate_random_tag();
+        let tag4 = generate_random_tag();
 
         let mut unique_bytes = UniqueTagValidator::new(4);
 
