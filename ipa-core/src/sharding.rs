@@ -98,6 +98,12 @@ impl From<ShardIndex> for usize {
     }
 }
 
+impl From<ShardIndex> for u32 {
+    fn from(value: ShardIndex) -> Self {
+        value.0
+    }
+}
+
 impl TryFrom<usize> for ShardIndex {
     type Error = TryFromIntError;
 
