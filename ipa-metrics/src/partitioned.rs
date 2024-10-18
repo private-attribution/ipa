@@ -26,7 +26,7 @@ use crate::{
 };
 
 thread_local! {
-    static PARTITION: Cell<Option<Partition>> = Cell::new(None);
+    static PARTITION: Cell<Option<Partition>> = const { Cell::new(None) }
 }
 
 /// Each partition is a unique 8 byte value, meaning roughly 1B partitions
@@ -37,13 +37,14 @@ pub struct CurrentThreadContext;
 
 impl CurrentThreadContext {
     pub fn set(new: Partition) {
-        Self::toggle(Some(new))
+        Self::toggle(Some(new));
     }
 
     pub fn toggle(new: Option<Partition>) {
         PARTITION.set(new);
     }
 
+    #[must_use]
     pub fn get() -> Option<Partition> {
         PARTITION.get()
     }
@@ -73,6 +74,7 @@ impl Default for PartitionedStore {
 }
 
 impl PartitionedStore {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             inner: hashbrown::HashMap::with_hasher(FxBuildHasher),
@@ -118,28 +120,31 @@ impl PartitionedStore {
         if let Some(partition) = CurrentThreadContext::get() {
             self.inner
                 .entry(partition)
-                .or_insert_with(|| Store::default())
+                .or_insert_with(Store::default)
                 .counter(key)
         } else {
             self.default_store.counter(key)
         }
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.inner.len() + self.default_store.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    #[allow(dead_code)]
     fn with_partition_mut<F: FnOnce(&mut Store) -> T, T>(
         &mut self,
         partition: Partition,
         f: F,
     ) -> T {
-        let mut store = self.get_mut(Some(partition));
-        f(&mut store)
+        let store = self.get_mut(Some(partition));
+        f(store)
     }
 
     fn get_mut(&mut self, partition: Option<Partition>) -> &mut Store {
