@@ -52,7 +52,7 @@ impl<'a> Info<'a> {
 
     /// Converts this instance into an owned byte slice that can further be used to create HPKE
     /// sender or receiver context.
-    pub(super) fn to_bytes(&self) -> Box<[u8]> {
+    pub(crate) fn to_bytes(&self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
             + self.helper_origin.len()
             + self.site_domain.len()
