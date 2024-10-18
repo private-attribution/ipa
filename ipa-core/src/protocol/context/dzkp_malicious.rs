@@ -13,7 +13,6 @@ use crate::{
         context::{
             dzkp_validator::{Batch, MaliciousDZKPValidatorInner, Segment},
             prss::InstrumentedIndexedSharedRandomness,
-            step::DzkpBatchStep,
             Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
             MaliciousContext,
         },
@@ -100,9 +99,7 @@ impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
             .batcher
             .lock()
             .unwrap()
-            .validate_record(record_id, |batch_idx, batch| {
-                batch.validate(ctx.narrow(&DzkpBatchStep(batch_idx)))
-            });
+            .validate_record(record_id, |batch_idx, batch| batch.validate(ctx, batch_idx));
 
         validation_future.await
     }

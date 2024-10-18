@@ -28,18 +28,6 @@ pub(crate) enum ValidateStep {
     CheckZero,
 }
 
-// This really is only for DZKPs and not for MACs. The MAC protocol uses record IDs to
-// count batches. DZKP probably should do the same to avoid the fixed upper limit.
-#[derive(CompactStep)]
-#[step(count = 600, child = DzkpValidationProtocolStep)]
-pub(crate) struct DzkpBatchStep(pub usize);
-
-// This is used when we don't do batched verification, to avoid paying for x256 as many
-// steps in compact gate.
-#[derive(CompactStep)]
-#[step(child = DzkpValidationProtocolStep)]
-pub(crate) struct DzkpSingleBatchStep;
-
 #[derive(CompactStep)]
 pub(crate) enum DzkpValidationProtocolStep {
     /// Step for proof generation

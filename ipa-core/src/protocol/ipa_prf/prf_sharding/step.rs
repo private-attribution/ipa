@@ -8,7 +8,7 @@ pub struct UserNthRowStep(usize);
 pub(crate) enum AttributionStep {
     #[step(child = UserNthRowStep)]
     Attribute,
-    #[step(child = crate::protocol::context::step::DzkpBatchStep)]
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     AttributeValidate,
     #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
     Aggregate,
