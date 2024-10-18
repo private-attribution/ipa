@@ -147,6 +147,37 @@ where
     join3(fut0, fut1, fut2)
 }
 
+/// Wrapper for flattening 3 vecs of vecs into a single future
+/// # Panics
+/// If the tasks return `Err` or if `a` is the wrong length.
+pub fn flatten3v<T, I, V>(a: V) -> impl Future<Output = Vec<<T as Future>::Output>>
+where
+    V: IntoIterator<Item = I>,
+    I: IntoIterator<Item = T>,
+    T: TryFuture,
+    T::Output: Debug,
+    T::Ok: Debug,
+    T::Error: Debug,
+{
+    let mut it = a.into_iter();
+
+    let outer0 = it.next().unwrap().into_iter();
+    let outer1 = it.next().unwrap().into_iter();
+    let outer2 = it.next().unwrap().into_iter();
+
+    assert!(it.next().is_none());
+
+    // only used for tests
+    #[allow(clippy::disallowed_methods)]
+    futures::future::join_all(
+        outer0
+            .zip(outer1)
+            .zip(outer2)
+            .flat_map(|((fut0, fut1), fut2)| vec![fut0, fut1, fut2])
+            .collect::<Vec<_>>(),
+    )
+}
+
 /// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `Z`
 pub fn bits_to_value<F: Field + U128Conversions>(x: &[F]) -> u128 {
     #[allow(clippy::cast_possible_truncation)]

@@ -827,9 +827,9 @@ mod test {
     fn check_compatibility_impressionmk_with_ios_encryption() {
         let enc_report_bytes1 = hex::decode(
             "12854879d86ef277cd70806a7f6bad269877adc95ee107380381caf15b841a7e995e41\
-        4c63a9d82f834796cdd6c40529189fca82720714d24200d8a916a1e090b123f27eaf24\
-        f047f3930a77e5bcd33eeb823b73b0e9546c59d3d6e69383c74ae72b79645698fe1422\
-        f83886bd3cbca9fbb63f7019e2139191dd000000007777772e6d6574612e636f6d",
+             4c63a9d82f834796cdd6c40529189fca82720714d24200d8a916a1e090b123f27eaf24\
+             f047f3930a77e5bcd33eeb823b73b0e9546c59d3d6e69383c74ae72b79645698fe1422\
+             f83886bd3cbca9fbb63f7019e2139191dd000000007777772e6d6574612e636f6d",
         )
         .unwrap();
         let enc_report_bytes2 = hex::decode(
