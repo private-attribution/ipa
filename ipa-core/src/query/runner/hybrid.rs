@@ -76,7 +76,7 @@ where
                 })
                 .try_flatten()
                 .take(sz)
-                .try_fold((Vec::new(), Vec::new()), |mut acc, result| async move {
+                .try_fold((Vec::with_capacity(sz), Vec::with_capacity(sz)), |mut acc, result| async move {
                     acc.0.push(result.0);
                     acc.1.push(result.1);
                     Ok(acc)
