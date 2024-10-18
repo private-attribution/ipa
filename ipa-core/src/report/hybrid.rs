@@ -12,7 +12,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::{Sum, Unsigned, U16};
 
 use crate::{
-    error::{BoxError, Error, UnwrapInfallible},
+    error::{BoxError, Error},
     ff::{boolean_array::BA64, Serializable},
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
@@ -151,17 +151,17 @@ where
             .serialize(GenericArray::from_mut_slice(&mut plaintext_btt[..]));
 
         let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
-            key_registry,
+            key_registry.public_key(key_id)
+            .ok_or(CryptError::NoSuchKey(key_id))?,
             plaintext_mk.as_mut(),
-            key_id,
             &info.to_bytes(),
             rng,
         )?;
 
         let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
-            key_registry,
+            key_registry.public_key(key_id)
+            .ok_or(CryptError::NoSuchKey(key_id))?,
             plaintext_btt.as_mut(),
-            key_id,
             &info.to_bytes(),
             rng,
         )?;
@@ -297,26 +297,31 @@ where
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
         let plaintext_mk = open_in_place(
-            key_registry,
+            key_registry
+                .private_key(self.key_id())
+                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
             self.encap_key_mk(),
             &mut ct_mk,
-            self.key_id(),
             &info.to_bytes(),
         )?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
 
         let plaintext_btt = open_in_place(
-            key_registry,
+            key_registry
+                .private_key(self.key_id())
+                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
             self.encap_key_btt(),
             &mut ct_btt,
-            self.key_id(),
             &info.to_bytes(),
         )?;
 
         Ok(HybridImpressionReport::<BK> {
-            match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
-                .unwrap_infallible(),
+            //match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
+            //    .unwrap_infallible(),
+            match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
+                plaintext_mk,
+            )),
             breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(plaintext_btt))
                 .map_err(|e| {
                 InvalidHybridReportError::DeserializationError("is_trigger", e.into())

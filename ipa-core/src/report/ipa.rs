@@ -408,20 +408,22 @@ where
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
         let plaintext_mk = open_in_place(
-            key_registry,
+            key_registry
+                .private_key(self.key_id())
+                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
             self.encap_key_mk(),
             &mut ct_mk,
-            self.key_id(),
             &info.to_bytes(),
         )?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK, TV, TS>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
 
         let plaintext_btt = open_in_place(
-            key_registry,
+            key_registry
+                .private_key(self.key_id())
+                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
             self.encap_key_btt(),
             &mut ct_btt,
-            self.key_id(),
             &info.to_bytes(),
         )?;
 
@@ -590,17 +592,19 @@ where
         ));
 
         let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
-            key_registry,
+            key_registry
+                .public_key(key_id)
+                .ok_or(CryptError::NoSuchKey(key_id))?,
             plaintext_mk.as_mut(),
-            key_id,
             &info.to_bytes(),
             rng,
         )?;
 
         let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
-            key_registry,
+            key_registry
+                .public_key(key_id)
+                .ok_or(CryptError::NoSuchKey(key_id))?,
             plaintext_btt.as_mut(),
-            key_id,
             &info.to_bytes(),
             rng,
         )?;

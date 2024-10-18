@@ -96,19 +96,15 @@ impl From<io::Error> for CryptError {
 /// If ciphertext cannot be opened for any reason.
 ///
 /// [`HPKE decryption`]: https://datatracker.ietf.org/doc/html/rfc9180#name-encryption-and-decryption
-pub fn open_in_place<'a, R: PrivateKeyRegistry>(
-    key_registry: &R,
+pub fn open_in_place<'a>(
+    sk: &IpaPrivateKey,
     enc: &[u8],
     ciphertext: &'a mut [u8],
-    key_id: u8,
     info: &[u8],
 ) -> Result<&'a [u8], CryptError> {
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
     let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
-    let sk = key_registry
-        .private_key(key_id)
-        .ok_or(CryptError::NoSuchKey(key_id))?;
 
     single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
         &OpModeR::Base,
@@ -135,20 +131,15 @@ pub(crate) type Ciphertext<'a> = (
 
 /// ## Errors
 /// If the match key cannot be sealed for any reason.
-pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
-    key_registry: &K,
+pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore>(
+    pk: &IpaPublicKey,
     plaintext: &'a mut [u8],
-    key_id: u8,
     info: &[u8],
     rng: &mut R,
 ) -> Result<Ciphertext<'a>, CryptError> {
-    let pk_r = key_registry
-        .public_key(key_id)
-        .ok_or(CryptError::NoSuchKey(key_id))?;
-
     let (encap_key, tag) = single_shot_seal_in_place_detached::<IpaAead, IpaKdf, IpaKem, _>(
         &OpModeS::Base,
-        pk_r,
+        pk,
         info,
         plaintext,
         &[],
@@ -167,6 +158,7 @@ mod tests {
     use rand_core::{CryptoRng, RngCore, SeedableRng};
     use typenum::Unsigned;
 
+    use super::{PrivateKeyRegistry, PublicKeyRegistry};
     use crate::{
         ff::{Gf40Bit, Serializable as IpaSerializable},
         hpke::{open_in_place, seal_in_place, CryptError, Info, IpaAead, KeyPair, KeyRegistry},
@@ -229,9 +221,11 @@ mod tests {
             match_key.serialize(&mut plaintext);
 
             let (encap_key, ciphertext, tag) = seal_in_place(
-                &self.registry,
+                self.registry
+                    .public_key(info.key_id)
+                    .ok_or(CryptError::NoSuchKey(info.key_id))
+                    .unwrap(),
                 plaintext.as_mut_slice(),
-                info.key_id,
                 &info.to_bytes(),
                 &mut self.rng,
             )
@@ -282,10 +276,11 @@ mod tests {
             )
             .unwrap();
             open_in_place(
-                &self.registry,
+                self.registry
+                    .private_key(info.key_id)
+                    .ok_or(CryptError::NoSuchKey(info.key_id))?,
                 &enc.enc,
                 enc.ct.as_mut(),
-                info.key_id,
                 &info.to_bytes(),
             )?;
 
@@ -472,7 +467,8 @@ mod tests {
                     _ => panic!("bad test setup: only 5 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
                 };
 
-                open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info.key_id, &info.to_bytes()).unwrap_err();
+                open_in_place(suite.registry.private_key(info.key_id)
+                .ok_or(CryptError::NoSuchKey(info.key_id))?, &encryption.enc, &mut encryption.ct, &info.to_bytes()).unwrap_err();
             }
         }
     }
