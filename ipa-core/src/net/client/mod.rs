@@ -41,11 +41,11 @@ use crate::{
 };
 
 #[derive(Default)]
-pub enum ClientIdentity<R: ConnectionFlavor = Helper> {
+pub enum ClientIdentity<F: ConnectionFlavor = Helper> {
     /// Claim the specified helper identity without any additional authentication.
     ///
     /// This is only supported for HTTP clients.
-    Header(R::Identity),
+    Header(F::Identity),
 
     /// Authenticate with an X.509 certificate or a certificate chain.
     ///
@@ -57,7 +57,7 @@ pub enum ClientIdentity<R: ConnectionFlavor = Helper> {
     None,
 }
 
-impl<R: ConnectionFlavor> ClientIdentity<R> {
+impl<F: ConnectionFlavor> ClientIdentity<F> {
     /// Authenticates clients with an X.509 certificate using the provided certificate and private
     /// key. Certificate must be in PEM format, private key encoding must be [`PKCS8`].
     ///
@@ -82,7 +82,7 @@ impl<R: ConnectionFlavor> ClientIdentity<R> {
     /// to own a private key, and we need to create 3 with the same config, we provide Clone
     /// capabilities via this method to `ClientIdentity`.
     #[must_use]
-    pub fn clone_with_key(&self) -> ClientIdentity<R> {
+    pub fn clone_with_key(&self) -> ClientIdentity<F> {
         match self {
             Self::Certificate((c, pk)) => Self::Certificate((c.clone(), pk.clone_key())),
             Self::Header(h) => Self::Header(*h),
@@ -175,15 +175,15 @@ async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
 /// TODO: It probably isn't necessary to always use `[MpcHelperClient; 3]`. Instead, a single
 ///       client can be configured to talk to all three helpers.
 #[derive(Debug, Clone)]
-pub struct MpcHelperClient<R: ConnectionFlavor = Helper> {
+pub struct MpcHelperClient<F: ConnectionFlavor = Helper> {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     scheme: uri::Scheme,
     authority: uri::Authority,
     auth_header: Option<(HeaderName, HeaderValue)>,
-    _restriction: PhantomData<R>,
+    _restriction: PhantomData<F>,
 }
 
-impl<R: ConnectionFlavor> MpcHelperClient<R> {
+impl<F: ConnectionFlavor> MpcHelperClient<F> {
     /// Create a new client with the given configuration
     ///
     /// `identity`, if present, configures whether and how the client will authenticate to the server
@@ -196,7 +196,7 @@ impl<R: ConnectionFlavor> MpcHelperClient<R> {
         runtime: IpaRuntime,
         client_config: &ClientConfig,
         peer_config: PeerConfig,
-        identity: ClientIdentity<R>,
+        identity: ClientIdentity<F>,
     ) -> Self {
         let (connector, auth_header) = if peer_config.url.scheme() == Some(&Scheme::HTTP) {
             // This connector works for both http and https. A regular HttpConnector would suffice,
@@ -207,7 +207,7 @@ impl<R: ConnectionFlavor> MpcHelperClient<R> {
                     None
                 }
                 ClientIdentity::Header(id) => Some((
-                    R::identity_header(),
+                    F::identity_header(),
                     HeaderValue::from_str(id.as_str().as_ref()).unwrap(),
                 )),
                 ClientIdentity::None => None,

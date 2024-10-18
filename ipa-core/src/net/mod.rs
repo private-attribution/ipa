@@ -50,7 +50,7 @@ static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
 /// This simple trait is used to make aware on what transport dimnsion one is running. Structs like
 /// [`MpcHelperClient<F>`] use it to know whether they are talking to other servers as Shards
 /// inside a Helper or as a Helper talking to another Helper in a Ring. This trait can be used to
-///  limit the functions exposed by a struct impl depending on the context that it's being used.
+/// limit the functions exposed by a struct impl, depending on the context that it's being used.
 /// Continuing the previous example, the functions a [`MpcHelperClient<F>`] provides are dependent
 /// on whether it's communicating with another Shard or another Helper.
 ///
@@ -62,6 +62,7 @@ pub trait ConnectionFlavor: Debug + Send + Sync + Clone + 'static {
     /// The meaningful identity used in this transport dimension.
     type Identity: TransportIdentity;
 
+    /// The header to be used to identify a HTTP request
     fn identity_header() -> HeaderName;
 }
 
