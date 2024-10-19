@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, sync::Arc};
 
-use futures::{stream::iter, StreamExt, TryStreamExt};
+use futures::{future, stream::iter, TryStreamExt};
 
 use crate::{
     error::Error,
@@ -11,11 +11,11 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        context::{reshard_iter, ShardedContext},
-        hybrid::step::HybridStep,
+        context::ShardedContext,
+        hybrid::{step::HybridStep, uniqueness::verify_uniqueness},
         step::ProtocolStep::Hybrid,
     },
-    report::hybrid::{EncryptedHybridReport, HybridReport, UniqueTag, UniqueTagValidator},
+    report::hybrid::{EncryptedHybridReport, UniqueTagValidator},
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
@@ -61,45 +61,37 @@ where
             ));
         }
 
-        let (_decrypted_reports, tags): (Vec<HybridReport<BA8, BA3>>, Vec<UniqueTag>) =
-            LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
-                .map_err(Into::<Error>::into)
-                .map_ok(|enc_reports| {
-                    iter(enc_reports.into_iter().map({
-                        |enc_report| {
-                            let dec_report = enc_report
-                                .decrypt::<R, BA8, BA3, BA20>(key_registry.as_ref())
-                                .map_err(Into::<Error>::into);
-                            let unique_tag = UniqueTag::from_unique_bytes(&enc_report);
-                            dec_report.map(|dec_report1| (dec_report1, unique_tag))
-                        }
-                    }))
-                })
-                .try_flatten()
-                .take(sz)
-                .try_fold(
-                    (Vec::with_capacity(sz), Vec::with_capacity(sz)),
-                    |mut acc, result| async move {
-                        acc.0.push(result.0);
-                        acc.1.push(result.1);
-                        Ok(acc)
-                    },
+        let mut unique_tag_validator = UniqueTagValidator::new(sz * 2);
+        let _input = LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
+            .map_err(Into::<Error>::into)
+            .map_ok(|enc_reports| {
+                future::ready(
+                    verify_uniqueness(
+                        ctx.narrow(&HybridStep::ReshardByTag),
+                        enc_reports,
+                        sz,
+                        unique_tag_validator,
+                    )
+                    .map_ok(|()| enc_reports)
+                    .map_err(Into::<Error>::into),
                 )
-                .await?;
-
-        let resharded_tags = reshard_iter(
-            ctx.narrow(&HybridStep::ReshardByTag),
-            tags,
-            |ctx, _, tag| tag.shard_picker(ctx.shard_count()),
-        )
-        .await?;
-
+            })
+            .map_ok(|enc_reports| {
+                iter(enc_reports.into_iter().map({
+                    |enc_report| {
+                        enc_report
+                            .decrypt::<R, BA8, BA3, BA20>(key_registry.as_ref())
+                            .map_err(Into::<Error>::into)
+                    }
+                }))
+            })
+            .try_flatten()
+            .take(sz)
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
         // this should use ? but until this returns a result,
         //we want to capture the panic for the test
-        let mut unique_encrypted_hybrid_reports = UniqueTagValidator::new(resharded_tags.len());
-        unique_encrypted_hybrid_reports
-            .check_duplicates(&resharded_tags)
-            .unwrap();
 
         unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
     }
