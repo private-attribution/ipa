@@ -2,6 +2,7 @@
 mod add_in_prime_field;
 mod hybrid;
 mod oprf_ipa;
+mod reshard_tag;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 mod test_multiply;
 
