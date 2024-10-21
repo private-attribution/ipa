@@ -130,7 +130,7 @@ mod tests {
     fn local_store() {
         use crate::{context::CurrentThreadContext, CurrentThreadPartitionContext};
 
-        CurrentThreadPartitionContext::set(0xdeadbeef);
+        CurrentThreadPartitionContext::set(0xdead_beef);
         counter!("foo", 7);
 
         std::thread::spawn(|| {
