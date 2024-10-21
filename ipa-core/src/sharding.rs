@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display, Formatter},
     num::TryFromIntError,
+    ops::{Index, IndexMut},
 };
 
 /// A unique zero-based index of the helper shard.
@@ -66,6 +67,20 @@ impl TryFrom<u128> for ShardIndex {
 impl Display for ShardIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl<T> Index<ShardIndex> for Vec<T> {
+    type Output = T;
+
+    fn index(&self, index: ShardIndex) -> &Self::Output {
+        self.as_slice().index(usize::from(index))
+    }
+}
+
+impl<T> IndexMut<ShardIndex> for Vec<T> {
+    fn index_mut(&mut self, index: ShardIndex) -> &mut Self::Output {
+        self.as_mut_slice().index_mut(usize::from(index))
     }
 }
 

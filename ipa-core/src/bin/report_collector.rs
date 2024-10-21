@@ -22,7 +22,7 @@ use ipa_core::{
     config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
     helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
-    net::MpcHelperClient,
+    net::{Helper, MpcHelperClient},
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
     test_fixture::{
         ipa::{ipa_in_the_clear, CappingOrder, IpaSecurityModel, TestRawDataRecord},
@@ -380,7 +380,7 @@ async fn ipa(
 
 async fn ipa_test(
     args: &Args,
-    network: &NetworkConfig,
+    network: &NetworkConfig<Helper>,
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
