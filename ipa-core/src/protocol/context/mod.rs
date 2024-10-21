@@ -455,11 +455,17 @@ where
         (input, &mut send_channels, &mut counter),
         |(mut input, send_channels, i)| {
             let ctx = ctx.clone();
-
             async {
                 // Process more data as it comes in, or close the sending channels, if there is nothing
                 // left.
                 if let Some(val) = input.try_next().await? {
+                    if usize::try_from(*i).unwrap() >= input_len {
+                        return Err(crate::error::Error::RecordIdOutOfRange {
+                            record_id: RecordId::from(*i),
+                            total_records: input_len,
+                        });
+                    }
+
                     let dest_shard = shard_picker(ctx, RecordId::from(*i), &val);
                     *i += 1;
                     if dest_shard == my_shard {
@@ -977,6 +983,62 @@ mod tests {
                 .collect::<Vec<_>>();
 
             assert_eq!(input, r);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "RecordIdOutOfRange { record_id: RecordId(1), total_records: 1 }")]
+    fn reshard_try_stream_more_items_than_expected() {
+        #[pin_project]
+        struct AdversaryStream<S> {
+            #[pin]
+            inner: S,
+            wrong_length: usize,
+        }
+
+        impl<S: Stream> AdversaryStream<S> {
+            fn new(inner: S, wrong_length: usize) -> Self {
+                assert!(wrong_length > 0);
+                Self {
+                    inner,
+                    wrong_length,
+                }
+            }
+        }
+
+        impl<S: Stream> Stream for AdversaryStream<S> {
+            type Item = S::Item;
+
+            fn poll_next(
+                self: Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> Poll<Option<Self::Item>> {
+                let this = self.project();
+
+                this.inner.poll_next(cx)
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                (0, Some(self.wrong_length))
+            }
+        }
+
+        run(|| async move {
+            const SHARDS: u32 = 5;
+            let world: TestWorld<WithShards<5>> =
+                TestWorld::with_shards(TestWorldConfig::default());
+            let input: Vec<_> = (0..5 * SHARDS).map(BA8::truncate_from).collect();
+            world
+                .semi_honest(input.clone().into_iter(), |ctx, shard_input| async move {
+                    reshard_try_stream(
+                        ctx,
+                        AdversaryStream::new(stream::iter(shard_input).map(Ok), 1),
+                        |_, _, _| ShardIndex::FIRST,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await;
         });
     }
 
