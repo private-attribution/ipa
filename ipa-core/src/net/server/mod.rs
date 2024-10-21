@@ -39,6 +39,10 @@ use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
 
+use super::{
+    transport::{MpcHttpTransport, ShardHttpTransport},
+    Shard,
+};
 use crate::{
     config::{
         NetworkConfig, OwnedCertificate, OwnedPrivateKey, PeerConfig, ServerConfig, TlsConfig,
@@ -48,7 +52,7 @@ use crate::{
     helpers::TransportIdentity,
     net::{
         parse_certificate_and_private_key_bytes, server::config::HttpServerConfig,
-        ConnectionFlavor, Error, Helper, HttpTransport, CRYPTO_PROVIDER,
+        ConnectionFlavor, Error, Helper, CRYPTO_PROVIDER,
     },
     sync::Arc,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -89,16 +93,32 @@ pub struct MpcHelperServer<F: ConnectionFlavor = Helper> {
 }
 
 impl MpcHelperServer<Helper> {
+    #[must_use]
     pub fn new_mpc(
-        transport: Arc<HttpTransport>,
+        transport: &MpcHttpTransport,
         config: ServerConfig,
         network_config: NetworkConfig<Helper>,
     ) -> Self {
-        let router = handlers::mpc_router(transport);
+        let router = handlers::mpc_router(transport.clone());
         MpcHelperServer {
             config,
             network_config,
             router,
+        }
+    }
+}
+
+impl MpcHelperServer<Shard> {
+    #[must_use]
+    pub fn new_shards(
+        _transport: &ShardHttpTransport,
+        config: ServerConfig,
+        network_config: NetworkConfig<Shard>,
+    ) -> Self {
+        MpcHelperServer {
+            config,
+            network_config,
+            router: Router::new(),
         }
     }
 }

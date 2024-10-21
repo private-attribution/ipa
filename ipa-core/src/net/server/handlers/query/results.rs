@@ -2,31 +2,29 @@ use axum::{extract::Path, routing::get, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{BodyStream, Transport},
+    helpers::BodyStream,
     net::{
         http_serde::{self, query::results::Request},
         server::Error,
-        HttpTransport,
+        transport::MpcHttpTransport,
     },
     protocol::QueryId,
-    sync::Arc,
 };
 
 /// Handles the completion of the query by blocking the sender until query is completed.
 async fn handler(
-    transport: Extension<Arc<HttpTransport>>,
+    transport: Extension<MpcHttpTransport>,
     Path(query_id): Path<QueryId>,
 ) -> Result<Vec<u8>, Error> {
     let req = Request { query_id };
     // TODO: we may be able to stream the response
-    let transport = Transport::clone_ref(&*transport);
     match transport.dispatch(req, BodyStream::empty()).await {
         Ok(resp) => Ok(resp.into_body()),
         Err(e) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
 
-pub fn router(transport: Arc<HttpTransport>) -> Router {
+pub fn router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .route(http_serde::query::results::AXUM_PATH, get(handler))
         .layer(Extension(transport))

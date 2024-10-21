@@ -2,24 +2,22 @@ use axum::{extract::Path, routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{ApiError, BodyStream, Transport},
+    helpers::{ApiError, BodyStream},
     net::{
-        http_serde::query::{kill, kill::Request},
+        http_serde::query::kill::{self, Request},
         server::Error,
+        transport::MpcHttpTransport,
         Error::QueryIdNotFound,
-        HttpTransport,
     },
     protocol::QueryId,
     query::QueryKillStatus,
-    sync::Arc,
 };
 
 async fn handler(
-    transport: Extension<Arc<HttpTransport>>,
+    transport: Extension<MpcHttpTransport>,
     Path(query_id): Path<QueryId>,
 ) -> Result<Json<kill::ResponseBody>, Error> {
     let req = Request { query_id };
-    let transport = Transport::clone_ref(&*transport);
     match transport.dispatch(req, BodyStream::empty()).await {
         Ok(state) => Ok(Json(kill::ResponseBody::from(state))),
         Err(ApiError::QueryKill(QueryKillStatus::NoSuchQuery(query_id))) => Err(
@@ -29,7 +27,7 @@ async fn handler(
     }
 }
 
-pub fn router(transport: Arc<HttpTransport>) -> Router {
+pub fn router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .route(kill::AXUM_PATH, post(handler))
         .layer(Extension(transport))

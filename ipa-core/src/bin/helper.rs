@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     io::BufReader,
     net::TcpListener,
@@ -17,7 +18,8 @@ use ipa_core::{
     error::BoxError,
     executor::IpaRuntime,
     helpers::HelperIdentity,
-    net::{ClientIdentity, HttpShardTransport, HttpTransport, MpcHelperClient},
+    net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHttpTransport, ShardHttpTransport},
+    sharding::ShardIndex,
     AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tokio::runtime::Runtime;
@@ -158,13 +160,19 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let network_config_path = args.network.as_deref().unwrap();
     let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?
         .override_scheme(&scheme);
+
+    // TODO: Following is just temporary until Shard Transport is actually used.
+    let shard_clients_config = network_config.client.clone();
+    let shard_server_config = server_config.clone();
+    // ---
+
     let http_runtime = new_http_runtime();
     let clients = MpcHelperClient::from_conf(
         &IpaRuntime::from_tokio_runtime(&http_runtime),
         &network_config,
         &identity,
     );
-    let (transport, server) = HttpTransport::new(
+    let (transport, server) = MpcHttpTransport::new(
         IpaRuntime::from_tokio_runtime(&http_runtime),
         my_identity,
         server_config,
@@ -173,7 +181,19 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         Some(handler),
     );
 
-    let _app = setup.connect(transport.clone(), HttpShardTransport);
+    // TODO: Following is just temporary until Shard Transport is actually used.
+    let shard_network_config = NetworkConfig::new_shards(vec![], shard_clients_config);
+    let (shard_transport, _shard_server) = ShardHttpTransport::new(
+        IpaRuntime::from_tokio_runtime(&http_runtime),
+        ShardIndex::FIRST,
+        shard_server_config,
+        shard_network_config,
+        HashMap::new(),
+        None,
+    );
+    // ---
+
+    let _app = setup.connect(transport.clone(), shard_transport.clone());
 
     let listener = args.server_socket_fd
         .map(|fd| {

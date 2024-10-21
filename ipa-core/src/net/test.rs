@@ -16,6 +16,7 @@ use std::{
 use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
 
+use super::transport::MpcHttpTransport;
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
@@ -24,7 +25,7 @@ use crate::{
     executor::{IpaJoinHandle, IpaRuntime},
     helpers::{HandlerBox, HelperIdentity, RequestHandler},
     hpke::{Deserializable as _, IpaPublicKey},
-    net::{ClientIdentity, Helper, HttpTransport, MpcHelperClient, MpcHelperServer},
+    net::{ClientIdentity, Helper, MpcHelperClient, MpcHelperServer},
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
@@ -199,7 +200,7 @@ impl TestConfigBuilder {
 pub struct TestServer {
     pub addr: SocketAddr,
     pub handle: IpaJoinHandle<()>,
-    pub transport: Arc<HttpTransport>,
+    pub transport: MpcHttpTransport,
     pub server: MpcHelperServer<Helper>,
     pub client: MpcHelperClient,
     pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
@@ -295,7 +296,7 @@ impl TestServerBuilder {
         );
         let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
         let client = clients[0].clone();
-        let (transport, server) = HttpTransport::new(
+        let (transport, server) = MpcHttpTransport::new(
             IpaRuntime::current(),
             HelperIdentity::ONE,
             server_config,
