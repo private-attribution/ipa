@@ -74,7 +74,7 @@ impl HttpTransport {
     ) -> (Arc<Self>, MpcHelperServer<Helper>) {
         let transport = Self::new_internal(runtime, identity, clients, handler);
         let server =
-            MpcHelperServer::new_ring(Arc::clone(&transport), server_config, network_config);
+            MpcHelperServer::new_mpc(Arc::clone(&transport), server_config, network_config);
         (transport, server)
     }
 

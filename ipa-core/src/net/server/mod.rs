@@ -89,12 +89,12 @@ pub struct MpcHelperServer<F: ConnectionFlavor = Helper> {
 }
 
 impl MpcHelperServer<Helper> {
-    pub fn new_ring(
+    pub fn new_mpc(
         transport: Arc<HttpTransport>,
         config: ServerConfig,
         network_config: NetworkConfig<Helper>,
     ) -> Self {
-        let router = handlers::ring_router(transport);
+        let router = handlers::mpc_router(transport);
         MpcHelperServer {
             config,
             network_config,
@@ -309,12 +309,13 @@ async fn rustls_config(
     Ok(RustlsConfig::from_config(Arc::new(config)))
 }
 
-/// Axum `Extension` indicating the authenticated remote helper identity, if any.
+/// Axum `Extension` indicating the authenticated remote identity, if any. This can be either a
+/// Shard authenticating or another Helper.
 //
-// Presence or absence of authentication is indicated by presence or absence of the extension. Even
-// at some inconvenience (e.g. `MaybeExtensionExt`), we avoid using `Option` within the extension,
-// to avoid possible confusion about how many times the return from `req.extensions().get()` must be
-// unwrapped to ensure valid authentication.
+/// Presence or absence of authentication is indicated by presence or absence of the extension. Even
+/// at some inconvenience (e.g. `MaybeExtensionExt`), we avoid using `Option` within the extension,
+/// to avoid possible confusion about how many times the return from `req.extensions().get()` must be
+/// unwrapped to ensure valid authentication.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ClientIdentity<I: TransportIdentity>(pub I);
 
@@ -326,10 +327,10 @@ impl<I: TransportIdentity> Deref for ClientIdentity<I> {
     }
 }
 
-impl<I: TransportIdentity> TryFrom<HeaderValue> for ClientIdentity<I> {
+impl<I: TransportIdentity> TryFrom<&HeaderValue> for ClientIdentity<I> {
     type Error = Error;
 
-    fn try_from(value: HeaderValue) -> Result<Self, Self::Error> {
+    fn try_from(value: &HeaderValue) -> Result<Self, Self::Error> {
         let header_str = value.to_str()?;
         I::from_str(header_str)
             .map_err(|e| Error::InvalidHeader(Box::new(e)))
@@ -461,7 +462,7 @@ where
 
     fn call(&mut self, mut req: Request<B>) -> Self::Future {
         if let Some(header_value) = req.headers().get(F::identity_header()) {
-            let id_result = ClientIdentity::<F::Identity>::try_from(header_value.clone());
+            let id_result = ClientIdentity::<F::Identity>::try_from(header_value);
             match id_result {
                 Ok(id) => req.extensions_mut().insert(id),
                 Err(err) => return ready(Ok(err.into_response())).right_future(),
@@ -480,7 +481,7 @@ mod tests {
     #[test]
     fn identify_from_header_happy_case() {
         let h = HeaderValue::from_static("A");
-        let id = ClientIdentity::<HelperIdentity>::try_from(h);
+        let id = ClientIdentity::<HelperIdentity>::try_from(&h);
         assert_eq!(id.unwrap(), ClientIdentity(HelperIdentity::ONE));
     }
 
@@ -488,7 +489,7 @@ mod tests {
     #[should_panic = "The string H1 is an invalid Helper Identity"]
     fn identify_from_header_wrong_header() {
         let h = HeaderValue::from_static("H1");
-        let id = ClientIdentity::<HelperIdentity>::try_from(h);
+        let id = ClientIdentity::<HelperIdentity>::try_from(&h);
         id.unwrap();
     }
 }

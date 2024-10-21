@@ -175,7 +175,7 @@ impl TestConfigBuilder {
                 },
             })
             .collect::<Vec<_>>();
-        let network = NetworkConfig::<Helper>::new_ring(
+        let network = NetworkConfig::<Helper>::new_mpc(
             peers,
             self.use_http1
                 .then(ClientConfig::use_http1)

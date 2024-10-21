@@ -1,6 +1,5 @@
 use std::{
     borrow::{Borrow, Cow},
-    collections::HashMap,
     fmt::{Debug, Formatter},
     iter::zip,
     path::PathBuf,
@@ -46,7 +45,7 @@ pub enum Error {
 /// The most important thing this contains is discovery information for each of the participating
 /// peers.
 #[derive(Clone, Debug, Deserialize)]
-pub struct NetworkConfig<R: ConnectionFlavor = Helper> {
+pub struct NetworkConfig<F: ConnectionFlavor = Helper> {
     peers: Vec<PeerConfig>,
 
     /// HTTP client configuration.
@@ -56,10 +55,10 @@ pub struct NetworkConfig<R: ConnectionFlavor = Helper> {
     /// The identities of the index-matching peers. Separating this from [`Self::peers`](field) so
     /// that parsing is easy to implement.
     #[serde(skip)]
-    identities: Vec<R::Identity>,
+    identities: Vec<F::Identity>,
 }
 
-impl<R: ConnectionFlavor> NetworkConfig<R> {
+impl<F: ConnectionFlavor> NetworkConfig<F> {
     /// # Panics
     /// If `PathAndQuery::from_str("")` fails
     #[must_use]
@@ -102,7 +101,7 @@ impl<R: ConnectionFlavor> NetworkConfig<R> {
     /// the certificate against a truststore and identifying the peer by the certificate
     /// subject). This could be changed if the need arises.
     #[must_use]
-    pub fn identify_cert(&self, cert: Option<&CertificateDer>) -> Option<R::Identity> {
+    pub fn identify_cert(&self, cert: Option<&CertificateDer>) -> Option<F::Identity> {
         let cert = cert?;
         for (id, p) in zip(self.identities.iter(), self.peers.iter()) {
             if p.certificate.as_ref() == Some(cert) {
@@ -119,35 +118,27 @@ impl<R: ConnectionFlavor> NetworkConfig<R> {
 }
 
 impl NetworkConfig<Shard> {
+    /// # Panics
+    /// In the unlikely event a usize cannot be turned into a u32
     #[must_use]
     pub fn new_shards(peers: Vec<PeerConfig>, client: ClientConfig) -> Self {
-        let mut identities = Vec::with_capacity(peers.len());
-        for (i, _p) in zip(0u32.., peers.iter()) {
-            identities.push(ShardIndex(i));
-        }
+        let identities = (0u32..peers.len().try_into().unwrap())
+            .map(ShardIndex::from)
+            .collect();
         Self {
             peers,
             client,
             identities,
         }
     }
-
-    #[must_use]
-    pub fn peers_map(&self) -> HashMap<ShardIndex, &PeerConfig> {
-        let mut indexed_peers = HashMap::new();
-        for (ix, p) in zip(self.identities.iter(), self.peers.iter()) {
-            indexed_peers.insert(*ix, p);
-        }
-        indexed_peers
-    }
 }
 
 impl NetworkConfig<Helper> {
-    /// Creates a new ring configuration.
+    /// Creates a new configuration for 3 MPC clients (ring) configuration.
     /// # Panics
     /// If the vector doesn't contain exactly 3 items.
     #[must_use]
-    pub fn new_ring(ring: Vec<PeerConfig>, client: ClientConfig) -> Self {
+    pub fn new_mpc(ring: Vec<PeerConfig>, client: ClientConfig) -> Self {
         assert_eq!(3, ring.len());
         Self {
             peers: ring,
@@ -532,10 +523,12 @@ mod tests {
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
 
+    use super::{NetworkConfig, PeerConfig};
     use crate::{
         config::{ClientConfig, HpkeClientConfig, Http2Configurator, HttpClientConfigurator},
         helpers::HelperIdentity,
         net::test::TestConfigBuilder,
+        sharding::ShardIndex,
     };
 
     const URI_1: &str = "http://localhost:3000";
@@ -609,5 +602,14 @@ mod tests {
                 ping_interval: Some(Duration::from_secs(132)),
             }),
         );
+    }
+
+    #[test]
+    fn indexing_peer_happy_case() {
+        let uri1 = URI_1.parse::<Uri>().unwrap();
+        let pc1 = PeerConfig::new(uri1, None);
+        let client = ClientConfig::default();
+        let conf = NetworkConfig::new_shards(vec![pc1.clone()], client);
+        assert_eq!(conf.peers[ShardIndex(0)].url, pc1.url);
     }
 }
