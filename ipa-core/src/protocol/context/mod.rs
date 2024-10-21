@@ -601,7 +601,7 @@ pub trait DZKPContext: Context {
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error>;
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::{iter, iter::repeat, pin::Pin, task::Poll};
 

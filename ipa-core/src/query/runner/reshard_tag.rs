@@ -80,7 +80,7 @@ impl<S: Stream<Item = Result<(K, A), Error>>, K, A> Stream for StreamSplitter<'_
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use futures::{stream, StreamExt};
 
