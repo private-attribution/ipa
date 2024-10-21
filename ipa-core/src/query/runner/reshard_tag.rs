@@ -19,7 +19,7 @@ use crate::{
 type DataWithTag<D, A> = Result<(D, A), Error>;
 
 /// Helper function to work with inputs to hybrid queries. Each encryption needs
-/// to be checked for uniqueness and we use AAD tag for that. While match keys are
+/// to be checked for uniqueness and we use AAD tag for that. While reports are
 /// being collected, AAD tags need to be resharded. This function does both at the same
 /// time which should reduce the perceived latency of queries.
 ///
