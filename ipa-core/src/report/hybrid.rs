@@ -532,7 +532,9 @@ mod test {
         },
         hpke::{KeyPair, KeyRegistry},
         report::{
-            hybrid::NonAsciiStringError, hybrid_info::HybridImpressionInfo, EventType, OprfReport,
+            hybrid::{NonAsciiStringError, BA64},
+            hybrid_info::HybridImpressionInfo,
+            EventType, OprfReport,
         },
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
@@ -658,6 +660,28 @@ mod test {
         )
         .unwrap();
         assert_eq!(hybrid_impression_report, hybrid_impression_report2);
+
+        let hybrid_report3 = HybridImpressionReport::<BA8>::deserialize(GenericArray::from_slice(
+            &hex::decode("4123a6e38ef1d6d9785c948797cb744d38f4").unwrap(),
+        ))
+        .unwrap();
+
+        let match_key = AdditiveShare::<BA64>::deserialize(GenericArray::from_slice(
+            &hex::decode("4123a6e38ef1d6d9785c948797cb744d").unwrap(),
+        ))
+        .unwrap();
+        let breakdown_key = AdditiveShare::<BA8>::deserialize(GenericArray::from_slice(
+            &hex::decode("38f4").unwrap(),
+        ))
+        .unwrap();
+
+        assert_eq!(
+            hybrid_report3,
+            HybridImpressionReport::<BA8> {
+                match_key,
+                breakdown_key
+            }
+        );
     }
 
     #[test]
