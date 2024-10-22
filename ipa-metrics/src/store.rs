@@ -63,9 +63,10 @@ impl Store {
         }
     }
 
-    /// Returns the value for the specified metric taking into account
-    /// its dimensionality. That is (foo, dim1 = 1, dim2 = 2) will be
-    /// different from (foo, dim1 = 1).
+    /// Returns the value for the specified metric, limited by any specified dimensions,
+    /// but not by any unspecified dimensions. If metric foo has dimensions dim1 and dim2,
+    /// a query for (foo, dim1 = 1) will sum the counter values having dim1 = 1
+    /// and any value of dim2.
     /// The cost of this operation is `O(N*M)` where `N` - number of unique metrics
     /// registered in this store and `M` number of dimensions.
     ///

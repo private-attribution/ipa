@@ -3,16 +3,17 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-pub use Value as LabelValue;
-
 pub const MAX_LABELS: usize = 5;
 
 /// Dimension value (or label value) must be sendable to another thread
 /// and there must be a way to show it
-pub trait Value: Display + Send {
+pub trait LabelValue: Display + Send {
     /// Creates a unique hash for this value.
     /// It is easy to create collisions, so better avoid them,
     /// by assigning a unique integer to each value
+    ///
+    /// Note that this value is used for uniqueness check inside
+    /// metric stores
     fn hash(&self) -> u64;
 
     /// Creates an owned copy of this value. Dynamic dispatch
@@ -31,10 +32,9 @@ impl LabelValue for u32 {
     }
 }
 
-#[derive()]
 pub struct Label<'lv> {
     pub name: &'static str,
-    pub val: &'lv dyn Value,
+    pub val: &'lv dyn LabelValue,
 }
 
 impl Label<'_> {
@@ -76,7 +76,7 @@ impl PartialEq for Label<'_> {
 /// inside metric hashmaps as they need to own the keys.
 pub struct OwnedLabel {
     pub name: &'static str,
-    pub val: Box<dyn Value>,
+    pub val: Box<dyn LabelValue>,
 }
 
 impl Clone for OwnedLabel {
@@ -117,6 +117,8 @@ impl PartialEq for OwnedLabel {
         self.name == other.name && self.val.hash() == other.val.hash()
     }
 }
+
+impl Eq for OwnedLabel {}
 
 #[cfg(test)]
 mod tests {
