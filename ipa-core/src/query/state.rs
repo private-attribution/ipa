@@ -19,7 +19,6 @@ use crate::{
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub enum QueryStatus {
     /// Only query running on the coordinator helper can be in this state. Means that coordinator
     /// sent out requests to other helpers and asked them to assume a given role for this query.
