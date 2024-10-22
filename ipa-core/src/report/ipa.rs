@@ -407,25 +407,14 @@ where
 
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
-        let plaintext_mk = open_in_place(
-            key_registry
-                .private_key(self.key_id())
-                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
-            self.encap_key_mk(),
-            &mut ct_mk,
-            &info.to_bytes(),
-        )?;
+        let sk = key_registry
+            .private_key(self.key_id())
+            .ok_or(CryptError::NoSuchKey(self.key_id()))?;
+        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info.to_bytes())?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK, TV, TS>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
 
-        let plaintext_btt = open_in_place(
-            key_registry
-                .private_key(self.key_id())
-                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
-            self.encap_key_btt(),
-            &mut ct_btt,
-            &info.to_bytes(),
-        )?;
+        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info.to_bytes())?;
 
         Ok(OprfReport::<BK, TV, TS> {
             timestamp: Replicated::<TS>::deserialize(GenericArray::from_slice(
@@ -591,23 +580,15 @@ where
                 ..(Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE)],
         ));
 
-        let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
-            key_registry
-                .public_key(key_id)
-                .ok_or(CryptError::NoSuchKey(key_id))?,
-            plaintext_mk.as_mut(),
-            &info.to_bytes(),
-            rng,
-        )?;
+        let pk = key_registry
+            .public_key(key_id)
+            .ok_or(CryptError::NoSuchKey(key_id))?;
 
-        let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
-            key_registry
-                .public_key(key_id)
-                .ok_or(CryptError::NoSuchKey(key_id))?,
-            plaintext_btt.as_mut(),
-            &info.to_bytes(),
-            rng,
-        )?;
+        let (encap_key_mk, ciphertext_mk, tag_mk) =
+            seal_in_place(pk, plaintext_mk.as_mut(), &info.to_bytes(), rng)?;
+
+        let (encap_key_btt, ciphertext_btt, tag_btt) =
+            seal_in_place(pk, plaintext_btt.as_mut(), &info.to_bytes(), rng)?;
 
         out.put_slice(&encap_key_mk.to_bytes());
         out.put_slice(ciphertext_mk);

@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     convert::Infallible,
-    fmt::{Display, Formatter},
     marker::PhantomData,
     ops::{Add, Deref},
 };
@@ -31,24 +30,13 @@ use crate::{
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
 
-#[derive(Debug)]
-pub struct NonAsciiStringError {
-    input: String,
-}
-
-impl Display for NonAsciiStringError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "string contains non-ascii symbols: {}", self.input)
-    }
-}
-
-impl std::error::Error for NonAsciiStringError {}
+#[derive(Debug, thiserror::Error)]
+#[error("string contains non-ascii symbols: {0}")]
+pub struct NonAsciiStringError(String);
 
 impl From<&'_ str> for NonAsciiStringError {
     fn from(input: &str) -> Self {
-        Self {
-            input: input.to_string(),
-        }
+        Self(input.to_string())
     }
 }
 
@@ -153,17 +141,17 @@ where
         self.breakdown_key
             .serialize(GenericArray::from_mut_slice(&mut plaintext_btt[..]));
 
+        let pk = key_registry.public_key(key_id).ok_or(CryptError::NoSuchKey(key_id))?;
+
         let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
-            key_registry.public_key(key_id)
-            .ok_or(CryptError::NoSuchKey(key_id))?,
+            pk,
             plaintext_mk.as_mut(),
             &info.to_bytes(),
             rng,
         )?;
 
         let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
-            key_registry.public_key(key_id)
-            .ok_or(CryptError::NoSuchKey(key_id))?,
+            pk,
             plaintext_btt.as_mut(),
             &info.to_bytes(),
             rng,
@@ -299,29 +287,16 @@ where
 
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
-        let plaintext_mk = open_in_place(
-            key_registry
-                .private_key(self.key_id())
-                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
-            self.encap_key_mk(),
-            &mut ct_mk,
-            &info.to_bytes(),
-        )?;
+        let sk = key_registry
+            .private_key(self.key_id())
+            .ok_or(CryptError::NoSuchKey(self.key_id()))?;
+        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info.to_bytes())?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
 
-        let plaintext_btt = open_in_place(
-            key_registry
-                .private_key(self.key_id())
-                .ok_or(CryptError::NoSuchKey(self.key_id()))?,
-            self.encap_key_btt(),
-            &mut ct_btt,
-            &info.to_bytes(),
-        )?;
+        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info.to_bytes())?;
 
         Ok(HybridImpressionReport::<BK> {
-            //match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
-            //    .unwrap_infallible(),
             match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
                 plaintext_mk,
             )),
@@ -660,8 +635,11 @@ mod test {
         )
         .unwrap();
         assert_eq!(hybrid_impression_report, hybrid_impression_report2);
+    }
 
-        let hybrid_report3 = HybridImpressionReport::<BA8>::deserialize(GenericArray::from_slice(
+    #[test]
+    fn deserialzation_from_constant() {
+        let hybrid_report = HybridImpressionReport::<BA8>::deserialize(GenericArray::from_slice(
             &hex::decode("4123a6e38ef1d6d9785c948797cb744d38f4").unwrap(),
         ))
         .unwrap();
@@ -676,11 +654,22 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            hybrid_report3,
+            hybrid_report,
             HybridImpressionReport::<BA8> {
                 match_key,
                 breakdown_key
             }
+        );
+
+        let mut hybrid_impression_report_bytes =
+            [0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
+        hybrid_report.serialize(GenericArray::from_mut_slice(
+            &mut hybrid_impression_report_bytes[..],
+        ));
+
+        assert_eq!(
+            hybrid_impression_report_bytes.to_vec(),
+            hex::decode("4123a6e38ef1d6d9785c948797cb744d38f4").unwrap()
         );
     }
 
@@ -714,6 +703,6 @@ mod test {
     fn non_ascii_string() {
         let non_ascii_string = "☃️☃️☃️";
         let err = HybridImpressionInfo::new(0, non_ascii_string).unwrap_err();
-        assert!(matches!(err, NonAsciiStringError { input: _ }));
+        assert!(matches!(err, NonAsciiStringError(_)));
     }
 }
