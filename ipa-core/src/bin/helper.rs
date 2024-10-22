@@ -18,7 +18,7 @@ use ipa_core::{
     error::BoxError,
     executor::IpaRuntime,
     helpers::HelperIdentity,
-    net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHttpTransport, ShardHttpTransport},
+    net::{ClientIdentity, MpcHelperClient, MpcHttpTransport, ShardHttpTransport},
     sharding::ShardIndex,
     AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };

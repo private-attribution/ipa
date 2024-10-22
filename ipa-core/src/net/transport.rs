@@ -45,7 +45,6 @@ pub struct MpcHttpTransport {
 /// A stub for HTTP transport implementation, suitable for serving shard-to-shard traffic
 #[derive(Clone)]
 pub struct ShardHttpTransport {
-    #[allow(dead_code)]
     inner_transport: Arc<HttpTransport<Shard>>,
 }
 
