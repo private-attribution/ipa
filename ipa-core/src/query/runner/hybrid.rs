@@ -10,12 +10,9 @@ use crate::{
         BodyStream, LengthDelimitedStream,
     },
     hpke::PrivateKeyRegistry,
-    protocol::{
-        context::{reshard_iter, ShardedContext},
-        hybrid::step::HybridStep,
-        step::ProtocolStep::Hybrid,
-    },
-    report::hybrid::{EncryptedHybridReport, HybridReport, UniqueTag, UniqueTagValidator},
+    protocol::{context::ShardedContext, hybrid::step::HybridStep, step::ProtocolStep::Hybrid},
+    query::runner::reshard_tag::reshard_aad,
+    report::hybrid::{EncryptedHybridReport, UniqueTag, UniqueTagValidator},
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
@@ -61,35 +58,24 @@ where
             ));
         }
 
-        let (_decrypted_reports, tags): (Vec<HybridReport<BA8, BA3>>, Vec<UniqueTag>) =
-            LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
-                .map_err(Into::<Error>::into)
-                .map_ok(|enc_reports| {
-                    iter(enc_reports.into_iter().map({
-                        |enc_report| {
-                            let dec_report = enc_report
-                                .decrypt::<R, BA8, BA3, BA20>(key_registry.as_ref())
-                                .map_err(Into::<Error>::into);
-                            let unique_tag = UniqueTag::from_unique_bytes(&enc_report);
-                            dec_report.map(|dec_report1| (dec_report1, unique_tag))
-                        }
-                    }))
-                })
-                .try_flatten()
-                .take(sz)
-                .try_fold(
-                    (Vec::with_capacity(sz), Vec::with_capacity(sz)),
-                    |mut acc, result| async move {
-                        acc.0.push(result.0);
-                        acc.1.push(result.1);
-                        Ok(acc)
-                    },
-                )
-                .await?;
-
-        let resharded_tags = reshard_iter(
+        let stream = LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
+            .map_err(Into::<Error>::into)
+            .map_ok(|enc_reports| {
+                iter(enc_reports.into_iter().map({
+                    |enc_report| {
+                        let dec_report = enc_report
+                            .decrypt::<R, BA8, BA3, BA20>(key_registry.as_ref())
+                            .map_err(Into::<Error>::into);
+                        let unique_tag = UniqueTag::from_unique_bytes(&enc_report);
+                        dec_report.map(|dec_report1| (dec_report1, unique_tag))
+                    }
+                }))
+            })
+            .try_flatten()
+            .take(sz);
+        let (_decrypted_reports, resharded_tags) = reshard_aad(
             ctx.narrow(&HybridStep::ReshardByTag),
-            tags,
+            stream,
             |ctx, _, tag| tag.shard_picker(ctx.shard_count()),
         )
         .await?;
