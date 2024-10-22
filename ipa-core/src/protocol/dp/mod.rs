@@ -553,7 +553,7 @@ fn delta_constraint(num_bernoulli: u32, noise_params: &NoiseParams) -> bool {
     lhs >= rhs
 }
 /// error of mechanism in Thm 1
-#[allow(dead_code)]
+#[cfg(all(test, unit_test))]
 fn error(num_bernoulli: u32, noise_params: &NoiseParams) -> f64 {
     noise_params.dimensions
         * noise_params.quantization_scale.powi(2)
