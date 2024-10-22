@@ -34,6 +34,16 @@ pub mod malicious;
 mod sharded;
 pub(crate) mod step;
 
+/// This struct stores some intermediate messages during the shuffle.
+/// In a maliciously secure shuffle,
+/// these messages need to be checked for consistency across helpers.
+/// `H1` stores `x1`, `H2` stores `x2` and `H3` stores `y1` and `y2`.
+#[derive(Debug, Clone)]
+struct IntermediateShuffleMessages<S> {
+    pub x1_or_y1: Option<Vec<S>>,
+    pub x2_or_y2: Option<Vec<S>>,
+}
+
 pub trait Shuffle: Context {
     fn shuffle<S, B, I>(
         self,

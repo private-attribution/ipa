@@ -9,7 +9,11 @@ use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng
 use crate::{
     error::Error,
     helpers::{Direction, MpcReceivingEnd, Role, TotalRecords},
-    protocol::{context::Context, ipa_prf::shuffle::step::OPRFShuffleStep, RecordId},
+    protocol::{
+        context::Context,
+        ipa_prf::shuffle::{step::OPRFShuffleStep, IntermediateShuffleMessages},
+        RecordId,
+    },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -33,7 +37,7 @@ where
 
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-pub async fn shuffle_protocol<C, I, S>(
+pub(super) async fn shuffle_protocol<C, I, S>(
     ctx: C,
     shares: I,
 ) -> Result<(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>), Error>
@@ -66,16 +70,6 @@ where
         Role::H2 => Box::pin(run_h2(&ctx, shares_len, shares, zs)).await,
         Role::H3 => Box::pin(run_h3(&ctx, shares_len, zs)).await,
     }
-}
-
-/// This struct stores some intermediate messages during the shuffle.
-/// In a maliciously secure shuffle,
-/// these messages need to be checked for consistency across helpers.
-/// `H1` stores `x1`, `H2` stores `x2` and `H3` stores `y1` and `y2`.
-#[derive(Debug, Clone)]
-pub struct IntermediateShuffleMessages<S: SharedValue> {
-    x1_or_y1: Option<Vec<S>>,
-    x2_or_y2: Option<Vec<S>>,
 }
 
 impl<S: SharedValue> IntermediateShuffleMessages<S> {
@@ -440,13 +434,19 @@ where
 }
 
 #[cfg(all(test, unit_test))]
-pub mod tests {
+pub(super) mod tests {
+    use std::iter::zip;
+
     use rand::{thread_rng, Rng};
 
     use super::shuffle_protocol;
     use crate::{
         ff::{Gf40Bit, U128Conversions},
-        secret_sharing::replicated::ReplicatedSecretSharing,
+        protocol::ipa_prf::shuffle::IntermediateShuffleMessages,
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue,
+        },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
@@ -484,6 +484,66 @@ pub mod tests {
         );
     }
 
+    fn check_replicated_shares<'a, S, I1, I2>(left_helper_shares: I1, right_helper_shares: I2)
+    where
+        S: SharedValue,
+        I1: Iterator<Item = &'a AdditiveShare<S>>,
+        I2: Iterator<Item = &'a AdditiveShare<S>>,
+    {
+        assert!(zip(left_helper_shares, right_helper_shares)
+            .all(|(lhs, rhs)| lhs.right() == rhs.left()));
+    }
+
+    pub struct ExtractedShuffleResults<S> {
+        pub x1_xor_y1: Vec<S>,
+        pub x2_xor_y2: Vec<S>,
+        pub a_xor_b_xor_c: Vec<S>,
+    }
+
+    impl<S> ExtractedShuffleResults<S> {
+        pub fn empty() -> Self {
+            ExtractedShuffleResults {
+                x1_xor_y1: vec![],
+                x2_xor_y2: vec![],
+                a_xor_b_xor_c: vec![],
+            }
+        }
+    }
+
+    /// Extract the data returned from shuffle (the shuffled records and intermediate
+    /// values) into a more usable form for verification. This routine is used for
+    /// both the unsharded and sharded shuffles.
+    pub fn extract_shuffle_results<S: SharedValue>(
+        results: [(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>); 3],
+    ) -> ExtractedShuffleResults<S> {
+        // check consistency
+        // i.e. x_1 xor y_1 = x_2 xor y_2 = C xor A xor B
+        let [(h1_shares, h1_messages), (h2_shares, h2_messages), (h3_shares, h3_messages)] =
+            results;
+
+        check_replicated_shares(h1_shares.iter(), h2_shares.iter());
+        check_replicated_shares(h2_shares.iter(), h3_shares.iter());
+        check_replicated_shares(h3_shares.iter(), h1_shares.iter());
+
+        let x1_xor_y1 = zip(h1_messages.x1_or_y1.unwrap(), h3_messages.x1_or_y1.unwrap())
+            .map(|(x1, y1)| x1 + y1)
+            .collect();
+
+        let x2_xor_y2 = zip(h2_messages.x2_or_y2.unwrap(), h3_messages.x2_or_y2.unwrap())
+            .map(|(x2, y2)| x2 + y2)
+            .collect();
+
+        let a_xor_b_xor_c = zip(&h1_shares, h3_shares)
+            .map(|(h1_share, h3_share)| h1_share.left() + h1_share.right() + h3_share.left())
+            .collect();
+
+        ExtractedShuffleResults {
+            x1_xor_y1,
+            x2_xor_y2,
+            a_xor_b_xor_c,
+        }
+    }
+
     #[test]
     fn check_intermediate_messages() {
         const RECORD_AMOUNT: usize = 100;
@@ -495,37 +555,17 @@ pub mod tests {
                 .map(|_| rng.gen())
                 .collect::<Vec<Gf40Bit>>();
 
-            let [h1, h2, h3] = world
+            let results = world
                 .semi_honest(records.clone().into_iter(), |ctx, records| async move {
-                    shuffle_protocol(ctx, records).await
+                    shuffle_protocol(ctx, records).await.unwrap()
                 })
                 .await;
 
-            // check consistency
-            // i.e. x_1 xor y_1 = x_2 xor y_2 = C xor A xor B
-            let (h1_shares, h1_messages) = h1.unwrap();
-            let (_, h2_messages) = h2.unwrap();
-            let (h3_shares, h3_messages) = h3.unwrap();
-
-            let mut x1_xor_y1 = h1_messages
-                .x1_or_y1
-                .unwrap()
-                .iter()
-                .zip(h3_messages.x1_or_y1.unwrap())
-                .map(|(x1, y1)| x1 + y1)
-                .collect::<Vec<_>>();
-            let mut x2_xor_y2 = h2_messages
-                .x2_or_y2
-                .unwrap()
-                .iter()
-                .zip(h3_messages.x2_or_y2.unwrap())
-                .map(|(x2, y2)| x2 + y2)
-                .collect::<Vec<_>>();
-            let mut a_xor_b_xor_c = h1_shares
-                .iter()
-                .zip(h3_shares)
-                .map(|(h1_share, h3_share)| h1_share.left() + h1_share.right() + h3_share.left())
-                .collect::<Vec<_>>();
+            let ExtractedShuffleResults {
+                mut x1_xor_y1,
+                mut x2_xor_y2,
+                mut a_xor_b_xor_c,
+            } = extract_shuffle_results(results);
 
             // unshuffle by sorting
             records.sort();
