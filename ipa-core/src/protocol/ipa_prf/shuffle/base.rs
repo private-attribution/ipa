@@ -68,7 +68,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 /// This struct stores some intermediate messages during the shuffle.
 /// In a maliciously secure shuffle,
 /// these messages need to be checked for consistency across helpers.
@@ -79,7 +78,6 @@ pub struct IntermediateShuffleMessages<S: SharedValue> {
     x2_or_y2: Option<Vec<S>>,
 }
 
-#[allow(dead_code)]
 impl<S: SharedValue> IntermediateShuffleMessages<S> {
     /// When `IntermediateShuffleMessages` is initialized correctly,
     /// this function returns `x1` when `Role = H1`

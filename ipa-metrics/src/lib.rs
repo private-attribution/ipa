@@ -32,6 +32,30 @@ pub use producer::Producer as MetricsProducer;
 #[cfg(not(feature = "partitions"))]
 pub use store::Store as MetricsStore;
 
+/// Creates metric infrastructure that is ready to use
+/// in the application code. It consists a triple of
+/// [`MetricsCollector`], [`MetricsProducer`], and
+/// [`MetricsCollectorController`].
+///
+/// Collector is used in the centralized place (a dedicated thread)
+/// to collect metrics coming from thread local stores.
+///
+/// Metric producer must be installed on every thread that is used
+/// to emit telemetry, and it connects that thread to the collector.
+///
+/// Controller provides command-line API interface to the collector.
+/// A thread that owns the controller, can request current snapshot.
+/// For more information about API, see [`Command`].
+///
+/// ## Example
+/// ```rust
+/// let (collector, producer, controller) = ipa_metrics::install();
+/// ```
+///
+/// [`MetricsCollector`]: crate::MetricsCollector
+/// [`MetricsProducer`]: crate::MetricsProducer
+/// [`MetricsCollectorController`]: crate::MetricsCollectorController
+/// [`Command`]: crate::ControllerCommand
 #[must_use]
 pub fn install() -> (
     MetricsCollector,
@@ -51,7 +75,7 @@ pub fn install() -> (
     )
 }
 
-/// Same as [`installer]` but spawns a new thread to run the collector.
+/// Same as [`install`] but spawns a new thread to run the collector.
 ///
 /// ## Errors
 /// if thread cannot be started

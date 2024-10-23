@@ -112,7 +112,7 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 /// Same as [`Name`], but intended for internal use. This is an owned
 /// version of it, that does not borrow anything from outside.
 /// This is the key inside metric stores which are simple hashmaps.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct OwnedName {
     key: &'static str,
     labels: [Option<OwnedLabel>; 5],
@@ -140,7 +140,9 @@ impl OwnedName {
 
 impl<const LABELS: usize> Hash for Name<'_, LABELS> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.key.as_bytes());
+        Hash::hash(&self.key, state);
+        // to be consistent with `OwnedName` hashing, we need to
+        // serialize labels without slice length prefix.
         for label in &self.labels {
             label.hash(state);
         }
@@ -186,20 +188,13 @@ impl<'a, const LABELS: usize> PartialEq<Name<'a, LABELS>> for OwnedName {
 
 impl PartialEq<OwnedName> for OwnedName {
     fn eq(&self, other: &OwnedName) -> bool {
-        self.key == other.key
-            && iter::zip(&self.labels, &other.labels).all(|(a, b)| match (a, b) {
-                (Some(a), Some(b)) => a == b,
-                (None, None) => true,
-                _ => false,
-            })
+        self.key == other.key && self.labels.eq(&other.labels)
     }
 }
 
-impl Eq for OwnedName {}
-
 impl Hash for OwnedName {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.key.as_bytes());
+        Hash::hash(self.key, state);
         for label in self.labels.iter().flatten() {
             label.hash(state);
         }
@@ -216,7 +211,6 @@ pub fn compute_hash<V: Hash>(value: V) -> u64 {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{
         key::{compute_hash, Name},
         label::Label,

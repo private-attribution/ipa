@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use futures::{Stream, TryFutureExt};
 use pin_project::{pin_project, pinned_drop};
 
+use super::{client::resp_ok, Helper};
 use crate::{
     config::{NetworkConfig, ServerConfig},
     executor::IpaRuntime,
@@ -67,12 +68,13 @@ impl HttpTransport {
         runtime: IpaRuntime,
         identity: HelperIdentity,
         server_config: ServerConfig,
-        network_config: NetworkConfig,
+        network_config: NetworkConfig<Helper>,
         clients: [MpcHelperClient; 3],
         handler: Option<HandlerRef>,
-    ) -> (Arc<Self>, MpcHelperServer) {
+    ) -> (Arc<Self>, MpcHelperServer<Helper>) {
         let transport = Self::new_internal(runtime, identity, clients, handler);
-        let server = MpcHelperServer::new(Arc::clone(&transport), server_config, network_config);
+        let server =
+            MpcHelperServer::new_mpc(Arc::clone(&transport), server_config, network_config);
         (transport, server)
     }
 
@@ -205,11 +207,7 @@ impl Transport for Arc<HttpTransport> {
                 // - avoid blocking this task, if the current runtime is overloaded
                 // - use the runtime that enables IO (current runtime may not).
                 self.http_runtime
-                    .spawn(
-                        resp_future
-                            .map_err(Into::into)
-                            .and_then(MpcHelperClient::resp_ok),
-                    )
+                    .spawn(resp_future.map_err(Into::into).and_then(resp_ok))
                     .await?;
                 Ok(())
             }
@@ -381,14 +379,14 @@ mod tests {
     async fn make_helpers(
         sockets: [TcpListener; 3],
         server_config: [ServerConfig; 3],
-        network_config: &NetworkConfig,
+        network_config: &NetworkConfig<Helper>,
         disable_https: bool,
     ) -> [HelperApp; 3] {
         join_all(
             zip(HelperIdentity::make_three(), zip(sockets, server_config)).map(
                 |(id, (socket, server_config))| async move {
                     let identity = if disable_https {
-                        ClientIdentity::Helper(id)
+                        ClientIdentity::Header(id)
                     } else {
                         get_test_identity(id)
                     };

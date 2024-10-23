@@ -50,6 +50,19 @@ use crate::{
 /// 2. Reveal breakdown keys. This is the key difference to the previous
 ///    aggregation (see [`reveal_breakdowns`]).
 /// 3. Add all values for each breakdown.
+///
+/// This protocol explicitly manages proof batches for DZKP-based malicious security by
+/// processing chunks of values from `intermediate_results.chunks()`. Procession
+/// through record IDs is not uniform for all of the gates in the protocol. The first
+/// layer of the reduction adds N pairs of records, the second layer adds N/2 pairs of
+/// records, etc. This has a few consequences:
+///   * We must specify a batch size of `usize::MAX` when calling `dzkp_validator`.
+///   * We must track record IDs across chunks, so that subsequent chunks can
+///     start from the last record ID that was used in the previous chunk.
+///   * Because the first record ID in the proof batch is set implicitly, we must
+///     guarantee that it submits multiplication intermediates before any other
+///     record. This is currently ensured by the serial operation of the aggregation
+///     protocol (i.e. by not using `seq_join`).
 #[tracing::instrument(name = "breakdown_reveal_aggregation", skip_all, fields(total = attributed_values.len()))]
 pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     ctx: C,
@@ -107,10 +120,7 @@ where
                     protocol: &Step::aggregate(depth),
                     validate: &Step::aggregate_validate(chunk_counter),
                 },
-                // We have to specify usize::MAX here because the procession through
-                // record IDs is different at each step of the reduction. The batch
-                // size is limited by `intermediate_results.chunks()`, above.
-                usize::MAX,
+                usize::MAX, // See note about batching above.
             );
             let result = aggregate_values::<_, HV, B>(
                 validator.context(),

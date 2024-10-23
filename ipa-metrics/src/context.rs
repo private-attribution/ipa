@@ -84,21 +84,21 @@ impl MetricsContext {
         &mut self.store
     }
 
-    fn is_connected(&self) -> bool {
-        self.tx.is_some()
-    }
-
     fn flush(&mut self) {
         if self.store.is_empty() {
             return;
         }
 
-        if self.is_connected() {
+        if let Some(tx) = self.tx.as_ref() {
             let store = mem::take(&mut self.store);
-            match self.tx.as_ref().unwrap().send(store) {
+            match tx.send(store) {
                 Ok(()) => {}
                 Err(e) => {
-                    tracing::warn!("MetricsContext is not connected: {e}");
+                    // Note that the store is dropped at this point.
+                    // If it becomes a problem with collector threads disconnecting
+                    // somewhat randomly, we can keep the old store around
+                    // and clone it when sending.
+                    tracing::warn!("MetricsContext is disconnected from the collector: {e}");
                 }
             }
         } else {

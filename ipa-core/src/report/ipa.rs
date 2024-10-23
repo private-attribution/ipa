@@ -407,11 +407,14 @@ where
 
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
-        let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
+        let sk = key_registry
+            .private_key(self.key_id())
+            .ok_or(CryptError::NoSuchKey(self.key_id()))?;
+        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info.to_bytes())?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK, TV, TS>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
 
-        let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
+        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info.to_bytes())?;
 
         Ok(OprfReport::<BK, TV, TS> {
             timestamp: Replicated::<TS>::deserialize(GenericArray::from_slice(
@@ -577,11 +580,15 @@ where
                 ..(Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE)],
         ));
 
+        let pk = key_registry
+            .public_key(key_id)
+            .ok_or(CryptError::NoSuchKey(key_id))?;
+
         let (encap_key_mk, ciphertext_mk, tag_mk) =
-            seal_in_place(key_registry, plaintext_mk.as_mut(), &info, rng)?;
+            seal_in_place(pk, plaintext_mk.as_mut(), &info.to_bytes(), rng)?;
 
         let (encap_key_btt, ciphertext_btt, tag_btt) =
-            seal_in_place(key_registry, plaintext_btt.as_mut(), &info, rng)?;
+            seal_in_place(pk, plaintext_btt.as_mut(), &info.to_bytes(), rng)?;
 
         out.put_slice(&encap_key_mk.to_bytes());
         out.put_slice(ciphertext_mk);
@@ -827,9 +834,9 @@ mod test {
     fn check_compatibility_impressionmk_with_ios_encryption() {
         let enc_report_bytes1 = hex::decode(
             "12854879d86ef277cd70806a7f6bad269877adc95ee107380381caf15b841a7e995e41\
-        4c63a9d82f834796cdd6c40529189fca82720714d24200d8a916a1e090b123f27eaf24\
-        f047f3930a77e5bcd33eeb823b73b0e9546c59d3d6e69383c74ae72b79645698fe1422\
-        f83886bd3cbca9fbb63f7019e2139191dd000000007777772e6d6574612e636f6d",
+             4c63a9d82f834796cdd6c40529189fca82720714d24200d8a916a1e090b123f27eaf24\
+             f047f3930a77e5bcd33eeb823b73b0e9546c59d3d6e69383c74ae72b79645698fe1422\
+             f83886bd3cbca9fbb63f7019e2139191dd000000007777772e6d6574612e636f6d",
         )
         .unwrap();
         let enc_report_bytes2 = hex::decode(

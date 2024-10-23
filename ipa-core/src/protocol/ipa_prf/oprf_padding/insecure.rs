@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::f64::consts::E;
 
 use rand::distributions::{BernoulliError, Distribution};
@@ -77,6 +75,7 @@ impl Dp {
         })
     }
 
+    #[cfg(all(test, unit_test))]
     fn apply<I, R>(&self, mut input: I, rng: &mut R)
     where
         R: RngCore + CryptoRng,
@@ -521,16 +520,18 @@ mod test {
             println!("A sample value equal to {sample} occurred {count} time(s)",);
         }
     }
+
+    #[test]
     fn test_oprf_padding_dp_constructor() {
         let mut actual = OPRFPaddingDp::new(-1.0, 1e-6, 10); // (epsilon, delta, sensitivity)
         let mut expected = Err(Error::BadEpsilon(-1.0));
-        assert_eq!(expected, Ok(actual));
+        assert_eq!(expected, actual);
         actual = OPRFPaddingDp::new(1.0, -1e-6, 10); // (epsilon, delta, sensitivity)
         expected = Err(Error::BadDelta(-1e-6));
-        assert_eq!(expected, Ok(actual));
-        actual = OPRFPaddingDp::new(1.0, -1e-6, 1_000_001); // (epsilon, delta, sensitivity)
+        assert_eq!(expected, actual);
+        actual = OPRFPaddingDp::new(1.0, 1e-6, 1_000_001); // (epsilon, delta, sensitivity)
         expected = Err(Error::BadSensitivity(1_000_001));
-        assert_eq!(expected, Ok(actual));
+        assert_eq!(expected, actual);
     }
 
     #[test]

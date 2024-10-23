@@ -20,7 +20,7 @@ use crate::{
     executor::IpaRuntime,
     ff::boolean_array::{BA20, BA3, BA8},
     helpers::query::DpMechanism,
-    net::{ClientIdentity, MpcHelperClient},
+    net::{ClientIdentity, Helper, MpcHelperClient},
     protocol::{dp::NoiseParams, ipa_prf::oprf_padding::insecure::OPRFPaddingDp},
 };
 
@@ -194,19 +194,19 @@ pub async fn make_clients(
     network_path: Option<&Path>,
     scheme: Scheme,
     wait: usize,
-) -> ([MpcHelperClient; 3], NetworkConfig) {
+) -> ([MpcHelperClient; 3], NetworkConfig<Helper>) {
     let mut wait = wait;
     let network = if let Some(path) = network_path {
         NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
     } else {
-        NetworkConfig {
-            peers: [
+        NetworkConfig::<Helper>::new_mpc(
+            vec![
                 PeerConfig::new("localhost:3000".parse().unwrap(), None),
                 PeerConfig::new("localhost:3001".parse().unwrap(), None),
                 PeerConfig::new("localhost:3002".parse().unwrap(), None),
             ],
-            client: ClientConfig::default(),
-        }
+            ClientConfig::default(),
+        )
     };
     let network = network.override_scheme(&scheme);
 
