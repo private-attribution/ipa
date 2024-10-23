@@ -11,6 +11,9 @@ cargo build --all-targets
 # Need to be kept in sync manually with tests we run inside check.yml.
 cargo test --features "cli test-fixture relaxed-dp"
 
+# Provide code coverage stats for ipa-metrics crate with partitions enabled
+cargo test -p ipa-metrics --features "partitions"
+
 # descriptive-gate does not require a feature flag.
 for gate in "compact-gate" ""; do
   cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate"
