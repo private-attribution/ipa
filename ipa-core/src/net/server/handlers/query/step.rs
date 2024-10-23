@@ -1,30 +1,28 @@
 use axum::{extract::Path, routing::post, Extension, Router};
 
 use crate::{
-    helpers::{BodyStream, HelperIdentity, Transport},
+    helpers::{BodyStream, HelperIdentity},
     net::{
         http_serde,
         server::{ClientIdentity, Error},
-        HttpTransport,
+        transport::MpcHttpTransport,
     },
     protocol::{Gate, QueryId},
-    sync::Arc,
 };
 
 #[allow(clippy::unused_async)] // axum doesn't like synchronous handler
 #[tracing::instrument(level = "trace", "step", skip_all, fields(from = ?**from, gate = ?gate))]
 async fn handler(
-    transport: Extension<Arc<HttpTransport>>,
+    transport: Extension<MpcHttpTransport>,
     from: Extension<ClientIdentity<HelperIdentity>>,
     Path((query_id, gate)): Path<(QueryId, Gate)>,
     body: BodyStream,
 ) -> Result<(), Error> {
-    let transport = Transport::clone_ref(&*transport);
     transport.receive_stream(query_id, gate, **from, body);
     Ok(())
 }
 
-pub fn router(transport: Arc<HttpTransport>) -> Router {
+pub fn router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .route(http_serde::query::step::AXUM_PATH, post(handler))
         .layer(Extension(transport))
@@ -41,7 +39,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
+        helpers::{HelperIdentity, Transport, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
             server::handlers::query::test_helpers::{assert_fails_with, MaybeExtensionExt},
             test::TestServer,
@@ -65,7 +63,8 @@ mod tests {
 
         test_server.server.handle_req(req.into()).await;
 
-        let mut stream = Arc::clone(&test_server.transport)
+        let mut stream = test_server
+            .transport
             .receive(HelperIdentity::TWO, (QueryId, step))
             .into_bytes_stream();
 
