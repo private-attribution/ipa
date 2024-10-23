@@ -1,21 +1,42 @@
-use std::{convert::Into, marker::PhantomData, sync::Arc};
+use std::{
+    convert::{Infallible, Into},
+    marker::PhantomData,
+    sync::Arc,
+};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
 
 use crate::{
-    error::Error,
-    ff::boolean_array::{BA20, BA3, BA8},
+    error::{Error, LengthError},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BooleanArray, BA20, BA3, BA8},
+        curve_points::RP25519,
+        ec_prime_field::Fp25519,
+        Serializable, U128Conversions,
+    },
     helpers::{
-        query::{HybridQueryParams, QuerySize},
+        query::{DpMechanism, HybridQueryParams, QuerySize},
         BodyStream, LengthDelimitedStream,
     },
     hpke::PrivateKeyRegistry,
-    protocol::{context::ShardedContext, hybrid::step::HybridStep, step::ProtocolStep::Hybrid},
+    protocol::{
+        basics::{BooleanArrayMul, Reveal, ShareKnownValue},
+        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        hybrid::{hybrid_protocol, step::HybridStep, AGG_CHUNK, CONV_CHUNK, PRF_CHUNK},
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
+        prss::FromPrss,
+        step::ProtocolStep::Hybrid,
+        BooleanProtocols,
+    },
     query::runner::reshard_tag::reshard_aad,
     report::hybrid::{
         EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+        Vectorizable,
+    },
 };
 
 #[allow(dead_code)]
@@ -25,10 +46,8 @@ pub struct Query<C, HV, R: PrivateKeyRegistry> {
     phantom_data: PhantomData<(C, HV)>,
 }
 
-impl<C, HV: SharedValue, R: PrivateKeyRegistry> Query<C, HV, R>
-where
-    C: ShardedContext,
-{
+#[allow(dead_code)]
+impl<C, HV, R: PrivateKeyRegistry> Query<C, HV, R> {
     pub fn new(query_params: HybridQueryParams, key_registry: Arc<R>) -> Self {
         Self {
             config: query_params,
@@ -36,14 +55,38 @@ where
             phantom_data: PhantomData,
         }
     }
+}
 
+impl<C, HV, R> Query<C, HV, R>
+where
+    C: UpgradableContext + Shuffle + ShardedContext,
+    HV: BooleanArray + U128Conversions,
+    R: PrivateKeyRegistry,
+    Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,
+    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<Boolean, 256>: BooleanProtocols<DZKPUpgraded<C>, 256>,
+    Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+    Replicated<RP25519, PRF_CHUNK>:
+        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
+    Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
+    Replicated<BA20>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<BA3>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, 256>>:
+        for<'a> TransposeFrom<&'a [Replicated<HV>; 256], Error = Infallible>,
+{
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
         self,
         ctx: C,
         query_size: QuerySize,
         input_stream: BodyStream,
-    ) -> Result<Vec<ReplicatedShare<HV>>, Error> {
+    ) -> Result<Vec<Replicated<HV>>, Error> {
         let Self {
             config,
             key_registry,
@@ -89,10 +132,34 @@ where
             .check_duplicates(&resharded_tags)
             .unwrap();
 
-        let _indistinguishable_reports: Vec<IndistinguishableHybridReport<BA8, BA3>> =
+        let indistinguishable_reports: Vec<IndistinguishableHybridReport<BA8, BA3>> =
             decrypted_reports.into_iter().map(Into::into).collect();
 
-        unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
+        let dp_params: DpMechanism = match config.with_dp {
+            0 => DpMechanism::NoDp,
+            _ => DpMechanism::DiscreteLaplace {
+                epsilon: config.epsilon,
+            },
+        };
+
+        #[cfg(feature = "relaxed-dp")]
+        let padding_params = PaddingParameters::relaxed();
+        #[cfg(not(feature = "relaxed-dp"))]
+        let padding_params = PaddingParameters::default();
+
+        match config.per_user_credit_cap {
+            1 => hybrid_protocol::<_, BA8, BA3, HV, 1, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
+            2 | 4 => hybrid_protocol::<_, BA8, BA3, HV, 2, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
+            8 => hybrid_protocol::<_, BA8, BA3, HV, 3, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
+            16 => hybrid_protocol::<_, BA8, BA3, HV, 4, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
+            32 => hybrid_protocol::<_, BA8, BA3, HV, 5, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
+            64 => hybrid_protocol::<_, BA8, BA3, HV, 6, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
+            128 => hybrid_protocol::<_, BA8, BA3, HV, 7, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
+            _ => panic!(
+                "Invalid value specified for per-user cap: {:?}. Must be one of 1, 2, 4, 8, 16, 32, 64, or 128.",
+                config.per_user_credit_cap
+            ),
+        }
     }
 }
 
@@ -219,7 +286,7 @@ mod tests {
     // placeholder until the protocol is complete. can be updated to make sure we
     // get to the unimplemented() call
     #[should_panic(
-        expected = "not implemented: query::runnner::HybridQuery.execute is not fully implemented"
+        expected = "not implemented: protocol::hybrid::hybrid_protocol is not fully implemented"
     )]
     async fn encrypted_hybrid_reports() {
         // While this test currently checks for an unimplemented panic it is

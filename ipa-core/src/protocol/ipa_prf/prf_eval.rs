@@ -19,7 +19,7 @@ use crate::{
         replicated::{malicious, semi_honest::AdditiveShare},
         FieldSimd, Vectorizable,
     },
-    sharding::NotSharded,
+    sharding::{NotSharded, Sharded},
 };
 
 /// This trait defines the requirements to the sharing types and the underlying fields
@@ -43,6 +43,19 @@ where
     RP25519: Vectorizable<N>,
     AdditiveShare<Fp25519, N>:
         BasicProtocols<UpgradedSemiHonestContext<'a, NotSharded, Fp25519>, Fp25519, N> + FromPrss,
+{
+    type Field = Fp25519;
+    type UpgradedSharing = AdditiveShare<Fp25519, N>;
+}
+
+/// Allow semi-honest shares to be used for PRF generation in sharded context
+impl<'a, const N: usize> PrfSharing<UpgradedSemiHonestContext<'a, Sharded, Fp25519>, N>
+    for AdditiveShare<Fp25519, N>
+where
+    Fp25519: FieldSimd<N>,
+    RP25519: Vectorizable<N>,
+    AdditiveShare<Fp25519, N>:
+        BasicProtocols<UpgradedSemiHonestContext<'a, Sharded, Fp25519>, Fp25519, N> + FromPrss,
 {
     type Field = Fp25519;
     type UpgradedSharing = AdditiveShare<Fp25519, N>;
