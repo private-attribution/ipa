@@ -44,7 +44,7 @@ fn main() {
     // https://docs.rs/tectonic_cfg_support/latest/tectonic_cfg_support/struct.TargetConfiguration.html
     cfg_aliases! {
         compact_gate: { feature = "compact-gate" },
-        descriptive_gate: { not(compact_gate) },
+        descriptive_gate: { all(not(feature = "compact-gate"), feature = "descriptive-gate") },
         unit_test: { all(not(feature = "shuttle"), feature = "in-memory-infra", descriptive_gate) },
         web_test: { all(not(feature = "shuttle"), feature = "real-world-infra") },
     }
