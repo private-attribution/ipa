@@ -23,7 +23,10 @@ use crate::{
         hybrid_info::HybridImpressionInfo, EncryptedOprfReport, EventType, InvalidReportError,
         KeyIdentifier,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        SharedValue,
+    },
     sharding::ShardIndex,
 };
 
@@ -305,6 +308,38 @@ where
                 InvalidHybridReportError::DeserializationError("is_trigger", e.into())
             })?,
         })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    match_key: Replicated<BA64>,
+    value: Replicated<V>,
+    breakdown_key: Replicated<BK>,
+}
+
+impl<BK, V> From<HybridReport<BK, V>> for IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    fn from(report: HybridReport<BK, V>) -> Self {
+        match report {
+            HybridReport::Impression(r) => Self {
+                match_key: r.match_key,
+                value: Replicated::new(V::ZERO, V::ZERO),
+                breakdown_key: r.breakdown_key,
+            },
+            HybridReport::Conversion(r) => Self {
+                match_key: r.match_key,
+                value: r.value,
+                breakdown_key: Replicated::new(BK::ZERO, BK::ZERO),
+            },
+        }
     }
 }
 
