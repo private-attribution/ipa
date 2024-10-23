@@ -14,8 +14,7 @@ cargo test --features "cli test-fixture relaxed-dp"
 # Provide code coverage stats for ipa-metrics crate with partitions enabled
 cargo test -p ipa-metrics --features "partitions"
 
-# descriptive-gate does not require a feature flag.
-for gate in "compact-gate" ""; do
+for gate in "compact-gate" "descriptive-gate"; do
   cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate"
 done
 
