@@ -329,16 +329,36 @@ where
 {
     fn from(report: HybridReport<BK, V>) -> Self {
         match report {
-            HybridReport::Impression(r) => Self {
-                match_key: r.match_key,
-                value: Replicated::new(V::ZERO, V::ZERO),
-                breakdown_key: r.breakdown_key,
-            },
-            HybridReport::Conversion(r) => Self {
-                match_key: r.match_key,
-                value: r.value,
-                breakdown_key: Replicated::new(BK::ZERO, BK::ZERO),
-            },
+            HybridReport::Impression(r) => r.into(),
+            HybridReport::Conversion(r) => r.into(),
+        }
+    }
+}
+
+impl<BK, V> From<HybridImpressionReport<BK>> for IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    fn from(impression_report: HybridImpressionReport<BK>) -> Self {
+        Self {
+            match_key: impression_report.match_key,
+            value: Replicated::new(V::ZERO, V::ZERO),
+            breakdown_key: impression_report.breakdown_key,
+        }
+    }
+}
+
+impl<BK, V> From<HybridConversionReport<V>> for IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    fn from(conversion_report: HybridConversionReport<V>) -> Self {
+        Self {
+            match_key: conversion_report.match_key,
+            value: conversion_report.value,
+            breakdown_key: Replicated::new(BK::ZERO, BK::ZERO),
         }
     }
 }
@@ -531,8 +551,8 @@ mod test {
 
     use super::{
         EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
-        HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag,
-        UniqueTagValidator,
+        HybridConversionReport, HybridImpressionReport, HybridReport,
+        IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
     };
     use crate::{
         error::Error,
@@ -546,7 +566,10 @@ mod test {
             hybrid_info::HybridImpressionInfo,
             EventType, OprfReport,
         },
-        secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue,
+        },
     };
 
     fn build_oprf_report(event_type: EventType, rng: &mut ThreadRng) -> OprfReport<BA8, BA3, BA20> {
@@ -627,6 +650,56 @@ mod test {
             .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
+    }
+
+    #[test]
+    fn convert_to_indistinguishable_report() {
+        let mut rng = thread_rng();
+
+        let conversion_report = HybridConversionReport::<BA3> {
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            value: AdditiveShare::new(rng.gen(), rng.gen()),
+        };
+        let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
+            conversion_report.clone().into();
+        assert_eq!(
+            conversion_report.match_key,
+            indistinguishable_report.match_key
+        );
+        assert_eq!(conversion_report.value, indistinguishable_report.value);
+        assert_eq!(
+            AdditiveShare::new(BA8::ZERO, BA8::ZERO),
+            indistinguishable_report.breakdown_key
+        );
+
+        let hybrid_report = HybridReport::Conversion::<BA8, BA3>(conversion_report.clone());
+        let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
+            hybrid_report.clone().into();
+        assert_eq!(indistinguishable_report, indistinguishable_report2);
+
+        let impression_report = HybridImpressionReport::<BA8> {
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+        };
+        let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
+            impression_report.clone().into();
+        assert_eq!(
+            impression_report.match_key,
+            indistinguishable_report.match_key
+        );
+        assert_eq!(
+            AdditiveShare::new(BA3::ZERO, BA3::ZERO),
+            indistinguishable_report.value
+        );
+        assert_eq!(
+            impression_report.breakdown_key,
+            indistinguishable_report.breakdown_key
+        );
+
+        let hybrid_report = HybridReport::Impression::<BA8, BA3>(impression_report.clone());
+        let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
+            hybrid_report.clone().into();
+        assert_eq!(indistinguishable_report, indistinguishable_report2);
     }
 
     #[test]
