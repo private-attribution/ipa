@@ -58,8 +58,8 @@ impl Debug for Label<'_> {
 
 impl Hash for Label<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.name.as_bytes());
-        state.write_u64(self.val.hash());
+        Hash::hash(&self.name, state);
+        Hash::hash(&self.val.hash(), state);
     }
 }
 
