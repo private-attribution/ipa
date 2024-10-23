@@ -1,6 +1,5 @@
 use std::{
     borrow::Borrow,
-    collections::HashMap,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -19,7 +18,7 @@ use crate::{
         routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoQueryId,
         NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
-        StepBinding, StreamCollection, Transport,
+        StepBinding, StreamCollection, Transport, TransportIdentity,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{Gate, QueryId},
@@ -31,7 +30,7 @@ use crate::{
 pub struct HttpTransport<F: ConnectionFlavor> {
     http_runtime: IpaRuntime,
     identity: F::Identity,
-    clients: HashMap<F::Identity, MpcHelperClient<F>>,
+    clients: Vec<MpcHelperClient<F>>,
     record_streams: StreamCollection<F::Identity, BodyStream>,
     handler: Option<HandlerRef<F::Identity>>,
 }
@@ -85,6 +84,7 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
         Option<Gate>: From<S>,
     {
         let route_id = route.resource_identifier();
+        let client_ix = dest.as_index();
         match route_id {
             RouteId::Records => {
                 // TODO(600): These fallible extractions aren't really necessary.
@@ -92,7 +92,7 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
                     .expect("query_id required when sending records");
                 let step =
                     <Option<Gate>>::from(route.gate()).expect("step required when sending records");
-                let resp_future = self.clients[&dest].step(query_id, &step, data)?;
+                let resp_future = self.clients[client_ix].step(query_id, &step, data)?;
                 // Use a dedicated HTTP runtime to poll this future for several reasons:
                 // - avoid blocking this task, if the current runtime is overloaded
                 // - use the runtime that enables IO (current runtime may not).
@@ -103,7 +103,7 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
             }
             RouteId::PrepareQuery => {
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
-                self.clients[&dest].prepare_query(req).await
+                self.clients[client_ix].prepare_query(req).await
             }
             evt @ (RouteId::QueryInput
             | RouteId::ReceiveQuery
@@ -196,34 +196,21 @@ impl MpcHttpTransport {
         identity: HelperIdentity,
         server_config: ServerConfig,
         network_config: NetworkConfig<Helper>,
-        clients: [MpcHelperClient; 3],
+        clients: &[MpcHelperClient; 3],
         handler: Option<HandlerRef<HelperIdentity>>,
     ) -> (Self, MpcHelperServer<Helper>) {
-        let transport = Self::new_internal(http_runtime, identity, clients, handler);
-        let server = MpcHelperServer::new_mpc(&transport, server_config, network_config);
-        (transport, server)
-    }
-
-    fn new_internal(
-        http_runtime: IpaRuntime,
-        identity: HelperIdentity,
-        clients: [MpcHelperClient; 3],
-        handler: Option<HandlerRef<HelperIdentity>>,
-    ) -> Self {
-        let mut id_clients = HashMap::new();
-        let [c1, c2, c3] = clients;
-        id_clients.insert(HelperIdentity::ONE, c1);
-        id_clients.insert(HelperIdentity::TWO, c2);
-        id_clients.insert(HelperIdentity::THREE, c3);
-        Self {
+        let transport = Self {
             inner_transport: Arc::new(HttpTransport {
                 http_runtime,
                 identity,
-                clients: id_clients,
+                clients: clients.to_vec(),
                 handler,
                 record_streams: StreamCollection::default(),
             }),
-        }
+        };
+
+        let server = MpcHelperServer::new_mpc(&transport, server_config, network_config);
+        (transport, server)
     }
 
     /// Connect an inbound stream of record data.
@@ -305,33 +292,21 @@ impl ShardHttpTransport {
         identity: ShardIndex,
         server_config: ServerConfig,
         network_config: NetworkConfig<Shard>,
-        clients: HashMap<ShardIndex, MpcHelperClient<Shard>>,
+        clients: Vec<MpcHelperClient<Shard>>,
         handler: Option<HandlerRef<ShardIndex>>,
     ) -> (Self, MpcHelperServer<Shard>) {
-        let transport = Self::new_internal(http_runtime, identity, clients, handler);
-        let server = MpcHelperServer::new_shards(&transport, server_config, network_config);
-        (transport, server)
-    }
-
-    fn new_internal(
-        http_runtime: IpaRuntime,
-        identity: ShardIndex,
-        clients: HashMap<ShardIndex, MpcHelperClient<Shard>>,
-        handler: Option<HandlerRef<ShardIndex>>,
-    ) -> Self {
-        let mut base_clients = HashMap::new();
-        for (ix, client) in clients {
-            base_clients.insert(ix, client);
-        }
-        Self {
+        let transport = Self {
             inner_transport: Arc::new(HttpTransport {
                 http_runtime,
                 identity,
-                clients: base_clients,
+                clients,
                 handler,
                 record_streams: StreamCollection::default(),
             }),
-        }
+        };
+
+        let server = MpcHelperServer::new_shards(&transport, server_config, network_config);
+        (transport, server)
     }
 }
 
@@ -497,7 +472,7 @@ mod tests {
                         id,
                         server_config.clone(),
                         network_config.clone(),
-                        clients,
+                        &clients,
                         Some(handler),
                     );
                     // TODO: Following is just temporary until Shard Transport is actually used.
@@ -510,7 +485,7 @@ mod tests {
                         ShardIndex::FIRST,
                         shard_server_config,
                         shard_network_config,
-                        HashMap::new(),
+                        vec![],
                         None,
                     );
                     // ---

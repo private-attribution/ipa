@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fs,
     io::BufReader,
     net::TcpListener,
@@ -177,7 +176,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         my_identity,
         server_config,
         network_config,
-        clients,
+        &clients,
         Some(handler),
     );
 
@@ -188,7 +187,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         ShardIndex::FIRST,
         shard_server_config,
         shard_network_config,
-        HashMap::new(),
+        vec![],
         None,
     );
     // ---

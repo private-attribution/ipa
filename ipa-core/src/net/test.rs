@@ -301,7 +301,7 @@ impl TestServerBuilder {
             HelperIdentity::ONE,
             server_config,
             network_config.clone(),
-            clients,
+            &clients,
             handler,
         );
         let (addr, handle) = server
