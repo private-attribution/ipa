@@ -20,7 +20,7 @@ use crate::{
         PublicKeyRegistry, TagSize,
     },
     report::{
-        hybrid_info::HybridImpressionInfo, EncryptedOprfReport, EventType, InvalidReportError,
+        hybrid_info::{HybridConversionInfo, HybridImpressionInfo}, EncryptedOprfReport, EventType, InvalidReportError,
         KeyIdentifier,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
@@ -115,10 +115,11 @@ where
         &self,
         key_id: KeyIdentifier,
         key_registry: &impl PublicKeyRegistry,
+        info: &HybridImpressionInfo,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidHybridReportError> {
         let mut out = Vec::with_capacity(usize::from(self.encrypted_len()));
-        self.encrypt_to(key_id, key_registry, rng, &mut out)?;
+        self.encrypt_to(key_id, key_registry, info, rng, &mut out)?;
         debug_assert_eq!(out.len(), usize::from(self.encrypted_len()));
         Ok(out)
     }
@@ -129,11 +130,10 @@ where
         &self,
         key_id: KeyIdentifier,
         key_registry: &impl PublicKeyRegistry,
+        info: &HybridImpressionInfo,
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
-        let info = HybridImpressionInfo::new(key_id, HELPER_ORIGIN)?;
-
         let mut plaintext_mk = GenericArray::default();
         self.match_key.serialize(&mut plaintext_mk);
 
@@ -176,6 +176,119 @@ where
 {
     match_key: Replicated<BA64>,
     value: Replicated<V>,
+}
+
+impl<V: SharedValue> Serializable for HybridConversionReport<V>
+where
+    V: SharedValue,
+    Replicated<V>: Serializable,
+    <Replicated<V> as Serializable>::Size: Add<U16>,
+    <<Replicated<V> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
+{
+    type Size = <<Replicated<V> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output;
+    type DeserializationError = InvalidHybridReportError;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let v_sz = <Replicated<V> as Serializable>::Size::USIZE;
+
+        self.match_key
+            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
+
+        self.value
+            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + v_sz]));
+    }
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let v_sz = <Replicated<V> as Serializable>::Size::USIZE;
+        let match_key =
+            Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
+            .map_err(|e| InvalidHybridReportError::DeserializationError("match_key", e.into()))?;
+        let value =
+            Replicated::<V>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + v_sz]))
+            .map_err(|e| InvalidHybridReportError::DeserializationError("breakdown_key", e.into()))?;
+        Ok(Self { match_key, value })
+    }
+}
+
+impl<V> HybridConversionReport<V>
+where
+    V: SharedValue,
+    Replicated<V>: Serializable,
+    <Replicated<V> as Serializable>::Size: Add<U16>,
+    <<Replicated<V> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
+{
+    const BTT_END: usize = <Replicated<V> as Serializable>::Size::USIZE;
+
+    /// # Panics
+    /// If report length does not fit in `u16`.
+    pub fn encrypted_len(&self) -> u16 {
+        let len = EncryptedHybridConversionReport::<V, &[u8]>::SITE_DOMAIN_OFFSET;
+        len.try_into().unwrap()
+    }
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt<R: CryptoRng + RngCore>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        info: &HybridConversionInfo,
+        rng: &mut R,
+    ) -> Result<Vec<u8>, InvalidHybridReportError> {
+        let mut out = Vec::with_capacity(usize::from(self.encrypted_len()));
+        self.encrypt_to(key_id, key_registry, info, rng, &mut out)?;
+        debug_assert_eq!(out.len(), usize::from(self.encrypted_len()));
+        Ok(out)
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        info: &HybridConversionInfo,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidHybridReportError> {
+        //let info = HybridConversionInfo::new(key_id, HELPER_ORIGIN)?;
+
+        //let mut plaintext_mk: GenericArray<u8, <Replicated<V> as Serializable>::Size> = GenericArray::default();
+        //self.value.serialize(&mut plaintext_mk);
+
+        let mut plaintext_mk = GenericArray::default();
+        self.match_key.serialize(&mut plaintext_mk);
+
+        let mut plaintext_btt = vec![0u8; Self::BTT_END];
+        self.value
+            .serialize(GenericArray::from_mut_slice(&mut plaintext_btt[..]));
+
+        let pk = key_registry.public_key(key_id).ok_or(CryptError::NoSuchKey(key_id))?;
+
+        let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
+            pk,
+            plaintext_mk.as_mut(),
+            &info.to_bytes(),
+            rng,
+        )?;
+
+        let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
+            pk,
+            plaintext_btt.as_mut(),
+            &info.to_bytes(),
+            rng,
+        )?;
+
+        out.put_slice(&encap_key_mk.to_bytes());
+        out.put_slice(ciphertext_mk);
+        out.put_slice(&tag_mk.to_bytes());
+        out.put_slice(&encap_key_btt.to_bytes());
+        out.put_slice(ciphertext_btt);
+        out.put_slice(&tag_btt.to_bytes());
+        out.put_slice(&[key_id]);
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -227,12 +340,14 @@ where
     const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
     const ENCAP_KEY_BTT_OFFSET: usize = (Self::CIPHERTEXT_MK_OFFSET
         + TagSize::USIZE
-        + <Replicated<BA64> as Serializable>::Size::USIZE);
+        //+ <Replicated<BA64> as Serializable>::Size::USIZE);
+        + Replicated::<BA64>::size());
     const CIPHERTEXT_BTT_OFFSET: usize = Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize::USIZE;
 
     const KEY_IDENTIFIER_OFFSET: usize = (Self::CIPHERTEXT_BTT_OFFSET
         + TagSize::USIZE
-        + <Replicated<BK> as Serializable>::Size::USIZE);
+        //+ <Replicated<BK> as Serializable>::Size::USIZE);
+        + Replicated::<BK>::size());
     const SITE_DOMAIN_OFFSET: usize = Self::KEY_IDENTIFIER_OFFSET + 1;
 
     pub fn encap_key_mk(&self) -> &[u8] {
@@ -279,11 +394,10 @@ where
     pub fn decrypt<P: PrivateKeyRegistry>(
         &self,
         key_registry: &P,
+        info: &HybridImpressionInfo,
     ) -> Result<HybridImpressionReport<BK>, InvalidHybridReportError> {
         type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
         type CTBTTLength<BK> = <<Replicated<BK> as Serializable>::Size as Add<TagSize>>::Output;
-
-        let info = HybridImpressionInfo::new(self.key_id(), HELPER_ORIGIN).unwrap(); // validated on construction
 
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
@@ -303,6 +417,127 @@ where
             breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(plaintext_btt))
                 .map_err(|e| {
                 InvalidHybridReportError::DeserializationError("is_trigger", e.into())
+            })?,
+        })
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct EncryptedHybridConversionReport<V, B>
+where
+    B: Deref<Target = [u8]>,
+    V: SharedValue,
+{
+    data: B,
+    phantom_data: PhantomData<V>,
+}
+
+impl<V, B> EncryptedHybridConversionReport<V, B>
+where
+    B: Deref<Target = [u8]>,
+    V: SharedValue,
+    Replicated<V>: Serializable,
+    <Replicated<V> as Serializable>::Size: Add<U16>,
+    <<Replicated<V> as Serializable>::Size as Add<U16>>::Output: ArrayLength,
+{
+    const ENCAP_KEY_MK_OFFSET: usize = 0;
+    const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
+    const ENCAP_KEY_BTT_OFFSET: usize = (Self::CIPHERTEXT_MK_OFFSET
+        + TagSize::USIZE
+        + Replicated::<BA64>::size());
+    const CIPHERTEXT_BTT_OFFSET: usize = Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize::USIZE;
+
+    const KEY_IDENTIFIER_OFFSET: usize = (Self::CIPHERTEXT_BTT_OFFSET
+        + TagSize::USIZE
+        + Replicated::<V>::size());
+    const SITE_DOMAIN_OFFSET: usize = Self::KEY_IDENTIFIER_OFFSET + 1;
+
+    pub fn encap_key_mk(&self) -> &[u8] {
+        &self.data[Self::ENCAP_KEY_MK_OFFSET..Self::CIPHERTEXT_MK_OFFSET]
+    }
+
+    pub fn mk_ciphertext(&self) -> &[u8] {
+        &self.data[Self::CIPHERTEXT_MK_OFFSET..Self::ENCAP_KEY_BTT_OFFSET]
+    }
+
+    pub fn encap_key_btt(&self) -> &[u8] {
+        &self.data[Self::ENCAP_KEY_BTT_OFFSET..Self::CIPHERTEXT_BTT_OFFSET]
+    }
+
+    pub fn btt_ciphertext(&self) -> &[u8] {
+        &self.data[Self::CIPHERTEXT_BTT_OFFSET..Self::KEY_IDENTIFIER_OFFSET]
+    }
+
+    pub fn key_id(&self) -> KeyIdentifier {
+        self.data[Self::KEY_IDENTIFIER_OFFSET]
+    }
+
+    /// ## Errors
+    /// If the report contents are invalid.
+    pub fn from_bytes(bytes: B) -> Result<Self, InvalidHybridReportError> {
+        if bytes.len() < Self::SITE_DOMAIN_OFFSET {
+            return Err(InvalidHybridReportError::Length(
+                bytes.len(),
+                Self::SITE_DOMAIN_OFFSET,
+            ));
+        }
+        Ok(Self {
+            data: bytes,
+            phantom_data: PhantomData,
+        })
+    }
+
+    /// ## Errors
+    /// If the match key shares in the report cannot be decrypted (e.g. due to a
+    /// failure of the authenticated encryption).
+    /// ## Panics
+    /// Should not panic. Only panics if a `Report` constructor failed to validate the
+    /// contents properly, which would be a bug.
+    pub fn decrypt<P: PrivateKeyRegistry>(
+        &self,
+        key_registry: &P,
+        info: &HybridConversionInfo,
+    ) -> Result<HybridConversionReport<V>, InvalidHybridReportError> {
+        type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
+        type CTBTTLength<V> = <<Replicated<V> as Serializable>::Size as Add<TagSize>>::Output;
+
+        /*let info = HybridImpressionInfo::new(self.key_id(), HELPER_ORIGIN).unwrap(); // validated on construction
+
+        let info = HybridConversionInfo::new(
+            self.key_id(),
+            HELPER_ORIGIN,
+            self.converion_site_domain(),
+            self.timestamp(),
+            self.epsilon(),
+            self.sensitivity(),
+        )
+        .unwrap(); // validated on construction*/
+
+        // ConversionInfo fields:
+        /*pub key_id: KeyIdentifier,
+        pub helper_origin: &'a str,
+        pub converion_site_domain: &'a str,
+        pub timestamp: u64,
+        pub epsilon: f64,
+        pub sensitivity: f64,*/
+        let mut ct_mk: GenericArray<u8, CTMKLength> =
+            *GenericArray::from_slice(self.mk_ciphertext());
+        let sk = key_registry
+            .private_key(self.key_id())
+            .ok_or(CryptError::NoSuchKey(self.key_id()))?;
+        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info.to_bytes())?;
+        let mut ct_btt: GenericArray<u8, CTBTTLength<V>> =
+            GenericArray::from_slice(self.btt_ciphertext()).clone();
+
+        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info.to_bytes())?;
+
+        Ok(HybridConversionReport::<V> {
+            match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
+                plaintext_mk,
+            )),
+            value: Replicated::<V>::deserialize(GenericArray::from_slice(plaintext_btt))
+                .map_err(|e| {
+                InvalidHybridReportError::DeserializationError("trigger_value", e.into())
             })?,
         })
     }
@@ -497,7 +732,7 @@ mod test {
     use super::{
         EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
         HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag,
-        UniqueTagValidator,
+        UniqueTagValidator, HELPER_ORIGIN,
     };
     use crate::{
         error::Error,
@@ -507,8 +742,8 @@ mod test {
         },
         hpke::{KeyPair, KeyRegistry},
         report::{
-            hybrid::{NonAsciiStringError, BA64},
-            hybrid_info::HybridImpressionInfo,
+            hybrid::{EncryptedHybridConversionReport, NonAsciiStringError, BA64},
+            hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
             EventType, OprfReport,
         },
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -638,7 +873,29 @@ mod test {
     }
 
     #[test]
-    fn deserialzation_from_constant() {
+    fn serialization_hybrid_conversion() {
+        let mut rng = thread_rng();
+        let b = EventType::Source;
+        let oprf_report = build_oprf_report(b, &mut rng);
+
+        let hybrid_conversion_report = HybridConversionReport::<BA3> {
+            match_key: oprf_report.match_key.clone(),
+            value: oprf_report.trigger_value.clone(),
+        };
+        let mut hybrid_conversion_report_bytes =
+            [0u8; <HybridConversionReport<BA3> as Serializable>::Size::USIZE];
+            hybrid_conversion_report.serialize(GenericArray::from_mut_slice(
+            &mut hybrid_conversion_report_bytes[..],
+        ));
+        let hybrid_conversion_report2 = HybridConversionReport::<BA3>::deserialize(
+            GenericArray::from_mut_slice(&mut hybrid_conversion_report_bytes[..]),
+        )
+        .unwrap();
+        assert_eq!(hybrid_conversion_report, hybrid_conversion_report2);
+    }
+
+    #[test]
+    fn constant_serialization_hybrid_impression() {
         let hybrid_report = HybridImpressionReport::<BA8>::deserialize(GenericArray::from_slice(
             &hex::decode("4123a6e38ef1d6d9785c948797cb744d38f4").unwrap(),
         ))
@@ -674,6 +931,42 @@ mod test {
     }
 
     #[test]
+    fn constant_serialization_hybrid_conversion() {
+        let hybrid_report = HybridConversionReport::<BA3>::deserialize(GenericArray::from_slice(
+            &hex::decode("4123a6e38ef1d6d9785c948797cb744d0203").unwrap(),
+        ))
+        .unwrap();
+
+        let match_key = AdditiveShare::<BA64>::deserialize(GenericArray::from_slice(
+            &hex::decode("4123a6e38ef1d6d9785c948797cb744d").unwrap(),
+        ))
+        .unwrap();
+        let value = AdditiveShare::<BA3>::deserialize(GenericArray::from_slice(
+            &hex::decode("0203").unwrap(),
+        ))
+        .unwrap();
+
+        assert_eq!(
+            hybrid_report,
+            HybridConversionReport::<BA3> {
+                match_key,
+                value
+            }
+        );
+
+        let mut hybrid_conversion_report_bytes =
+            [0u8; <HybridConversionReport<BA3> as Serializable>::Size::USIZE];
+        hybrid_report.serialize(GenericArray::from_mut_slice(
+            &mut hybrid_conversion_report_bytes[..],
+        ));
+
+        assert_eq!(
+            hybrid_conversion_report_bytes.to_vec(),
+            hex::decode("4123a6e38ef1d6d9785c948797cb744d0203").unwrap()
+        );
+    }
+
+    #[test]
     fn enc_dec_roundtrip_hybrid_impression() {
         let mut rng = thread_rng();
         let b = EventType::Source;
@@ -687,16 +980,46 @@ mod test {
         let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
         let key_id = 0;
 
+        let info = HybridImpressionInfo::new(key_id, HELPER_ORIGIN).unwrap();
+
         let enc_report_bytes = hybrid_impression_report
-            .encrypt(key_id, &key_registry, &mut rng)
+            .encrypt(key_id, &key_registry, &info, &mut rng)
             .unwrap();
 
         let enc_report =
             EncryptedHybridImpressionReport::<BA8, &[u8]>::from_bytes(enc_report_bytes.as_slice())
                 .unwrap();
-        let dec_report: HybridImpressionReport<BA8> = enc_report.decrypt(&key_registry).unwrap();
+        let dec_report: HybridImpressionReport<BA8> = enc_report.decrypt(&key_registry, &info).unwrap();
 
         assert_eq!(dec_report, hybrid_impression_report);
+    }
+
+    #[test]
+    fn enc_dec_roundtrip_hybrid_conversion() {
+        let mut rng = thread_rng();
+        let b = EventType::Source;
+        let oprf_report = build_oprf_report(b, &mut rng);
+
+        let hybrid_conversion_report = HybridConversionReport::<BA3> {
+            match_key: oprf_report.match_key.clone(),
+            value: oprf_report.trigger_value.clone(),
+        };
+
+        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
+        let key_id = 0;
+
+        let info = HybridConversionInfo::new(key_id, HELPER_ORIGIN, "meta.com", 1729707432, 5.0, 1.1).unwrap();
+
+        let enc_report_bytes = hybrid_conversion_report
+            .encrypt(key_id, &key_registry, &info, &mut rng)
+            .unwrap();
+
+        let enc_report =
+            EncryptedHybridConversionReport::<BA3, &[u8]>::from_bytes(enc_report_bytes.as_slice())
+                .unwrap();
+        let dec_report: HybridConversionReport<BA3> = enc_report.decrypt(&key_registry, &info).unwrap();
+
+        assert_eq!(dec_report, hybrid_conversion_report);
     }
 
     #[test]
