@@ -445,7 +445,7 @@ mod tests {
     }
 
     // TODO(651): write a test for an error while reading the body (after error handling is finalized)
-    async fn make_helpers(mut conf: ShardedConfig) -> [HelperApp; 3] {
+    async fn make_helpers(mut conf: TestConfig) -> [HelperApp; 3] {
         let leaders_ring = conf.rings.pop().unwrap();
         join_all(
             zip(HelperIdentity::make_three(), leaders_ring.servers.configs).map(
@@ -510,7 +510,7 @@ mod tests {
         .unwrap()
     }
 
-    async fn test_three_helpers(conf: ShardedConfig) {
+    async fn test_three_helpers(conf: TestConfig) {
         let clients = MpcHelperClient::from_conf(
             &IpaRuntime::current(),
             &conf.leaders_ring().network,
