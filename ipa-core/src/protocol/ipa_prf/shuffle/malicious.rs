@@ -19,9 +19,9 @@ use crate::{
         basics::{malicious_reveal, mul::semi_honest_multiply},
         context::Context,
         ipa_prf::shuffle::{
-            base::IntermediateShuffleMessages,
             shuffle_protocol,
             step::{OPRFShuffleStep, VerifyShuffleStep},
+            IntermediateShuffleMessages,
         },
         prss::SharedRandomness,
         RecordId,
