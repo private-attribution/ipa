@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{convert::Into, marker::PhantomData, sync::Arc};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
 
@@ -90,10 +90,7 @@ where
             .unwrap();
 
         let _indistinguishable_reports: Vec<IndistinguishableHybridReport<BA8, BA3>> =
-            decrypted_reports
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect::<Vec<_>>();
+            decrypted_reports.into_iter().map(Into::into).collect();
 
         unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
     }
