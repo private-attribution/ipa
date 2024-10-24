@@ -8,8 +8,9 @@ use async_trait::async_trait;
 use futures::Stream;
 
 use crate::{
-    helpers::HelperIdentity,
+    helpers::{in_memory_config::InspectContext, HelperIdentity},
     protocol::{Gate, QueryId},
+    sharding::ShardContext,
 };
 
 mod handler;
@@ -54,6 +55,13 @@ pub trait Identity:
 
     /// Returns a 0-based index suitable to index Vec or other containers.
     fn as_index(&self) -> usize;
+
+    fn inspect_context(
+        &self,
+        shard: ShardContext,
+        helper: HelperIdentity,
+        gate: Gate,
+    ) -> InspectContext;
 }
 
 impl Identity for ShardIndex {
@@ -72,7 +80,22 @@ impl Identity for ShardIndex {
     fn as_index(&self) -> usize {
         usize::from(*self)
     }
+
+    fn inspect_context(
+        &self,
+        shard: ShardContext,
+        helper: HelperIdentity,
+        gate: Gate,
+    ) -> InspectContext {
+        InspectContext::ShardMessage {
+            helper,
+            source: shard.unwrap(),
+            dest: *self,
+            gate,
+        }
+    }
 }
+
 impl Identity for HelperIdentity {
     fn as_str(&self) -> Cow<'static, str> {
         Cow::Borrowed(match *self {
@@ -96,6 +119,20 @@ impl Identity for HelperIdentity {
 
     fn as_index(&self) -> usize {
         usize::from(self.id) - 1
+    }
+
+    fn inspect_context(
+        &self,
+        shard: ShardContext,
+        helper: HelperIdentity,
+        gate: Gate,
+    ) -> InspectContext {
+        InspectContext::MpcMessage {
+            shard,
+            source: helper,
+            dest: *self,
+            gate,
+        }
     }
 }
 
@@ -123,6 +160,15 @@ impl Identity for Role {
             Self::H2 => 1,
             Self::H3 => 2,
         }
+    }
+
+    fn inspect_context(
+        &self,
+        _shard: ShardContext,
+        _helper: HelperIdentity,
+        _gate: Gate,
+    ) -> InspectContext {
+        unimplemented!("inspection should use helper identities, not roles")
     }
 }
 

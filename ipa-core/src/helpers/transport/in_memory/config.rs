@@ -1,9 +1,7 @@
-use std::borrow::Cow;
-
 use crate::{
     helpers::{HelperIdentity, Role, RoleAssignment},
     protocol::Gate,
-    sharding::ShardIndex,
+    sharding::{ShardContext, ShardIndex},
     sync::Arc,
 };
 
@@ -55,19 +53,28 @@ impl<F: Fn(&InspectContext, &mut Vec<u8>) + Send + Sync + 'static> StreamInterce
 
 /// The general context provided to stream inspectors.
 #[derive(Debug)]
-pub struct InspectContext {
-    /// The shard index of this instance.
-    /// This is `None` for non-sharded helpers.
-    pub shard_index: Option<ShardIndex>,
-    /// The MPC identity of this instance.
-    /// The combination (`shard_index`, `identity`)
-    /// uniquely identifies a single shard within
-    /// a multi-sharded MPC system.
-    pub identity: HelperIdentity,
-    /// Helper that will receive this stream.
-    pub dest: Cow<'static, str>,
-    /// Circuit gate this stream is tied to.
-    pub gate: Gate,
+pub enum InspectContext {
+    ShardMessage {
+        /// The helper of this instance.
+        helper: HelperIdentity,
+        /// Shard sending this stream.
+        source: ShardIndex,
+        /// Shard that will receive this stream.
+        dest: ShardIndex,
+        /// Circuit gate this stream is tied to.
+        gate: Gate,
+    },
+    MpcMessage {
+        /// The shard of this instance.
+        /// This is `None` for non-sharded helpers.
+        shard: ShardContext,
+        /// Helper sending this stream.
+        source: HelperIdentity,
+        /// Helper that will receive this stream.
+        dest: HelperIdentity,
+        /// Circuit gate this stream is tied to.
+        gate: Gate,
+    },
 }
 
 /// The no-op stream peeker, which does nothing.
@@ -84,8 +91,8 @@ pub fn passthrough() -> Arc<dyn StreamInterceptor<Context = InspectContext>> {
 /// that helper will be inspected by the provided closure.
 /// Other helper's streams will be left untouched.
 ///
-/// It does not support sharded environments and will panic
-/// if used in a sharded test infrastructure.
+/// This may be used to inspect messages between helpers in a sharded environment, but
+/// does not support inspecting messages between shards.
 #[derive(Debug)]
 pub struct MaliciousHelper<F> {
     identity: HelperIdentity,
@@ -103,14 +110,21 @@ impl<F: Fn(&MaliciousHelperContext, &mut Vec<u8>) + Send + Sync> MaliciousHelper
     }
 
     fn context(&self, ctx: &InspectContext) -> MaliciousHelperContext {
-        let dest = HelperIdentity::try_from(ctx.dest.as_ref())
-            .unwrap_or_else(|e| panic!("Can't resolve helper identity for {}: {e}", ctx.dest));
+        let &InspectContext::MpcMessage {
+            shard,
+            source: _,
+            dest,
+            ref gate,
+        } = ctx
+        else {
+            panic!("MaliciousHelper does not support inspecting shard messages");
+        };
         let dest = self.role_assignment.role(dest);
 
         MaliciousHelperContext {
-            shard_index: ctx.shard_index,
+            shard,
             dest,
-            gate: ctx.gate.clone(),
+            gate: gate.clone(),
         }
     }
 }
@@ -122,9 +136,9 @@ impl<F: Fn(&MaliciousHelperContext, &mut Vec<u8>) + Send + Sync> MaliciousHelper
 /// helper intercepting streams.
 #[derive(Debug)]
 pub struct MaliciousHelperContext {
-    /// The shard index of this instance.
+    /// The shard of this instance.
     /// This is `None` for non-sharded helpers.
-    pub shard_index: Option<ShardIndex>,
+    pub shard: ShardContext,
     /// Helper that will receive this stream.
     pub dest: Role,
     /// Circuit gate this stream is tied to.
@@ -137,8 +151,11 @@ impl<F: Fn(&MaliciousHelperContext, &mut Vec<u8>) + Send + Sync> StreamIntercept
     type Context = InspectContext;
 
     fn peek(&self, ctx: &Self::Context, data: &mut Vec<u8>) {
-        if ctx.identity == self.identity {
-            (self.inner)(&self.context(ctx), data);
+        match *ctx {
+            InspectContext::MpcMessage { source, .. } if source == self.identity => {
+                (self.inner)(&self.context(ctx), data);
+            }
+            _ => {}
         }
     }
 }

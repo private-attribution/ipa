@@ -23,10 +23,7 @@ use crate::{
     helpers::{
         in_memory_config,
         in_memory_config::DynStreamInterceptor,
-        transport::{
-            in_memory::config::InspectContext,
-            routing::{Addr, RouteId},
-        },
+        transport::routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoResourceIdentifier,
         QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection,
         Transport, TransportIdentity,
@@ -186,12 +183,8 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         let gate = addr.gate.clone();
 
         let (ack_tx, ack_rx) = oneshot::channel();
-        let context = gate.map(|gate| InspectContext {
-            shard_index: this.config.shard_index,
-            identity: this.config.identity,
-            dest: dest.as_str(),
-            gate,
-        });
+        let context = gate
+            .map(|gate| dest.inspect_context(this.config.shard_index, this.config.identity, gate));
 
         channel
             .send((
@@ -648,6 +641,14 @@ impl TransportConfigBuilder {
         self.stream_interceptor = Arc::clone(interceptor);
 
         self
+    }
+
+    pub fn with_sharding(&self, sharding: Option<ShardIndex>) -> TransportConfig {
+        TransportConfig {
+            shard_index: sharding,
+            identity: self.identity,
+            stream_interceptor: Arc::clone(&self.stream_interceptor),
+        }
     }
 
     pub fn bind_to_shard(&self, shard_index: ShardIndex) -> TransportConfig {
