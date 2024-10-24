@@ -5,7 +5,7 @@ use crate::ff::Fp31;
 use crate::{
     error::Error::{self, DZKPMasks},
     ff::{Fp61BitPrime, PrimeField},
-    helpers::hashing::{compute_hash, hash_to_field},
+    helpers::hashing::{compute_non_empty_hash, hash_to_field},
     protocol::{
         context::Context,
         ipa_prf::malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
@@ -157,8 +157,8 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         B: Borrow<([F; L], [F; L])>,
     {
         let r: F = hash_to_field(
-            &compute_hash(proof_left),
-            &compute_hash(proof_right),
+            &compute_non_empty_hash(proof_left),
+            &compute_non_empty_hash(proof_right),
             L.try_into().unwrap(),
         );
 

@@ -11,7 +11,7 @@ use crate::{
     error::{Error, UnwrapInfallible},
     ff::{Fp61BitPrime, Serializable},
     helpers::{
-        hashing::{compute_hash, hash_to_field, Hash},
+        hashing::{compute_non_empty_hash, hash_to_field, Hash},
         Direction, MpcMessage, TotalRecords,
     },
     protocol::{
@@ -323,8 +323,12 @@ impl ProofHashes {
         };
 
         Self {
-            hashes: once(compute_hash(first_proof))
-                .chain(other_proofs.iter().map(|proof| compute_hash(proof.iter())))
+            hashes: once(compute_non_empty_hash(first_proof))
+                .chain(
+                    other_proofs
+                        .iter()
+                        .map(|proof| compute_non_empty_hash(proof.iter())),
+                )
                 .collect::<Vec<_>>(),
         }
     }

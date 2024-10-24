@@ -3,7 +3,7 @@ use futures_util::future::try_join;
 use crate::{
     error::Error,
     helpers::{
-        hashing::{compute_hash, Hash},
+        hashing::{compute_non_empty_hash, Hash},
         Direction, TotalRecords,
     },
     protocol::{context::Context, RecordId},
@@ -35,7 +35,7 @@ where
     S: SharedValue,
 {
     // compute hash of `left`
-    let hash_left = compute_hash(input_left);
+    let hash_left = compute_non_empty_hash(input_left);
 
     // set up context
     let ctx_new = &(ctx.set_total_records(TotalRecords::ONE));
@@ -45,7 +45,7 @@ where
 
     let ((), hash_received) = try_join(
         // send hash
-        send_channel.send(RecordId::FIRST, compute_hash(input_right)),
+        send_channel.send(RecordId::FIRST, compute_non_empty_hash(input_right)),
         receive_channel.receive(RecordId::FIRST),
     )
     .await?;
