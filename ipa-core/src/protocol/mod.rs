@@ -10,7 +10,7 @@ pub mod step;
 use std::{
     fmt::{Debug, Display, Formatter},
     hash::Hash,
-    ops::{Add, AddAssign},
+    ops::{Add, AddAssign, Range},
 };
 
 pub use basics::{BasicProtocols, BooleanProtocols};
@@ -107,6 +107,7 @@ impl From<i32> for RecordId {
 
 impl RecordId {
     pub(crate) const FIRST: Self = Self(0);
+    pub(crate) const LAST: Self = Self(u32::MAX);
 }
 
 impl From<RecordId> for u128 {
@@ -144,6 +145,30 @@ impl Add<usize> for RecordId {
 impl AddAssign<usize> for RecordId {
     fn add_assign(&mut self, rhs: usize) {
         self.0 += u32::try_from(rhs).unwrap();
+    }
+}
+
+pub struct RecordIdRange(Range<RecordId>);
+
+impl RecordIdRange {
+    pub const ALL: RecordIdRange = RecordIdRange(RecordId::FIRST..RecordId::LAST);
+
+    #[cfg(all(test, unit_test))]
+    fn peek_first(&self) -> RecordId {
+        self.0.start
+    }
+
+    fn expect_next(&mut self) -> RecordId {
+        assert!(self.0.start < self.0.end, "RecordIdRange exhausted");
+        let val = self.0.start;
+        self.0.start += 1;
+        val
+    }
+}
+
+impl From<Range<RecordId>> for RecordIdRange {
+    fn from(value: Range<RecordId>) -> Self {
+        Self(value)
     }
 }
 

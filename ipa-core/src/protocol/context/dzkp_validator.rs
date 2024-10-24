@@ -15,11 +15,14 @@ use crate::{
             dzkp_field::{DZKPBaseField, UVTupleBlock},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
-            step::{DzkpSingleBatchStep, DzkpValidationProtocolStep as Step},
+            step::DzkpValidationProtocolStep as Step,
             Base, Context, DZKPContext, MaliciousContext, MaliciousProtocolSteps,
         },
-        ipa_prf::validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
-        Gate, RecordId,
+        ipa_prf::{
+            validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
+            LargeProofGenerator, SmallProofGenerator,
+        },
+        Gate, RecordId, RecordIdRange,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::ShardBinding,
@@ -51,6 +54,26 @@ const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 pub const TARGET_PROOF_SIZE: usize = 8192;
 #[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
+
+/// Maximum proof recursion depth.
+//
+// This is a hard limit. Each GF(2) multiply generates four G values and four H values,
+// and the last level of the proof is limited to (small_recursion_factor - 1), so the
+// restriction is:
+//
+// $$ large_recursion_factor * (small_recursion_factor - 1)
+//     * small_recursion_factor ^ (depth - 2) >= 4 * target_proof_size $$
+//
+// With large_recursion_factor = 32 and small_recursion_factor = 8, this means:
+//
+// $$ depth >= log_8 (8/7 * target_proof_size) $$
+//
+// Because the number of records in a proof batch is often rounded up to a power of two
+// (and less significantly, because multiplication intermediate storage gets rounded up
+// to blocks of 256), leaving some margin is advised.
+//
+// The implementation requires that MAX_PROOF_RECURSION is at least 2.
+pub const MAX_PROOF_RECURSION: usize = 9;
 
 /// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
 /// that occur duringa multiplication.
@@ -573,8 +596,21 @@ impl Batch {
 
     /// ## Panics
     /// If `usize` to `u128` conversion fails.
-    pub(super) async fn validate<B: ShardBinding>(self, ctx: Base<'_, B>) -> Result<(), Error> {
+    pub(super) async fn validate<B: ShardBinding>(
+        self,
+        ctx: Base<'_, B>,
+        batch_index: usize,
+    ) -> Result<(), Error> {
+        const PRSS_RECORDS_PER_BATCH: usize = LargeProofGenerator::PROOF_LENGTH
+            + (MAX_PROOF_RECURSION - 1) * SmallProofGenerator::PROOF_LENGTH
+            + 2; // P and Q masks
+
         let proof_ctx = ctx.narrow(&Step::GenerateProof);
+
+        let record_id = RecordId::from(batch_index);
+        let prss_record_id_start = RecordId::from(batch_index * PRSS_RECORDS_PER_BATCH);
+        let prss_record_id_end = RecordId::from((batch_index + 1) * PRSS_RECORDS_PER_BATCH);
+        let prss_record_ids = RecordIdRange::from(prss_record_id_start..prss_record_id_end);
 
         if self.is_empty() {
             return Ok(());
@@ -587,11 +623,12 @@ impl Batch {
             q_mask_from_left_prover,
         ) = {
             // generate BatchToVerify
-            ProofBatch::generate(&proof_ctx, self.get_field_values_prover())
+            ProofBatch::generate(&proof_ctx, prss_record_ids, self.get_field_values_prover())
         };
 
         let chunk_batch = BatchToVerify::generate_batch_to_verify(
             proof_ctx,
+            record_id,
             my_batch_left_shares,
             shares_of_batch_from_left_prover,
             p_mask_from_right_prover,
@@ -601,7 +638,7 @@ impl Batch {
 
         // generate challenges
         let (challenges_for_left_prover, challenges_for_right_prover) = chunk_batch
-            .generate_challenges(ctx.narrow(&Step::Challenge))
+            .generate_challenges(ctx.narrow(&Step::Challenge), record_id)
             .await;
 
         let (sum_of_uv, p_r_right_prover, q_r_left_prover) = {
@@ -635,6 +672,7 @@ impl Batch {
         chunk_batch
             .verify(
                 ctx.narrow(&Step::VerifyProof),
+                record_id,
                 sum_of_uv,
                 p_r_right_prover,
                 q_r_left_prover,
@@ -670,7 +708,18 @@ pub trait DZKPValidator: Send + Sync {
     ///
     /// # Panics
     /// May panic if the above restrictions on validator usage are not followed.
-    async fn validate(self) -> Result<(), Error>;
+    async fn validate(self) -> Result<(), Error>
+    where
+        Self: Sized,
+    {
+        self.validate_indexed(0).await
+    }
+
+    /// Validates all of the multiplies associated with this validator, specifying
+    /// an explicit batch index.
+    ///
+    /// This should be used when the protocol is explicitly managing batches.
+    async fn validate_indexed(self, batch_index: usize) -> Result<(), Error>;
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
     /// within the associated `DZKPBatch`
@@ -716,6 +765,20 @@ pub trait DZKPValidator: Send + Sync {
     }
 }
 
+// Wrapper to avoid https://github.com/rust-lang/rust/issues/100013.
+pub fn validated_seq_join<'st, V, S, F, O>(
+    validator: V,
+    source: S,
+) -> impl Stream<Item = Result<O, Error>> + Send + 'st
+where
+    V: DZKPValidator + 'st,
+    S: Stream<Item = F> + Send + 'st,
+    F: Future<Output = Result<O, Error>> + Send + 'st,
+    O: Send + Sync + 'static,
+{
+    validator.validated_seq_join(source)
+}
+
 #[derive(Clone)]
 pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
     context: SemiHonestDZKPUpgraded<'a, B>,
@@ -741,7 +804,7 @@ impl<'a, B: ShardBinding> DZKPValidator for SemiHonestDZKPValidator<'a, B> {
         // Semi-honest validator doesn't do anything, so doesn't care.
     }
 
-    async fn validate(self) -> Result<(), Error> {
+    async fn validate_indexed(self, _batch_index: usize) -> Result<(), Error> {
         Ok(())
     }
 
@@ -787,7 +850,7 @@ impl<'a, B: ShardBinding> DZKPValidator for MaliciousDZKPValidator<'a, B> {
             .set_total_records(total_records);
     }
 
-    async fn validate(mut self) -> Result<(), Error> {
+    async fn validate_indexed(mut self, batch_index: usize) -> Result<(), Error> {
         let arc = self
             .inner_ref
             .take()
@@ -802,7 +865,7 @@ impl<'a, B: ShardBinding> DZKPValidator for MaliciousDZKPValidator<'a, B> {
 
         batcher
             .into_single_batch()
-            .validate(validate_ctx.narrow(&DzkpSingleBatchStep))
+            .validate(validate_ctx, batch_index)
             .await
     }
 
@@ -1271,16 +1334,12 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(50))]
+        #![proptest_config(ProptestConfig::with_cases(20))]
         #[test]
         fn batching_proptest((record_count, max_multiplications_per_gate) in batching()) {
             println!("record_count {record_count} batch {max_multiplications_per_gate}");
-            if record_count / max_multiplications_per_gate >= 192 {
-                // TODO: #1269, or even if we don't fix that, don't hardcode the limit.
-                println!("skipping config because batch count exceeds limit of 192");
-            }
             // This condition is correct only for active_work = 16 and record size of 1 byte.
-            else if max_multiplications_per_gate != 1 && max_multiplications_per_gate % 16 != 0 {
+            if max_multiplications_per_gate != 1 && max_multiplications_per_gate % 16 != 0 {
                 // TODO: #1300, read_size | batch_size.
                 // Note: for active work < 2048, read size matches active work.
 

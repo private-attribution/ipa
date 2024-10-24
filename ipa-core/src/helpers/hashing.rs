@@ -12,7 +12,7 @@ use crate::{
     protocol::prss::FromRandomU128,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hash(Output<Sha256>);
 
 impl Serializable for Hash {
