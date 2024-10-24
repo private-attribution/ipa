@@ -1,4 +1,7 @@
-use std::{convert::Infallible, iter::zip};
+use std::{
+    convert::Infallible,
+    iter::{repeat_n, zip},
+};
 
 use futures::stream;
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
@@ -6,7 +9,7 @@ use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, boolean_array::BooleanArray, Field, U128Conversions},
-    helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
+    helpers::{stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
         boolean::{and::bool_and_8_bit, or::or},
