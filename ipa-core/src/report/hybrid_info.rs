@@ -48,7 +48,6 @@ impl<'a> HybridImpressionInfo<'a> {
     }
 }
 
-
 #[derive(Debug)]
 pub struct HybridConversionInfo<'a> {
     pub key_id: KeyIdentifier,
@@ -59,13 +58,19 @@ pub struct HybridConversionInfo<'a> {
     pub sensitivity: f64,
 }
 
-
 impl<'a> HybridConversionInfo<'a> {
     /// Creates a new instance.
     ///
     /// ## Errors
     /// if helper or site origin is not a valid ASCII string.
-    pub fn new(key_id: KeyIdentifier, helper_origin: &'a str, conversion_site_domain: &'a str, timestamp: u64, epsilon: f64, sensitivity: f64) -> Result<Self, NonAsciiStringError> {
+    pub fn new(
+        key_id: KeyIdentifier,
+        helper_origin: &'a str,
+        conversion_site_domain: &'a str,
+        timestamp: u64,
+        epsilon: f64,
+        sensitivity: f64,
+    ) -> Result<Self, NonAsciiStringError> {
         // If the types of errors returned from this function change, then the validation in
         // `EncryptedReport::from_bytes` may need to change as well.
         if !helper_origin.is_ascii() {
