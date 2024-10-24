@@ -519,7 +519,7 @@ mod tests {
     use crate::{
         ff::{boolean_array::BA8, Gf40Bit, U128Conversions},
         protocol::ipa_prf::shuffle::{
-            base::tests::{extract_shuffle_results, ExtractedShuffleResults},
+            base::test_helpers::{extract_shuffle_results, ExtractedShuffleResults},
             sharded::shuffle,
         },
         test_executor::run,

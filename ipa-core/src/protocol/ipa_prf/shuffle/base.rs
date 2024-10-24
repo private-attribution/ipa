@@ -433,56 +433,17 @@ where
     Ok(())
 }
 
-#[cfg(all(test, unit_test))]
-pub(super) mod tests {
+#[cfg(test)]
+pub(super) mod test_helpers {
     use std::iter::zip;
 
-    use rand::{thread_rng, Rng};
-
-    use super::shuffle_protocol;
     use crate::{
-        ff::{Gf40Bit, U128Conversions},
         protocol::ipa_prf::shuffle::IntermediateShuffleMessages,
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
         },
-        test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
-
-    pub type MatchKey = Gf40Bit;
-
-    #[tokio::test]
-    async fn shuffles_the_order() {
-        let mut i: u128 = 0;
-        let records = std::iter::from_fn(move || {
-            i += 1;
-            Some(MatchKey::truncate_from(i))
-        })
-        .take(100)
-        .collect::<Vec<_>>();
-
-        // Stable seed is used to get predictable shuffle results.
-        let mut actual = TestWorld::new_with(TestWorldConfig::default().with_seed(123))
-            .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
-                shuffle_protocol(ctx, shares).await.unwrap().0
-            })
-            .await
-            .reconstruct();
-
-        assert_ne!(
-            actual, records,
-            "Shuffle should produce a different order of items"
-        );
-
-        actual.sort();
-
-        assert_eq!(
-            actual, records,
-            "Shuffle should not change the items in the set"
-        );
-    }
 
     fn check_replicated_shares<'a, S, I1, I2>(left_helper_shares: I1, right_helper_shares: I2)
     where
@@ -542,6 +503,54 @@ pub(super) mod tests {
             x2_xor_y2,
             a_xor_b_xor_c,
         }
+    }
+}
+
+#[cfg(all(test, unit_test))]
+pub(super) mod tests {
+    use rand::{thread_rng, Rng};
+
+    use super::shuffle_protocol;
+    use crate::{
+        ff::{Gf40Bit, U128Conversions},
+        protocol::ipa_prf::shuffle::base::test_helpers::{
+            extract_shuffle_results, ExtractedShuffleResults,
+        },
+        test_executor::run,
+        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
+    };
+
+    pub type MatchKey = Gf40Bit;
+
+    #[tokio::test]
+    async fn shuffles_the_order() {
+        let mut i: u128 = 0;
+        let records = std::iter::from_fn(move || {
+            i += 1;
+            Some(MatchKey::truncate_from(i))
+        })
+        .take(100)
+        .collect::<Vec<_>>();
+
+        // Stable seed is used to get predictable shuffle results.
+        let mut actual = TestWorld::new_with(TestWorldConfig::default().with_seed(123))
+            .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
+                shuffle_protocol(ctx, shares).await.unwrap().0
+            })
+            .await
+            .reconstruct();
+
+        assert_ne!(
+            actual, records,
+            "Shuffle should produce a different order of items"
+        );
+
+        actual.sort();
+
+        assert_eq!(
+            actual, records,
+            "Shuffle should not change the items in the set"
+        );
     }
 
     #[test]
