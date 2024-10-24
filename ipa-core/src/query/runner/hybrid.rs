@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{convert::Into, marker::PhantomData, sync::Arc};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
 
@@ -12,7 +12,9 @@ use crate::{
     hpke::PrivateKeyRegistry,
     protocol::{context::ShardedContext, hybrid::step::HybridStep, step::ProtocolStep::Hybrid},
     query::runner::reshard_tag::reshard_aad,
-    report::hybrid::{EncryptedHybridReport, UniqueTag, UniqueTagValidator},
+    report::hybrid::{
+        EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
@@ -73,7 +75,7 @@ where
             })
             .try_flatten()
             .take(sz);
-        let (_decrypted_reports, resharded_tags) = reshard_aad(
+        let (decrypted_reports, resharded_tags) = reshard_aad(
             ctx.narrow(&HybridStep::ReshardByTag),
             stream,
             |ctx, _, tag| tag.shard_picker(ctx.shard_count()),
@@ -86,6 +88,9 @@ where
         unique_encrypted_hybrid_reports
             .check_duplicates(&resharded_tags)
             .unwrap();
+
+        let _indistinguishable_reports: Vec<IndistinguishableHybridReport<BA8, BA3>> =
+            decrypted_reports.into_iter().map(Into::into).collect();
 
         unimplemented!("query::runnner::HybridQuery.execute is not fully implemented")
     }
