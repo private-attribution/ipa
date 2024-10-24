@@ -8,31 +8,36 @@
 //! MPC communication, it uses 6 rounds of intra-helper communications to send data between shards.
 //! In this implementation, this operation is called "resharding".
 
-use std::{borrow::Borrow, future::Future, num::NonZeroUsize, ops::Add};
+use std::{future::Future, num::NonZeroUsize};
 
 use futures::{future::try_join, stream, StreamExt, TryFutureExt};
-use ipa_step::Step;
 use rand::seq::SliceRandom;
 
 use crate::{
-    ff::{boolean_array::BA64, U128Conversions},
+    ff::{
+        boolean_array::{BooleanArray, BA32, BA64},
+        Serializable, U128Conversions,
+    },
     helpers::{Direction, Error, Role, TotalRecords},
     protocol::{
         context::{reshard_iter, ShardedContext},
-        ipa_prf::shuffle::IntermediateShuffleMessages,
+        ipa_prf::shuffle::{step::ShardedShuffleStep as ShuffleStep, IntermediateShuffleMessages},
         prss::{FromRandom, SharedRandomness},
         RecordId,
     },
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        Sendable, SharedValue,
-    },
+    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     seq_join::{assert_send, seq_join},
 };
 
 /// This context is only useful for sharded shuffle modules because it implements common operations
 /// that all shards on all helpers perform to achieve the perfect shuffle.
-trait ShuffleContext: ShardedContext {
+///
+/// This trait is `pub`, which is required, because it is a supertrait of `pub trait ShardedShuffle`.
+/// `mod sharded` is not `pub`, which makes the situation a variant of the sealed trait pattern.
+/// Specifically, it prevents types outside `mod shuffle` from implementing `trait ShuffleContext`.
+/// Note that this structure does NOT prevent calling these methods outside of `mod shuffle`, but
+/// please don't do that.
+pub trait ShuffleContext: ShardedContext {
     /// This sends a single machine word (8 byte value) to one of the helpers specified in
     /// `direction` parameter.
     fn send_word(
@@ -82,8 +87,7 @@ trait ShuffleContext: ShardedContext {
         data: I,
     ) -> impl Future<Output = Result<Vec<S>, crate::error::Error>> + Send
     where
-        I: IntoIterator,
-        I::Item: Borrow<S>,
+        I: IntoIterator<Item = S>,
         I::IntoIter: ExactSizeIterator + Send,
         S: ShuffleShare,
     {
@@ -100,7 +104,7 @@ trait ShuffleContext: ShardedContext {
                         Direction::Right => r,
                     };
 
-                    item.borrow().clone() + mask
+                    item + mask
                 }),
                 |ctx, record_id, _| ctx.pick_shard(record_id, direction),
             ))
@@ -182,46 +186,6 @@ trait ShuffleContext: ShardedContext {
     }
 }
 
-enum ShuffleStep {
-    /// Depending on the helper position inside the MPC ring, generate Ã, B̃ or both.
-    PseudoRandomTable,
-    /// Permute the input according to the PRSS shared between H1 and H2.
-    Permute12,
-    /// Permute the input according to the PRSS shared between H2 and H3.
-    Permute23,
-    /// Permute the input according to the PRSS shared between H3 and H1.
-    Permute31,
-    /// Specific to H1 and H2 interaction - H2 informs H1 about |C|.
-    Cardinality,
-    /// Send all the shares from helper on the left to the helper on the right.
-    LeftToRight,
-    /// H2 and H3 interaction - Exchange `C_1` and `C_2`.
-    C,
-    /// Apply a mask to the given set of shares. Masking values come from PRSS.
-    Mask,
-    /// Local per-shard shuffle, where each shard redistributes shares locally according to samples
-    /// obtained from PRSS. Does not require Shard or MPC communication.
-    LocalShuffle,
-}
-
-impl Step for ShuffleStep {}
-
-impl AsRef<str> for ShuffleStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            ShuffleStep::PseudoRandomTable => "PseudoRandomTable",
-            ShuffleStep::Permute12 => "Permute12",
-            ShuffleStep::Permute23 => "Permute23",
-            ShuffleStep::Permute31 => "Permute31",
-            ShuffleStep::Cardinality => "Cardinality",
-            ShuffleStep::LeftToRight => "LeftToRight",
-            ShuffleStep::C => "C",
-            ShuffleStep::Mask => "Mask",
-            ShuffleStep::LocalShuffle => "LocalShuffle",
-        }
-    }
-}
-
 impl<C: ShardedContext> ShuffleContext for C {}
 
 /// Marker trait for share values that can be shuffled. In simple cases where we shuffle events
@@ -234,12 +198,16 @@ impl<C: ShardedContext> ShuffleContext for C {}
 ///
 /// [`ShuffleShare`] and [`Shuffleable`] are added to bridge the gap. They can be implemented for
 /// arbitrary structs as long as `Add` operation can be defined on them.
-pub trait ShuffleShare: Sendable + Clone + FromRandom + Add<Output = Self> {}
+pub trait ShuffleShare: BooleanArray + Serializable + FromRandom {}
 
-impl<V: Sendable + Clone + FromRandom + Add<Output = Self>> ShuffleShare for V {}
+impl<V: BooleanArray + Serializable + FromRandom> ShuffleShare for V {}
 
 /// Trait for shuffle inputs that consists of two values (left and right).
-pub trait Shuffleable: Send + 'static {
+// The `From` and `Into` bounds are necessary to work with routines that have not been
+// updated to use the `Shuffleable` trait.
+pub trait Shuffleable:
+    From<AdditiveShare<Self::Share>> + Into<AdditiveShare<Self::Share>> + Send + 'static
+{
     type Share: ShuffleShare;
 
     fn left(&self) -> Self::Share;
@@ -248,7 +216,7 @@ pub trait Shuffleable: Send + 'static {
     fn new(l: Self::Share, r: Self::Share) -> Self;
 }
 
-impl<V: SharedValue + FromRandom> Shuffleable for AdditiveShare<V> {
+impl<V: BooleanArray + FromRandom> Shuffleable for AdditiveShare<V> {
     type Share = V;
 
     fn left(&self) -> Self::Share {
@@ -264,8 +232,18 @@ impl<V: SharedValue + FromRandom> Shuffleable for AdditiveShare<V> {
     }
 }
 
+/// Trait for inputs to malicious shuffle.
+pub trait MaliciousShuffleable: Shuffleable {
+    /// A type that can hold `<Self as Shuffleable>::Share` along with a 32-bit MAC.
+    type ShareAndTag: BooleanArray + FromRandom;
+}
+
+impl MaliciousShuffleable for AdditiveShare<BA32> {
+    type ShareAndTag = BA64;
+}
+
 /// Sharded shuffle as performed by shards on H1.
-async fn h1_shuffle_for_shard<I, S, C>(
+pub(super) async fn h1_shuffle_for_shard<I, S, C>(
     ctx: C,
     shares: I,
 ) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), crate::error::Error>
@@ -288,11 +266,11 @@ where
     // shared with the left helper.
     let x2: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute31)
-        .mask_and_shuffle(Direction::Left, &x1)
+        .mask_and_shuffle(Direction::Left, x1.iter().copied())
         .await?;
 
     // X_2 is masked now and cannot reveal anything to the helper on the right.
-    ctx.narrow(&ShuffleStep::LeftToRight)
+    ctx.narrow(&ShuffleStep::TransferXY)
         .send_all(x2, Direction::Right)
         .await?;
 
@@ -321,7 +299,7 @@ where
 }
 
 /// Sharded shuffle as performed by shards on H2.
-async fn h2_shuffle_for_shard<I, S, C>(
+pub(super) async fn h2_shuffle_for_shard<I, S, C>(
     ctx: C,
     shares: I,
 ) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), crate::error::Error>
@@ -342,19 +320,19 @@ where
 
     // Share y1 to the right. Safe to do because input has been masked with randomness
     // known to H1 and H2 only.
-    ctx.narrow(&ShuffleStep::LeftToRight)
+    ctx.narrow(&ShuffleStep::TransferXY)
         .send_all(y1, Direction::Right)
         .await?;
 
     let x2 = ctx
-        .narrow(&ShuffleStep::LeftToRight)
+        .narrow(&ShuffleStep::TransferXY)
         .recv_all::<S::Share>(Direction::Left)
         .await?;
 
     // generate X_3 = perm_23(X_2 ⊕ z_23)
     let x3: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute23)
-        .mask_and_shuffle(Direction::Right, &x2)
+        .mask_and_shuffle(Direction::Right, x2.iter().copied())
         .await?;
 
     // at this moment we know the cardinality of C, and we let H1 know it, so it can start
@@ -371,11 +349,11 @@ where
     // Knowing b, c_1 and c_2 lets us set our resulting share, according to the paper it is
     // (b, c_1 + c_2)
     let send_channel = ctx
-        .narrow(&ShuffleStep::C)
+        .narrow(&ShuffleStep::TransferC)
         .set_total_records(x3_len)
         .send_channel(ctx.role().peer(Direction::Right));
     let recv_channel = ctx
-        .narrow(&ShuffleStep::C)
+        .narrow(&ShuffleStep::TransferC)
         .recv_channel(ctx.role().peer(Direction::Right));
 
     let res = ctx
@@ -386,12 +364,12 @@ where
                 .narrow(&ShuffleStep::PseudoRandomTable)
                 .prss()
                 .generate(RecordId::from(i));
-            let c1: S::Share = x3 + b.clone();
+            let c1: S::Share = x3 + b;
             try_join(
-                send_channel.send(record_id, c1.clone()),
+                send_channel.send(record_id, c1),
                 recv_channel.receive(record_id),
             )
-            .map_ok(|((), c2)| S::new(b, c1 + c2))
+            .map_ok(move |((), c2)| S::new(b, c1 + c2))
         }))
         .await?;
 
@@ -400,7 +378,7 @@ where
 
 /// Sharded shuffle as performed by shards on H3. Note that in semi-honest setting, H3 does not
 /// use its input. Adding support for active security will change that.
-async fn h3_shuffle_for_shard<I, S, C>(
+pub(super) async fn h3_shuffle_for_shard<I, S, C>(
     ctx: C,
     _: I,
 ) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), crate::error::Error>
@@ -412,20 +390,20 @@ where
 {
     // Receive y1 from the left
     let y1 = ctx
-        .narrow(&ShuffleStep::LeftToRight)
+        .narrow(&ShuffleStep::TransferXY)
         .recv_all::<S::Share>(Direction::Left)
         .await?;
 
     // Generate y2 = perm_31(y_1 ⊕ z_31)
     let y2: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute31)
-        .mask_and_shuffle(Direction::Right, &y1)
+        .mask_and_shuffle(Direction::Right, y1.iter().copied())
         .await?;
 
     // Generate y3 = perm_23(y_2 ⊕ z_23)
     let y3: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute23)
-        .mask_and_shuffle(Direction::Left, &y2)
+        .mask_and_shuffle(Direction::Left, y2.iter().copied())
         .await?;
 
     let Some(y3_len) = NonZeroUsize::new(y3.len()) else {
@@ -435,11 +413,11 @@ where
     // Generate c_2 = y_3 ⊕ a, stream it to H2 and receive c_1 from it at the same time.
     // Set our share to be (c_1 + c_2, a)
     let send_channel = ctx
-        .narrow(&ShuffleStep::C)
+        .narrow(&ShuffleStep::TransferC)
         .set_total_records(y3_len)
         .send_channel(ctx.role().peer(Direction::Left));
     let recv_channel = ctx
-        .narrow(&ShuffleStep::C)
+        .narrow(&ShuffleStep::TransferC)
         .recv_channel::<S::Share>(ctx.role().peer(Direction::Left));
     let res = ctx
         .try_join(y3.into_iter().enumerate().map(|(i, y3)| {
@@ -449,12 +427,12 @@ where
                 .narrow(&ShuffleStep::PseudoRandomTable)
                 .prss()
                 .generate(RecordId::from(i));
-            let c2 = y3 + a.clone();
+            let c2 = y3 + a;
             try_join(
-                send_channel.send(record_id, c2.clone()),
+                send_channel.send(record_id, c2),
                 recv_channel.receive(record_id),
             )
-            .map_ok(|((), c1)| S::new(c1 + c2, a))
+            .map_ok(move |((), c1)| S::new(c1 + c2, a))
         }))
         .await?;
 
@@ -489,7 +467,10 @@ mod tests {
     use rand::{thread_rng, Rng};
 
     use crate::{
-        ff::{boolean_array::BA8, Gf40Bit, U128Conversions},
+        ff::{
+            boolean_array::{BA64, BA8},
+            U128Conversions,
+        },
         protocol::ipa_prf::shuffle::{
             base::test_helpers::{extract_shuffle_results, ExtractedShuffleResults},
             sharded::shuffle,
@@ -504,11 +485,15 @@ mod tests {
     async fn sharded_shuffle<const SHARDS: usize, D: Distribute>(input: Vec<BA8>) -> Vec<BA8> {
         let world: TestWorld<WithShards<SHARDS, D>> =
             TestWorld::with_shards(TestWorldConfig::default());
-        world
+        let sharded_result = world
             .semi_honest(input.into_iter(), |ctx, input| async move {
                 shuffle(ctx, input).await.unwrap().0
             })
-            .await
+            .await;
+
+        assert_eq!(sharded_result.len(), SHARDS);
+
+        sharded_result
             .into_iter()
             .flat_map(|v| v.reconstruct())
             .collect::<Vec<_>>()
@@ -574,33 +559,34 @@ mod tests {
         type Distribution = RandomInputDistribution;
         run(|| async {
             let mut rng = thread_rng();
-            // using Gf40Bit here since it implements cmp such that vec can later be sorted
-            let mut records = (0..RECORD_AMOUNT)
-                .map(|_| rng.gen())
-                .collect::<Vec<Gf40Bit>>();
+            let mut records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA64>>();
 
-            let results = TestWorld::<WithShards<SHARDS, Distribution>>::with_shards(
+            let sharded_results = TestWorld::<WithShards<SHARDS, Distribution>>::with_shards(
                 TestWorldConfig::default(),
             )
             .semi_honest(records.clone().into_iter(), |ctx, input| async move {
                 shuffle(ctx, input).await.unwrap()
             })
-            .await
-            .into_iter()
-            .map(extract_shuffle_results)
-            .fold(ExtractedShuffleResults::empty(), |mut acc, results| {
-                let ExtractedShuffleResults {
-                    x1_xor_y1,
-                    x2_xor_y2,
-                    a_xor_b_xor_c,
-                } = results;
+            .await;
 
-                acc.x1_xor_y1.extend(x1_xor_y1);
-                acc.x2_xor_y2.extend(x2_xor_y2);
-                acc.a_xor_b_xor_c.extend(a_xor_b_xor_c);
+            assert_eq!(sharded_results.len(), SHARDS);
 
-                acc
-            });
+            let results = sharded_results
+                .into_iter()
+                .map(extract_shuffle_results)
+                .fold(ExtractedShuffleResults::empty(), |mut acc, results| {
+                    let ExtractedShuffleResults {
+                        x1_xor_y1,
+                        x2_xor_y2,
+                        a_xor_b_xor_c,
+                    } = results;
+
+                    acc.x1_xor_y1.extend(x1_xor_y1);
+                    acc.x2_xor_y2.extend(x2_xor_y2);
+                    acc.a_xor_b_xor_c.extend(a_xor_b_xor_c);
+
+                    acc
+                });
 
             let ExtractedShuffleResults {
                 mut x1_xor_y1,
@@ -609,10 +595,10 @@ mod tests {
             } = results;
 
             // unshuffle by sorting
-            records.sort();
-            x1_xor_y1.sort();
-            x2_xor_y2.sort();
-            a_xor_b_xor_c.sort();
+            records.sort_by_key(U128Conversions::as_u128);
+            x1_xor_y1.sort_by_key(U128Conversions::as_u128);
+            x2_xor_y2.sort_by_key(U128Conversions::as_u128);
+            a_xor_b_xor_c.sort_by_key(U128Conversions::as_u128);
 
             assert_eq!(records, a_xor_b_xor_c);
             assert_eq!(records, x1_xor_y1);

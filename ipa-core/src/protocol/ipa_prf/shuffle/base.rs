@@ -92,7 +92,7 @@ where
     let mut x_2 = x_1.clone();
     add_single_shares_in_place(&mut x_2, z_31);
     x_2.shuffle(&mut rng_perm_l);
-    send_to_peer(&x_2, ctx, &OPRFShuffleStep::TransferX2, Direction::Right).await?;
+    send_to_peer(&x_2, ctx, &OPRFShuffleStep::TransferXY, Direction::Right).await?;
 
     let res = combine_single_shares(a_hat, b_hat).collect::<Vec<_>>();
     // we only need to store x_1 in IntermediateShuffleMessage
@@ -130,12 +130,12 @@ where
 
     let mut x_2: Vec<S> = Vec::with_capacity(batch_size.get());
     future::try_join(
-        send_to_peer(&y_1, ctx, &OPRFShuffleStep::TransferY1, Direction::Right),
+        send_to_peer(&y_1, ctx, &OPRFShuffleStep::TransferXY, Direction::Right),
         receive_from_peer_into(
             &mut x_2,
             batch_size,
             ctx,
-            &OPRFShuffleStep::TransferX2,
+            &OPRFShuffleStep::TransferXY,
             Direction::Left,
         ),
     )
@@ -153,17 +153,12 @@ where
 
     let mut c_hat_2 = repurpose_allocation(x_3);
     future::try_join(
-        send_to_peer(
-            &c_hat_1,
-            ctx,
-            &OPRFShuffleStep::TransferCHat,
-            Direction::Right,
-        ),
+        send_to_peer(&c_hat_1, ctx, &OPRFShuffleStep::TransferC, Direction::Right),
         receive_from_peer_into(
             &mut c_hat_2,
             batch_size,
             ctx,
-            &OPRFShuffleStep::TransferCHat,
+            &OPRFShuffleStep::TransferC,
             Direction::Right,
         ),
     )
@@ -199,7 +194,7 @@ where
         &mut y_1,
         batch_size,
         ctx,
-        &OPRFShuffleStep::TransferY1,
+        &OPRFShuffleStep::TransferXY,
         Direction::Left,
     )
     .await?;
@@ -224,17 +219,12 @@ where
     let c_hat_2: Vec<S> = add_single_shares(y_3.iter(), a_hat.iter()).collect();
     let mut c_hat_1 = repurpose_allocation(y_3);
     future::try_join(
-        send_to_peer(
-            &c_hat_2,
-            ctx,
-            &OPRFShuffleStep::TransferCHat,
-            Direction::Left,
-        ),
+        send_to_peer(&c_hat_2, ctx, &OPRFShuffleStep::TransferC, Direction::Left),
         receive_from_peer_into(
             &mut c_hat_1,
             batch_size,
             ctx,
-            &OPRFShuffleStep::TransferCHat,
+            &OPRFShuffleStep::TransferC,
             Direction::Left,
         ),
     )
