@@ -433,7 +433,7 @@ where
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub(super) mod test_helpers {
     use std::iter::zip;
 
