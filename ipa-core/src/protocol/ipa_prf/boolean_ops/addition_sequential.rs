@@ -1,11 +1,10 @@
-use std::iter::repeat;
+use std::iter::{repeat, repeat_n};
 
 use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
     ff::boolean::Boolean,
-    helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
         boolean::{or::bool_or, NBitStep},

@@ -1,7 +1,6 @@
 use std::{
     convert::Infallible,
-    iter,
-    iter::zip,
+    iter::{self, repeat_n, zip},
     num::NonZeroU32,
     ops::{Not, Range},
 };
@@ -20,7 +19,7 @@ use crate::{
         boolean_array::{BooleanArray, BA32, BA7},
         ArrayAccess, Field, U128Conversions,
     },
-    helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
+    helpers::{stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, Reveal, SecureMul, ShareKnownValue},
         boolean::{
@@ -877,7 +876,7 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::num::NonZeroU32;
+    use std::{iter::repeat_n, num::NonZeroU32};
 
     use super::{AttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
@@ -886,7 +885,6 @@ pub mod tests {
             boolean_array::{BooleanArray, BA16, BA20, BA3, BA5, BA8},
             Field, U128Conversions,
         },
-        helpers::repeat_n,
         protocol::ipa_prf::{
             oprf_padding::PaddingParameters, prf_sharding::attribute_cap_aggregate,
         },
