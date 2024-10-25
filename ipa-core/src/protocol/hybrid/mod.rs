@@ -39,20 +39,19 @@ impl BreakdownKey<256> for BA8 {}
 /// impressions or conversion. The protocol joins these based on their matchkeys,
 /// sums the values from conversions grouped by the breakdown key on impressions.
 /// To accomplish this, hte protocol performs the follwoing steps
-///  1. Converts secret-sharings of boolean arrays to secret-sharings of elliptic curve points
-///  2. Generates a random number of "dummy records" (needed to mask the information that will
-///     be revealed in step 4, and thereby provide a differential privacy guarantee on
-///     that information leakage)
-///  3. Shuffles the input
-///  4. Computes an OPRF of these elliptic curve points and reveals this "pseudonym"
-///  5. Groups together rows with the same OPRF and sums both the breakdown keys and values.
-///  6. Generates a random number of "dummy records" (needed to mask the information that will
-///     be revealed in step 7)
-///  7. Shuffles the input
-///  8. Reveals breakdown keys
-///  9. Sums the values by breakdown keys
-/// 10. Adds random noise to the total value for each breakdown key (to provide a
-///     differential privacy guarantee)
+/// 1. Generates a random number of "dummy records" (needed to mask the information that will
+///    be revealed in step 4, and thereby provide a differential privacy guarantee on
+///    that information leakage)
+/// 2. Shuffles the input
+/// 3. Computes an OPRF of these elliptic curve points and reveals this "pseudonym"
+/// 4. Groups together rows with the same OPRF and sums both the breakdown keys and values.
+/// 5. Generates a random number of "dummy records" (needed to mask the information that will
+///    be revealed in step 7)
+/// 6. Shuffles the input
+/// 7. Reveals breakdown keys
+/// 8. Sums the values by breakdown keys
+/// 9. Adds random noise to the total value for each breakdown key (to provide a
+///    differential privacy guarantee)
 ///
 /// # Errors
 /// Propagates errors from config issues or while running the protocol
