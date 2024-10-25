@@ -1,52 +1,31 @@
-use metrics::KeyName;
-use metrics_tracing_context::TracingContextLayer;
-use metrics_util::{
-    debugging::{DebuggingRecorder, Snapshotter},
-    layers::Layer,
+use std::sync::OnceLock;
+
+use ipa_metrics::{
+    MetricChannelType, MetricPartition, MetricsCollectorController, MetricsCurrentThreadContext,
+    MetricsProducer,
 };
-use once_cell::sync::OnceCell;
-use rand::distributions::Alphanumeric;
+use rand::Rng;
 use tracing::{Level, Span};
 
-use crate::{
-    rand::{thread_rng, Rng},
-    telemetry::{metrics::register, stats::Metrics},
-    test_fixture::logging,
-};
+use crate::{rand::thread_rng, telemetry::stats::Metrics, test_fixture::logging};
 
-// TODO: move to OnceCell from std once it is stabilized
-static ONCE: OnceCell<Snapshotter> = OnceCell::new();
+static ONCE: OnceLock<(MetricsProducer, MetricsCollectorController)> = OnceLock::new();
 
 fn setup() {
     // logging is required to import span fields as metric values
     logging::setup();
 
     ONCE.get_or_init(|| {
-        assert!(
-            metrics::try_recorder().is_none(),
-            "metric recorder has already been installed"
-        );
+        let (producer, controller, _handle) =
+            ipa_metrics::install_new_thread(MetricChannelType::Rendezvous).unwrap();
 
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        // Leaking the recorder is necessary for metrics infrastructure to work.
-        // it does not use `seq_join` or `parallel_join`.
-        #[allow(clippy::disallowed_methods)]
-        let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
-
-        #[cfg(not(feature = "disable-metrics"))]
-        metrics::set_recorder(recorder).unwrap();
-
-        // register metrics
-        register();
-
-        snapshotter
+        (producer, controller)
     });
 }
 
 #[derive(Clone)]
 pub struct MetricsHandle {
-    id: String,
+    id: MetricPartition,
     level: Level,
 }
 
@@ -54,18 +33,10 @@ impl MetricsHandle {
     /// Creates a new metrics handle with a unique id. Id is used to partition metrics emitted while
     /// this handle is not dropped. Handle holds onto a tracing span and every metric emitted inside
     /// any children span will have a label associated with this handle's identifier.
-    ///
-    /// There must be additional support for components that use multithreading/async because they
-    /// break span hierarchy. Most infrastructure components (Gateway, PRSS) support it, but others
-    /// may not.
     #[must_use]
     pub fn new(level: Level) -> Self {
         MetricsHandle {
-            id: thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(8)
-                .map(char::from)
-                .collect(),
+            id: thread_rng().gen(),
             level,
         }
     }
@@ -78,19 +49,20 @@ impl MetricsHandle {
     pub fn span(&self) -> Span {
         setup();
 
-        // Metrics collection with attributes/labels is expensive. Enabling it for all tests
-        // resulted in doubling the time it takes to finish them. Tests must explicitly opt-in to
-        // use this feature.
-        // Tests that verify metric values must set the span verbosity level to Info.
-        // Tests that don't care will set the verbosity level to Debug. In case if metrics need
-        // to be seen by a human `RUST_LOG=ipa::debug` environment variable must be set to
-        // print them.
+        // safety: we call setup that initializes metrics right above this.
+        let (producer, _) = ONCE.get().unwrap();
+
+        // connect current thread to the metrics collector, if not connected yet
+        if !MetricsCurrentThreadContext::is_connected() {
+            producer.install();
+        }
+
         match self.level {
             Level::INFO => {
-                tracing::info_span!("", "metrics_id" = self.id)
+                tracing::info_span!("", { ipa_metrics_tracing::PARTITION_FIELD } = self.id,)
             }
             Level::DEBUG => {
-                tracing::debug_span!("", "metrics_id" = self.id)
+                tracing::debug_span!("", { ipa_metrics_tracing::PARTITION_FIELD } = self.id,)
             }
             _ => {
                 panic!("Only Info and Debug levels are supported")
@@ -104,14 +76,15 @@ impl MetricsHandle {
     /// if metrics recorder is not installed
     #[must_use]
     pub fn snapshot(&self) -> Metrics {
-        let snapshot = ONCE.get().unwrap().snapshot();
+        let (_, controller) = ONCE.get().expect("metrics must be installed");
+        let store = controller
+            .snapshot()
+            .expect("metrics snapshot must be available");
 
-        Metrics::with_filter(snapshot, |labels| {
-            labels.iter().any(|label| label.value().eq(&self.id))
-        })
+        Metrics::from_partition(&store, self.id)
     }
 
-    pub fn get_counter_value<K: Into<KeyName>>(&self, key_name: K) -> Option<u64> {
+    pub fn get_counter_value<K: Into<&'static str>>(&self, key_name: K) -> Option<u64> {
         let snapshot = self.snapshot();
         snapshot
             .counters
