@@ -1,6 +1,11 @@
 [package]
 name = "ipa-core"
 version = "0.1.0"
+# When updating the rust version:
+# 1. Check at https://hub.docker.com/_/rust that the relevant version of the
+#    rust:slim-bullseye docker image is available.
+# 2. Update the rust version used for draft in
+#    https://github.com/private-attribution/draft/blob/main/sidecar/ansible/provision.yaml.
 rust-version = "1.82.0"
 edition = "2021"
 build = "build.rs"
