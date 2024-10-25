@@ -22,7 +22,7 @@ pub use controller::{
     Status as ControllerStatus,
 };
 pub use key::{MetricName, OwnedName, UniqueElements};
-pub use label::{Label, LabelValue};
+pub use label::{label_hasher, Label, LabelValue};
 #[cfg(feature = "partitions")]
 pub use partitioned::{
     CurrentThreadContext as CurrentThreadPartitionContext, Partition as MetricPartition,

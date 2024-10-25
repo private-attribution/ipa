@@ -3,7 +3,18 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+use rustc_hash::FxHasher;
+
 pub const MAX_LABELS: usize = 5;
+
+/// Provides a fast, non-collision resistant implementation of [`Hasher`]
+/// for label values. T
+///
+/// [`Hasher`]: std::hash::Hasher
+#[must_use]
+pub fn label_hasher() -> impl Hasher {
+    FxHasher::default()
+}
 
 /// Dimension value (or label value) must be sendable to another thread
 /// and there must be a way to show it
