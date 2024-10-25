@@ -229,4 +229,15 @@ mod tests {
         store.counter(counter!("bar")).inc(1);
         assert_eq!(2, store.len());
     }
+
+    #[test]
+    fn counters() {
+        let mut store = Store::default();
+        store.counter(counter!("foo")).inc(1);
+        store.counter(counter!("foo", "h1" => &1)).inc(1);
+        store.counter(counter!("foo", "h2" => &2)).inc(1);
+        store.counter(counter!("bar")).inc(1);
+
+        assert_eq!((4, Some(4)), store.counters().size_hint());
+    }
 }

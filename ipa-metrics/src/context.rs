@@ -127,7 +127,7 @@ impl Drop for MetricsContext {
 mod tests {
     use std::thread;
 
-    use crate::MetricsContext;
+    use crate::{context::CurrentThreadContext, MetricsContext};
 
     /// Each thread has its local store by default, and it is exclusive to it
     #[test]
@@ -169,5 +169,18 @@ mod tests {
         ctx.flush();
         drop(ctx);
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn is_connected() {
+        assert!(!CurrentThreadContext::is_connected());
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        CurrentThreadContext::init(tx);
+        CurrentThreadContext::store_mut(|store| store.counter(counter!("foo")).inc(1));
+        CurrentThreadContext::flush();
+
+        assert!(CurrentThreadContext::is_connected());
+        assert_eq!(1, rx.recv().unwrap().counter_val(counter!("foo")));
     }
 }

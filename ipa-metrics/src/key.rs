@@ -203,7 +203,7 @@ impl Hash for OwnedName {
 
 #[cfg(test)]
 pub fn compute_hash<V: Hash>(value: V) -> u64 {
-    let mut hasher = std::hash::DefaultHasher::default();
+    let mut hasher = crate::label_hasher();
     value.hash(&mut hasher);
 
     hasher.finish()
