@@ -28,9 +28,10 @@ use crate::{
     protocol::{
         context::{
             dzkp_validator::DZKPValidator, upgrade::Upgradable, Context,
-            DZKPUpgradedMaliciousContext, MaliciousContext, SemiHonestContext,
-            ShardedMaliciousContext, ShardedSemiHonestContext, UpgradableContext, UpgradedContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator, TEST_DZKP_STEPS,
+            DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext, MaliciousContext,
+            SemiHonestContext, ShardedMaliciousContext, ShardedSemiHonestContext,
+            UpgradableContext, UpgradedContext, UpgradedMaliciousContext, Validator,
+            TEST_DZKP_STEPS,
         },
         prss::Endpoint as PrssEndpoint,
         Gate, QueryId, RecordId,
@@ -451,19 +452,6 @@ pub trait Runner<S: ShardingScheme> {
         H: Fn(Self::SemiHonestContext<'a>, S::Container<A>) -> R + Send + Sync,
         R: Future<Output = O> + Send;
 
-    /// Run with an upgraded semi-honest context.
-    ///
-    /// This mostly functions the same as using `Runner::semi_honest`, but there are a few protocols
-    /// that explicitly require an upgraded context, because of reasons. (TODO: explain)
-    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
-    where
-        F: ExtendableField,
-        I: IntoShares<A> + Send + 'static,
-        A: Send,
-        O: Send + Debug,
-        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
-        R: Future<Output = O> + Send;
-
     /// Run with a context that can be upgraded to malicious.
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> S::Container<[O; 3]>
     where
@@ -491,7 +479,16 @@ pub trait Runner<S: ShardingScheme> {
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
 
-    /// Run with a context that has already been upgraded to malicious.
+    /// Run with a context that has already been upgraded to DZKP semi-honest.
+    async fn dzkp_semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: Fn(DZKPUpgradedSemiHonestContext<'a, NotSharded>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send;
+
+    /// Run with a context that has already been upgraded to DZKP malicious.
     async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
         I: IntoShares<A> + Send + 'static,
@@ -547,22 +544,6 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
             .collect::<FuturesOrdered<_>>()
             .collect::<Vec<_>>()
             .await
-    }
-
-    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(
-        &'a self,
-        _input: I,
-        _helper_fn: H,
-    ) -> [O; 3]
-    where
-        F: ExtendableField,
-        I: IntoShares<A> + Send + 'static,
-        A: Send,
-        O: Send + Debug,
-        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
-        R: Future<Output = O> + Send,
-    {
-        unimplemented!()
     }
 
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> Vec<[O; 3]>
@@ -621,7 +602,19 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         unimplemented!()
     }
 
-    /// Run with a context that has already been upgraded to malicious.
+    /// Run with a context that has already been upgraded to DZKP semi-honest.
+    async fn dzkp_semi_honest<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send + 'static,
+        O: Send + Debug,
+        H: Fn(DZKPUpgradedSemiHonestContext<'a, NotSharded>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        unimplemented!()
+    }
+
+    /// Run with a context that has already been upgraded to DZKP malicious.
     async fn dzkp_malicious<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
     where
         I: IntoShares<A> + Send + 'static,
@@ -652,28 +645,6 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
             self.metrics_handle.span(),
             input.share_with(&mut self.rng()),
             helper_fn,
-        )
-        .await
-    }
-
-    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
-    where
-        F: ExtendableField,
-        I: IntoShares<A> + Send + 'static,
-        A: Send,
-        O: Send + Debug,
-        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
-        R: Future<Output = O> + Send,
-    {
-        ShardWorld::<NotSharded>::run_either(
-            self.contexts(),
-            self.metrics_handle.span(),
-            input.share(),
-            |ctx, share| {
-                let v = ctx.validator();
-                let m_ctx = v.context();
-                helper_fn(m_ctx, share)
-            },
         )
         .await
     }
@@ -761,6 +732,29 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         }
 
         output
+    }
+
+    async fn dzkp_semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(DZKPUpgradedSemiHonestContext<'a, NotSharded>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        ShardWorld::<NotSharded>::run_either(
+            self.contexts(),
+            self.metrics_handle.span(),
+            input.share(),
+            |ctx, share| async {
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 8);
+                let m_ctx = v.context();
+                let m_result = helper_fn(m_ctx, share).await;
+                v.validate().await.unwrap();
+                m_result
+            },
+        )
+        .await
     }
 
     /// Run with a context that has already been upgraded to malicious.
