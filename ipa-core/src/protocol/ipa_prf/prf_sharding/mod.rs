@@ -501,9 +501,10 @@ where
     // Record IDs count users. The maximum number of multiplications per record (user) is:
     // (max_events - 1) * multiplictions_per_record, because the attribution circuit is
     // only evaluated for the second and subsequent records.
-    let chunk_size = TARGET_PROOF_SIZE
+    let chunk_size = (TARGET_PROOF_SIZE
         / ((histogram.len() - 1)
-            * multiplications_per_record::<BK, TV, TS>(attribution_window_seconds));
+            * multiplications_per_record::<BK, TV, TS>(attribution_window_seconds)))
+    .next_power_of_two();
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let mut dzkp_validator = sh_ctx.clone().dzkp_validator(
@@ -511,9 +512,7 @@ where
             protocol: &Step::Attribute,
             validate: &Step::AttributeValidate,
         },
-        // TODO: this should not be necessary, but probably can't be removed
-        // until we align read_size with the batch size.
-        std::cmp::min(sh_ctx.active_work().get(), chunk_size.next_power_of_two()),
+        chunk_size,
     );
     dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
     let ctx_for_row_number = set_up_contexts(&dzkp_validator.context(), histogram)?;
