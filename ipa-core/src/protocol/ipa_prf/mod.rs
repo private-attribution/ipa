@@ -735,7 +735,7 @@ pub mod tests {
     }
 }
 
-#[cfg(all(test, all(feature = "compact-gate", feature = "in-memory-infra")))]
+#[cfg(all(test, all(compact_gate, feature = "in-memory-infra")))]
 mod compact_gate_tests {
     use ipa_step::{CompactStep, StepNarrow};
 

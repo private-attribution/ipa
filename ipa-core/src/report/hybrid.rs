@@ -34,7 +34,6 @@ use std::{
     ops::{Add, Deref},
 };
 
-use assertions::const_assert;
 use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
@@ -42,6 +41,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::{Sum, Unsigned, U16};
 
 use crate::{
+    const_assert_eq,
     error::{BoxError, Error},
     ff::{boolean_array::BA64, Serializable},
     hpke::{
@@ -498,14 +498,9 @@ impl UniqueBytes for EncryptedHybridReport {
 }
 
 impl UniqueTag {
-    fn _compile_check() {
-        // This will vaild at compile time if TAG_SIZE doesn't match U16
-        // the macro expansion needs to be wrapped in a function
-        const_assert!(TAG_SIZE == 16);
-    }
-
     // Function to attempt to create a UniqueTag from a UniqueBytes implementor
     pub fn from_unique_bytes<T: UniqueBytes>(item: &T) -> Self {
+        const_assert_eq!(16, TAG_SIZE);
         UniqueTag {
             bytes: item.unique_bytes(),
         }
