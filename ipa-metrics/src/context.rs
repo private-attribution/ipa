@@ -39,6 +39,11 @@ impl CurrentThreadContext {
     pub fn store_mut<F: FnOnce(&mut MetricsStore) -> T, T>(f: F) -> T {
         METRICS_CTX.with_borrow_mut(|ctx| f(ctx.store_mut()))
     }
+
+    #[must_use]
+    pub fn is_connected() -> bool {
+        METRICS_CTX.with_borrow(|ctx| ctx.tx.is_some())
+    }
 }
 
 /// This context is used inside thread-local storage,
