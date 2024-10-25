@@ -634,36 +634,6 @@ where
     }
 }
 
-pub struct RepeatN<T> {
-    element: T,
-    count: usize,
-}
-
-// As of Apr. 2024, this is unstable in `std::iter`. It is also available in `itertools`.
-// The advantage over `repeat(element).take(count)` that we care about is that this
-// implements `ExactSizeIterator`. The other advantage is that `repeat_n` can return
-// the original value (saving a clone) on the last iteration.
-pub fn repeat_n<T: Clone>(element: T, count: usize) -> RepeatN<T> {
-    RepeatN { element, count }
-}
-
-impl<T: Clone> Iterator for RepeatN<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.count > 0).then(|| {
-            self.count -= 1;
-            self.element.clone()
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.count, Some(self.count))
-    }
-}
-
-impl<T: Clone> ExactSizeIterator for RepeatN<T> {}
-
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
