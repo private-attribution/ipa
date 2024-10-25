@@ -28,6 +28,7 @@ use crate::{
         },
         RecordId,
     },
+    report::hybrid::IndistinguishableHybridReport,
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -128,6 +129,71 @@ pub trait Paddable {
     fn add_zero_shares<V: Extend<Self>>(padding_input_rows: &mut V, total_number_of_fake_rows: u32)
     where
         Self: Sized;
+}
+
+impl<BK, V> Paddable for IndistinguishableHybridReport<BK, V>
+where
+    BK: BooleanArray + U128Conversions,
+    V: BooleanArray,
+{
+    fn add_padding_items<VC: Extend<Self>, const B: usize>(
+        direction_to_excluded_helper: Direction,
+        padding_input_rows: &mut VC,
+        padding_params: &PaddingParameters,
+        rng: &mut InstrumentedSequentialSharedRandomness,
+    ) -> Result<u32, Error> {
+        let mut total_number_of_fake_rows = 0;
+        match padding_params.oprf_padding {
+            OPRFPadding::NoOPRFPadding => {}
+            OPRFPadding::Parameters {
+                oprf_epsilon,
+                oprf_delta,
+                matchkey_cardinality_cap,
+                oprf_padding_sensitivity,
+            } => {
+                let oprf_padding =
+                    OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity)?;
+                for cardinality in 1..=matchkey_cardinality_cap {
+                    let sample = oprf_padding.sample(rng);
+                    total_number_of_fake_rows += sample * cardinality;
+
+                    // this means there will be `sample` many unique
+                    // matchkeys to add each with cardinality = `cardinality`
+                    for _ in 0..sample {
+                        let dummy_mk: BA64 = rng.gen();
+                        for _ in 0..cardinality {
+                            let match_key_shares = match direction_to_excluded_helper {
+                                Direction::Left => AdditiveShare::new(BA64::ZERO, dummy_mk),
+                                Direction::Right => AdditiveShare::new(dummy_mk, BA64::ZERO),
+                            };
+                            let row = IndistinguishableHybridReport::new(
+                                match_key_shares,
+                                AdditiveShare::ZERO,
+                                AdditiveShare::ZERO,
+                            );
+                            padding_input_rows.extend(std::iter::once(row));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(total_number_of_fake_rows)
+    }
+
+    fn add_zero_shares<VC: Extend<Self>>(
+        padding_input_rows: &mut VC,
+        total_number_of_fake_rows: u32,
+    ) {
+        for _ in 0..total_number_of_fake_rows as usize {
+            let row = IndistinguishableHybridReport::new(
+                AdditiveShare::ZERO,
+                AdditiveShare::ZERO,
+                AdditiveShare::ZERO,
+            );
+
+            padding_input_rows.extend(std::iter::once(row));
+        }
+    }
 }
 
 impl<BK, TV, TS> Paddable for OPRFIPAInputRow<BK, TV, TS>
