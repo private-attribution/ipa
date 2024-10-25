@@ -1,4 +1,5 @@
 use futures_util::future::try_join;
+use subtle::ConstantTimeEq;
 
 use crate::{
     error::Error,
@@ -50,7 +51,7 @@ where
     )
     .await?;
 
-    if hash_left == hash_received {
+    if hash_left.ct_eq(&hash_received).into() {
         Ok(())
     } else {
         Err(Error::InconsistentShares)

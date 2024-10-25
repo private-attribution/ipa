@@ -1,3 +1,5 @@
+use subtle::ConstantTimeEq;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -49,7 +51,7 @@ pub async fn malicious_check_zero<C, F>(
 ) -> Result<bool, Error>
 where
     C: Context,
-    F: Field + FromRandom,
+    F: Field + FromRandom + ConstantTimeEq,
 {
     let r_sharing: Replicated<F> = ctx.prss().generate(record_id);
 
@@ -61,7 +63,7 @@ where
             .expect("full reveal should always return a value"),
     );
 
-    Ok(rv == F::ZERO)
+    Ok(rv.ct_eq(&F::ZERO).into())
 }
 
 #[cfg(all(test, unit_test))]

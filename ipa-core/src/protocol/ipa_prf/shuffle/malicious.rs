@@ -9,6 +9,7 @@ use futures::{
 };
 use futures_util::future::{try_join, try_join3};
 use generic_array::GenericArray;
+use subtle::ConstantTimeEq;
 use typenum::Const;
 
 use crate::{
@@ -280,21 +281,21 @@ async fn h1_verify<C: Context, S: MaliciousShuffleable>(
     .await?;
 
     // check y1
-    if hash_x1 != hash_y1 {
+    if hash_x1.ct_ne(&hash_y1).into() {
         return Err(Error::ShuffleValidationFailed(format!(
             "Y1 is inconsistent: hash of x1: {hash_x1:?}, hash of y1: {hash_y1:?}"
         )));
     }
 
     // check c from h3
-    if hash_a_xor_b != hash_h3 {
+    if hash_a_xor_b.ct_ne(&hash_h3).into() {
         return Err(Error::ShuffleValidationFailed(format!(
             "C from H3 is inconsistent: hash of a_xor_b: {hash_a_xor_b:?}, hash of C: {hash_h3:?}"
         )));
     }
 
     // check h2
-    if hash_a_xor_b != hash_h2 {
+    if hash_a_xor_b.ct_ne(&hash_h2).into() {
         return Err(Error::ShuffleValidationFailed(format!(
             "C from H2 is inconsistent: hash of a_xor_b: {hash_a_xor_b:?}, hash of C: {hash_h2:?}"
         )));
@@ -341,7 +342,7 @@ async fn h2_verify<C: Context, S: MaliciousShuffleable>(
     .await?;
 
     // check x2
-    if hash_x2 != hash_h3 {
+    if hash_x2.ct_ne(&hash_h3).into() {
         return Err(Error::ShuffleValidationFailed(format!(
             "X2 is inconsistent: hash of x2: {hash_x2:?}, hash of y2: {hash_h3:?}"
         )));

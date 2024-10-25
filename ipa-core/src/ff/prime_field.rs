@@ -1,6 +1,7 @@
 use std::{fmt::Display, mem};
 
 use generic_array::GenericArray;
+use subtle::{Choice, ConstantTimeEq};
 
 use super::Field;
 use crate::{
@@ -238,6 +239,15 @@ macro_rules! field_impl {
         impl From<$field> for $backend_store {
             fn from(v: $field) -> Self {
                 v.0
+            }
+        }
+
+        // If the field value fits in a machine word, a naive comparison should be fine.
+        // But this impl is important for `[T]`, and useful to document where a
+        // constant-time compare is intended.
+        impl ConstantTimeEq for $field {
+            fn ct_eq(&self, other: &Self) -> Choice {
+                self.0.ct_eq(&other.0)
             }
         }
 
