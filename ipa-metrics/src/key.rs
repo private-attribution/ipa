@@ -114,8 +114,8 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 /// This is the key inside metric stores which are simple hashmaps.
 #[derive(Debug, Clone, Eq)]
 pub struct OwnedName {
-    key: &'static str,
-    labels: [Option<OwnedLabel>; 5],
+    pub key: &'static str,
+    pub labels: [Option<OwnedLabel>; 5],
 }
 
 impl OwnedName {
