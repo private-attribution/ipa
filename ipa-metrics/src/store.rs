@@ -94,6 +94,13 @@ impl Store {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns an iterator over the counters in the store.
+    ///
+    /// The iterator item is a tuple of the metric name and the counter value.
+    pub fn counters(&self) -> impl Iterator<Item = (&OwnedMetricName, CounterValue)> {
+        self.counters.iter().map(|(key, value)| (key, *value))
+    }
 }
 
 pub struct CounterHandle<'a, const LABELS: usize> {
