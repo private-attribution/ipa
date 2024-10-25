@@ -32,6 +32,19 @@ pub use producer::Producer as MetricsProducer;
 #[cfg(not(feature = "partitions"))]
 pub use store::Store as MetricsStore;
 
+/// Type of the communication channel between metric producers
+/// and the collector.
+#[derive(Copy, Clone)]
+pub enum MetricChannelType {
+    /// Each send message must be paired with receive. Sends that
+    /// don't get a pair block the thread until collector processes
+    /// the request. This mode is suitable for unit tests where metric
+    /// consistency is important and gets more priority than availability.
+    Rendezvous,
+    /// Each channel between producer and collector gets unlimited capacity.
+    Unbounded,
+}
+
 /// Creates metric infrastructure that is ready to use
 /// in the application code. It consists a triple of
 /// [`MetricsCollector`], [`MetricsProducer`], and
@@ -47,9 +60,19 @@ pub use store::Store as MetricsStore;
 /// A thread that owns the controller, can request current snapshot.
 /// For more information about API, see [`Command`].
 ///
-/// ## Example
+/// The communication channel between producers and collector is configured
+/// via `channel_type` parameter. See [`MetricChannelType`] for details
+///
+/// ## Example 1 (Rendezvous channels)
 /// ```rust
-/// let (collector, producer, controller) = ipa_metrics::install();
+/// use ipa_metrics::MetricChannelType;
+/// let (collector, producer, controller) = ipa_metrics::install(MetricChannelType::Rendezvous);
+/// ```
+///
+/// ## Example 2 (unbounded)
+/// ```rust
+/// use ipa_metrics::MetricChannelType;
+/// let (collector, producer, controller) = ipa_metrics::install(MetricChannelType::Unbounded);
 /// ```
 ///
 /// [`MetricsCollector`]: crate::MetricsCollector
@@ -57,13 +80,18 @@ pub use store::Store as MetricsStore;
 /// [`MetricsCollectorController`]: crate::MetricsCollectorController
 /// [`Command`]: crate::ControllerCommand
 #[must_use]
-pub fn install() -> (
+pub fn install(
+    channel_type: MetricChannelType,
+) -> (
     MetricsCollector,
     MetricsProducer,
     MetricsCollectorController,
 ) {
     let (command_tx, command_rx) = crossbeam_channel::unbounded();
-    let (tx, rx) = crossbeam_channel::unbounded();
+    let (tx, rx) = match channel_type {
+        MetricChannelType::Rendezvous => crossbeam_channel::bounded(0),
+        MetricChannelType::Unbounded => crossbeam_channel::unbounded(),
+    };
     (
         MetricsCollector {
             rx,
@@ -80,8 +108,9 @@ pub fn install() -> (
 /// ## Errors
 /// if thread cannot be started
 pub fn install_new_thread(
+    channel_type: MetricChannelType,
 ) -> io::Result<(MetricsProducer, MetricsCollectorController, JoinHandle<()>)> {
-    let (collector, producer, controller) = install();
+    let (collector, producer, controller) = install(channel_type);
     let handle = std::thread::Builder::new()
         .name("metric-collector".to_string())
         .spawn(|| {

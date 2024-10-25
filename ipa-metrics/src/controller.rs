@@ -34,9 +34,9 @@ impl Controller {
     ///
     /// ## Example
     /// ```rust
-    /// use ipa_metrics::{install_new_thread, MetricsStore};
+    /// use ipa_metrics::{install_new_thread, MetricChannelType, MetricsStore};
     ///
-    /// let (_, controller, _handle) = install_new_thread().unwrap();
+    /// let (_, controller, _handle) = install_new_thread(MetricChannelType::Unbounded).unwrap();
     /// let snapshot = controller.snapshot().unwrap();
     /// println!("Current metrics: {snapshot:?}");
     /// ```
@@ -60,9 +60,9 @@ impl Controller {
     ///
     /// ## Example
     /// ```rust
-    /// use ipa_metrics::{install_new_thread, MetricsStore};
+    /// use ipa_metrics::{install_new_thread, MetricChannelType, MetricsStore};
     ///
-    /// let (_, controller, _handle) = install_new_thread().unwrap();
+    /// let (_, controller, _handle) = install_new_thread(MetricChannelType::Unbounded).unwrap();
     /// controller.stop().unwrap();
     /// ```
     pub fn stop(self) -> Result<(), String> {
@@ -81,9 +81,9 @@ impl Controller {
     ///
     /// ## Example
     /// ```rust
-    /// use ipa_metrics::{install_new_thread, ControllerStatus};
+    /// use ipa_metrics::{install_new_thread, ControllerStatus, MetricChannelType};
     ///
-    /// let (_, controller, _handle) = install_new_thread().unwrap();
+    /// let (_, controller, _handle) = install_new_thread(MetricChannelType::Unbounded).unwrap();
     /// let status = controller.status().unwrap();
     /// println!("Collector status: {status:?}");
     /// ```
