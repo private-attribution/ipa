@@ -1,28 +1,18 @@
 pub(crate) mod step;
-use std::convert::Infallible;
 
 use crate::{
-    error::{Error, LengthError},
+    error::Error,
     ff::{
-        boolean::Boolean,
         boolean_array::{BooleanArray, BA5, BA8},
-        curve_points::RP25519,
-        ec_prime_field::Fp25519,
         U128Conversions,
     },
     helpers::query::DpMechanism,
     protocol::{
-        basics::{BooleanArrayMul, Reveal},
-        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
-        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
-        prss::FromPrss,
-        BooleanProtocols,
+        context::{ShardedContext, UpgradableContext},
+        ipa_prf::{oprf_padding::PaddingParameters, shuffle::Shuffle},
     },
     report::hybrid::IndistinguishableHybridReport,
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        TransposeFrom, Vectorizable,
-    },
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
 // In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
@@ -41,15 +31,6 @@ use crate::{
 pub trait BreakdownKey<const MAX_BREAKDOWNS: usize>: BooleanArray + U128Conversions {}
 impl BreakdownKey<32> for BA5 {}
 impl BreakdownKey<256> for BA8 {}
-
-/// Vectorization dimension for share conversion
-pub const CONV_CHUNK: usize = 256;
-
-/// Vectorization dimension for PRF
-pub const PRF_CHUNK: usize = 16;
-
-/// Vectorization dimension for aggregation.
-pub const AGG_CHUNK: usize = 256;
 
 /// The Hybrid Protocol
 ///
@@ -88,32 +69,6 @@ where
     BK: BreakdownKey<B>,
     V: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
-    Boolean: FieldSimd<B>,
-    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
-    Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
-    Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
-    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
-    Replicated<Fp25519, PRF_CHUNK>:
-        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
-    Replicated<RP25519, PRF_CHUNK>:
-        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
-    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>
-        + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
-    Replicated<V>: BooleanArrayMul<DZKPUpgraded<C>>,
-    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<V>>, Error = LengthError>,
-    Vec<BitDecomposed<Replicated<Boolean, B>>>: for<'a> TransposeFrom<
-        &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
-        Error = Infallible,
-    >,
-    BitDecomposed<Replicated<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
-    Vec<Replicated<HV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [Replicated<HV>; B], Error = Infallible>,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);

@@ -1,19 +1,12 @@
-use std::{
-    convert::{Infallible, Into},
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{convert::Into, marker::PhantomData, sync::Arc};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
 
 use crate::{
-    error::{Error, LengthError},
+    error::Error,
     ff::{
-        boolean::Boolean,
         boolean_array::{BooleanArray, BA20, BA3, BA8},
-        curve_points::RP25519,
-        ec_prime_field::Fp25519,
-        Serializable, U128Conversions,
+        U128Conversions,
     },
     helpers::{
         query::{DpMechanism, HybridQueryParams, QuerySize},
@@ -21,22 +14,16 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::{BooleanArrayMul, Reveal, ShareKnownValue},
-        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
-        hybrid::{hybrid_protocol, step::HybridStep, AGG_CHUNK, CONV_CHUNK, PRF_CHUNK},
-        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
-        prss::FromPrss,
+        context::{ShardedContext, UpgradableContext},
+        hybrid::{hybrid_protocol, step::HybridStep},
+        ipa_prf::{oprf_padding::PaddingParameters, shuffle::Shuffle},
         step::ProtocolStep::Hybrid,
-        BooleanProtocols,
     },
     query::runner::reshard_tag::reshard_aad,
     report::hybrid::{
         EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
     },
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
-        Vectorizable,
-    },
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
 #[allow(dead_code)]
@@ -62,23 +49,6 @@ where
     C: UpgradableContext + Shuffle + ShardedContext,
     HV: BooleanArray + U128Conversions,
     R: PrivateKeyRegistry,
-    Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,
-    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
-    Replicated<Boolean, 256>: BooleanProtocols<DZKPUpgraded<C>, 256>,
-    Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
-    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
-    Replicated<Fp25519, PRF_CHUNK>:
-        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
-    Replicated<RP25519, PRF_CHUNK>:
-        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
-    Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
-        + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
-    Replicated<BA20>: BooleanArrayMul<DZKPUpgraded<C>>,
-    Replicated<BA3>: BooleanArrayMul<DZKPUpgraded<C>>,
-    Vec<Replicated<HV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, 256>>:
-        for<'a> TransposeFrom<&'a [Replicated<HV>; 256], Error = Infallible>,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
