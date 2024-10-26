@@ -262,6 +262,8 @@ pub(crate) mod executor {
 pub(crate) mod test_executor {
     use std::future::Future;
 
+    use shuttle::rand::{rngs::ThreadRng, thread_rng};
+
     pub fn run<F, Fut>(f: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
@@ -277,15 +279,31 @@ pub(crate) mod test_executor {
     {
         shuttle::check_random(move || shuttle::future::block_on(f()), ITER);
     }
+
+    pub fn run_random<F, Fut>(f: F)
+    where
+        F: Fn(ThreadRng) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()>,
+    {
+        run(move || f(thread_rng()));
+    }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod test_executor {
     use std::future::Future;
 
+    use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
+
+    // These routines use `FnOnce` because it is easier than dealing with lifetimes of
+    // `&mut rng` borrows in futures. If there were a need to support multiple
+    // iterations (or to make the API use `Fn` to match the shuttle version), the
+    // simplest strategy might be to seed per-iteration RNGs from a primary RNG, like
+    // `TestWorld::rng`.
+
     pub fn run_with<F, Fut, const ITER: usize>(f: F)
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
+        F: FnOnce() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()>,
     {
         tokio::runtime::Builder::new_multi_thread()
@@ -301,10 +319,31 @@ pub(crate) mod test_executor {
     #[allow(dead_code)]
     pub fn run<F, Fut>(f: F)
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
+        F: FnOnce() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()>,
     {
         run_with::<_, _, 1>(f);
+    }
+
+    #[allow(dead_code)]
+    pub fn run_with_seed<F, Fut>(seed: u64, f: F)
+    where
+        F: FnOnce(StdRng) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()>,
+    {
+        println!("Random seed {seed}");
+        let rng = StdRng::seed_from_u64(seed);
+        run(move || f(rng));
+    }
+
+    #[allow(dead_code)]
+    pub fn run_random<F, Fut>(f: F)
+    where
+        F: FnOnce(StdRng) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()>,
+    {
+        let seed = thread_rng().gen();
+        run_with_seed(seed, f);
     }
 }
 

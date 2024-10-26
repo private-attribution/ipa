@@ -42,3 +42,35 @@ While the computation is happening, Management will call the query_status API un
 MPC requires thousands of steps to be executed and coordinated across helpers. Each of these calls is represented as a single HTTP call (this becomes more relevant during MPC computation). The service uses HTTP2 multiplexing capabilities, where multiple requests are being sent and received during the same connection. 
 
 **Work in progress**
+
+# Testing
+
+## Randomness
+
+Random tests can increase coverage by generating unforeseen corner cases. Even with
+detailed error messages, the output of a failed random test may not provide enough
+information to see what has gone wrong. When this happens, it is important to be
+able to re-run the failing case with additional diagnostic output or with candidate
+fixes. To make this possible, all random values used in the test should be derived
+from a random seed that is logged in the output of a failed test.
+
+Using a random generator provided by `rand::thread_rng` will not typically achieve
+reproducibility. Instead, tests should obtain a random number generator by calling
+`TestWorld::rng`. An example of such a test is
+`breakdown_reveal::tests::semi_honest_happy_path`. To run a test with a particular seed,
+pass the seed to `TestWorld::with_seed` (or `TestWorldConfig::with_seed`).
+
+The [`shuttle`](shuttle.md) concurrency test framework provides its own random number
+generator and reproducibility mechanisms. The `ipa_core::rand` module automatically
+exports either symbols from the `rand` crate or the `shuttle` equivalents based on the
+build configuration. If using `TestWorld::rng`, the switch to the `shuttle` RNG is
+handled automatically in `TestWorld`. In tests that do not use `TestWorld`, the
+`run_random` helper will automatically use the appropriate RNG, and log a seed if using
+the standard RNG. An example of such a test is `ordering_sender::test::shuffle_fp31`.
+To run a test with a particular seed, use `run_with_seed`.
+
+The `proptest` framework also has its own random number generator and reproducibility
+mechanisms, but the `proptest` RNG is not integrated with `TestWorld`. When using
+`proptest`, it is recommended to create a random `u64` seed in the proptest-generated
+inputs and pass that seed to `TestWorld::with_seed` (or `TestWorldConfig::with_seed`).
+An example of such a test is `aggregate_proptest`.
