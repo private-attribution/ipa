@@ -28,6 +28,9 @@ use crate::{
 // supplying an associated constant `<BK as BreakdownKey>::MAX_BREAKDOWNS` as the value of a const
 // parameter.) Structured the way we have it, it probably doesn't make sense to use the
 // `BreakdownKey` trait in places where the `B` const parameter is not already available.
+//
+// These could be imported from src/protocl/ipa_prf/mod.rs
+// however we've copy/pasted them here with the intention of deleting that file [TODO]
 pub trait BreakdownKey<const MAX_BREAKDOWNS: usize>: BooleanArray + U128Conversions {}
 impl BreakdownKey<32> for BA5 {}
 impl BreakdownKey<256> for BA8 {}
