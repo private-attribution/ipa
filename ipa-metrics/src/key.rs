@@ -115,7 +115,7 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 #[derive(Debug, Clone, Eq)]
 pub struct OwnedName {
     pub key: &'static str,
-    pub labels: [Option<OwnedLabel>; 5],
+    labels: [Option<OwnedLabel>; 5],
 }
 
 impl OwnedName {

@@ -8,7 +8,7 @@ use rustc_hash::FxHasher;
 pub const MAX_LABELS: usize = 5;
 
 /// Provides a fast, non-collision resistant implementation of [`Hasher`]
-/// for label values. T
+/// for label values.
 ///
 /// [`Hasher`]: std::hash::Hasher
 #[must_use]
