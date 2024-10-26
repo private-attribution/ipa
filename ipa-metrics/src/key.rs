@@ -114,7 +114,7 @@ impl<'lv, const LABELS: usize> Name<'lv, LABELS> {
 /// This is the key inside metric stores which are simple hashmaps.
 #[derive(Debug, Clone, Eq)]
 pub struct OwnedName {
-    key: &'static str,
+    pub key: &'static str,
     labels: [Option<OwnedLabel>; 5],
 }
 
@@ -203,7 +203,7 @@ impl Hash for OwnedName {
 
 #[cfg(test)]
 pub fn compute_hash<V: Hash>(value: V) -> u64 {
-    let mut hasher = std::hash::DefaultHasher::default();
+    let mut hasher = crate::label_hasher();
     value.hash(&mut hasher);
 
     hasher.finish()
