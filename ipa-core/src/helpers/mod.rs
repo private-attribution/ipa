@@ -713,6 +713,23 @@ mod tests {
         }
     }
 
+    mod helper_identity_tests {
+        use ipa_metrics::LabelValue;
+
+        use crate::helpers::HelperIdentity;
+
+        #[test]
+        fn label_value() {
+            for (id, hash) in [
+                (HelperIdentity::ONE, 1),
+                (HelperIdentity::TWO, 2),
+                (HelperIdentity::THREE, 3),
+            ] {
+                assert_eq!(id.boxed().hash(), hash);
+            }
+        }
+    }
+
     mod role_assignment_tests {
         use crate::{
             ff::Fp31,

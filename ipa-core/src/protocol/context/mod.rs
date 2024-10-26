@@ -744,6 +744,8 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
+        // this will print all metrics if test fails
+        snapshot.print(&mut std::io::stdout()).unwrap();
 
         // for semi-honest protocols, amplification factor per helper is 1.
         // that is, for every communication, there is exactly one send and receive of the same data
