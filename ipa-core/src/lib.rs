@@ -344,6 +344,8 @@ macro_rules! mutually_incompatible {
 }
 
 mutually_incompatible!("in-memory-infra", "real-world-infra");
+#[cfg(not(any(compact_gate, descriptive_gate)))]
+compile_error!("At least one of `compact_gate` or `descriptive_gate` features must be enabled");
 
 #[cfg(test)]
 mod tests {
