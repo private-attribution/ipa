@@ -237,11 +237,10 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::{array, cmp::min, iter::repeat_with};
+    use std::cmp::min;
 
     use futures::{stream, StreamExt};
     use proptest::prelude::*;
-    use rand::{rngs::StdRng, SeedableRng};
 
     use super::aggregate_values;
     use crate::{
@@ -487,8 +486,7 @@ pub mod tests {
     #[derive(Debug)]
     struct AggregatePropTestInputs {
         inputs: Vec<[u32; PROP_BUCKETS]>,
-        expected: BitDecomposed<BA8>,
-        seed: u64,
+        expected: BitDecomposed<PropHistogramValue>,
         len: usize,
         tv_bits: usize,
     }
@@ -503,20 +501,19 @@ pub mod tests {
                                       (
                                           len in 0..=max_len,
                                           tv_bits in 0..=PROP_MAX_TV_BITS,
-                                          seed in any::<u64>(),
+                                      )
+                                      (
+                                          len in Just(len),
+                                          tv_bits in Just(tv_bits),
+                                          inputs in prop::collection::vec(prop::array::uniform(0u32..1 << tv_bits), len),
                                       )
         -> AggregatePropTestInputs {
-            let mut rng = StdRng::seed_from_u64(seed);
             let mut expected = vec![0; PROP_BUCKETS];
-            let inputs = repeat_with(|| {
-                let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
+            for row in &inputs {
                 for (exp, val) in expected.iter_mut().zip(row) {
                     *exp = min(*exp + val, (1 << PropHistogramValue::BITS) - 1);
                 }
-                row
-            })
-            .take(len)
-            .collect();
+            }
 
             let expected = input_row::<PROP_BUCKETS>(usize::try_from(PropHistogramValue::BITS).unwrap(), &expected)
                 .map(|x| x.into_iter().collect());
@@ -524,16 +521,17 @@ pub mod tests {
             AggregatePropTestInputs {
                 inputs,
                 expected,
-                seed,
                 len,
                 tv_bits,
             }
         }
     }
+
     proptest! {
         #[test]
         fn aggregate_proptest(
-            input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN)
+            input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN),
+            seed in any::<u64>(),
         ) {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
                 let AggregatePropTestInputs {
@@ -545,18 +543,19 @@ pub mod tests {
                 let inputs = inputs.into_iter().map(move |row| {
                     Ok(input_row(tv_bits, &row))
                 });
-                let result : BitDecomposed<BA8> = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
-                    let num_rows = inputs.len();
-                    aggregate_values::<_, PropHistogramValue, PROP_BUCKETS>(
-                        ctx,
-                        stream::iter(inputs).boxed(),
-                        num_rows,
-                        None,
-                    )
-                })
-                .await
-                .map(Result::unwrap)
-                .reconstruct_arr();
+                let result: BitDecomposed<PropHistogramValue> = TestWorld::with_seed(seed)
+                    .upgraded_semi_honest(inputs, |ctx, inputs| {
+                        let num_rows = inputs.len();
+                        aggregate_values::<_, PropHistogramValue, PROP_BUCKETS>(
+                            ctx,
+                            stream::iter(inputs).boxed(),
+                            num_rows,
+                            None,
+                        )
+                    })
+                    .await
+                    .map(Result::unwrap)
+                    .reconstruct_arr();
 
                 assert_eq!(result, expected);
             });
