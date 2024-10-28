@@ -62,6 +62,7 @@ pub use gateway::{
     MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportImpl,
 };
 pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEnd};
+use ipa_metrics::LabelValue;
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
@@ -174,6 +175,22 @@ impl From<i32> for HelperIdentity {
             .ok()
             .and_then(|id| HelperIdentity::try_from(id).ok())
             .unwrap()
+    }
+}
+
+impl Display for HelperIdentity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl LabelValue for HelperIdentity {
+    fn hash(&self) -> u64 {
+        u64::from(self.id)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
     }
 }
 
@@ -399,6 +416,22 @@ impl<T> Index<Role> for Vec<T> {
 impl<T> IndexMut<Role> for Vec<T> {
     fn index_mut(&mut self, index: Role) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
+    }
+}
+
+impl Display for Role {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_static_str())
+    }
+}
+
+impl LabelValue for Role {
+    fn hash(&self) -> u64 {
+        u64::from(*self as u32)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
     }
 }
 
@@ -677,6 +710,23 @@ mod tests {
             assert_eq!(3, data[Role::H1]);
             assert_eq!(4, data[Role::H2]);
             assert_eq!(5, data[Role::H3]);
+        }
+    }
+
+    mod helper_identity_tests {
+        use ipa_metrics::LabelValue;
+
+        use crate::helpers::HelperIdentity;
+
+        #[test]
+        fn label_value() {
+            for (id, hash) in [
+                (HelperIdentity::ONE, 1),
+                (HelperIdentity::TWO, 2),
+                (HelperIdentity::THREE, 3),
+            ] {
+                assert_eq!(id.boxed().hash(), hash);
+            }
         }
     }
 

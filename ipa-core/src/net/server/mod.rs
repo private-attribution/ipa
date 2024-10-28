@@ -32,7 +32,7 @@ use futures::{
     FutureExt,
 };
 use hyper::{body::Incoming, Request};
-use metrics::increment_counter;
+use ipa_metrics::counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use tokio_rustls::server::TlsStream;
 use tower::{layer::layer_fn, Service};
@@ -161,8 +161,8 @@ impl<F: ConnectionFlavor> MpcHelperServer<F> {
             TraceLayer::new_for_http()
                 .make_span_with(move |_request: &hyper::Request<_>| tracing.make_span())
                 .on_request(|request: &hyper::Request<_>, _: &Span| {
-                    increment_counter!(RequestProtocolVersion::from(request.version()));
-                    increment_counter!(REQUESTS_RECEIVED);
+                    counter!(RequestProtocolVersion::from(request.version()), 1);
+                    counter!(REQUESTS_RECEIVED, 1);
                 }),
         );
         let handle = Handle::new();
@@ -529,7 +529,6 @@ mod e2e_tests {
         },
         rt::{TokioExecutor, TokioTimer},
     };
-    use metrics_util::debugging::Snapshotter;
     use rustls::{
         client::danger::{ServerCertVerified, ServerCertVerifier},
         pki_types::ServerName,
@@ -687,9 +686,6 @@ mod e2e_tests {
 
         // request
         let expected = expected_req(addr.to_string());
-
-        let snapshot = Snapshotter::current_thread_snapshot();
-        assert!(snapshot.is_none());
 
         let request_count = 10;
         for _ in 0..request_count {

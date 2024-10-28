@@ -1,7 +1,6 @@
 use std::io::{stderr, IsTerminal};
 
 use clap::Parser;
-use metrics_tracing_context::MetricsLayer;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
     fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
@@ -24,11 +23,14 @@ pub struct Verbosity {
 }
 
 pub struct LoggingHandle {
-    #[allow(dead_code)] // we care about handle's drop semantic so it is ok to not read it
-    metrics_handle: Option<CollectorHandle>,
+    pub metrics_handle: CollectorHandle,
 }
 
 impl Verbosity {
+    /// Sets up logging and metrics infrastructure
+    ///
+    /// ## Panics
+    /// If metrics failed to setup
     #[must_use]
     pub fn setup_logging(&self) -> LoggingHandle {
         let filter_layer = self.log_filter();
@@ -39,20 +41,14 @@ impl Verbosity {
             .with_ansi(std::io::stderr().is_terminal())
             .with_writer(stderr);
 
-        let registry = tracing_subscriber::registry()
+        tracing_subscriber::registry()
             .with(filter_layer)
-            .with(fmt_layer);
+            .with(fmt_layer)
+            .init();
 
-        if cfg!(feature = "disable-metrics") {
-            registry.init();
-        } else {
-            registry.with(MetricsLayer::new()).init();
-        }
+        let metrics_handle = install_collector().expect("Can install metrics");
 
-        let handle = LoggingHandle {
-            metrics_handle: (!self.quiet && !cfg!(feature = "disable-metrics"))
-                .then(install_collector),
-        };
+        let handle = LoggingHandle { metrics_handle };
         set_global_panic_hook();
 
         handle
