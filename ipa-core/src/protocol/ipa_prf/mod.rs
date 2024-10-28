@@ -51,7 +51,7 @@ pub mod prf_sharding;
 
 mod malicious_security;
 mod quicksort;
-mod shuffle;
+pub(crate) mod shuffle;
 pub(crate) mod step;
 pub mod validation_protocol;
 
