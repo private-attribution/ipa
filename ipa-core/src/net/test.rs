@@ -24,7 +24,7 @@ use crate::{
         TlsConfig,
     },
     executor::{IpaJoinHandle, IpaRuntime},
-    helpers::{repeat_n, HandlerBox, HelperIdentity, RequestHandler, TransportIdentity},
+    helpers::{HandlerBox, HelperIdentity, RequestHandler, TransportIdentity},
     hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, Helper, MpcHelperClient, MpcHelperServer},
     sharding::{ShardIndex, ShardedHelperIdentity},
@@ -366,7 +366,7 @@ impl TestConfigBuilder {
             let ports = ports_by_ring[ix.as_index()].clone();
             ports.ring.into_iter().map(Some).collect()
         } else {
-            repeat_n(None, 3).collect()
+            crate::helpers::repeat_n(None, 3).collect()
         }
     }
 
@@ -379,7 +379,7 @@ impl TestConfigBuilder {
                 .map(Some)
                 .collect()
         } else {
-            repeat_n(None, self.shard_count.try_into().unwrap()).collect()
+            crate::helpers::repeat_n(None, self.shard_count.try_into().unwrap()).collect()
         }
     }
 
@@ -696,7 +696,7 @@ mod tests {
     use crate::{
         helpers::HelperIdentity,
         net::test::{Ports, TEST_CERTS, TEST_KEYS},
-        sharding::ShardedHelperIdentity,
+        sharding::{ShardIndex, ShardedHelperIdentity},
     };
 
     /// This simple test makes sure that testing networks are created properly.
@@ -756,5 +756,24 @@ mod tests {
         let (c, k) = get_test_certificate_and_key(ShardedHelperIdentity::ONE_FIRST);
         assert_eq!(TEST_KEYS[0], k);
         assert_eq!(TEST_CERTS[0], c);
+    }
+
+    #[test]
+    fn get_default_ports() {
+        let builder = TestConfigBuilder::with_http_and_default_test_ports();
+        assert_eq!(
+            vec![Some(3000), Some(3001), Some(3002)],
+            builder.get_ports_for_shard_index(ShardIndex(0))
+        );
+        assert_eq!(
+            vec![Some(6001)],
+            builder.get_ports_for_helper_identity(HelperIdentity::TWO)
+        );
+    }
+
+    #[test]
+    fn get_os_ports() {
+        let builder = TestConfigBuilder::default();
+        assert_eq!(3, builder.get_ports_for_shard_index(ShardIndex(0)).len());
     }
 }
