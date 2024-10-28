@@ -366,7 +366,7 @@ impl TestConfigBuilder {
             let ports = ports_by_ring[ix.as_index()].clone();
             ports.ring.into_iter().map(Some).collect()
         } else {
-            crate::helpers::repeat_n(None, 3).collect()
+            vec![None; 3]
         }
     }
 
@@ -379,7 +379,7 @@ impl TestConfigBuilder {
                 .map(Some)
                 .collect()
         } else {
-            crate::helpers::repeat_n(None, self.shard_count.try_into().unwrap()).collect()
+            vec![None; self.shard_count.try_into().unwrap()]
         }
     }
 
