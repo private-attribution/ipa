@@ -24,7 +24,7 @@ use crate::{
             },
             oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
-            shuffle::shuffle_attribution_outputs,
+            shuffle::{shuffle_attribution_outputs, Shuffle},
             BreakdownKey,
         },
         BooleanProtocols, RecordId,
@@ -70,7 +70,7 @@ pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradableContext,
+    C: UpgradableContext + Shuffle,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     BK: BreakdownKey<B>,
@@ -153,7 +153,7 @@ async fn shuffle_attributions<C, BK, TV, const B: usize>(
     contribs: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
 where
-    C: Context,
+    C: Context + Shuffle,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
 {

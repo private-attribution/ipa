@@ -40,7 +40,7 @@ use crate::{
 ///
 /// ## Panics
 /// Panics when `S::Bits + 32 != B::Bits` or type conversions fail.
-pub async fn malicious_shuffle<C, S, B, I>(
+pub(super) async fn malicious_shuffle<C, S, B, I>(
     ctx: C,
     shares: I,
 ) -> Result<Vec<AdditiveShare<S>>, Error>

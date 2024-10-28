@@ -461,11 +461,13 @@ where
     Ok((res, IntermediateShuffleMessages::H3 { y1, y2 }))
 }
 
-/// Entry point to execute sharded shuffle.
+/// Internal entry point to sharded shuffle protocol, excluding validation of
+/// intermediates for malicious security. Protocols should use `trait Shuffle`.
+///
 /// ## Errors
 /// Failure to communicate over the network, either to other MPC helpers, and/or to other shards
 /// will generate a shuffle error.
-pub async fn shuffle<I, S, C>(
+pub(super) async fn shuffle<I, S, C>(
     ctx: C,
     shares: I,
 ) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), crate::error::Error>

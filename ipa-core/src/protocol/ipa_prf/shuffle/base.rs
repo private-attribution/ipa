@@ -20,21 +20,9 @@ use crate::{
     },
 };
 
-/// # Errors
-/// Will propagate errors from transport and a few typecasts
-pub async fn semi_honest_shuffle<C, I, S>(ctx: C, shares: I) -> Result<Vec<AdditiveShare<S>>, Error>
-where
-    C: Context,
-    I: IntoIterator<Item = AdditiveShare<S>>,
-    I::IntoIter: ExactSizeIterator,
-    S: SharedValue + Add<Output = S>,
-    for<'a> &'a S: Add<S, Output = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
-{
-    Ok(shuffle_protocol(ctx, shares).await?.0)
-}
-
+/// Internal entry point to non-sharded shuffle protocol, excluding validation of
+/// intermediates for malicious security. Protocols should use `trait Shuffle`.
+///
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
 pub(super) async fn shuffle_protocol<C, I, S>(

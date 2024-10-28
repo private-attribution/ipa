@@ -51,11 +51,12 @@ pub mod prf_sharding;
 
 mod malicious_security;
 mod quicksort;
-pub(crate) mod shuffle;
+mod shuffle;
 pub(crate) mod step;
 pub mod validation_protocol;
 
 pub use malicious_security::prover::{LargeProofGenerator, SmallProofGenerator};
+pub use shuffle::Shuffle;
 
 /// Match key type
 pub type MatchKey = BA64;
@@ -98,7 +99,7 @@ use crate::{
     protocol::{
         context::Validator,
         dp::dp_for_histogram,
-        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing},
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
