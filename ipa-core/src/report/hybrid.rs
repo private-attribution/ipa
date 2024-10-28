@@ -639,6 +639,53 @@ where
     }
 
     /// ## Errors
+    /// If decryption of the provided oprf report fails.
+    pub fn decrypt_from_oprf_report_bytes<P, TS>(
+        bytes: Bytes,
+        key_registry: &P,
+    ) -> Result<HybridReport<BK, V>, InvalidHybridReportError>
+    where
+        P: PrivateKeyRegistry,
+        TS: SharedValue,
+        Replicated<TS>: Serializable,
+        <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
+            Add<<Replicated<TS> as Serializable>::Size>,
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+            <Replicated<TS> as Serializable>::Size,
+        >: Add<U16>,
+        Sum<
+            Sum<
+                Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
+                <Replicated<TS> as Serializable>::Size,
+            >,
+            U16,
+        >: ArrayLength,
+    {
+        let encrypted_oprf_report = EncryptedOprfReport::<BK, V, TS, Bytes>::try_from(bytes)
+            .map_err(|e| {
+                InvalidHybridReportError::DeserializationError("EncryptedOprfReport", e.into())
+            })?;
+        let oprf_report = encrypted_oprf_report.decrypt(key_registry).map_err(|e| {
+            InvalidHybridReportError::DeserializationError(
+                "EncryptedOprfReport Decryption Failure",
+                e.into(),
+            )
+        })?;
+        match oprf_report.event_type {
+            EventType::Source => Ok(HybridReport::Impression(HybridImpressionReport {
+                match_key: oprf_report.match_key,
+                breakdown_key: oprf_report.breakdown_key,
+            })),
+            EventType::Trigger => Ok(HybridReport::Conversion(HybridConversionReport {
+                match_key: oprf_report.match_key,
+                value: oprf_report.trigger_value,
+            })),
+        }
+    }
+
+    /// ## Errors
     /// If the match key shares in the report cannot be decrypted (e.g. due to a
     /// failure of the authenticated encryption).
     /// ## Panics
@@ -757,6 +804,27 @@ impl UniqueBytes for UniqueTag {
     }
 }
 
+impl<BK, V> UniqueBytes for EncryptedHybridGeneralReport<BK, V>
+where
+    V: SharedValue,
+    BK: SharedValue,
+    Replicated<V>: Serializable,
+    Replicated<BK>: Serializable,
+    <Replicated<V> as Serializable>::Size: Add<U16>,
+    <<Replicated<V> as Serializable>::Size as Add<U16>>::Output: ArrayLength,
+    <Replicated<BK> as Serializable>::Size: Add<U16>,
+    <<Replicated<BK> as Serializable>::Size as Add<U16>>::Output: ArrayLength,
+{
+    /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
+    /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
+    fn unique_bytes(&self) -> [u8; TAG_SIZE] {
+        let slice = &self.mk_ciphertext()[0..TAG_SIZE];
+        let mut array = [0u8; TAG_SIZE];
+        array.copy_from_slice(slice);
+        array
+    }
+}
+
 impl UniqueBytes for EncryptedHybridReport {
     /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
     /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
@@ -857,8 +925,8 @@ mod test {
     use typenum::Unsigned;
 
     use super::{
-        EncryptedHybridGeneralReport, EncryptedHybridImpressionReport, EncryptedHybridReport,
-        GenericArray, HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag,
+        EncryptedHybridGeneralReport, EncryptedHybridImpressionReport, GenericArray,
+        HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag,
         UniqueTagValidator, HELPER_ORIGIN,
     };
     use crate::{
@@ -917,12 +985,12 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let enc_report = EncryptedHybridReport {
-            bytes: enc_report_bytes.into(),
-        };
 
-        let hybrid_report2 = enc_report
-            .decrypt::<_, BA8, BA3, BA20>(&key_registry)
+        let hybrid_report2 =
+            EncryptedHybridGeneralReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<_, BA20>(
+                enc_report_bytes.into(),
+                &key_registry,
+            )
             .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
@@ -946,11 +1014,11 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let enc_report = EncryptedHybridReport {
-            bytes: enc_report_bytes.into(),
-        };
-        let hybrid_report2 = enc_report
-            .decrypt::<_, BA8, BA3, BA20>(&key_registry)
+        let hybrid_report2 =
+            EncryptedHybridGeneralReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<_, BA20>(
+                enc_report_bytes.into(),
+                &key_registry,
+            )
             .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
