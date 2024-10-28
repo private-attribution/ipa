@@ -300,7 +300,6 @@ pub(crate) mod test_executor {
     // iterations (or to make the API use `Fn` to match the shuttle version), the
     // simplest strategy might be to seed per-iteration RNGs from a primary RNG, like
     // `TestWorld::rng`.
-
     pub fn run_with<F, Fut, const ITER: usize>(f: F)
     where
         F: FnOnce() -> Fut + Send + Sync + 'static,

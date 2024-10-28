@@ -194,16 +194,9 @@ impl<const N: usize, D: Distribute> ShardingScheme for WithShards<N, D> {
     }
 }
 
-impl Default for TestWorld {
+impl Default for TestWorld<NotSharded> {
     fn default() -> Self {
         Self::new_with(TestWorldConfig::default())
-    }
-}
-
-impl TestWorld {
-    #[must_use]
-    pub fn with_seed(seed: u64) -> Self {
-        Self::new_with(TestWorldConfig::default().with_seed(seed))
     }
 }
 
@@ -270,6 +263,11 @@ impl TestWorld<NotSharded> {
     #[must_use]
     pub fn new_with<B: Borrow<TestWorldConfig>>(config: B) -> Self {
         Self::with_config(config.borrow())
+    }
+
+    #[must_use]
+    pub fn with_seed(seed: u64) -> Self {
+        Self::new_with(TestWorldConfig::default().with_seed(seed))
     }
 
     /// Creates protocol contexts for 3 helpers
