@@ -13,7 +13,7 @@ use crate::{
     ff::{boolean_array::BooleanArray, Field, Gf32Bit, Serializable},
     helpers::{
         hashing::{compute_hash, Hash},
-        Direction, Role, TotalRecords,
+        Direction, TotalRecords,
     },
     protocol::{
         basics::{malicious_reveal, mul::semi_honest_multiply},
@@ -149,16 +149,17 @@ async fn verify_shuffle<C: Context, S: BooleanArray, B: BooleanArray>(
         .map(Gf32Bit::from_array)
         .collect::<Vec<_>>();
 
+    assert_eq!(messages.role(), ctx.role());
+
     // verify messages and shares
-    match ctx.role() {
-        Role::H1 => {
-            h1_verify::<_, S, B>(ctx, &keys, shuffled_shares, messages.get_x1_or_y1()).await
+    match messages {
+        IntermediateShuffleMessages::H1 { x1 } => {
+            h1_verify::<_, S, B>(ctx, &keys, shuffled_shares, x1).await
         }
-        Role::H2 => {
-            h2_verify::<_, S, B>(ctx, &keys, shuffled_shares, messages.get_x2_or_y2()).await
+        IntermediateShuffleMessages::H2 { x2 } => {
+            h2_verify::<_, S, B>(ctx, &keys, shuffled_shares, x2).await
         }
-        Role::H3 => {
-            let (y1, y2) = messages.get_both_x_or_ys();
+        IntermediateShuffleMessages::H3 { y1, y2 } => {
             h3_verify::<_, S, B>(ctx, &keys, shuffled_shares, y1, y2).await
         }
     }
@@ -479,7 +480,10 @@ mod tests {
             boolean_array::{BA112, BA144, BA20, BA32, BA64},
             Serializable, U128Conversions,
         },
-        helpers::in_memory_config::{MaliciousHelper, MaliciousHelperContext},
+        helpers::{
+            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
+            Role,
+        },
         protocol::ipa_prf::shuffle::base::shuffle_protocol,
         secret_sharing::SharedValue,
         test_executor::run,

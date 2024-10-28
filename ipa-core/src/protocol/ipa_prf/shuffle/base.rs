@@ -54,13 +54,7 @@ where
     // This protocol can take a mutable iterator and replace items in the input.
     let shares = shares.into_iter();
     let Some(shares_len) = NonZeroUsize::new(shares.len()) else {
-        return Ok((
-            vec![],
-            IntermediateShuffleMessages {
-                x1_or_y1: None,
-                x2_or_y2: None,
-            },
-        ));
+        return Ok((vec![], IntermediateShuffleMessages::empty(&ctx)));
     };
     let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
     let zs = generate_random_tables_with_peers(shares_len, &ctx_z);
@@ -69,38 +63,6 @@ where
         Role::H1 => Box::pin(run_h1(&ctx, shares_len, shares, zs)).await,
         Role::H2 => Box::pin(run_h2(&ctx, shares_len, shares, zs)).await,
         Role::H3 => Box::pin(run_h3(&ctx, shares_len, zs)).await,
-    }
-}
-
-impl<S: SharedValue> IntermediateShuffleMessages<S> {
-    /// When `IntermediateShuffleMessages` is initialized correctly,
-    /// this function returns `x1` when `Role = H1`
-    /// and `y1` when `Role = H3`.
-    ///
-    /// ## Panics
-    /// Panics when `Role = H2`, i.e. `x1_or_y1` is `None`.
-    pub fn get_x1_or_y1(self) -> Vec<S> {
-        self.x1_or_y1.unwrap()
-    }
-
-    /// When `IntermediateShuffleMessages` is initialized correctly,
-    /// this function returns `x2` when `Role = H2`
-    /// and `y2` when `Role = H3`.
-    ///
-    /// ## Panics
-    /// Panics when `Role = H1`, i.e. `x2_or_y2` is `None`.
-    pub fn get_x2_or_y2(self) -> Vec<S> {
-        self.x2_or_y2.unwrap()
-    }
-
-    /// When `IntermediateShuffleMessages` is initialized correctly,
-    /// this function returns `y1` and `y2` when `Role = H3`.
-    ///
-    /// ## Panics
-    /// Panics when `Role = H1`, i.e. `x2_or_y2` is `None` or
-    /// when `Role = H2`, i.e. `x1_or_y1` is `None`.
-    pub fn get_both_x_or_ys(self) -> (Vec<S>, Vec<S>) {
-        (self.x1_or_y1.unwrap(), self.x2_or_y2.unwrap())
     }
 }
 
@@ -146,13 +108,7 @@ where
 
     let res = combine_single_shares(a_hat, b_hat).collect::<Vec<_>>();
     // we only need to store x_1 in IntermediateShuffleMessage
-    Ok((
-        res,
-        IntermediateShuffleMessages {
-            x1_or_y1: Some(x_1),
-            x2_or_y2: None,
-        },
-    ))
+    Ok((res, IntermediateShuffleMessages::H1 { x1: x_1 }))
 }
 
 async fn run_h2<C, I, S, Zl, Zr>(
@@ -228,13 +184,7 @@ where
     let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter());
     let res = combine_single_shares(b_hat, c_hat).collect::<Vec<_>>();
     // we only need to store x_2 in IntermediateShuffleMessage
-    Ok((
-        res,
-        IntermediateShuffleMessages {
-            x1_or_y1: None,
-            x2_or_y2: Some(x_2),
-        },
-    ))
+    Ok((res, IntermediateShuffleMessages::H2 { x2: x_2 }))
 }
 
 async fn run_h3<C, S, Zl, Zr>(
@@ -304,13 +254,7 @@ where
 
     let c_hat = add_single_shares(c_hat_1, c_hat_2);
     let res = combine_single_shares(c_hat, a_hat).collect::<Vec<_>>();
-    Ok((
-        res,
-        IntermediateShuffleMessages {
-            x1_or_y1: Some(y_1),
-            x2_or_y2: Some(y_2),
-        },
-    ))
+    Ok((res, IntermediateShuffleMessages::H3 { y1: y_1, y2: y_2 }))
 }
 
 fn add_single_shares<A, B, S, L, R>(l: L, r: R) -> impl Iterator<Item = S>
@@ -482,17 +426,23 @@ pub(super) mod test_helpers {
         let [(h1_shares, h1_messages), (h2_shares, h2_messages), (h3_shares, h3_messages)] =
             results;
 
+        let IntermediateShuffleMessages::H1 { x1 } = h1_messages else {
+            panic!("H1 returned shuffle messages for {:?}", h1_messages.role());
+        };
+        let IntermediateShuffleMessages::H2 { x2 } = h2_messages else {
+            panic!("H2 returned shuffle messages for {:?}", h2_messages.role());
+        };
+        let IntermediateShuffleMessages::H3 { y1, y2 } = h3_messages else {
+            panic!("H3 returned shuffle messages for {:?}", h3_messages.role());
+        };
+
         check_replicated_shares(h1_shares.iter(), h2_shares.iter());
         check_replicated_shares(h2_shares.iter(), h3_shares.iter());
         check_replicated_shares(h3_shares.iter(), h1_shares.iter());
 
-        let x1_xor_y1 = zip(h1_messages.x1_or_y1.unwrap(), h3_messages.x1_or_y1.unwrap())
-            .map(|(x1, y1)| x1 + y1)
-            .collect();
+        let x1_xor_y1 = zip(x1, y1).map(|(x1, y1)| x1 + y1).collect();
 
-        let x2_xor_y2 = zip(h2_messages.x2_or_y2.unwrap(), h3_messages.x2_or_y2.unwrap())
-            .map(|(x2, y2)| x2 + y2)
-            .collect();
+        let x2_xor_y2 = zip(x2, y2).map(|(x2, y2)| x2 + y2).collect();
 
         let a_xor_b_xor_c = zip(&h1_shares, h3_shares)
             .map(|(h1_share, h3_share)| h1_share.left() + h1_share.right() + h3_share.left())

@@ -317,13 +317,7 @@ where
         })
         .collect();
 
-    Ok((
-        res,
-        IntermediateShuffleMessages {
-            x1_or_y1: Some(x1),
-            x2_or_y2: None,
-        },
-    ))
+    Ok((res, IntermediateShuffleMessages::H1 { x1 }))
 }
 
 /// Sharded shuffle as performed by shards on H2.
@@ -370,13 +364,7 @@ where
         .await?;
 
     let Some(x3_len) = NonZeroUsize::new(x3.len()) else {
-        return Ok((
-            Vec::new(),
-            IntermediateShuffleMessages {
-                x1_or_y1: None,
-                x2_or_y2: Some(x2),
-            },
-        ));
+        return Ok((Vec::new(), IntermediateShuffleMessages::H2 { x2 }));
     };
 
     // Generate c_1 = X_3 ⊕ b, stream it to H3 and receive c_2 from it at the same time.
@@ -407,13 +395,7 @@ where
         }))
         .await?;
 
-    Ok((
-        res,
-        IntermediateShuffleMessages {
-            x1_or_y1: None,
-            x2_or_y2: Some(x2),
-        },
-    ))
+    Ok((res, IntermediateShuffleMessages::H2 { x2 }))
 }
 
 /// Sharded shuffle as performed by shards on H3. Note that in semi-honest setting, H3 does not
@@ -447,13 +429,7 @@ where
         .await?;
 
     let Some(y3_len) = NonZeroUsize::new(y3.len()) else {
-        return Ok((
-            Vec::new(),
-            IntermediateShuffleMessages {
-                x1_or_y1: Some(y1),
-                x2_or_y2: Some(y2),
-            },
-        ));
+        return Ok((Vec::new(), IntermediateShuffleMessages::H3 { y1, y2 }));
     };
 
     // Generate c_2 = y_3 ⊕ a, stream it to H2 and receive c_1 from it at the same time.
@@ -482,13 +458,7 @@ where
         }))
         .await?;
 
-    Ok((
-        res,
-        IntermediateShuffleMessages {
-            x1_or_y1: Some(y1),
-            x2_or_y2: Some(y2),
-        },
-    ))
+    Ok((res, IntermediateShuffleMessages::H3 { y1, y2 }))
 }
 
 /// Entry point to execute sharded shuffle.

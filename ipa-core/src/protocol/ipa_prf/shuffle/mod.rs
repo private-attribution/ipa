@@ -14,6 +14,7 @@ use crate::{
         boolean_array::{BooleanArray, BA112, BA144, BA64, BA96},
         ArrayAccess,
     },
+    helpers::Role,
     protocol::{
         context::{Context, MaliciousContext, SemiHonestContext},
         ipa_prf::{
@@ -39,9 +40,32 @@ pub(crate) mod step;
 /// these messages need to be checked for consistency across helpers.
 /// `H1` stores `x1`, `H2` stores `x2` and `H3` stores `y1` and `y2`.
 #[derive(Debug, Clone)]
-struct IntermediateShuffleMessages<S> {
-    pub x1_or_y1: Option<Vec<S>>,
-    pub x2_or_y2: Option<Vec<S>>,
+enum IntermediateShuffleMessages<S> {
+    H1 { x1: Vec<S> },
+    H2 { x2: Vec<S> },
+    H3 { y1: Vec<S>, y2: Vec<S> },
+}
+
+impl<S: SharedValue> IntermediateShuffleMessages<S> {
+    pub fn role(&self) -> Role {
+        match *self {
+            IntermediateShuffleMessages::H1 { .. } => Role::H1,
+            IntermediateShuffleMessages::H2 { .. } => Role::H2,
+            IntermediateShuffleMessages::H3 { .. } => Role::H3,
+        }
+    }
+
+    /// Return an empty `IntermediateShuffleMessages` for the currrent helper.
+    pub fn empty<C: Context>(ctx: &C) -> Self {
+        match ctx.role() {
+            Role::H1 => IntermediateShuffleMessages::H1 { x1: vec![] },
+            Role::H2 => IntermediateShuffleMessages::H2 { x2: vec![] },
+            Role::H3 => IntermediateShuffleMessages::H3 {
+                y1: vec![],
+                y2: vec![],
+            },
+        }
+    }
 }
 
 pub trait Shuffle: Context {
