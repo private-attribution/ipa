@@ -122,7 +122,6 @@ impl<'a> HybridConversionInfo<'a> {
     }
 }
 
-#[allow(dead_code)]
 pub enum HybridInfo<'a> {
     Impression(HybridImpressionInfo<'a>),
     Conversion(HybridConversionInfo<'a>),
