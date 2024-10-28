@@ -86,7 +86,7 @@ ipa-prf = []
 relaxed-dp = []
 
 [dependencies]
-ipa-metrics = { path = "../ipa-metrics", features = [] }
+ipa-metrics = { path = "../ipa-metrics" }
 ipa-metrics-tracing = { optional = true, path = "../ipa-metrics-tracing" }
 ipa-step = { version = "*", path = "../ipa-step" }
 ipa-step-derive = { version = "*", path = "../ipa-step-derive" }

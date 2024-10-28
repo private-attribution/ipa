@@ -31,14 +31,15 @@ pub mod metrics {
             }
         }
 
-        impl From<RequestProtocolVersion> for &'static str {
-            fn from(v: RequestProtocolVersion) -> Self {
+        impl RequestProtocolVersion {
+            #[must_use]
+            pub fn as_str(&self) -> &'static str {
                 const HTTP11: &str = "request.protocol.HTTP/1.1";
                 const HTTP2: &str = "request.protocol.HTTP/2";
                 const HTTP3: &str = "request.protocol.HTTP/3";
                 const UNKNOWN: &str = "request.protocol.HTTP/UNKNOWN";
 
-                match v.0 {
+                match self.0 {
                     Version::HTTP_11 => HTTP11,
                     Version::HTTP_2 => HTTP2,
                     Version::HTTP_3 => HTTP3,

@@ -161,7 +161,7 @@ impl<F: ConnectionFlavor> MpcHelperServer<F> {
             TraceLayer::new_for_http()
                 .make_span_with(move |_request: &hyper::Request<_>| tracing.make_span())
                 .on_request(|request: &hyper::Request<_>, _: &Span| {
-                    counter!(RequestProtocolVersion::from(request.version()), 1);
+                    counter!(RequestProtocolVersion::from(request.version()).as_str(), 1);
                     counter!(REQUESTS_RECEIVED, 1);
                 }),
         );
@@ -733,15 +733,15 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11).as_str())
         );
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2).as_str())
         );
         assert_eq!(
             None,
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3).as_str())
         );
     }
 
@@ -768,7 +768,7 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2).as_str())
         );
     }
 }
