@@ -511,8 +511,9 @@ where
             protocol: &Step::Attribute,
             validate: &Step::AttributeValidate,
         },
-        // TODO: this should not be necessary, but probably can't be removed
-        // until we align read_size with the batch size.
+        // TODO: this override was originally added to work around problems with
+        // read_size vs. batch size alignment. Those are now fixed (in #1332), but this
+        // is still observed to help performance (see #1376), so has been retained.
         std::cmp::min(sh_ctx.active_work().get(), chunk_size.next_power_of_two()),
     );
     dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
