@@ -274,10 +274,11 @@ where
 
 /// # Errors
 /// Will propagate errors from `apply_dp_padding_pass`
+#[tracing::instrument(name = "apply_dp_padding", skip_all)]
 pub async fn apply_dp_padding<C, T, const B: usize>(
     ctx: C,
     mut input: Vec<T>,
-    padding_params: PaddingParameters,
+    padding_params: &PaddingParameters,
 ) -> Result<Vec<T>, Error>
 where
     C: Context,
@@ -290,7 +291,7 @@ where
         ctx.narrow(&PaddingDpStep::PaddingDpPass1),
         input,
         Role::H3,
-        &padding_params,
+        padding_params,
     )
     .await?;
 
@@ -299,7 +300,7 @@ where
         ctx.narrow(&PaddingDpStep::PaddingDpPass2),
         input,
         Role::H2,
-        &padding_params,
+        padding_params,
     )
     .await?;
 
@@ -308,7 +309,7 @@ where
         ctx.narrow(&PaddingDpStep::PaddingDpPass3),
         input,
         Role::H1,
-        &padding_params,
+        padding_params,
     )
     .await?;
 

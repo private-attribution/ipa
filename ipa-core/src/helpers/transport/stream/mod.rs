@@ -187,7 +187,7 @@ mod tests {
             let stream =
                 BodyStream::from_bytes_stream(stream::once(future::ready(Ok(Bytes::from(data)))));
 
-            stream.try_collect::<Vec<_>>().await.unwrap()
+            stream.try_collect::<Vec<_>>().await.unwrap();
         });
     }
 }

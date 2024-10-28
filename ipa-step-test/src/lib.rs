@@ -17,14 +17,20 @@ mod tests {
 
     #[test]
     fn narrows() {
+        assert_eq!(ComplexGate::default().index(), 0);
         assert_eq!(ComplexGate::default().as_ref(), "/");
         assert_eq!(
             ComplexGate::default().narrow(&ComplexStep::One).as_ref(),
             "/one"
         );
+        assert_eq!(ComplexGate::default().narrow(&ComplexStep::One).index(), 1,);
         assert_eq!(
             ComplexGate::default().narrow(&ComplexStep::Two(2)).as_ref(),
             "/two2"
+        );
+        assert_eq!(
+            ComplexGate::default().narrow(&ComplexStep::Two(2)).index(),
+            10,
         );
         assert_eq!(
             ComplexGate::default()
@@ -32,6 +38,13 @@ mod tests {
                 .narrow(&BasicStep::One)
                 .as_ref(),
             "/two2/one"
+        );
+        assert_eq!(
+            ComplexGate::default()
+                .narrow(&ComplexStep::Two(2))
+                .narrow(&BasicStep::One)
+                .index(),
+            11,
         );
         assert_eq!(
             ComplexGate::from("/two2/one"),
@@ -53,6 +66,16 @@ mod tests {
     #[should_panic(expected = "unexpected narrow for ComplexGate(/two2/one) => BasicStep(two)")]
     fn bad_narrow() {
         _ = ComplexGate::from("/two2/one").narrow(&BasicStep::Two);
+    }
+
+    /// Attempts to narrow with an out-of-range index should panic
+    /// (rather than produce an incorrect output gate).
+    #[test]
+    #[should_panic(
+        expected = "Step index 10 out of bounds for ComplexStep::Two with count 10. Consider using bounds-checked step constructors."
+    )]
+    fn index_out_of_range() {
+        _ = ComplexGate::default().narrow(&ComplexStep::Two(10));
     }
 
     /// Test that the alpha and beta gates work.

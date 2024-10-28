@@ -3,14 +3,14 @@ use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 #[cfg(all(test, unit_test))]
 use crate::ff::Fp31;
 use crate::{
-    error::{Error, Error::DZKPMasks},
+    error::Error::{self, DZKPMasks},
     ff::{Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
         context::Context,
         ipa_prf::malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
         prss::SharedRandomness,
-        RecordId,
+        RecordId, RecordIdRange,
     },
 };
 
@@ -179,7 +179,7 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
             .collect::<UVValues<F, N>>()
     }
 
-    fn gen_proof_shares_from_prss<C>(ctx: &C, record_counter: &mut RecordId) -> ([F; P], [F; P])
+    fn gen_proof_shares_from_prss<C>(ctx: &C, record_ids: &mut RecordIdRange) -> ([F; P], [F; P])
     where
         C: Context,
     {
@@ -187,9 +187,9 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         let mut out_right = [F::ZERO; P];
         // use PRSS
         for i in 0..P {
-            let (left, right) = ctx.prss().generate_fields::<F, RecordId>(*record_counter);
-
-            *record_counter += 1;
+            let (left, right) = ctx
+                .prss()
+                .generate_fields::<F, RecordId>(record_ids.expect_next());
 
             out_left[i] = left;
             out_right[i] = right;
@@ -215,7 +215,7 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     /// `my_proof_left_share` has type `Vec<[F; P]>`,
     pub fn gen_artefacts_from_recursive_step<C, J, B, const N: usize>(
         ctx: &C,
-        record_counter: &mut RecordId,
+        record_ids: &mut RecordIdRange,
         lagrange_table: &LagrangeTable<F, L, M>,
         uv_iterator: J,
     ) -> (UVValues<F, N>, [F; P], [F; P])
@@ -230,7 +230,7 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
 
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
-            Self::gen_proof_shares_from_prss(ctx, record_counter);
+            Self::gen_proof_shares_from_prss(ctx, record_ids);
 
         // generate prover left proof
         let my_proof_left_share = Self::gen_other_proof_share(my_proof, my_proof_right_share);
@@ -267,7 +267,7 @@ mod test {
                 lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
                 prover::{LargeProofGenerator, SmallProofGenerator, TestProofGenerator, UVValues},
             },
-            RecordId,
+            RecordId, RecordIdRange,
         },
         seq_join::SeqJoin,
         test_executor::run,
@@ -396,11 +396,11 @@ mod test {
 
             // first iteration
             let world = TestWorld::default();
-            let mut record_counter = RecordId::from(0);
+            let mut record_ids = RecordIdRange::ALL;
             let (uv_values, _, _) =
                 TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, _, 4>(
                     &world.contexts()[0],
-                    &mut record_counter,
+                    &mut record_ids,
                     &lagrange_table,
                     uv_1.iter(),
                 );
@@ -496,11 +496,11 @@ mod test {
         let world = TestWorld::default();
         let [helper_1_proofs, helper_2_proofs, helper_3_proofs] = world
             .semi_honest((), |ctx, ()| async move {
-                let mut record_counter = RecordId::from(0);
+                let mut record_ids = RecordIdRange::ALL;
                 (0..NUM_PROOFS)
                     .map(|i| {
-                        assert_eq!(i * 7, usize::from(record_counter));
-                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_counter)
+                        assert_eq!(i * 7, usize::from(record_ids.peek_first()));
+                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_ids)
                     })
                     .collect::<Vec<_>>()
             })
@@ -550,9 +550,9 @@ mod test {
         let [(h1_proof_left, h1_proof_right), (h2_proof_left, h2_proof_right), (h3_proof_left, h3_proof_right)] =
             world
                 .semi_honest((), |ctx, ()| async move {
-                    let mut record_counter = RecordId::from(0);
+                    let mut record_ids = RecordIdRange::ALL;
                     let (proof_share_left, my_share_of_right) =
-                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_counter);
+                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_ids);
                     let proof_u128 = match ctx.role() {
                         Role::H1 => PROOF_1,
                         Role::H2 => PROOF_2,

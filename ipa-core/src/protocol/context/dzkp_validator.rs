@@ -1,8 +1,9 @@
-use std::{cmp, collections::BTreeMap, fmt::Debug, future::ready};
+use std::{collections::BTreeMap, fmt::Debug, future::ready};
 
 use async_trait::async_trait;
 use bitvec::prelude::{BitArray, BitSlice, Lsb0};
 use futures::{stream, Future, FutureExt, Stream, StreamExt};
+use ipa_step::StepNarrow;
 
 use crate::{
     error::{BoxError, Error},
@@ -12,17 +13,20 @@ use crate::{
         context::{
             batcher::Batcher,
             dzkp_field::{DZKPBaseField, UVTupleBlock},
-            dzkp_malicious::{DZKPUpgraded as MaliciousDZKPUpgraded, DzkpBatcher},
+            dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
-            step::ZeroKnowledgeProofValidateStep as Step,
-            Base, Context, DZKPContext, MaliciousContext,
+            step::DzkpValidationProtocolStep as Step,
+            Base, Context, DZKPContext, MaliciousContext, MaliciousProtocolSteps,
         },
-        ipa_prf::validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
-        Gate, RecordId,
+        ipa_prf::{
+            validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
+            LargeProofGenerator, SmallProofGenerator,
+        },
+        Gate, RecordId, RecordIdRange,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::ShardBinding,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 pub type Array256Bit = BitArray<[u8; 32], Lsb0>;
@@ -33,7 +37,43 @@ const BIT_ARRAY_LEN: usize = 256;
 const BIT_ARRAY_MASK: usize = BIT_ARRAY_LEN - 1;
 const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 
+// The target size of a zero-knowledge proof, in GF(2) multiplies.  Seven intermediate
+// values are stored for each multiply, so the amount memory required is 7 times this
+// value.
+//
+// To enable computing a read size for `OrdereringSender` that achieves good network
+// utilization, the number of records in a proof must be a power of two. Protocols
+// typically compute the size of a proof batch by dividing TARGET_PROOF_SIZE by
+// an approximate number of multiplies per record, and then rounding up to a power
+// of two. Thus, it is not necessary for TARGET_PROOF_SIZE to be a power of two.
+//
+// A smaller value is used for tests, to enable covering some corner cases with a
+// reasonable runtime. Some of these tests use TARGET_PROOF_SIZE directly, so for tests
+// it does need to be a power of two.
+#[cfg(test)]
+pub const TARGET_PROOF_SIZE: usize = 8192;
+#[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
+
+/// Maximum proof recursion depth.
+//
+// This is a hard limit. Each GF(2) multiply generates four G values and four H values,
+// and the last level of the proof is limited to (small_recursion_factor - 1), so the
+// restriction is:
+//
+// $$ large_recursion_factor * (small_recursion_factor - 1)
+//     * small_recursion_factor ^ (depth - 2) >= 4 * target_proof_size $$
+//
+// With large_recursion_factor = 32 and small_recursion_factor = 8, this means:
+//
+// $$ depth >= log_8 (8/7 * target_proof_size) $$
+//
+// Because the number of records in a proof batch is often rounded up to a power of two
+// (and less significantly, because multiplication intermediate storage gets rounded up
+// to blocks of 256), leaving some margin is advised.
+//
+// The implementation requires that MAX_PROOF_RECURSION is at least 2.
+pub const MAX_PROOF_RECURSION: usize = 9;
 
 /// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
 /// that occur duringa multiplication.
@@ -90,6 +130,31 @@ impl MultiplicationInputsBlock {
             prss_right: BitArray::try_from(prss_right)?,
             z_right: BitArray::try_from(z_right)?,
         })
+    }
+
+    /// set using bitslices
+    /// ## Errors
+    /// Errors when length of slices is not 256 bit
+    #[allow(clippy::too_many_arguments)]
+    fn set(
+        &mut self,
+        x_left: &BitSliceType,
+        x_right: &BitSliceType,
+        y_left: &BitSliceType,
+        y_right: &BitSliceType,
+        prss_left: &BitSliceType,
+        prss_right: &BitSliceType,
+        z_right: &BitSliceType,
+    ) -> Result<(), BoxError> {
+        self.x_left = BitArray::try_from(x_left)?;
+        self.x_right = BitArray::try_from(x_right)?;
+        self.y_left = BitArray::try_from(y_left)?;
+        self.y_right = BitArray::try_from(y_right)?;
+        self.prss_left = BitArray::try_from(prss_left)?;
+        self.prss_right = BitArray::try_from(prss_right)?;
+        self.z_right = BitArray::try_from(z_right)?;
+
+        Ok(())
     }
 
     /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
@@ -220,29 +285,29 @@ impl<'a> SegmentEntry<'a> {
 
 /// `MultiplicationInputsBatch` stores a batch of multiplication inputs in a vector of `MultiplicationInputsBlock`.
 /// `first_record` is the first `RecordId` for the current batch.
-/// `last_record` keeps track of the highest record that has been added to the batch.
 /// `max_multiplications` is the maximum amount of multiplications performed within a this batch.
 /// It is used to determine the vector length during the allocation.
 /// If there are more multiplications, it will cause a panic!
 /// `multiplication_bit_size` is the bit size of a single multiplication. The size will be consistent
 /// across all multiplications of a gate.
-/// `is_empty` keeps track of whether any value has been added
 #[derive(Clone, Debug)]
 struct MultiplicationInputsBatch {
-    first_record: RecordId,
-    last_record: RecordId,
+    first_record: Option<RecordId>,
     max_multiplications: usize,
     multiplication_bit_size: usize,
-    is_empty: bool,
     vec: Vec<MultiplicationInputsBlock>,
 }
 
 impl MultiplicationInputsBatch {
-    /// Creates a new store for multiplication intermediates for records starting from
-    /// `first_record`. The size of the allocated vector is
+    /// Creates a new store for multiplication intermediates. The first record is
+    /// specified by `first_record`, or if that is `None`, is set automatically the
+    /// first time a segment is added to the batch. Once the first record is set,
+    /// attempting to add a segment before the first record will panic.
+    ///
+    /// The size of the allocated vector is
     /// `ceil((max_multiplications * multiplication_bit_size) / BIT_ARRAY_LEN)`.
     fn new(
-        first_record: RecordId,
+        first_record: Option<RecordId>,
         max_multiplications: usize,
         multiplication_bit_size: usize,
     ) -> Self {
@@ -256,14 +321,12 @@ impl MultiplicationInputsBatch {
         // records.
         let capacity_bits = usize::min(
             TARGET_PROOF_SIZE,
-            max_multiplications * multiplication_bit_size,
+            max_multiplications.saturating_mul(multiplication_bit_size),
         );
         Self {
             first_record,
-            last_record: first_record,
             max_multiplications,
             multiplication_bit_size,
-            is_empty: false,
             vec: Vec::with_capacity((capacity_bits + BIT_ARRAY_MASK) >> BIT_ARRAY_SHIFT),
         }
     }
@@ -276,7 +339,7 @@ impl MultiplicationInputsBatch {
 
     /// returns whether the store is empty
     fn is_empty(&self) -> bool {
-        self.is_empty
+        self.vec.is_empty()
     }
 
     /// `insert_segment` allows to include a new segment in `MultiplicationInputsBatch`.
@@ -291,21 +354,27 @@ impl MultiplicationInputsBatch {
         // check segment size
         debug_assert_eq!(segment.len(), self.multiplication_bit_size);
 
+        let first_record = *self.first_record.get_or_insert(record_id);
+
         // panics when record_id is out of bounds
-        assert!(record_id >= self.first_record);
         assert!(
-            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record)),
+            record_id >= first_record,
+            "record_id out of range in insert_segment. record {record_id} is before \
+             first record {first_record}",
+        );
+        assert!(
+            usize::from(record_id)
+                < self
+                    .max_multiplications
+                    .saturating_add(usize::from(first_record)),
             "record_id out of range in insert_segment. record {record_id} is beyond \
              segment of length {} starting at {}",
             self.max_multiplications,
-            self.first_record,
+            first_record,
         );
 
-        // update last record
-        self.last_record = cmp::max(self.last_record, record_id);
-
         // panics when record_id is too large to fit in, i.e. when it is out of bounds
-        if segment.len() <= 256 {
+        if segment.len() < 256 {
             self.insert_segment_small(record_id, segment);
         } else {
             self.insert_segment_large(record_id, &segment);
@@ -320,17 +389,8 @@ impl MultiplicationInputsBatch {
     /// than the first record of the batch, i.e. `first_record`
     /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment_small(&mut self, record_id: RecordId, segment: Segment) {
-        // check length
-        debug_assert!(segment.len() <= 256);
-
-        // panics when record_id is out of bounds
-        assert!(record_id >= self.first_record);
-        assert!(
-            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
-        );
-
         // panics when record_id is less than first_record
-        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record.unwrap());
         // round up segment length to a power of two since we want to have divisors of 256
         let length = segment.len().next_power_of_two();
 
@@ -371,16 +431,7 @@ impl MultiplicationInputsBatch {
     /// than the first record of the batch, i.e. `first_record`
     /// or too large, i.e. `first_record+max_multiplications`
     fn insert_segment_large(&mut self, record_id: RecordId, segment: &Segment) {
-        // check length
-        debug_assert_eq!(segment.len() % 256, 0);
-
-        // panics when record_id is out of bounds
-        assert!(record_id >= self.first_record);
-        assert!(
-            record_id < RecordId::from(self.max_multiplications + usize::from(self.first_record))
-        );
-
-        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record.unwrap());
         let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
         let length_in_blocks = segment.len() >> BIT_ARRAY_SHIFT;
         if self.vec.len() < block_id {
@@ -389,8 +440,9 @@ impl MultiplicationInputsBatch {
         }
 
         for i in 0..length_in_blocks {
-            self.vec.push(
-                MultiplicationInputsBlock::clone_from(
+            if self.vec.len() > block_id + i {
+                MultiplicationInputsBlock::set(
+                    &mut self.vec[block_id + i],
                     &segment.x_left.0[256 * i..256 * (i + 1)],
                     &segment.x_right.0[256 * i..256 * (i + 1)],
                     &segment.y_left.0[256 * i..256 * (i + 1)],
@@ -399,8 +451,21 @@ impl MultiplicationInputsBatch {
                     &segment.prss_right.0[256 * i..256 * (i + 1)],
                     &segment.z_right.0[256 * i..256 * (i + 1)],
                 )
-                .unwrap(),
-            );
+                .unwrap();
+            } else {
+                self.vec.push(
+                    MultiplicationInputsBlock::clone_from(
+                        &segment.x_left.0[256 * i..256 * (i + 1)],
+                        &segment.x_right.0[256 * i..256 * (i + 1)],
+                        &segment.y_left.0[256 * i..256 * (i + 1)],
+                        &segment.y_right.0[256 * i..256 * (i + 1)],
+                        &segment.prss_left.0[256 * i..256 * (i + 1)],
+                        &segment.prss_right.0[256 * i..256 * (i + 1)],
+                        &segment.z_right.0[256 * i..256 * (i + 1)],
+                    )
+                    .unwrap(),
+                );
+            }
         }
     }
 
@@ -444,12 +509,24 @@ impl MultiplicationInputsBatch {
 #[derive(Debug)]
 pub(super) struct Batch {
     max_multiplications_per_gate: usize,
-    first_record: RecordId,
+    first_record: Option<RecordId>,
     inner: BTreeMap<Gate, MultiplicationInputsBatch>,
 }
 
 impl Batch {
-    fn new(first_record: RecordId, max_multiplications_per_gate: usize) -> Self {
+    /// Creates a new `Batch` for multiplication intermediates from multiple gates. The
+    /// first record is specified by `first_record`, or if that is `None`, is set
+    /// automatically for each gate the first time a segment from that gate is added.
+    ///
+    /// Once the first record is set, attempting to add a segment before the first
+    /// record will panic. It is likely, but not guaranteed, that protocol execution
+    /// proceeds in order, so a problem here can easily escape testing.
+    ///  * When using the `Batcher` in multi-batch mode, `first_record` is calculated
+    ///    from the batch index and the number of records in a batch, so there is no
+    ///    possibility of attempting to add a record before the start of the batch.
+    ///  * The only protocol that manages batches explicitly is the aggregation protocol
+    ///    (`breakdown_reveal_aggregation`). It is structured to operate in order.
+    fn new(first_record: Option<RecordId>, max_multiplications_per_gate: usize) -> Self {
         Self {
             max_multiplications_per_gate,
             first_record,
@@ -519,8 +596,21 @@ impl Batch {
 
     /// ## Panics
     /// If `usize` to `u128` conversion fails.
-    pub(super) async fn validate(self, ctx: Base<'_>) -> Result<(), Error> {
+    pub(super) async fn validate<B: ShardBinding>(
+        self,
+        ctx: Base<'_, B>,
+        batch_index: usize,
+    ) -> Result<(), Error> {
+        const PRSS_RECORDS_PER_BATCH: usize = LargeProofGenerator::PROOF_LENGTH
+            + (MAX_PROOF_RECURSION - 1) * SmallProofGenerator::PROOF_LENGTH
+            + 2; // P and Q masks
+
         let proof_ctx = ctx.narrow(&Step::GenerateProof);
+
+        let record_id = RecordId::from(batch_index);
+        let prss_record_id_start = RecordId::from(batch_index * PRSS_RECORDS_PER_BATCH);
+        let prss_record_id_end = RecordId::from((batch_index + 1) * PRSS_RECORDS_PER_BATCH);
+        let prss_record_ids = RecordIdRange::from(prss_record_id_start..prss_record_id_end);
 
         if self.is_empty() {
             return Ok(());
@@ -533,11 +623,12 @@ impl Batch {
             q_mask_from_left_prover,
         ) = {
             // generate BatchToVerify
-            ProofBatch::generate(&proof_ctx, self.get_field_values_prover())
+            ProofBatch::generate(&proof_ctx, prss_record_ids, self.get_field_values_prover())
         };
 
         let chunk_batch = BatchToVerify::generate_batch_to_verify(
             proof_ctx,
+            record_id,
             my_batch_left_shares,
             shares_of_batch_from_left_prover,
             p_mask_from_right_prover,
@@ -547,7 +638,7 @@ impl Batch {
 
         // generate challenges
         let (challenges_for_left_prover, challenges_for_right_prover) = chunk_batch
-            .generate_challenges(ctx.narrow(&Step::Challenge))
+            .generate_challenges(ctx.narrow(&Step::Challenge), record_id)
             .await;
 
         let (sum_of_uv, p_r_right_prover, q_r_left_prover) = {
@@ -581,6 +672,7 @@ impl Batch {
         chunk_batch
             .verify(
                 ctx.narrow(&Step::VerifyProof),
+                record_id,
                 sum_of_uv,
                 p_r_right_prover,
                 q_r_left_prover,
@@ -616,7 +708,18 @@ pub trait DZKPValidator: Send + Sync {
     ///
     /// # Panics
     /// May panic if the above restrictions on validator usage are not followed.
-    async fn validate(self) -> Result<(), Error>;
+    async fn validate(self) -> Result<(), Error>
+    where
+        Self: Sized,
+    {
+        self.validate_indexed(0).await
+    }
+
+    /// Validates all of the multiplies associated with this validator, specifying
+    /// an explicit batch index.
+    ///
+    /// This should be used when the protocol is explicitly managing batches.
+    async fn validate_indexed(self, batch_index: usize) -> Result<(), Error>;
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
     /// within the associated `DZKPBatch`
@@ -662,6 +765,20 @@ pub trait DZKPValidator: Send + Sync {
     }
 }
 
+// Wrapper to avoid https://github.com/rust-lang/rust/issues/100013.
+pub fn validated_seq_join<'st, V, S, F, O>(
+    validator: V,
+    source: S,
+) -> impl Stream<Item = Result<O, Error>> + Send + 'st
+where
+    V: DZKPValidator + 'st,
+    S: Stream<Item = F> + Send + 'st,
+    F: Future<Output = Result<O, Error>> + Send + 'st,
+    O: Send + Sync + 'static,
+{
+    validator.validated_seq_join(source)
+}
+
 #[derive(Clone)]
 pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
     context: SemiHonestDZKPUpgraded<'a, B>,
@@ -687,7 +804,7 @@ impl<'a, B: ShardBinding> DZKPValidator for SemiHonestDZKPValidator<'a, B> {
         // Semi-honest validator doesn't do anything, so doesn't care.
     }
 
-    async fn validate(self) -> Result<(), Error> {
+    async fn validate_indexed(self, _batch_index: usize) -> Result<(), Error> {
         Ok(())
     }
 
@@ -696,50 +813,59 @@ impl<'a, B: ShardBinding> DZKPValidator for SemiHonestDZKPValidator<'a, B> {
     }
 }
 
+type DzkpBatcher<'a> = Batcher<'a, Batch>;
+
+/// The DZKP validator, and all associated contexts, each hold a reference to a single
+/// instance of `MaliciousDZKPValidatorInner`.
+pub(super) struct MaliciousDZKPValidatorInner<'a, B: ShardBinding> {
+    pub(super) batcher: Mutex<DzkpBatcher<'a>>,
+    pub(super) validate_ctx: Base<'a, B>,
+}
+
 /// `MaliciousDZKPValidator` corresponds to pub struct `Malicious` and implements the trait `DZKPValidator`
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
-pub struct MaliciousDZKPValidator<'a> {
+pub struct MaliciousDZKPValidator<'a, B: ShardBinding> {
     // This is an `Option` because we want to consume it in `DZKPValidator::validate`,
     // but we also want to implement `Drop`. Note that the `is_verified` check in `Drop`
     // does nothing when `batcher_ref` is already `None`.
-    batcher_ref: Option<Arc<DzkpBatcher<'a>>>,
-    protocol_ctx: MaliciousDZKPUpgraded<'a>,
-    validate_ctx: MaliciousContext<'a>,
+    inner_ref: Option<Arc<MaliciousDZKPValidatorInner<'a, B>>>,
+    protocol_ctx: MaliciousDZKPUpgraded<'a, B>,
 }
 
 #[async_trait]
-impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
-    type Context = MaliciousDZKPUpgraded<'a>;
+impl<'a, B: ShardBinding> DZKPValidator for MaliciousDZKPValidator<'a, B> {
+    type Context = MaliciousDZKPUpgraded<'a, B>;
 
-    fn context(&self) -> MaliciousDZKPUpgraded<'a> {
+    fn context(&self) -> MaliciousDZKPUpgraded<'a, B> {
         self.protocol_ctx.clone()
     }
 
     fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T) {
-        self.batcher_ref
+        self.inner_ref
             .as_ref()
-            .unwrap()
+            .expect("validator should be active")
+            .batcher
             .lock()
             .unwrap()
             .set_total_records(total_records);
     }
 
-    async fn validate(mut self) -> Result<(), Error> {
-        let batcher_arc = self
-            .batcher_ref
+    async fn validate_indexed(mut self, batch_index: usize) -> Result<(), Error> {
+        let arc = self
+            .inner_ref
             .take()
             .expect("nothing else should be consuming the batcher");
-        let batcher_mutex = Arc::into_inner(batcher_arc)
+        let MaliciousDZKPValidatorInner {
+            batcher: batcher_mutex,
+            validate_ctx,
+        } = Arc::into_inner(arc)
             .expect("validator should hold the only strong reference to batcher");
+
         let batcher = batcher_mutex.into_inner().unwrap();
 
         batcher
             .into_single_batch()
-            .validate(
-                self.validate_ctx
-                    .narrow(&Step::DZKPValidate(0))
-                    .validator_context(),
-            )
+            .validate(validate_ctx, batch_index)
             .await
     }
 
@@ -749,7 +875,13 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
     /// ## Errors
     /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error> {
-        let batcher = self.batcher_ref.as_ref().unwrap().lock().unwrap();
+        let batcher = self
+            .inner_ref
+            .as_ref()
+            .expect("validator should be active")
+            .batcher
+            .lock()
+            .unwrap();
         if batcher.is_empty() {
             Ok(())
         } else {
@@ -758,32 +890,50 @@ impl<'a> DZKPValidator for MaliciousDZKPValidator<'a> {
     }
 }
 
-impl<'a> MaliciousDZKPValidator<'a> {
+impl<'a, B: ShardBinding> MaliciousDZKPValidator<'a, B> {
     #[must_use]
-    pub fn new(ctx: MaliciousContext<'a>, max_multiplications_per_gate: usize) -> Self {
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn new<S>(
+        ctx: MaliciousContext<'a, B>,
+        steps: MaliciousProtocolSteps<S>,
+        max_multiplications_per_gate: usize,
+    ) -> Self
+    where
+        Gate: StepNarrow<S>,
+        S: ipa_step::Step + ?Sized,
+    {
         let batcher = Batcher::new(
             max_multiplications_per_gate,
             ctx.total_records(),
             Box::new(move |batch_index| {
-                Batch::new(
-                    RecordId::from(batch_index * max_multiplications_per_gate),
-                    max_multiplications_per_gate,
-                )
+                let first_record = (max_multiplications_per_gate != usize::MAX)
+                    .then(|| RecordId::from(batch_index * max_multiplications_per_gate));
+                Batch::new(first_record, max_multiplications_per_gate)
             }),
         );
-        let protocol_ctx =
-            MaliciousDZKPUpgraded::new(&batcher, ctx.narrow(&Step::DZKPMaliciousProtocol));
+        let inner = Arc::new(MaliciousDZKPValidatorInner {
+            batcher,
+            validate_ctx: ctx.narrow(steps.validate).validator_context(),
+        });
+        let protocol_ctx = MaliciousDZKPUpgraded::new(&inner, ctx.narrow(steps.protocol));
         Self {
-            batcher_ref: Some(batcher),
+            inner_ref: Some(inner),
             protocol_ctx,
-            validate_ctx: ctx,
         }
     }
 }
 
-impl<'a> Drop for MaliciousDZKPValidator<'a> {
+impl<'a, B: ShardBinding> Drop for MaliciousDZKPValidator<'a, B> {
     fn drop(&mut self) {
-        if self.batcher_ref.is_some() {
+        // If `validate` has not been called, and we are not unwinding, check that the
+        // validator is not holding unverified multiplies.
+        //  * If `validate` has been called (i.e. the validator was used in the
+        //    non-`validate_record` mode of operation), then `self.inner_ref` is `None`,
+        //    because validation consumed the batcher via `self.inner_ref`.
+        //  * Unwinding can happen at any time, so complaining about incomplete
+        //    validation is likely just extra noise, and the additional panic
+        //    during unwinding could be confusing.
+        if self.inner_ref.is_some() && !std::thread::panicking() {
             self.is_verified().unwrap();
         }
     }
@@ -798,36 +948,158 @@ mod tests {
     };
 
     use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
-    use futures::{StreamExt, TryStreamExt};
+    use futures::{stream, StreamExt, TryStreamExt};
     use futures_util::stream::iter;
-    use proptest::{prop_compose, proptest, sample::select};
-    use rand::{thread_rng, Rng};
+    use proptest::{
+        prelude::{Just, Strategy},
+        prop_compose, prop_oneof, proptest,
+        test_runner::Config as ProptestConfig,
+    };
+    use rand::{distributions::Standard, prelude::Distribution};
 
     use crate::{
         error::Error,
-        ff::{boolean::Boolean, Fp61BitPrime},
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BooleanArray, BA16, BA20, BA256, BA3, BA32, BA64, BA8},
+            Fp61BitPrime,
+        },
         protocol::{
-            basics::SecureMul,
+            basics::{select, BooleanArrayMul, SecureMul},
             context::{
                 dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
                 dzkp_validator::{
-                    Batch, DZKPValidator, Segment, SegmentEntry, Step, BIT_ARRAY_LEN,
-                    TARGET_PROOF_SIZE,
+                    Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
                 },
-                Context, UpgradableContext,
+                Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
+                UpgradableContext, TEST_DZKP_STEPS,
             },
             Gate, RecordId,
         },
+        rand::{thread_rng, Rng},
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
             Vectorizable,
         },
         seq_join::{seq_join, SeqJoin},
+        sharding::NotSharded,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 
+    async fn test_select_semi_honest<V>()
+    where
+        V: BooleanArray,
+        for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
+        Standard: Distribution<V>,
+    {
+        let world = TestWorld::default();
+        let context = world.contexts();
+        let mut rng = thread_rng();
+
+        let bit = rng.gen::<Boolean>();
+        let a = rng.gen::<V>();
+        let b = rng.gen::<V>();
+
+        let bit_shares = bit.share_with(&mut rng);
+        let a_shares = a.share_with(&mut rng);
+        let b_shares = b.share_with(&mut rng);
+
+        let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares))).map(
+            |(ctx, (bit_share, (a_share, b_share)))| async move {
+                let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
+                let sh_ctx = v.context();
+
+                let result = select(
+                    sh_ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &bit_share,
+                    &a_share,
+                    &b_share,
+                )
+                .await?;
+
+                v.validate().await?;
+
+                Ok::<_, Error>(result)
+            },
+        );
+
+        let [ab0, ab1, ab2] = join3v(futures).await;
+
+        let ab = [ab0, ab1, ab2].reconstruct();
+
+        assert_eq!(ab, if bit.into() { a } else { b });
+    }
+
     #[tokio::test]
-    async fn dzkp_malicious() {
+    async fn select_semi_honest() {
+        test_select_semi_honest::<BA3>().await;
+        test_select_semi_honest::<BA8>().await;
+        test_select_semi_honest::<BA16>().await;
+        test_select_semi_honest::<BA20>().await;
+        test_select_semi_honest::<BA32>().await;
+        test_select_semi_honest::<BA64>().await;
+        test_select_semi_honest::<BA256>().await;
+    }
+
+    async fn test_select_malicious<V>()
+    where
+        V: BooleanArray,
+        for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedMaliciousContext<'a, NotSharded>>,
+        Standard: Distribution<V>,
+    {
+        let world = TestWorld::default();
+        let context = world.malicious_contexts();
+        let mut rng = thread_rng();
+
+        let bit = rng.gen::<Boolean>();
+        let a = rng.gen::<V>();
+        let b = rng.gen::<V>();
+
+        let bit_shares = bit.share_with(&mut rng);
+        let a_shares = a.share_with(&mut rng);
+        let b_shares = b.share_with(&mut rng);
+
+        let futures = zip(context.iter(), zip(bit_shares, zip(a_shares, b_shares))).map(
+            |(ctx, (bit_share, (a_share, b_share)))| async move {
+                let v = ctx.clone().dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context();
+
+                let result = select(
+                    m_ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &bit_share,
+                    &a_share,
+                    &b_share,
+                )
+                .await?;
+
+                v.validate().await?;
+
+                Ok::<_, Error>(result)
+            },
+        );
+
+        let [ab0, ab1, ab2] = join3v(futures).await;
+
+        let ab = [ab0, ab1, ab2].reconstruct();
+
+        assert_eq!(ab, if bit.into() { a } else { b });
+    }
+
+    #[tokio::test]
+    async fn select_malicious() {
+        test_select_malicious::<BA3>().await;
+        test_select_malicious::<BA8>().await;
+        test_select_malicious::<BA16>().await;
+        test_select_malicious::<BA20>().await;
+        test_select_malicious::<BA32>().await;
+        test_select_malicious::<BA64>().await;
+        test_select_malicious::<BA256>().await;
+    }
+
+    #[tokio::test]
+    async fn two_multiplies_malicious() {
         const COUNT: usize = 32;
         let mut rng = thread_rng();
 
@@ -839,11 +1111,8 @@ mod tests {
             .malicious(
                 original_inputs.clone().into_iter(),
                 |ctx, input_shares| async move {
-                    let v = ctx.dzkp_validator(COUNT);
-                    let m_ctx = v
-                        .context()
-                        .narrow(&Step::DZKPMaliciousProtocol)
-                        .set_total_records(COUNT - 1);
+                    let v = ctx.dzkp_validator(TEST_DZKP_STEPS, COUNT);
+                    let m_ctx = v.context().set_total_records(COUNT - 1);
 
                     let m_results = seq_join(
                         NonZeroUsize::new(COUNT).unwrap(),
@@ -890,9 +1159,54 @@ mod tests {
         }
     }
 
+    /// Similar to `test_select_malicious`, but operating on vectors
+    async fn multi_select_malicious<V>(count: usize, max_multiplications_per_gate: usize)
+    where
+        V: BooleanArray,
+        for<'a> Replicated<V>: BooleanArrayMul<DZKPUpgradedMaliciousContext<'a, NotSharded>>,
+        Standard: Distribution<V>,
+    {
+        let mut rng = thread_rng();
+
+        let bit: Vec<Boolean> = repeat_with(|| rng.gen::<Boolean>()).take(count).collect();
+        let a: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
+        let b: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
+
+        let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] = TestWorld::default()
+            .malicious(
+                zip(bit.clone(), zip(a.clone(), b.clone())),
+                |ctx, inputs| async move {
+                    let v = ctx
+                        .set_total_records(count)
+                        .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
+                    let m_ctx = v.context();
+
+                    v.validated_seq_join(stream::iter(inputs).enumerate().map(
+                        |(i, (bit_share, (a_share, b_share)))| {
+                            let m_ctx = m_ctx.clone();
+                            async move {
+                                select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
+                                    .await
+                            }
+                        },
+                    ))
+                    .try_collect()
+                    .await
+                },
+            )
+            .await
+            .map(Result::unwrap);
+
+        let ab: Vec<V> = [ab0, ab1, ab2].reconstruct();
+
+        for i in 0..count {
+            assert_eq!(ab[i], if bit[i].into() { a[i] } else { b[i] });
+        }
+    }
+
     /// test for testing `validated_seq_join`
-    /// similar to `complex_circuit` in `validator.rs`
-    async fn complex_circuit_dzkp(
+    /// similar to `complex_circuit` in `validator.rs` (which has a more detailed comment)
+    async fn chained_multiplies_dzkp(
         count: usize,
         max_multiplications_per_gate: usize,
     ) -> Result<(), Error> {
@@ -922,7 +1236,7 @@ mod tests {
             .map(|(ctx, input_shares)| async move {
                 let v = ctx
                     .set_total_records(count - 1)
-                    .dzkp_validator(ctx.active_work().get());
+                    .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
                 let m_ctx = v.context();
 
                 let m_results = v
@@ -951,7 +1265,7 @@ mod tests {
             .into_iter()
             .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(max_multiplications_per_gate);
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
                 let m_ctx = v.context();
 
                 let m_results = v
@@ -998,38 +1312,182 @@ mod tests {
         Ok(())
     }
 
+    fn record_count_strategy() -> impl Strategy<Value = usize> {
+        // The chained_multiplies test has count - 1 records, so 1 is not a valid input size.
+        // It is for multi_select though.
+        prop_oneof![2usize..=512, (1u32..=9).prop_map(|i| 1usize << i)]
+    }
+
+    fn max_multiplications_per_gate_strategy(record_count: usize) -> impl Strategy<Value = usize> {
+        let max_max_mults = record_count.min(128);
+        (0u32..=max_max_mults.ilog2()).prop_map(|i| 1usize << i)
+    }
+
     prop_compose! {
-        fn arb_count_and_chunk()((log_count, log_multiplication_amount) in select(&[(5,5),(7,5),(5,8)])) -> (usize, usize) {
-            (1usize<<log_count, 1usize<<log_multiplication_amount)
+        fn batching()
+                   (record_count in record_count_strategy())
+                   (record_count in Just(record_count), max_mults in max_multiplications_per_gate_strategy(record_count))
+        -> (usize, usize)
+        {
+            (record_count, max_mults)
         }
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
         #[test]
-        fn test_complex_circuit_dzkp((count, multiplication_amount) in arb_count_and_chunk()){
-            let future = async {
-            let _ = complex_circuit_dzkp(count, multiplication_amount).await;
-        };
-        tokio::runtime::Runtime::new().unwrap().block_on(future);
+        fn batching_proptest((record_count, max_multiplications_per_gate) in batching()) {
+            println!("record_count {record_count} batch {max_multiplications_per_gate}");
+            // This condition is correct only for active_work = 16 and record size of 1 byte.
+            if max_multiplications_per_gate != 1 && max_multiplications_per_gate % 16 != 0 {
+                // TODO: #1300, read_size | batch_size.
+                // Note: for active work < 2048, read size matches active work.
+
+                // Besides read_size | batch_size, there is also a constraint
+                // something like active_work > read_size + batch_size - 1.
+                println!("skipping config due to read_size vs. batch_size constraints");
+            } else {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    chained_multiplies_dzkp(record_count, max_multiplications_per_gate).await.unwrap();
+                    /*
+                    multi_select_malicious::<BA3>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA8>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA16>(record_count, max_multiplications_per_gate).await;
+                    */
+                    multi_select_malicious::<BA20>(record_count, max_multiplications_per_gate).await;
+                    /*
+                    multi_select_malicious::<BA32>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA64>(record_count, max_multiplications_per_gate).await;
+                    multi_select_malicious::<BA256>(record_count, max_multiplications_per_gate).await;
+                    */
+                });
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn large_batch() {
+        multi_select_malicious::<BA8>(2 * TARGET_PROOF_SIZE, 2 * TARGET_PROOF_SIZE).await;
+    }
+
+    // Similar to multi_select_malicious, but instead of using `validated_seq_join`, passes
+    // `usize::MAX` as the batch size and does a single `v.validate()`.
+    #[tokio::test]
+    async fn large_single_batch() {
+        let count: usize = TARGET_PROOF_SIZE + 1;
+        let mut rng = thread_rng();
+
+        let bit: Vec<Boolean> = repeat_with(|| rng.gen::<Boolean>()).take(count).collect();
+        let a: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
+        let b: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
+
+        let [ab0, ab1, ab2]: [Vec<Replicated<BA8>>; 3] = TestWorld::default()
+            .malicious(
+                zip(bit.clone(), zip(a.clone(), b.clone())),
+                |ctx, inputs| async move {
+                    let v = ctx
+                        .set_total_records(count)
+                        .dzkp_validator(TEST_DZKP_STEPS, usize::MAX);
+                    let m_ctx = v.context();
+
+                    let result = seq_join(
+                        m_ctx.active_work(),
+                        stream::iter(inputs).enumerate().map(
+                            |(i, (bit_share, (a_share, b_share)))| {
+                                let m_ctx = m_ctx.clone();
+                                async move {
+                                    select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
+                                        .await
+                                }
+                            },
+                        ),
+                    )
+                    .try_collect()
+                    .await
+                    .unwrap();
+
+                    v.validate().await.unwrap();
+
+                    result
+                },
+            )
+            .await;
+
+        let ab: Vec<BA8> = [ab0, ab1, ab2].reconstruct();
+
+        for i in 0..count {
+            assert_eq!(ab[i], if bit[i].into() { a[i] } else { b[i] });
+        }
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "ContextUnsafe(\"DZKPMaliciousContext\")")]
+    async fn missing_validate() {
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
+
+        TestWorld::default()
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context().set_total_records(1);
+
+                a.multiply(&b, m_ctx, RecordId::FIRST).await.unwrap()
+
+                // `validate` should appear here.
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "panicking before validate")]
+    #[allow(unreachable_code)]
+    async fn missing_validate_panic() {
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
+
+        TestWorld::default()
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let v = ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
+                let m_ctx = v.context().set_total_records(1);
+
+                let _result = a.multiply(&b, m_ctx, RecordId::FIRST).await.unwrap();
+
+                panic!("panicking before validate");
+            })
+            .await;
+    }
+
+    fn segment_from_entry(entry: SegmentEntry) -> Segment {
+        Segment::from_entries(
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry.clone(),
+            entry,
+        )
+    }
+
+    impl Batch {
+        fn with_implicit_first_record(max_multiplications_per_gate: usize) -> Self {
+            Batch::new(None, max_multiplications_per_gate)
         }
     }
 
     #[test]
     fn batch_allocation_small() {
         const SIZE: usize = 1;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         batch.push(Gate::default(), RecordId::FIRST, segment);
         assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 1);
         assert!(batch.inner.get(&Gate::default()).unwrap().vec.capacity() >= SIZE);
@@ -1039,19 +1497,12 @@ mod tests {
     #[test]
     fn batch_allocation_big() {
         const SIZE: usize = 2 * TARGET_PROOF_SIZE;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         batch.push(Gate::default(), RecordId::FIRST, segment);
         assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 1);
         assert!(
@@ -1067,19 +1518,12 @@ mod tests {
     #[test]
     fn batch_fill() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         for i in 0..SIZE {
             batch.push(Gate::default(), RecordId::from(i), segment.clone());
         }
@@ -1089,24 +1533,130 @@ mod tests {
     }
 
     #[test]
+    fn batch_fill_out_of_order() {
+        let mut batch = Batch::with_implicit_first_record(3);
+        let ba0 = BA256::from((0, 0));
+        let ba1 = BA256::from((0, 1));
+        let ba2 = BA256::from((0, 2));
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba0,
+        ));
+        batch.push(Gate::default(), RecordId::from(0), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba2,
+        ));
+        batch.push(Gate::default(), RecordId::from(2), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba1,
+        ));
+        batch.push(Gate::default(), RecordId::from(1), segment.clone());
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+            ba0.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+            ba1.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+            ba2.as_bitslice()
+        );
+    }
+
+    #[test]
+    fn batch_fill_at_offset() {
+        const SIZE: usize = 3;
+        let mut batch = Batch::with_implicit_first_record(SIZE);
+        let ba0 = BA256::from((0, 0));
+        let ba1 = BA256::from((0, 1));
+        let ba2 = BA256::from((0, 2));
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba0,
+        ));
+        batch.push(Gate::default(), RecordId::from(4), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba1,
+        ));
+        batch.push(Gate::default(), RecordId::from(5), segment.clone());
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba2,
+        ));
+        batch.push(Gate::default(), RecordId::from(6), segment.clone());
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+            ba0.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+            ba1.as_bitslice()
+        );
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+            ba2.as_bitslice()
+        );
+    }
+
+    #[test]
+    fn batch_explicit_first_record() {
+        const SIZE: usize = 3;
+        let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
+        let ba6 = BA256::from((0, 6));
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
+            &ba6,
+        ));
+        batch.push(Gate::default(), RecordId::from(6), segment.clone());
+        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+        assert_eq!(
+            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+            ba6.as_bitslice()
+        );
+    }
+
+    #[test]
+    fn batch_is_empty() {
+        const SIZE: usize = 10;
+        let mut batch = Batch::with_implicit_first_record(SIZE);
+        assert!(batch.is_empty());
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
+        batch.push(Gate::default(), RecordId::FIRST, segment);
+        assert!(!batch.is_empty());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "record_id out of range in insert_segment. record 0 is before first record 10"
+    )]
+    fn batch_underflow() {
+        const SIZE: usize = 10;
+        let mut batch = Batch::with_implicit_first_record(SIZE);
+        let zero = Boolean::ZERO;
+        let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
+        batch.push(Gate::default(), RecordId::from(10), segment.clone());
+        batch.push(Gate::default(), RecordId::from(0), segment.clone());
+    }
+
+    #[test]
     #[should_panic(
         expected = "record_id out of range in insert_segment. record 10 is beyond segment of length 10 starting at 0"
     )]
     fn batch_overflow() {
         const SIZE: usize = 10;
-        let mut batch = Batch::new(RecordId::FIRST, SIZE);
+        let mut batch = Batch::with_implicit_first_record(SIZE);
         let zero = Boolean::ZERO;
         let zero_vec: <Boolean as Vectorizable<1>>::Array = zero.into_array();
-        let segment_entry = <Boolean as DZKPCompatibleField<1>>::as_segment_entry(&zero_vec);
-        let segment = Segment::from_entries(
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry.clone(),
-            segment_entry,
-        );
+        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<1>>::as_segment_entry(
+            &zero_vec,
+        ));
         for i in 0..=SIZE {
             batch.push(Gate::default(), RecordId::from(i), segment.clone());
         }
@@ -1237,13 +1787,13 @@ mod tests {
         // test for small and large segments, i.e. 8bit and 512 bit
         for segment_size in [8usize, 512usize] {
             // generate batch for the prover
-            let mut batch_prover = Batch::new(RecordId::FIRST, 1024 / segment_size);
+            let mut batch_prover = Batch::with_implicit_first_record(1024 / segment_size);
 
             // generate batch for the verifier on the left of the prover
-            let mut batch_left = Batch::new(RecordId::FIRST, 1024 / segment_size);
+            let mut batch_left = Batch::with_implicit_first_record(1024 / segment_size);
 
             // generate batch for the verifier on the right of the prover
-            let mut batch_right = Batch::new(RecordId::FIRST, 1024 / segment_size);
+            let mut batch_right = Batch::with_implicit_first_record(1024 / segment_size);
 
             // fill the batches with random values
             populate_batch(
@@ -1311,14 +1861,16 @@ mod tests {
 
         let [h1_batch, h2_batch, h3_batch] = world
             .malicious((a, b), |ctx, (a, b)| async move {
-                let mut validator = ctx.dzkp_validator(10);
+                let mut validator = ctx.dzkp_validator(TEST_DZKP_STEPS, 8);
                 let mctx = validator.context();
                 let _ = a
                     .multiply(&b, mctx.set_total_records(1), RecordId::from(0))
                     .await
                     .unwrap();
 
-                let batcher_mutex = Arc::into_inner(validator.batcher_ref.take().unwrap()).unwrap();
+                let batcher_mutex = Arc::into_inner(validator.inner_ref.take().unwrap())
+                    .unwrap()
+                    .batcher;
                 batcher_mutex.into_inner().unwrap().into_single_batch()
             })
             .await;

@@ -41,7 +41,7 @@ where
     }
 }
 
-#[cfg(all(test, unit_test))]
+#[cfg(test)]
 impl<U, T> IntoShares<Result<T, crate::error::Error>> for Result<U, crate::error::Error>
 where
     U: IntoShares<T>,

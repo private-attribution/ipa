@@ -1,8 +1,8 @@
-use std::ops::Add;
+use std::{future::Future, ops::Add};
 
-use rand::distributions::Standard;
+use rand::distributions::{Distribution, Standard};
 
-use self::base::shuffle;
+use self::base::shuffle_protocol;
 use super::{
     boolean_ops::{expand_shared_array_in_place, extract_from_shared_array},
     prf_sharding::SecretSharedAttributionOutputs,
@@ -11,22 +11,91 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA112, BA64},
+        boolean_array::{BooleanArray, BA112, BA144, BA64, BA96},
         ArrayAccess,
     },
-    protocol::{context::Context, ipa_prf::OPRFIPAInputRow},
+    protocol::{
+        context::{Context, MaliciousContext, SemiHonestContext},
+        ipa_prf::{
+            shuffle::{base::semi_honest_shuffle, malicious::malicious_shuffle},
+            OPRFIPAInputRow,
+        },
+    },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
     },
+    sharding::ShardBinding,
 };
 
 pub mod base;
-#[allow(dead_code)]
 pub mod malicious;
 #[cfg(descriptive_gate)]
 mod sharded;
 pub(crate) mod step;
+
+pub trait Shuffle: Context {
+    fn shuffle<S, B, I>(
+        self,
+        shares: I,
+    ) -> impl Future<Output = Result<Vec<AdditiveShare<S>>, Error>> + Send
+    where
+        S: BooleanArray,
+        B: BooleanArray,
+        I: IntoIterator<Item = AdditiveShare<S>> + Send,
+        I::IntoIter: ExactSizeIterator,
+        <I as IntoIterator>::IntoIter: Send,
+        for<'a> &'a S: Add<S, Output = S>,
+        for<'a> &'a S: Add<&'a S, Output = S>,
+        for<'a> &'a B: Add<B, Output = B>,
+        for<'a> &'a B: Add<&'a B, Output = B>,
+        Standard: Distribution<S>,
+        Standard: Distribution<B>;
+}
+
+impl<'b, T: ShardBinding> Shuffle for SemiHonestContext<'b, T> {
+    fn shuffle<S, B, I>(
+        self,
+        shares: I,
+    ) -> impl Future<Output = Result<Vec<AdditiveShare<S>>, Error>> + Send
+    where
+        S: BooleanArray,
+        B: BooleanArray,
+        I: IntoIterator<Item = AdditiveShare<S>> + Send,
+        I::IntoIter: ExactSizeIterator,
+        <I as IntoIterator>::IntoIter: Send,
+        for<'a> &'a S: Add<S, Output = S>,
+        for<'a> &'a S: Add<&'a S, Output = S>,
+        for<'a> &'a B: Add<B, Output = B>,
+        for<'a> &'a B: Add<&'a B, Output = B>,
+        Standard: Distribution<S>,
+        Standard: Distribution<B>,
+    {
+        semi_honest_shuffle::<_, I, S>(self, shares)
+    }
+}
+
+impl<'b> Shuffle for MaliciousContext<'b> {
+    fn shuffle<S, B, I>(
+        self,
+        shares: I,
+    ) -> impl Future<Output = Result<Vec<AdditiveShare<S>>, Error>> + Send
+    where
+        S: BooleanArray,
+        B: BooleanArray,
+        I: IntoIterator<Item = AdditiveShare<S>> + Send,
+        I::IntoIter: ExactSizeIterator,
+        <I as IntoIterator>::IntoIter: Send,
+        for<'a> &'a S: Add<S, Output = S>,
+        for<'a> &'a S: Add<&'a S, Output = S>,
+        for<'a> &'a B: Add<B, Output = B>,
+        for<'a> &'a B: Add<&'a B, Output = B>,
+        Standard: Distribution<S>,
+        Standard: Distribution<B>,
+    {
+        malicious_shuffle::<_, S, B, I>(self, shares)
+    }
+}
 
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
 pub async fn shuffle_inputs<C, BK, TV, TS>(
@@ -34,7 +103,7 @@ pub async fn shuffle_inputs<C, BK, TV, TS>(
     input: Vec<OPRFIPAInputRow<BK, TV, TS>>,
 ) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
 where
-    C: Context,
+    C: Context + Shuffle,
     BK: BooleanArray,
     TV: BooleanArray,
     TS: BooleanArray,
@@ -44,7 +113,7 @@ where
         .map(|item| oprfreport_to_shuffle_input::<BA112, BK, TV, TS>(&item))
         .collect::<Vec<_>>();
 
-    let (shuffled, _) = shuffle(ctx, shuffle_input).await?;
+    let shuffled = ctx.shuffle::<BA112, BA144, _>(shuffle_input).await?;
 
     Ok(shuffled
         .into_iter()
@@ -71,7 +140,7 @@ where
         .map(|item| attribution_outputs_to_shuffle_input::<BK, TV, R>(&item))
         .collect::<Vec<_>>();
 
-    let (shuffled, _) = shuffle(ctx, shuffle_input).await?;
+    let shuffled = malicious_shuffle::<_, R, BA96, _>(ctx, shuffle_input).await?;
 
     Ok(shuffled
         .into_iter()

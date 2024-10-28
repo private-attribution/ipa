@@ -1,0 +1,10 @@
+[package]
+name = "ipa-metrics-tracing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# requires partitions feature because without it, it does not make sense to use
+ipa-metrics = { version = "*", path = "../ipa-metrics", features = ["partitions"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

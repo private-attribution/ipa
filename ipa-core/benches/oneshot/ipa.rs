@@ -19,7 +19,11 @@ use ipa_step::StepNarrow;
 use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
 
-#[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
+#[cfg(all(
+    not(target_env = "msvc"),
+    not(feature = "dhat-heap"),
+    not(target_os = "macos")
+))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
@@ -82,6 +86,7 @@ impl Args {
         self.active_work
             .map(NonZeroUsize::get)
             .unwrap_or_else(|| self.query_size.clamp(16, 1024))
+            .next_power_of_two()
     }
 
     fn attribution_window(&self) -> Option<NonZeroU32> {

@@ -14,12 +14,13 @@ pub use input::InputSource;
 pub use multiply::secure_mul;
 use tokio::time::sleep;
 
-pub use self::ipa::playbook_oprf_ipa;
+pub use self::ipa::{playbook_oprf_ipa, run_query_and_validate};
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
+    executor::IpaRuntime,
     ff::boolean_array::{BA20, BA3, BA8},
     helpers::query::DpMechanism,
-    net::{ClientIdentity, MpcHelperClient},
+    net::{ClientIdentity, Helper, MpcHelperClient},
     protocol::{dp::NoiseParams, ipa_prf::oprf_padding::insecure::OPRFPaddingDp},
 };
 
@@ -146,7 +147,6 @@ pub fn validate_dp(
                 } else {
                     next_actual_f64
                 };
-                println!("next_actual_f64 = {next_actual_f64}, next_actual_f64_shifted = {next_actual_f64_shifted}");
 
                 let (_, std) = truncated_discrete_laplace.mean_and_std();
                 let tolerance_factor = 20.0; // set so this fails randomly with small probability
@@ -194,25 +194,26 @@ pub async fn make_clients(
     network_path: Option<&Path>,
     scheme: Scheme,
     wait: usize,
-) -> ([MpcHelperClient; 3], NetworkConfig) {
+) -> ([MpcHelperClient; 3], NetworkConfig<Helper>) {
     let mut wait = wait;
     let network = if let Some(path) = network_path {
         NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
     } else {
-        NetworkConfig {
-            peers: [
+        NetworkConfig::<Helper>::new_mpc(
+            vec![
                 PeerConfig::new("localhost:3000".parse().unwrap(), None),
                 PeerConfig::new("localhost:3001".parse().unwrap(), None),
                 PeerConfig::new("localhost:3002".parse().unwrap(), None),
             ],
-            client: ClientConfig::default(),
-        }
+            ClientConfig::default(),
+        )
     };
     let network = network.override_scheme(&scheme);
 
     // Note: This closure is only called when the selected action uses clients.
 
-    let clients = MpcHelperClient::from_conf(&network, &ClientIdentity::None);
+    let clients =
+        MpcHelperClient::from_conf(&IpaRuntime::current(), &network, &ClientIdentity::None);
     while wait > 0 && !clients_ready(&clients).await {
         tracing::debug!("waiting for servers to come up");
         sleep(Duration::from_secs(1)).await;

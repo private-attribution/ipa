@@ -93,13 +93,9 @@ impl<K> KeyRegistry<K> {
         Self { keys: Box::new([]) }
     }
 
-    pub fn from_keys<const N: usize, I: Into<K>>(pairs: [I; N]) -> Self {
+    pub fn from_keys<const N: usize>(pairs: [K; N]) -> Self {
         Self {
-            keys: pairs
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
+            keys: pairs.into_iter().collect::<Vec<_>>().into_boxed_slice(),
         }
     }
 

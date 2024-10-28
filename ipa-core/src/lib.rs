@@ -32,8 +32,8 @@ mod seq_join;
 mod serde;
 pub mod sharding;
 mod utils;
-
 pub use app::{AppConfig, HelperApp, Setup as AppSetup};
+pub use utils::NonZeroU32PowerOfTwo;
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]
@@ -70,10 +70,10 @@ pub(crate) mod rand {
 
 #[cfg(all(feature = "shuttle", test))]
 pub(crate) mod task {
-    pub use shuttle::future::{JoinError, JoinHandle};
+    pub use shuttle::future::JoinError;
 }
 
-#[cfg(all(feature = "multi-threading", feature = "shuttle"))]
+#[cfg(feature = "shuttle")]
 pub(crate) mod shim {
     use std::any::Any;
 
@@ -94,7 +94,168 @@ pub(crate) mod shim {
 
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod task {
+    #[allow(unused_imports)]
     pub use tokio::task::{JoinError, JoinHandle};
+}
+
+#[cfg(not(feature = "shuttle"))]
+pub mod executor {
+    use std::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use tokio::{
+        runtime::{Handle, Runtime},
+        task::JoinHandle,
+    };
+
+    /// In prod we use Tokio scheduler, so this struct just wraps
+    /// its runtime handle and mimics the standard executor API.
+    /// The name was chosen to avoid clashes with tokio runtime
+    /// when importing it
+    #[derive(Clone)]
+    pub struct IpaRuntime(Handle);
+
+    /// Wrapper around Tokio's [`JoinHandle`]
+    #[pin_project::pin_project]
+    pub struct IpaJoinHandle<T>(#[pin] JoinHandle<T>);
+
+    impl Default for IpaRuntime {
+        fn default() -> Self {
+            Self::current()
+        }
+    }
+
+    impl IpaRuntime {
+        #[must_use]
+        pub fn current() -> Self {
+            Self(Handle::current())
+        }
+
+        #[must_use]
+        pub fn spawn<F>(&self, future: F) -> IpaJoinHandle<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            IpaJoinHandle(self.0.spawn(future))
+        }
+
+        /// This is a convenience method to convert a Tokio runtime into
+        /// an IPA runtime. It does not assume ownership of the Tokio runtime.
+        /// The caller is responsible for ensuring the Tokio runtime is properly
+        /// shut down.
+        #[must_use]
+        pub fn from_tokio_runtime(rt: &Runtime) -> Self {
+            Self(rt.handle().clone())
+        }
+    }
+
+    /// allow using [`IpaRuntime`] as Hyper executor
+    #[cfg(feature = "web-app")]
+    impl<Fut> hyper::rt::Executor<Fut> for IpaRuntime
+    where
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        fn execute(&self, fut: Fut) {
+            // Dropping the handle does not terminate the task
+            // Clippy wants us to be explicit here.
+            drop(self.spawn(fut));
+        }
+    }
+
+    impl<T> IpaJoinHandle<T> {
+        pub fn abort(&self) {
+            self.0.abort();
+        }
+    }
+
+    impl<T: Send + 'static> Future for IpaJoinHandle<T> {
+        type Output = T;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            match self.project().0.poll(cx) {
+                Poll::Ready(Ok(v)) => Poll::Ready(v),
+                Poll::Ready(Err(e)) => match e.try_into_panic() {
+                    Ok(p) => std::panic::resume_unwind(p),
+                    Err(e) => panic!("Task is cancelled: {e:?}"),
+                },
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+}
+
+#[cfg(feature = "shuttle")]
+pub(crate) mod executor {
+    use std::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use shuttle_crate::future::{spawn, JoinHandle};
+
+    use crate::shim::Tokio;
+
+    /// Shuttle does not support more than one runtime
+    /// so we always use its default
+    #[derive(Clone, Default)]
+    pub struct IpaRuntime;
+    #[pin_project::pin_project]
+    pub struct IpaJoinHandle<T>(#[pin] JoinHandle<T>);
+
+    #[cfg(feature = "web-app")]
+    impl<Fut> hyper::rt::Executor<Fut> for IpaRuntime
+    where
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        fn execute(&self, fut: Fut) {
+            drop(self.spawn(fut));
+        }
+    }
+
+    impl IpaRuntime {
+        #[must_use]
+        pub fn current() -> Self {
+            Self
+        }
+
+        #[must_use]
+        #[allow(clippy::unused_self)] // to conform with runtime API
+        pub fn spawn<F>(&self, future: F) -> IpaJoinHandle<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            IpaJoinHandle(spawn(future))
+        }
+    }
+
+    impl<T> IpaJoinHandle<T> {
+        pub fn abort(&self) {
+            self.0.abort();
+        }
+    }
+
+    impl<T: Send + 'static> Future for IpaJoinHandle<T> {
+        type Output = T;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            match self.project().0.poll(cx) {
+                Poll::Ready(Ok(v)) => Poll::Ready(v),
+                Poll::Ready(Err(e)) => match e.try_into_panic() {
+                    Ok(p) => std::panic::resume_unwind(p),
+                    Err(e) => panic!("Task is cancelled: {e:?}"),
+                },
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
 }
 
 #[cfg(all(feature = "shuttle", test))]
@@ -118,14 +279,14 @@ pub(crate) mod test_executor {
     }
 }
 
-#[cfg(all(test, unit_test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod test_executor {
     use std::future::Future;
 
-    pub fn run_with<F, Fut, T, const ITER: usize>(f: F) -> T
+    pub fn run_with<F, Fut, const ITER: usize>(f: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T>,
+        Fut: Future<Output = ()>,
     {
         tokio::runtime::Builder::new_multi_thread()
             // enable_all() is common to use to build Tokio runtime, but it enables both IO and time drivers.
@@ -134,15 +295,16 @@ pub(crate) mod test_executor {
             .enable_time()
             .build()
             .unwrap()
-            .block_on(f())
+            .block_on(f());
     }
 
-    pub fn run<F, Fut, T>(f: F) -> T
+    #[allow(dead_code)]
+    pub fn run<F, Fut>(f: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T>,
+        Fut: Future<Output = ()>,
     {
-        run_with::<_, _, _, 1>(f)
+        run_with::<_, _, 1>(f);
     }
 }
 
@@ -182,3 +344,40 @@ macro_rules! mutually_incompatible {
 }
 
 mutually_incompatible!("in-memory-infra", "real-world-infra");
+#[cfg(not(any(compact_gate, descriptive_gate)))]
+compile_error!("At least one of `compact_gate` or `descriptive_gate` features must be enabled");
+
+#[cfg(test)]
+mod tests {
+    /// Tests in this module ensure both Shuttle and Tokio runtimes conform to the same API
+    mod executor {
+        use crate::{executor::IpaRuntime, test_executor::run};
+
+        #[test]
+        #[should_panic(expected = "task panicked")]
+        fn handle_join_panicked() {
+            run(|| async move {
+                let rt = IpaRuntime::current();
+                rt.spawn(async { panic!("task panicked") }).await;
+            });
+        }
+
+        #[test]
+        /// It is nearly impossible to intentionally hang a Shuttle task. Its executor
+        /// detects that immediately and panics with a deadlock error. We only want to test
+        /// the API, so it is not that important to panic with cancellation error
+        #[cfg_attr(not(feature = "shuttle"), should_panic(expected = "Task is cancelled"))]
+        fn handle_abort() {
+            run(|| async move {
+                let rt = IpaRuntime::current();
+                let handle = rt.spawn(async {
+                    #[cfg(not(feature = "shuttle"))]
+                    futures::future::pending::<()>().await;
+                });
+
+                handle.abort();
+                handle.await;
+            });
+        }
+    }
+}

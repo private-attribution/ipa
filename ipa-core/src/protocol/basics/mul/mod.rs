@@ -27,7 +27,7 @@ use crate::{
 mod dzkp_malicious;
 pub(crate) mod malicious;
 mod semi_honest;
-pub(in crate::protocol) mod step;
+pub(crate) mod step;
 
 pub use semi_honest::sh_multiply as semi_honest_multiply;
 
@@ -123,17 +123,19 @@ macro_rules! boolean_array_mul {
             }
         }
 
-        impl<'a> BooleanArrayMul<DZKPUpgradedMaliciousContext<'a>> for Replicated<$vec> {
+        impl<'a, B: sharding::ShardBinding> BooleanArrayMul<DZKPUpgradedMaliciousContext<'a, B>>
+            for Replicated<$vec>
+        {
             type Vectorized = Replicated<Boolean, $dim>;
 
             fn multiply<'fut>(
-                ctx: DZKPUpgradedMaliciousContext<'a>,
+                ctx: DZKPUpgradedMaliciousContext<'a, B>,
                 record_id: RecordId,
                 a: &'fut Self::Vectorized,
                 b: &'fut Self::Vectorized,
             ) -> impl Future<Output = Result<Self::Vectorized, Error>> + Send + 'fut
             where
-                DZKPUpgradedMaliciousContext<'a>: 'fut,
+                DZKPUpgradedMaliciousContext<'a, B>: 'fut,
             {
                 use crate::protocol::basics::mul::dzkp_malicious::zkp_multiply;
                 zkp_multiply(ctx, record_id, a, b)

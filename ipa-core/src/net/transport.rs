@@ -9,14 +9,16 @@ use async_trait::async_trait;
 use futures::{Stream, TryFutureExt};
 use pin_project::{pin_project, pinned_drop};
 
+use super::{client::resp_ok, ConnectionFlavor, Helper, Shard};
 use crate::{
     config::{NetworkConfig, ServerConfig},
+    executor::IpaRuntime,
     helpers::{
         query::QueryConfig,
         routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoQueryId,
         NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
-        StepBinding, StreamCollection, Transport,
+        StepBinding, StreamCollection, Transport, TransportIdentity,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{Gate, QueryId},
@@ -24,20 +26,26 @@ use crate::{
     sync::Arc,
 };
 
-/// HTTP transport for IPA helper service.
-/// TODO: rename to MPC
-pub struct HttpTransport {
-    identity: HelperIdentity,
-    clients: [MpcHelperClient; 3],
-    // TODO(615): supporting multiple queries likely require a hashmap here. It will be ok if we
-    // only allow one query at a time.
-    record_streams: StreamCollection<HelperIdentity, BodyStream>,
-    handler: Option<HandlerRef>,
+/// Shared implementation used by [`MpcHttpTransport`] and [`ShardHttpTransport`]
+pub struct HttpTransport<F: ConnectionFlavor> {
+    http_runtime: IpaRuntime,
+    identity: F::Identity,
+    clients: Vec<MpcHelperClient<F>>,
+    record_streams: StreamCollection<F::Identity, BodyStream>,
+    handler: Option<HandlerRef<F::Identity>>,
 }
 
-/// A stub for HTTP transport implementation, suitable for serviing inter-shard traffic
-#[derive(Clone, Default)]
-pub struct HttpShardTransport;
+/// HTTP transport for helper to helper traffic.
+#[derive(Clone)]
+pub struct MpcHttpTransport {
+    inner_transport: Arc<HttpTransport<Helper>>,
+}
+
+/// A stub for HTTP transport implementation, suitable for serving shard-to-shard traffic
+#[derive(Clone)]
+pub struct ShardHttpTransport {
+    inner_transport: Arc<HttpTransport<Shard>>,
+}
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
     type Params = String;
@@ -59,31 +67,65 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
     }
 }
 
-impl HttpTransport {
-    #[must_use]
-    pub fn new(
-        identity: HelperIdentity,
-        server_config: ServerConfig,
-        network_config: NetworkConfig,
-        clients: [MpcHelperClient; 3],
-        handler: Option<HandlerRef>,
-    ) -> (Arc<Self>, MpcHelperServer) {
-        let transport = Self::new_internal(identity, clients, handler);
-        let server = MpcHelperServer::new(Arc::clone(&transport), server_config, network_config);
-        (transport, server)
+impl<F: ConnectionFlavor> HttpTransport<F> {
+    async fn send<
+        D: Stream<Item = Vec<u8>> + Send + 'static,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+    >(
+        &self,
+        dest: F::Identity,
+        route: R,
+        data: D,
+    ) -> Result<(), Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+    {
+        let route_id = route.resource_identifier();
+        let client_ix = dest.as_index();
+        match route_id {
+            RouteId::Records => {
+                // TODO(600): These fallible extractions aren't really necessary.
+                let query_id = <Option<QueryId>>::from(route.query_id())
+                    .expect("query_id required when sending records");
+                let step =
+                    <Option<Gate>>::from(route.gate()).expect("step required when sending records");
+                let resp_future = self.clients[client_ix].step(query_id, &step, data)?;
+                // Use a dedicated HTTP runtime to poll this future for several reasons:
+                // - avoid blocking this task, if the current runtime is overloaded
+                // - use the runtime that enables IO (current runtime may not).
+                self.http_runtime
+                    .spawn(resp_future.map_err(Into::into).and_then(resp_ok))
+                    .await?;
+                Ok(())
+            }
+            RouteId::PrepareQuery => {
+                let req = serde_json::from_str(route.extra().borrow()).unwrap();
+                self.clients[client_ix].prepare_query(req).await
+            }
+            evt @ (RouteId::QueryInput
+            | RouteId::ReceiveQuery
+            | RouteId::QueryStatus
+            | RouteId::CompleteQuery
+            | RouteId::KillQuery) => {
+                unimplemented!(
+                    "attempting to send client-specific request {evt:?} to another helper"
+                )
+            }
+        }
     }
 
-    fn new_internal(
-        identity: HelperIdentity,
-        clients: [MpcHelperClient; 3],
-        handler: Option<HandlerRef>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
-            identity,
-            clients,
-            handler,
-            record_streams: StreamCollection::default(),
-        })
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
+        &self,
+        from: F::Identity,
+        route: &R,
+    ) -> ReceiveRecords<F::Identity, BodyStream> {
+        ReceiveRecords::new(
+            (route.query_id(), from, route.gate()),
+            self.record_streams.clone(),
+        )
     }
 
     /// Dispatches the given request to the [`RequestHandler`] connected to this transport.
@@ -107,13 +149,13 @@ impl HttpTransport {
         /// This implementation is a poor man's safety net and only works because we run
         /// one query at a time and don't use query identifiers.
         #[pin_project(PinnedDrop)]
-        struct ClearOnDrop<F: Future> {
-            transport: Arc<HttpTransport>,
+        struct ClearOnDrop<CF: ConnectionFlavor, F: Future> {
+            transport: Arc<HttpTransport<CF>>,
             #[pin]
             inner: F,
         }
 
-        impl<F: Future> Future for ClearOnDrop<F> {
+        impl<CF: ConnectionFlavor, F: Future> Future for ClearOnDrop<CF, F> {
             type Output = F::Output;
 
             fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -122,7 +164,7 @@ impl HttpTransport {
         }
 
         #[pinned_drop]
-        impl<F: Future> PinnedDrop for ClearOnDrop<F> {
+        impl<CF: ConnectionFlavor, F: Future> PinnedDrop for ClearOnDrop<CF, F> {
             fn drop(self: Pin<&mut Self>) {
                 self.transport.record_streams.clear();
             }
@@ -135,7 +177,7 @@ impl HttpTransport {
             .expect("A Handler should be set by now")
             .handle(Addr::from_route(None, req), body);
 
-        if let RouteId::CompleteQuery = route_id {
+        if let RouteId::CompleteQuery | RouteId::KillQuery = route_id {
             ClearOnDrop {
                 transport: Arc::clone(&self),
                 inner: r,
@@ -145,30 +187,75 @@ impl HttpTransport {
             r.await
         }
     }
+}
 
-    /// Connect an inbound stream of MPC record data.
+impl MpcHttpTransport {
+    #[must_use]
+    pub fn new(
+        http_runtime: IpaRuntime,
+        identity: HelperIdentity,
+        server_config: ServerConfig,
+        network_config: NetworkConfig<Helper>,
+        clients: &[MpcHelperClient; 3],
+        handler: Option<HandlerRef<HelperIdentity>>,
+    ) -> (Self, MpcHelperServer<Helper>) {
+        let transport = Self {
+            inner_transport: Arc::new(HttpTransport {
+                http_runtime,
+                identity,
+                clients: clients.to_vec(),
+                handler,
+                record_streams: StreamCollection::default(),
+            }),
+        };
+
+        let server = MpcHelperServer::new_mpc(&transport, server_config, network_config);
+        (transport, server)
+    }
+
+    /// Connect an inbound stream of record data.
     ///
     /// This is called by peer helpers via the HTTP server.
     pub fn receive_stream(
-        self: Arc<Self>,
+        &self,
         query_id: QueryId,
         gate: Gate,
         from: HelperIdentity,
         stream: BodyStream,
     ) {
-        self.record_streams
+        self.inner_transport
+            .record_streams
             .add_stream((query_id, from, gate), stream);
+    }
+
+    /// Dispatches the given request to the [`RequestHandler`] connected to this transport.
+    ///
+    /// ## Errors
+    /// Returns an error, if handler rejects the request for any reason.
+    ///
+    /// ## Panics
+    /// This will panic if request handler hasn't been previously set for this transport.
+    pub async fn dispatch<Q: QueryIdBinding, R: RouteParams<RouteId, Q, NoStep>>(
+        &self,
+        req: R,
+        body: BodyStream,
+    ) -> Result<HelperResponse, ApiError>
+    where
+        Option<QueryId>: From<Q>,
+    {
+        let t = Arc::clone(&self.inner_transport);
+        t.dispatch(req, body).await
     }
 }
 
 #[async_trait]
-impl Transport for Arc<HttpTransport> {
+impl Transport for MpcHttpTransport {
     type Identity = HelperIdentity;
-    type RecordsStream = ReceiveRecords<HelperIdentity, BodyStream>;
+    type RecordsStream = ReceiveRecords<Self::Identity, BodyStream>;
     type Error = Error;
 
-    fn identity(&self) -> HelperIdentity {
-        self.identity
+    fn identity(&self) -> Self::Identity {
+        self.inner_transport.identity
     }
 
     async fn send<
@@ -178,7 +265,7 @@ impl Transport for Arc<HttpTransport> {
         R: RouteParams<RouteId, Q, S>,
     >(
         &self,
-        dest: HelperIdentity,
+        dest: Self::Identity,
         route: R,
         data: D,
     ) -> Result<(), Error>
@@ -186,65 +273,58 @@ impl Transport for Arc<HttpTransport> {
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
     {
-        let route_id = route.resource_identifier();
-        match route_id {
-            RouteId::Records => {
-                // TODO(600): These fallible extractions aren't really necessary.
-                let query_id = <Option<QueryId>>::from(route.query_id())
-                    .expect("query_id required when sending records");
-                let step =
-                    <Option<Gate>>::from(route.gate()).expect("step required when sending records");
-                let resp_future = self.clients[dest].step(query_id, &step, data)?;
-                // we don't need to spawn a task here. Gateway's sender interface already does that
-                // so this can just poll this future.
-                resp_future
-                    .map_err(Into::into)
-                    .and_then(MpcHelperClient::resp_ok)
-                    .await?;
-                Ok(())
-            }
-            RouteId::PrepareQuery => {
-                let req = serde_json::from_str(route.extra().borrow()).unwrap();
-                self.clients[dest].prepare_query(req).await
-            }
-            evt @ (RouteId::QueryInput
-            | RouteId::ReceiveQuery
-            | RouteId::QueryStatus
-            | RouteId::CompleteQuery) => {
-                unimplemented!(
-                    "attempting to send client-specific request {evt:?} to another helper"
-                )
-            }
-        }
+        self.inner_transport.send(dest, route, data).await
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
-        from: HelperIdentity,
+        from: Self::Identity,
         route: R,
     ) -> Self::RecordsStream {
-        ReceiveRecords::new(
-            (route.query_id(), from, route.gate()),
-            self.record_streams.clone(),
-        )
+        self.inner_transport.receive(from, &route)
+    }
+}
+
+impl ShardHttpTransport {
+    #[must_use]
+    pub fn new(
+        http_runtime: IpaRuntime,
+        identity: ShardIndex,
+        server_config: ServerConfig,
+        network_config: NetworkConfig<Shard>,
+        clients: Vec<MpcHelperClient<Shard>>,
+        handler: Option<HandlerRef<ShardIndex>>,
+    ) -> (Self, MpcHelperServer<Shard>) {
+        let transport = Self {
+            inner_transport: Arc::new(HttpTransport {
+                http_runtime,
+                identity,
+                clients,
+                handler,
+                record_streams: StreamCollection::default(),
+            }),
+        };
+
+        let server = MpcHelperServer::new_shards(&transport, server_config, network_config);
+        (transport, server)
     }
 }
 
 #[async_trait]
-impl Transport for HttpShardTransport {
+impl Transport for ShardHttpTransport {
     type Identity = ShardIndex;
     type RecordsStream = ReceiveRecords<ShardIndex, BodyStream>;
-    type Error = ();
+    type Error = Error;
 
     fn identity(&self) -> Self::Identity {
-        unimplemented!()
+        self.inner_transport.identity
     }
 
     async fn send<D, Q, S, R>(
         &self,
-        _dest: Self::Identity,
-        _route: R,
-        _data: D,
+        dest: Self::Identity,
+        route: R,
+        data: D,
     ) -> Result<(), Self::Error>
     where
         Option<QueryId>: From<Q>,
@@ -254,15 +334,15 @@ impl Transport for HttpShardTransport {
         R: RouteParams<RouteId, Q, S>,
         D: Stream<Item = Vec<u8>> + Send + 'static,
     {
-        unimplemented!()
+        self.inner_transport.send(dest, route, data).await
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
-        _from: Self::Identity,
-        _route: R,
+        from: Self::Identity,
+        route: R,
     ) -> Self::RecordsStream {
-        unimplemented!()
+        self.inner_transport.receive(from, &route)
     }
 }
 
@@ -283,7 +363,10 @@ mod tests {
     use crate::{
         config::{NetworkConfig, ServerConfig},
         ff::{FieldType, Fp31, Serializable},
-        helpers::query::{QueryInput, QueryType::TestMultiply},
+        helpers::{
+            make_owned_handler,
+            query::{QueryInput, QueryType::TestMultiply},
+        },
         net::{
             client::ClientIdentity,
             test::{get_test_identity, TestConfig, TestConfigBuilder, TestServer},
@@ -296,6 +379,32 @@ mod tests {
     static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
 
     #[tokio::test]
+    async fn clean_on_kill() {
+        let noop_handler = make_owned_handler(|_, _| async move {
+            {
+                Ok(HelperResponse::ok())
+            }
+        });
+        let TestServer { transport, .. } = TestServer::builder()
+            .with_request_handler(Arc::clone(&noop_handler))
+            .build()
+            .await;
+
+        transport.inner_transport.record_streams.add_stream(
+            (QueryId, HelperIdentity::ONE, Gate::default()),
+            BodyStream::empty(),
+        );
+        assert_eq!(1, transport.inner_transport.record_streams.len());
+
+        Transport::clone_ref(&transport)
+            .dispatch((RouteId::KillQuery, QueryId), BodyStream::empty())
+            .await
+            .unwrap();
+
+        assert!(transport.inner_transport.record_streams.is_empty());
+    }
+
+    #[tokio::test]
     async fn receive_stream() {
         let (tx, rx) = channel::<Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>(1);
         let expected_chunk1 = vec![0u8, 1, 2, 3];
@@ -306,10 +415,10 @@ mod tests {
         let body = BodyStream::from_bytes_stream(ReceiverStream::new(rx));
 
         // Register the stream with the transport (normally called by step data HTTP API handler)
-        Arc::clone(&transport).receive_stream(QueryId, STEP.clone(), HelperIdentity::TWO, body);
+        transport.receive_stream(QueryId, STEP.clone(), HelperIdentity::TWO, body);
 
         // Request step data reception (normally called by protocol)
-        let mut stream = Arc::clone(&transport)
+        let mut stream = transport
             .receive(HelperIdentity::TWO, (QueryId, STEP.clone()))
             .into_bytes_stream();
 
@@ -341,29 +450,51 @@ mod tests {
     async fn make_helpers(
         sockets: [TcpListener; 3],
         server_config: [ServerConfig; 3],
-        network_config: &NetworkConfig,
+        network_config: &NetworkConfig<Helper>,
         disable_https: bool,
     ) -> [HelperApp; 3] {
         join_all(
             zip(HelperIdentity::make_three(), zip(sockets, server_config)).map(
                 |(id, (socket, server_config))| async move {
                     let identity = if disable_https {
-                        ClientIdentity::Helper(id)
+                        ClientIdentity::Header(id)
                     } else {
                         get_test_identity(id)
                     };
                     let (setup, handler) = AppSetup::new(AppConfig::default());
-                    let clients = MpcHelperClient::from_conf(network_config, &identity);
-                    let (transport, server) = HttpTransport::new(
+                    let clients = MpcHelperClient::from_conf(
+                        &IpaRuntime::current(),
+                        network_config,
+                        &identity,
+                    );
+                    let (transport, server) = MpcHttpTransport::new(
+                        IpaRuntime::current(),
                         id,
-                        server_config,
+                        server_config.clone(),
                         network_config.clone(),
-                        clients,
+                        &clients,
                         Some(handler),
                     );
-                    server.start_on(Some(socket), ()).await;
+                    // TODO: Following is just temporary until Shard Transport is actually used.
+                    let shard_clients_config = network_config.client.clone();
+                    let shard_server_config = server_config;
+                    let shard_network_config =
+                        NetworkConfig::new_shards(vec![], shard_clients_config);
+                    let (shard_transport, _shard_server) = ShardHttpTransport::new(
+                        IpaRuntime::current(),
+                        ShardIndex::FIRST,
+                        shard_server_config,
+                        shard_network_config,
+                        vec![],
+                        None,
+                    );
+                    // ---
 
-                    setup.connect(transport, HttpShardTransport)
+                    server
+                        .start_on(&IpaRuntime::current(), Some(socket), ())
+                        .await;
+
+                    setup.connect(transport, shard_transport)
                 },
             ),
         )
@@ -374,7 +505,11 @@ mod tests {
     }
 
     async fn test_three_helpers(mut conf: TestConfig) {
-        let clients = MpcHelperClient::from_conf(&conf.network, &ClientIdentity::None);
+        let clients = MpcHelperClient::from_conf(
+            &IpaRuntime::current(),
+            &conf.network,
+            &ClientIdentity::None,
+        );
         let _helpers = make_helpers(
             conf.sockets.take().unwrap(),
             conf.servers,
@@ -389,7 +524,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn happy_case_twice() {
         let mut conf = TestConfigBuilder::with_open_ports().build();
-        let clients = MpcHelperClient::from_conf(&conf.network, &ClientIdentity::None);
+        let clients = MpcHelperClient::from_conf(
+            &IpaRuntime::current(),
+            &conf.network,
+            &ClientIdentity::None,
+        );
         let _helpers = make_helpers(
             conf.sockets.take().unwrap(),
             conf.servers,

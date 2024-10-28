@@ -1,5 +1,6 @@
 mod create;
 mod input;
+mod kill;
 mod prepare;
 mod results;
 mod status;
@@ -17,8 +18,8 @@ use hyper::{Request, StatusCode};
 use tower::{layer::layer_fn, Service};
 
 use crate::{
-    net::{server::ClientIdentity, HttpTransport},
-    sync::Arc,
+    helpers::HelperIdentity,
+    net::{server::ClientIdentity, transport::MpcHttpTransport},
 };
 
 /// Construct router for IPA query web service
@@ -26,11 +27,12 @@ use crate::{
 /// In principle, this web service could be backed by either an HTTP-interconnected helper network or
 /// an in-memory helper network. These are the APIs used by external callers (report collectors) to
 /// examine attribution results.
-pub fn query_router(transport: Arc<HttpTransport>) -> Router {
+pub fn query_router(transport: MpcHttpTransport) -> Router {
     Router::new()
-        .merge(create::router(Arc::clone(&transport)))
-        .merge(input::router(Arc::clone(&transport)))
-        .merge(status::router(Arc::clone(&transport)))
+        .merge(create::router(transport.clone()))
+        .merge(input::router(transport.clone()))
+        .merge(status::router(transport.clone()))
+        .merge(kill::router(transport.clone()))
         .merge(results::router(transport))
 }
 
@@ -41,9 +43,9 @@ pub fn query_router(transport: Arc<HttpTransport>) -> Router {
 /// particular query, to coordinate servicing that query.
 //
 // It might make sense to split the query and h2h handlers into two modules.
-pub fn h2h_router(transport: Arc<HttpTransport>) -> Router {
+pub fn h2h_router(transport: MpcHttpTransport) -> Router {
     Router::new()
-        .merge(prepare::router(Arc::clone(&transport)))
+        .merge(prepare::router(transport.clone()))
         .merge(step::router(transport))
         .layer(layer_fn(HelperAuthentication::new))
 }
@@ -86,7 +88,7 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
-        match req.extensions().get() {
+        match req.extensions().get::<ClientIdentity<HelperIdentity>>() {
             Some(ClientIdentity(_)) => self.inner.call(req).left_future(),
             None => ready(Ok((
                 StatusCode::UNAUTHORIZED,
@@ -135,6 +137,19 @@ pub mod test_helpers {
     // from the server, and compare its [`StatusCode`] with what is expected.
     pub async fn assert_fails_with(req: hyper::Request<Body>, expected_status: StatusCode) {
         let test_server = TestServer::builder().build().await;
+        let resp = test_server.server.handle_req(req).await;
+        assert_eq!(resp.status(), expected_status);
+    }
+
+    pub async fn assert_fails_with_handler(
+        req: hyper::Request<Body>,
+        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        expected_status: StatusCode,
+    ) {
+        let test_server = TestServer::builder()
+            .with_request_handler(handler)
+            .build()
+            .await;
         let resp = test_server.server.handle_req(req).await;
         assert_eq!(resp.status(), expected_status);
     }

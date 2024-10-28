@@ -367,7 +367,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::{self, repeat_with};
+    use std::iter::{self, repeat_n, repeat_with};
 
     use curve25519_dalek::Scalar;
     use futures::stream::TryStreamExt;
@@ -378,9 +378,9 @@ mod tests {
     use super::*;
     use crate::{
         ff::{boolean_array::BA64, Serializable},
-        helpers::{repeat_n, stream::process_slice_by_chunks},
+        helpers::stream::process_slice_by_chunks,
         protocol::{
-            context::{dzkp_validator::DZKPValidator, UpgradableContext},
+            context::{dzkp_validator::DZKPValidator, UpgradableContext, TEST_DZKP_STEPS},
             ipa_prf::{CONV_CHUNK, CONV_PROOF_CHUNK, PRF_CHUNK},
         },
         rand::thread_rng,
@@ -415,7 +415,7 @@ mod tests {
             let [res0, res1, res2] = world
                 .semi_honest(records.into_iter(), |ctx, records| async move {
                     let c_ctx = ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
-                    let validator = &c_ctx.dzkp_validator(CONV_PROOF_CHUNK);
+                    let validator = &c_ctx.dzkp_validator(TEST_DZKP_STEPS, CONV_PROOF_CHUNK);
                     let m_ctx = validator.context();
                     seq_join(
                         m_ctx.active_work(),
@@ -477,7 +477,7 @@ mod tests {
             let [res0, res1, res2] = world
                 .malicious(records.into_iter(), |ctx, records| async move {
                     let c_ctx = ctx.set_total_records(TOTAL_RECORDS);
-                    let validator = &c_ctx.dzkp_validator(PROOF_CHUNK);
+                    let validator = &c_ctx.dzkp_validator(TEST_DZKP_STEPS, PROOF_CHUNK);
                     let m_ctx = validator.context();
                     seq_join(
                         m_ctx.active_work(),
@@ -518,7 +518,7 @@ mod tests {
             TestWorld::default()
                 .semi_honest(iter::empty::<BA256>(), |ctx, _records| async move {
                     let c_ctx = ctx.set_total_records(1);
-                    let validator = &c_ctx.dzkp_validator(1);
+                    let validator = &c_ctx.dzkp_validator(TEST_DZKP_STEPS, 1);
                     let m_ctx = validator.context();
                     let match_keys = BitDecomposed::new(repeat_n(
                         AdditiveShare::<Boolean, CONV_CHUNK>::ZERO,
@@ -532,7 +532,7 @@ mod tests {
                     .await
                     .unwrap()
                 })
-                .await
+                .await;
         });
     }
 

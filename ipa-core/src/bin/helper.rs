@@ -2,7 +2,6 @@ use std::{
     fs,
     io::BufReader,
     net::TcpListener,
-    num::NonZeroUsize,
     os::fd::{FromRawFd, RawFd},
     path::{Path, PathBuf},
     process,
@@ -16,13 +15,16 @@ use ipa_core::{
     },
     config::{hpke_registry, HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     error::BoxError,
+    executor::IpaRuntime,
     helpers::HelperIdentity,
-    net::{ClientIdentity, HttpShardTransport, HttpTransport, MpcHelperClient},
-    AppConfig, AppSetup,
+    net::{ClientIdentity, MpcHelperClient, MpcHttpTransport, ShardHttpTransport},
+    sharding::ShardIndex,
+    AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
+use tokio::runtime::Runtime;
 use tracing::{error, info};
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
@@ -93,7 +95,7 @@ struct ServerArgs {
 
     /// Override the amount of active work processed in parallel
     #[arg(long)]
-    active_work: Option<NonZeroUsize>,
+    active_work: Option<NonZeroU32PowerOfTwo>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -126,7 +128,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
                 }),
             )
         }
-        (None, None) => (ClientIdentity::Helper(my_identity), None),
+        (None, None) => (ClientIdentity::Header(my_identity), None),
         _ => panic!("should have been rejected by clap"),
     };
 
@@ -134,9 +136,12 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         private_key_file: sk_path,
     });
 
+    let query_runtime = new_query_runtime();
     let app_config = AppConfig::default()
         .with_key_registry(hpke_registry(mk_encryption.as_ref()).await?)
-        .with_active_work(args.active_work);
+        .with_active_work(args.active_work)
+        .with_runtime(IpaRuntime::from_tokio_runtime(&query_runtime));
+
     let (setup, handler) = AppSetup::new(app_config);
 
     let server_config = ServerConfig {
@@ -154,17 +159,40 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let network_config_path = args.network.as_deref().unwrap();
     let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?
         .override_scheme(&scheme);
-    let clients = MpcHelperClient::from_conf(&network_config, &identity);
 
-    let (transport, server) = HttpTransport::new(
+    // TODO: Following is just temporary until Shard Transport is actually used.
+    let shard_clients_config = network_config.client.clone();
+    let shard_server_config = server_config.clone();
+    // ---
+
+    let http_runtime = new_http_runtime();
+    let clients = MpcHelperClient::from_conf(
+        &IpaRuntime::from_tokio_runtime(&http_runtime),
+        &network_config,
+        &identity,
+    );
+    let (transport, server) = MpcHttpTransport::new(
+        IpaRuntime::from_tokio_runtime(&http_runtime),
         my_identity,
         server_config,
         network_config,
-        clients,
+        &clients,
         Some(handler),
     );
 
-    let _app = setup.connect(transport.clone(), HttpShardTransport);
+    // TODO: Following is just temporary until Shard Transport is actually used.
+    let shard_network_config = NetworkConfig::new_shards(vec![], shard_clients_config);
+    let (shard_transport, _shard_server) = ShardHttpTransport::new(
+        IpaRuntime::from_tokio_runtime(&http_runtime),
+        ShardIndex::FIRST,
+        shard_server_config,
+        shard_network_config,
+        vec![],
+        None,
+    );
+    // ---
+
+    let _app = setup.connect(transport.clone(), shard_transport.clone());
 
     let listener = args.server_socket_fd
         .map(|fd| {
@@ -184,18 +212,67 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
 
     let (_addr, server_handle) = server
         .start_on(
+            &IpaRuntime::from_tokio_runtime(&http_runtime),
             listener,
             // TODO, trace based on the content of the query.
             None as Option<()>,
         )
         .await;
 
-    server_handle.await?;
+    server_handle.await;
+    [query_runtime, http_runtime].map(Runtime::shutdown_background);
 
     Ok(())
 }
 
-#[tokio::main]
+/// Creates a new runtime for HTTP stack. It is useful to provide a dedicated
+/// scheduler to HTTP tasks, to make sure IPA server can respond to requests,
+/// if for some reason query runtime becomes overloaded.
+/// When multi-threading feature is enabled it creates a runtime with thread-per-core,
+/// otherwise a single-threaded runtime is created.
+fn new_http_runtime() -> Runtime {
+    if cfg!(feature = "multi-threading") {
+        tokio::runtime::Builder::new_multi_thread()
+            .thread_name("http-worker")
+            .enable_all()
+            .build()
+            .unwrap()
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("http-worker")
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+}
+
+/// This function creates a runtime suitable for executing MPC queries.
+/// When multi-threading feature is enabled it creates a runtime with thread-per-core,
+/// otherwise a single-threaded runtime is created.
+fn new_query_runtime() -> Runtime {
+    // it is intentional that IO driver is not enabled here (enable_time() call only).
+    // query runtime is supposed to use CPU/memory only, no writes to disk and all
+    // network communication is handled by HTTP runtime.
+    if cfg!(feature = "multi-threading") {
+        tokio::runtime::Builder::new_multi_thread()
+            .thread_name("query-executor")
+            .enable_time()
+            .build()
+            .unwrap()
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("query-executor")
+            .enable_time()
+            .build()
+            .unwrap()
+    }
+}
+
+/// A single thread is enough here, because server spawns additional
+/// runtimes to use in MPC queries and HTTP.
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();

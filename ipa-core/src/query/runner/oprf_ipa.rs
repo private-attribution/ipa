@@ -8,6 +8,8 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BooleanArray, BA20, BA3, BA8},
+        curve_points::RP25519,
+        ec_prime_field::Fp25519,
         Field, Serializable, U128Conversions,
     },
     helpers::{
@@ -16,26 +18,31 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::ShareKnownValue,
-        context::{Context, SemiHonestContext},
-        ipa_prf::{oprf_ipa, oprf_padding::PaddingParameters, OPRFIPAInputRow},
+        basics::{BooleanArrayMul, Reveal, ShareKnownValue},
+        context::{DZKPUpgraded, MacUpgraded, UpgradableContext},
+        ipa_prf::{
+            oprf_ipa, oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle,
+            OPRFIPAInputRow, AGG_CHUNK, CONV_CHUNK, PRF_CHUNK, SORT_CHUNK,
+        },
+        prss::FromPrss,
         step::ProtocolStep::IpaPrf,
+        BooleanProtocols,
     },
     report::{EncryptedOprfReport, EventType},
     secret_sharing::{
         replicated::semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-        BitDecomposed, SharedValue, TransposeFrom,
+        BitDecomposed, SharedValue, TransposeFrom, Vectorizable,
     },
     sync::Arc,
 };
 
-pub struct OprfIpaQuery<'a, HV, R: PrivateKeyRegistry> {
+pub struct OprfIpaQuery<C, HV, R: PrivateKeyRegistry> {
     config: IpaQueryConfig,
     key_registry: Arc<R>,
-    phantom_data: PhantomData<&'a HV>,
+    phantom_data: PhantomData<(C, HV)>,
 }
 
-impl<'a, HV, R: PrivateKeyRegistry> OprfIpaQuery<'a, HV, R> {
+impl<C, HV, R: PrivateKeyRegistry> OprfIpaQuery<C, HV, R> {
     pub fn new(config: IpaQueryConfig, key_registry: Arc<R>) -> Self {
         Self {
             config,
@@ -46,11 +53,25 @@ impl<'a, HV, R: PrivateKeyRegistry> OprfIpaQuery<'a, HV, R> {
 }
 
 #[allow(clippy::too_many_lines)]
-impl<'ctx, HV, R> OprfIpaQuery<'ctx, HV, R>
+impl<C, HV, R> OprfIpaQuery<C, HV, R>
 where
+    C: UpgradableContext + Shuffle,
     HV: BooleanArray + U128Conversions,
     R: PrivateKeyRegistry,
-    Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'ctx>, Boolean>,
+    Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,
+    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<Boolean, 256>: BooleanProtocols<DZKPUpgraded<C>, 256>,
+    Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
+    Replicated<Boolean, SORT_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, SORT_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+    Replicated<RP25519, PRF_CHUNK>:
+        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
+    Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
+    Replicated<BA20>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<BA3>: BooleanArrayMul<DZKPUpgraded<C>>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
     BitDecomposed<AdditiveShare<Boolean, 256>>:
@@ -59,7 +80,7 @@ where
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
         self,
-        ctx: SemiHonestContext<'ctx>,
+        ctx: C,
         query_size: QuerySize,
         input_stream: BodyStream,
     ) -> Result<Vec<Replicated<HV>>, Error> {
@@ -122,18 +143,20 @@ where
             },
         };
 
-        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        #[cfg(feature = "relaxed-dp")]
         let padding_params = PaddingParameters::relaxed();
-        #[cfg(not(any(test, feature = "cli", feature = "test-fixture")))]
+        #[cfg(not(feature = "relaxed-dp"))]
         let padding_params = PaddingParameters::default();
         match config.per_user_credit_cap {
-            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,
-            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params, padding_params).await,
-            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws, dp_params, padding_params).await,
-            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws, dp_params, padding_params).await,
-            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws, dp_params, padding_params).await,
+            1 => oprf_ipa::<_, BA8, BA3, HV, BA20, 1, 256>(ctx, input, aws, dp_params, padding_params).await,
+            2 | 4 => oprf_ipa::<_, BA8, BA3, HV, BA20, 2, 256>(ctx, input, aws, dp_params, padding_params).await,
+            8 => oprf_ipa::<_, BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws, dp_params, padding_params).await,
+            16 => oprf_ipa::<_, BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws, dp_params, padding_params).await,
+            32 => oprf_ipa::<_, BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws, dp_params, padding_params).await,
+            64 => oprf_ipa::<_, BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws, dp_params, padding_params).await,
+            128 => oprf_ipa::<_, BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws, dp_params, padding_params).await,
             _ => panic!(
-                "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
+                "Invalid value specified for per-user cap: {:?}. Must be one of 1, 2, 4, 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap
             ),
         }
@@ -243,8 +266,11 @@ mod tests {
             };
             let input = BodyStream::from(buffer);
 
-            OprfIpaQuery::<BA16, KeyRegistry<KeyPair>>::new(query_config, Arc::clone(&key_registry))
-                .execute(ctx, query_size, input)
+            OprfIpaQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                query_config,
+                Arc::clone(&key_registry),
+            )
+            .execute(ctx, query_size, input)
         }))
         .await;
 

@@ -21,8 +21,8 @@ use crate::{
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, Reveal},
         context::{
-            dzkp_validator::DZKPValidator, Context, DZKPUpgraded, DZKPUpgradedSemiHonestContext,
-            MacUpgraded, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext,
+            dzkp_validator::DZKPValidator, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps,
+            UpgradableContext,
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -31,6 +31,7 @@ use crate::{
             prf_sharding::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
+            step::IpaPrfStep,
         },
         prss::FromPrss,
         RecordId,
@@ -40,7 +41,6 @@ use crate::{
         SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
-    sharding::NotSharded,
 };
 
 pub(crate) mod aggregation;
@@ -54,6 +54,8 @@ mod quicksort;
 pub(crate) mod shuffle;
 pub(crate) mod step;
 pub mod validation_protocol;
+
+pub use malicious_security::prover::{LargeProofGenerator, SmallProofGenerator};
 
 /// Match key type
 pub type MatchKey = BA64;
@@ -96,7 +98,7 @@ use crate::{
     protocol::{
         context::Validator,
         dp::dp_for_histogram,
-        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing},
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
@@ -220,25 +222,33 @@ where
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
-    ctx: SemiHonestContext<'ctx>,
+pub async fn oprf_ipa<'ctx, C, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
+    ctx: C,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     dp_params: DpMechanism,
     dp_padding_params: PaddingParameters,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
+    C: UpgradableContext + 'ctx + Shuffle,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
-    Replicated<Boolean, B>: BooleanProtocols<DZKPUpgradedSemiHonestContext<'ctx, NotSharded>, B>,
-    for<'a> Replicated<BK>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
-    for<'a> Replicated<TS>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
-    for<'a> Replicated<TV>: BooleanArrayMul<DZKPUpgradedSemiHonestContext<'a, NotSharded>>,
+    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
+    Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
+    Replicated<Boolean, SORT_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, SORT_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+    Replicated<RP25519, PRF_CHUNK>:
+        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
+    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
+    Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -262,7 +272,7 @@ where
     let padded_input_rows = apply_dp_padding::<_, OPRFIPAInputRow<BK, TV, TS>, B>(
         ctx.narrow(&Step::PaddingDp),
         input_rows,
-        dp_padding_params,
+        &dp_padding_params,
     )
     .await?;
 
@@ -290,23 +300,22 @@ where
         prfd_inputs,
         attribution_window_seconds,
         &row_count_histogram,
+        &dp_padding_params,
     )
     .await?;
 
-    let noisy_output_histogram = dp_for_histogram::<_, B, HV, SS_BITS>(
-        ctx.narrow(&Step::DifferentialPrivacy),
-        output_histogram,
-        dp_params,
-    )
-    .await?;
+    let noisy_output_histogram =
+        dp_for_histogram::<_, B, HV, SS_BITS>(ctx, output_histogram, dp_params).await?;
     Ok(noisy_output_histogram)
 }
 
 // We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
 // is CONV_CHUNK. Let `len` equal the number of converted shares. The total amount of
 // multiplications is CONV_CHUNK*512*len. We want CONV_CHUNK*512*len ≈ 50M, or len ≈ 381, for a
-// reasonably-sized proof.
-const CONV_PROOF_CHUNK: usize = 400;
+// reasonably-sized proof. There is also a constraint on proof chunks to be powers of two, so
+// we pick the closest power of two close to 381 but less than that value. 256 gives us around 33M
+// multiplications per batch
+const CONV_PROOF_CHUNK: usize = 256;
 
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
@@ -327,11 +336,15 @@ where
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
     let eval_records = TotalRecords::specified(div_round_up(input_rows.len(), Const::<PRF_CHUNK>))?;
-    let convert_ctx = ctx
-        .narrow(&Step::ConvertFp25519)
-        .set_total_records(conv_records);
+    let convert_ctx = ctx.set_total_records(conv_records);
 
-    let validator = convert_ctx.dzkp_validator(CONV_PROOF_CHUNK);
+    let validator = convert_ctx.dzkp_validator(
+        MaliciousProtocolSteps {
+            protocol: &Step::ConvertFp25519,
+            validate: &Step::ConvertFp25519Validate,
+        },
+        CONV_PROOF_CHUNK,
+    );
     let m_ctx = validator.context();
 
     let curve_pts = seq_join(
@@ -351,9 +364,11 @@ where
     .try_collect::<Vec<_>>()
     .await?;
 
-    let eval_ctx = ctx.narrow(&Step::EvalPrf).set_total_records(eval_records);
-    let prf_key = gen_prf_key(&eval_ctx);
-    let validator = eval_ctx.validator::<Fp25519>();
+    let prf_key = gen_prf_key(&ctx.narrow(&IpaPrfStep::PrfKeyGen));
+    let validator = ctx
+        .narrow(&Step::EvalPrf)
+        .set_total_records(eval_records)
+        .validator::<Fp25519>();
     let eval_ctx = validator.context();
 
     let prf_of_match_keys = seq_join(
@@ -440,11 +455,58 @@ pub mod tests {
             ]; // trigger value of 2 attributes to earlier source row with breakdown 1 and trigger
                // value of 5 attributes to source row with breakdown 2.
             let dp_params = DpMechanism::NoDp;
-            let padding_params = PaddingParameters::relaxed();
+            let padding_params = if cfg!(feature = "shuttle") {
+                // To reduce runtime. There is also a hard upper limit in the shuttle
+                // config (`max_steps`), that may need to be increased to support larger
+                // runs.
+                PaddingParameters::no_padding()
+            } else {
+                PaddingParameters::relaxed()
+            };
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA16, BA20, 5, 32>(
+                    oprf_ipa::<_, BA5, BA3, BA16, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+
+    #[test]
+    fn malicious() {
+        const EXPECTED: &[u128] = &[0, 2, 5, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::default();
+
+            let records: Vec<TestRawDataRecord> = vec![
+                test_input(0, 12345, false, 1, 0),
+                test_input(5, 12345, false, 2, 0),
+                test_input(10, 12345, true, 0, 5),
+                test_input(0, 68362, false, 1, 0),
+                test_input(20, 68362, true, 0, 2),
+            ]; // trigger value of 2 attributes to earlier source row with breakdown 1 and trigger
+               // value of 5 attributes to source row with breakdown 2.
+            let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::no_padding();
+
+            let mut result: Vec<_> = world
+                .malicious(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<_, BA5, BA3, BA16, BA20, 5, 32>(
                         ctx,
                         input_rows,
                         None,
@@ -501,7 +563,7 @@ pub mod tests {
             ];
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA16, BA20, SS_BITS, B>(
+                    oprf_ipa::<_, BA5, BA3, BA16, BA20, SS_BITS, B>(
                         ctx,
                         input_rows,
                         None,
@@ -562,7 +624,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(
+                    oprf_ipa::<_, BA5, BA3, BA8, BA20, 5, 32>(
                         ctx,
                         input_rows,
                         None,
@@ -598,7 +660,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA5, BA3, BA8, BA20, 5, 32>(
+                    oprf_ipa::<_, BA5, BA3, BA8, BA20, 5, 32>(
                         ctx,
                         input_rows,
                         None,
@@ -652,7 +714,124 @@ pub mod tests {
             let padding_params = PaddingParameters::no_padding();
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(
+                    oprf_ipa::<_, BA8, BA3, BA16, BA20, 5, 256>(
+                        ctx,
+                        input_rows,
+                        None,
+                        dp_params,
+                        padding_params,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
+            );
+        });
+    }
+}
+
+#[cfg(all(test, all(compact_gate, feature = "in-memory-infra")))]
+mod compact_gate_tests {
+    use ipa_step::{CompactStep, StepNarrow};
+
+    use crate::{
+        ff::{
+            boolean_array::{BA20, BA5, BA8},
+            U128Conversions,
+        },
+        helpers::query::DpMechanism,
+        protocol::{
+            ipa_prf::{oprf_ipa, oprf_padding::PaddingParameters},
+            step::{ProtocolGate, ProtocolStep},
+        },
+        test_executor::run,
+        test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld, TestWorldConfig},
+    };
+
+    #[test]
+    fn step_count_limit() {
+        // This is an arbitrary limit intended to catch changes that unintentionally
+        // blow up the step count. It can be increased, within reason.
+        const STEP_COUNT_LIMIT: u32 = 24_000;
+        assert!(
+            ProtocolStep::STEP_COUNT < STEP_COUNT_LIMIT,
+            "Step count of {actual} exceeds limit of {STEP_COUNT_LIMIT}.",
+            actual = ProtocolStep::STEP_COUNT,
+        );
+    }
+
+    #[test]
+    fn saturated_agg() {
+        const EXPECTED: &[u128] = &[0, 255, 255, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::new_with(TestWorldConfig {
+                initial_gate: Some(ProtocolGate::default().narrow(&ProtocolStep::IpaPrf)),
+                ..Default::default()
+            });
+
+            let records: Vec<TestRawDataRecord> = vec![
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 5,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 10,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 255,
+                },
+                TestRawDataRecord {
+                    timestamp: 20,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 255,
+                },
+                TestRawDataRecord {
+                    timestamp: 30,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 255,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 20,
+                    user_id: 68362,
+                    is_trigger_report: true,
+                    breakdown_key: 1,
+                    trigger_value: 255,
+                },
+            ];
+            let dp_params = DpMechanism::NoDp;
+            let padding_params = PaddingParameters::relaxed();
+
+            let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<_, BA5, BA8, BA8, BA20, 5, 32>(
                         ctx,
                         input_rows,
                         None,

@@ -15,28 +15,38 @@ use generic_array::GenericArray;
 use ipa_step::StepNarrow;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
 use typenum::Unsigned;
 
-#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+#[cfg(any(
+    test,
+    feature = "cli",
+    feature = "test-fixture",
+    feature = "weak-field"
+))]
+use crate::ff::FieldType;
 use crate::{
-    ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add_in_prime_field,
-};
-use crate::{
-    ff::{boolean_array::BA32, FieldType, Serializable},
+    executor::IpaRuntime,
+    ff::{boolean_array::BA32, Serializable},
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
         BodyStream, Gateway,
     },
     hpke::PrivateKeyRegistry,
-    protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, Gate},
+    protocol::{
+        context::{MaliciousContext, SemiHonestContext},
+        prss::Endpoint as PrssEndpoint,
+        Gate,
+    },
     query::{
         runner::{OprfIpaQuery, QueryResult},
         state::RunningQuery,
     },
     sync::Arc,
+};
+#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+use crate::{
+    ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add_in_prime_field,
 };
 
 pub trait Result: Send + Debug {
@@ -63,6 +73,7 @@ where
 /// Needless pass by value because IPA v3 does not make use of key registry yet.
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub fn execute<R: PrivateKeyRegistry>(
+    runtime: &IpaRuntime,
     config: QueryConfig,
     key_registry: Arc<R>,
     gateway: Gateway,
@@ -70,73 +81,95 @@ pub fn execute<R: PrivateKeyRegistry>(
 ) -> RunningQuery {
     match (config.query_type, config.field_type) {
         #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::TestMultiply, FieldType::Fp31) => {
-            do_query(config, gateway, input, |prss, gateway, _config, input| {
+        (QueryType::TestMultiply, FieldType::Fp31) => do_query(
+            runtime,
+            config,
+            gateway,
+            input,
+            |prss, gateway, _config, input| {
                 Box::pin(execute_test_multiply::<crate::ff::Fp31>(
                     prss, gateway, input,
                 ))
-            })
-        }
+            },
+        ),
         #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-        (QueryType::TestMultiply, FieldType::Fp32BitPrime) => {
-            do_query(config, gateway, input, |prss, gateway, _config, input| {
+        (QueryType::TestMultiply, FieldType::Fp32BitPrime) => do_query(
+            runtime,
+            config,
+            gateway,
+            input,
+            |prss, gateway, _config, input| {
                 Box::pin(execute_test_multiply::<Fp32BitPrime>(prss, gateway, input))
-            })
-        }
+            },
+        ),
+        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        (QueryType::TestShardedShuffle, _) => do_query(
+            runtime,
+            config,
+            gateway,
+            input,
+            |_prss, _gateway, _config, _input| unimplemented!(),
+        ),
         #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::TestAddInPrimeField, FieldType::Fp31) => {
-            do_query(config, gateway, input, |prss, gateway, _config, input| {
+        (QueryType::TestAddInPrimeField, FieldType::Fp31) => do_query(
+            runtime,
+            config,
+            gateway,
+            input,
+            |prss, gateway, _config, input| {
                 Box::pin(test_add_in_prime_field::<crate::ff::Fp31>(
                     prss, gateway, input,
                 ))
-            })
-        }
+            },
+        ),
         #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-        (QueryType::TestAddInPrimeField, FieldType::Fp32BitPrime) => {
-            do_query(config, gateway, input, |prss, gateway, _config, input| {
+        (QueryType::TestAddInPrimeField, FieldType::Fp32BitPrime) => do_query(
+            runtime,
+            config,
+            gateway,
+            input,
+            |prss, gateway, _config, input| {
                 Box::pin(test_add_in_prime_field::<Fp32BitPrime>(
                     prss, gateway, input,
                 ))
-            })
-        }
+            },
+        ),
         // TODO(953): This is really using BA32, not Fp32bitPrime. The `FieldType` mechanism needs
         // to be reworked.
-        (QueryType::OprfIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
+        (QueryType::SemiHonestOprfIpa(ipa_config), _) => do_query(
+            runtime,
             config,
             gateway,
             input,
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<BA32, R>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
-        // TODO(953): This is not doing anything differently than the Fp32BitPrime case, except
-        // using 16 bits for histogram values
-        #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::OprfIpa(ipa_config), FieldType::Fp31) => do_query(
+        (QueryType::MaliciousOprfIpa(ipa_config), _) => do_query(
+            runtime,
             config,
             gateway,
             input,
             move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
+                let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<crate::ff::boolean_array::BA16, R>::new(
-                        ipa_config,
-                        key_registry,
-                    )
-                    .execute(ctx, config.size, input)
-                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                    OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
+        (QueryType::SemiHonestHybrid(_), _) => todo!(),
     }
 }
 
 pub fn do_query<B, F>(
+    executor_handle: &IpaRuntime,
     config: QueryConfig,
     gateway: B,
     input_stream: BodyStream,
@@ -155,7 +188,7 @@ where
 {
     let (tx, rx) = oneshot::channel();
 
-    let join_handle = tokio::spawn(async move {
+    let join_handle = executor_handle.spawn(async move {
         let gateway = gateway.borrow();
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
@@ -207,6 +240,7 @@ mod tests {
     use tokio::sync::Barrier;
 
     use crate::{
+        executor::IpaRuntime,
         ff::{FieldType, Fp31, U128Conversions},
         helpers::{
             query::{QueryConfig, QueryType},
@@ -327,6 +361,7 @@ mod tests {
         Fut: Future<Output = ()> + Send,
     {
         do_query(
+            &IpaRuntime::current(),
             QueryConfig {
                 size: 1.try_into().unwrap(),
                 field_type: FieldType::Fp31,

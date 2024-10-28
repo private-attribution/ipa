@@ -15,16 +15,17 @@ use std::{
 
 use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
-use tokio::task::JoinHandle;
 
+use super::transport::MpcHttpTransport;
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
         TlsConfig,
     },
+    executor::{IpaJoinHandle, IpaRuntime},
     helpers::{HandlerBox, HelperIdentity, RequestHandler},
     hpke::{Deserializable as _, IpaPublicKey},
-    net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
+    net::{ClientIdentity, Helper, MpcHelperClient, MpcHelperServer},
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
@@ -33,7 +34,7 @@ pub const DEFAULT_TEST_PORTS: [u16; 3] = [3000, 3001, 3002];
 
 pub struct TestConfig {
     pub disable_https: bool,
-    pub network: NetworkConfig,
+    pub network: NetworkConfig<Helper>,
     pub servers: [ServerConfig; 3],
     pub sockets: Option<[TcpListener; 3]>,
 }
@@ -174,16 +175,13 @@ impl TestConfigBuilder {
                     ))
                 },
             })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        let network = NetworkConfig {
+            .collect::<Vec<_>>();
+        let network = NetworkConfig::<Helper>::new_mpc(
             peers,
-            client: self
-                .use_http1
+            self.use_http1
                 .then(ClientConfig::use_http1)
                 .unwrap_or_default(),
-        };
+        );
         let servers = if self.disable_https {
             ports.map(|ports| server_config_insecure_http(ports, !self.disable_matchkey_encryption))
         } else {
@@ -201,9 +199,9 @@ impl TestConfigBuilder {
 
 pub struct TestServer {
     pub addr: SocketAddr,
-    pub handle: JoinHandle<()>,
-    pub transport: Arc<HttpTransport>,
-    pub server: MpcHelperServer,
+    pub handle: IpaJoinHandle<()>,
+    pub transport: MpcHttpTransport,
+    pub server: MpcHelperServer<Helper>,
     pub client: MpcHelperClient,
     pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
 }
@@ -273,7 +271,7 @@ impl TestServerBuilder {
 
     pub async fn build(self) -> TestServer {
         let identity = if self.disable_https {
-            ClientIdentity::Helper(HelperIdentity::ONE)
+            ClientIdentity::Header(HelperIdentity::ONE)
         } else {
             get_test_identity(HelperIdentity::ONE)
         };
@@ -291,22 +289,24 @@ impl TestServerBuilder {
         else {
             panic!("TestConfig should have allocated ports");
         };
-        let clients = MpcHelperClient::from_conf(&network_config, &identity.clone_with_key());
+        let clients = MpcHelperClient::from_conf(
+            &IpaRuntime::current(),
+            &network_config,
+            &identity.clone_with_key(),
+        );
         let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
-        let (transport, server) = HttpTransport::new(
+        let client = clients[0].clone();
+        let (transport, server) = MpcHttpTransport::new(
+            IpaRuntime::current(),
             HelperIdentity::ONE,
             server_config,
             network_config.clone(),
-            clients,
+            &clients,
             handler,
         );
-        let (addr, handle) = server.start_on(Some(server_socket), self.metrics).await;
-        // Get the config for HelperIdentity::ONE
-        let h1_peer_config = network_config.peers.into_iter().next().unwrap();
-        // At some point it might be appropriate to return two clients here -- the first being
-        // another helper and the second being a report collector. For now we use the same client
-        // for both types of calls.
-        let client = MpcHelperClient::new(&network_config.client, h1_peer_config, identity);
+        let (addr, handle) = server
+            .start_on(&IpaRuntime::current(), Some(server_socket), self.metrics)
+            .await;
         TestServer {
             addr,
             handle,

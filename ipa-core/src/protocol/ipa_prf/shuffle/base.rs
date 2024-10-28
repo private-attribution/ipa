@@ -18,7 +18,22 @@ use crate::{
 
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-pub async fn shuffle<C, I, S>(
+pub async fn semi_honest_shuffle<C, I, S>(ctx: C, shares: I) -> Result<Vec<AdditiveShare<S>>, Error>
+where
+    C: Context,
+    I: IntoIterator<Item = AdditiveShare<S>>,
+    I::IntoIter: ExactSizeIterator,
+    S: SharedValue + Add<Output = S>,
+    for<'a> &'a S: Add<S, Output = S>,
+    for<'a> &'a S: Add<&'a S, Output = S>,
+    Standard: Distribution<S>,
+{
+    Ok(shuffle_protocol(ctx, shares).await?.0)
+}
+
+/// # Errors
+/// Will propagate errors from transport and a few typecasts
+pub async fn shuffle_protocol<C, I, S>(
     ctx: C,
     shares: I,
 ) -> Result<(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>), Error>
@@ -47,13 +62,12 @@ where
     let zs = generate_random_tables_with_peers(shares_len, &ctx_z);
 
     match ctx.role() {
-        Role::H1 => run_h1(&ctx, shares_len, shares, zs).await,
-        Role::H2 => run_h2(&ctx, shares_len, shares, zs).await,
-        Role::H3 => run_h3(&ctx, shares_len, zs).await,
+        Role::H1 => Box::pin(run_h1(&ctx, shares_len, shares, zs)).await,
+        Role::H2 => Box::pin(run_h2(&ctx, shares_len, shares, zs)).await,
+        Role::H3 => Box::pin(run_h3(&ctx, shares_len, zs)).await,
     }
 }
 
-#[allow(dead_code)]
 /// This struct stores some intermediate messages during the shuffle.
 /// In a maliciously secure shuffle,
 /// these messages need to be checked for consistency across helpers.
@@ -64,7 +78,6 @@ pub struct IntermediateShuffleMessages<S: SharedValue> {
     x2_or_y2: Option<Vec<S>>,
 }
 
-#[allow(dead_code)]
 impl<S: SharedValue> IntermediateShuffleMessages<S> {
     /// When `IntermediateShuffleMessages` is initialized correctly,
     /// this function returns `x1` when `Role = H1`
@@ -430,7 +443,7 @@ where
 pub mod tests {
     use rand::{thread_rng, Rng};
 
-    use super::shuffle;
+    use super::shuffle_protocol;
     use crate::{
         ff::{Gf40Bit, U128Conversions},
         secret_sharing::replicated::ReplicatedSecretSharing,
@@ -453,7 +466,7 @@ pub mod tests {
         // Stable seed is used to get predictable shuffle results.
         let mut actual = TestWorld::new_with(TestWorldConfig::default().with_seed(123))
             .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
-                shuffle(ctx, shares).await.unwrap().0
+                shuffle_protocol(ctx, shares).await.unwrap().0
             })
             .await
             .reconstruct();
@@ -484,7 +497,7 @@ pub mod tests {
 
             let [h1, h2, h3] = world
                 .semi_honest(records.clone().into_iter(), |ctx, records| async move {
-                    shuffle(ctx, records).await
+                    shuffle_protocol(ctx, records).await
                 })
                 .await;
 

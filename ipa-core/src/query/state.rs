@@ -10,16 +10,15 @@ use futures::{ready, FutureExt};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    executor::IpaJoinHandle,
     helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
     query::runner::QueryResult,
     sync::Mutex,
-    task::JoinHandle,
 };
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub enum QueryStatus {
     /// Only query running on the coordinator helper can be in this state. Means that coordinator
     /// sent out requests to other helpers and asked them to assume a given role for this query.
@@ -87,7 +86,7 @@ pub struct RunningQuery {
     ///
     /// We could return the result via the `JoinHandle`, except that we want to check the status
     /// of the task, and shuttle doesn't implement `JoinHandle::is_finished`.
-    pub join_handle: JoinHandle<()>,
+    pub join_handle: IpaJoinHandle<()>,
 }
 
 impl RunningQuery {

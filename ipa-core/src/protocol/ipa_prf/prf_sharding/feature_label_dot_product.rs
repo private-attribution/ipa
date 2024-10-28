@@ -1,4 +1,7 @@
-use std::{convert::Infallible, iter::zip};
+use std::{
+    convert::Infallible,
+    iter::{repeat_n, zip},
+};
 
 use futures::stream;
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
@@ -6,7 +9,7 @@ use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, boolean_array::BooleanArray, Field, U128Conversions},
-    helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
+    helpers::{stream::TryFlattenItersExt, TotalRecords},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
         boolean::{and::bool_and_8_bit, or::or},
@@ -258,7 +261,7 @@ where
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
     let aggregated_result: BitDecomposed<AdditiveShare<Boolean, B>> =
-        aggregate_values::<_, HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+        aggregate_values::<_, HV, B>(binary_m_ctx, flattened_stream, num_outputs, None).await?;
 
     let transposed_aggregated_result: Vec<Replicated<HV>> =
         Vec::transposed_from(&aggregated_result)?;

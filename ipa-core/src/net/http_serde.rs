@@ -122,9 +122,13 @@ pub mod query {
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
-                QueryType::OPRF_IPA_STR => {
+                QueryType::SEMI_HONEST_OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
-                    Ok(QueryType::OprfIpa(q))
+                    Ok(QueryType::SemiHonestOprfIpa(q))
+                }
+                QueryType::MALICIOUS_OPRF_IPA_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::MaliciousOprfIpa(q))
                 }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
@@ -148,7 +152,9 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply | QueryType::TestAddInPrimeField => Ok(()),
-                QueryType::OprfIpa(config) => {
+                #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+                QueryType::TestShardedShuffle => Ok(()),
+                QueryType::SemiHonestOprfIpa(config) | QueryType::MaliciousOprfIpa(config) => {
                     write!(
                         f,
                         "&per_user_credit_cap={}&max_breakdown_key={}&with_dp={}&epsilon={}",
@@ -164,6 +170,22 @@ pub mod query {
 
                     if let Some(window) = config.attribution_window_seconds {
                         write!(f, "&attribution_window_seconds={}", window.get())?;
+                    }
+
+                    Ok(())
+                }
+                QueryType::SemiHonestHybrid(config) => {
+                    write!(
+                        f,
+                        "&per_user_credit_cap={}&max_breakdown_key={}&with_dp={}&epsilon={}",
+                        config.per_user_credit_cap,
+                        config.max_breakdown_key,
+                        config.with_dp,
+                        config.epsilon,
+                    )?;
+
+                    if config.plaintext_match_keys {
+                        write!(f, "&plaintext_match_keys=true")?;
                     }
 
                     Ok(())
@@ -510,5 +532,83 @@ pub mod query {
         }
 
         pub const AXUM_PATH: &str = "/:query_id/complete";
+    }
+
+    pub mod kill {
+        use serde::{Deserialize, Serialize};
+
+        use crate::{
+            helpers::{routing::RouteId, HelperResponse, NoStep, RouteParams},
+            protocol::QueryId,
+        };
+
+        pub struct Request {
+            pub query_id: QueryId,
+        }
+
+        impl RouteParams<RouteId, QueryId, NoStep> for Request {
+            type Params = String;
+
+            fn resource_identifier(&self) -> RouteId {
+                RouteId::KillQuery
+            }
+
+            fn query_id(&self) -> QueryId {
+                self.query_id
+            }
+
+            fn gate(&self) -> NoStep {
+                NoStep
+            }
+
+            fn extra(&self) -> Self::Params {
+                String::new()
+            }
+        }
+
+        impl Request {
+            /// Currently, it is only possible to kill
+            /// a query by issuing an HTTP request manually.
+            /// Maybe report collector can support this API,
+            /// but for now, only tests exercise this path
+            /// hence methods here are hidden behind feature
+            /// flags
+            #[cfg(all(test, unit_test))]
+            pub fn new(query_id: QueryId) -> Self {
+                Self { query_id }
+            }
+
+            #[cfg(all(test, unit_test))]
+            pub fn try_into_http_request(
+                self,
+                scheme: axum::http::uri::Scheme,
+                authority: axum::http::uri::Authority,
+            ) -> crate::net::http_serde::OutgoingRequest {
+                let uri = axum::http::uri::Uri::builder()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}/{}/kill",
+                        crate::net::http_serde::query::BASE_AXUM_PATH,
+                        self.query_id.as_ref()
+                    ))
+                    .build()?;
+                Ok(hyper::Request::post(uri).body(axum::body::Body::empty())?)
+            }
+        }
+
+        #[derive(Clone, Debug, Serialize, Deserialize)]
+        pub struct ResponseBody {
+            pub query_id: QueryId,
+            pub status: String,
+        }
+
+        impl From<HelperResponse> for ResponseBody {
+            fn from(value: HelperResponse) -> Self {
+                serde_json::from_slice(value.into_body().as_slice()).unwrap()
+            }
+        }
+
+        pub const AXUM_PATH: &str = "/:query_id/kill";
     }
 }

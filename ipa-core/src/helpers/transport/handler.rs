@@ -12,7 +12,7 @@ use crate::{
     },
     query::{
         NewQueryError, PrepareQueryError, ProtocolResult, QueryCompletionError, QueryInputError,
-        QueryStatus, QueryStatusError,
+        QueryKillStatus, QueryKilled, QueryStatus, QueryStatusError,
     },
     sync::{Arc, Mutex, Weak},
 };
@@ -135,6 +135,13 @@ impl From<QueryStatus> for HelperResponse {
     }
 }
 
+impl From<QueryKilled> for HelperResponse {
+    fn from(value: QueryKilled) -> Self {
+        let v = serde_json::to_vec(&json!({"query_id": value.0, "status": "killed"})).unwrap();
+        Self { body: v }
+    }
+}
+
 impl<R: AsRef<dyn ProtocolResult>> From<R> for HelperResponse {
     fn from(value: R) -> Self {
         let v = value.as_ref().to_bytes();
@@ -155,6 +162,8 @@ pub enum Error {
     QueryCompletion(#[from] QueryCompletionError),
     #[error(transparent)]
     QueryStatus(#[from] QueryStatusError),
+    #[error(transparent)]
+    QueryKill(#[from] QueryKillStatus),
     #[error(transparent)]
     DeserializationFailure(#[from] serde_json::Error),
     #[error("MalformedRequest: {0}")]

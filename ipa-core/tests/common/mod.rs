@@ -24,6 +24,7 @@ pub mod tempdir;
 pub const HELPER_BIN: &str = env!("CARGO_BIN_EXE_helper");
 pub const TEST_MPC_BIN: &str = env!("CARGO_BIN_EXE_test_mpc");
 pub const TEST_RC_BIN: &str = env!("CARGO_BIN_EXE_report_collector");
+pub const CRYPTO_UTIL_BIN: &str = env!("CARGO_BIN_EXE_crypto_util");
 
 pub trait UnwrapStatusExt {
     fn unwrap_status(self);
@@ -216,17 +217,27 @@ pub fn test_network<T: NetworkTest>(https: bool) {
     T::execute(path, https);
 }
 
-pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
+pub fn test_ipa(mode: IpaSecurityModel, https: bool, encrypted_inputs: bool) {
     test_ipa_with_config(
         mode,
         https,
         IpaQueryConfig {
             ..Default::default()
         },
+        encrypted_inputs,
     );
 }
 
-pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQueryConfig) {
+pub fn test_ipa_with_config(
+    mode: IpaSecurityModel,
+    https: bool,
+    config: IpaQueryConfig,
+    encrypted_inputs: bool,
+) {
+    if encrypted_inputs & !https {
+        panic!("encrypted_input requires https")
+    };
+
     const INPUT_SIZE: usize = 100;
     // set to true to always keep the temp dir after test finishes
     let dir = TempDir::new_delete_on_drop();
@@ -250,11 +261,25 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         .stdin(Stdio::piped());
     command.status().unwrap_status();
 
+    if encrypted_inputs {
+        // Encrypt Input
+        let mut command = Command::new(CRYPTO_UTIL_BIN);
+        command
+            .arg("encrypt")
+            .args(["--input-file".as_ref(), inputs_file.as_os_str()])
+            .args(["--output-dir".as_ref(), path.as_os_str()])
+            .args(["--network".into(), dir.path().join("network.toml")])
+            .stdin(Stdio::piped());
+        command.status().unwrap_status();
+    }
+
     // Run IPA
     let mut command = Command::new(TEST_RC_BIN);
+    if !encrypted_inputs {
+        command.args(["--input-file".as_ref(), inputs_file.as_os_str()]);
+    }
     command
         .args(["--network".into(), dir.path().join("network.toml")])
-        .args(["--input-file".as_ref(), inputs_file.as_os_str()])
         .args(["--output-file".as_ref(), output_file.as_os_str()])
         .args(["--wait", "2"])
         .silent();
@@ -263,12 +288,23 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
         command.arg("--disable-https");
     }
 
-    let protocol = match mode {
-        IpaSecurityModel::SemiHonest => "oprf-ipa",
-        IpaSecurityModel::Malicious => "malicious-ipa",
+    let protocol = match (mode, encrypted_inputs) {
+        (IpaSecurityModel::SemiHonest, true) => "semi-honest-oprf-ipa",
+        (IpaSecurityModel::SemiHonest, false) => "semi-honest-oprf-ipa-test",
+        (IpaSecurityModel::Malicious, true) => "malicious-oprf-ipa",
+        (IpaSecurityModel::Malicious, false) => "malicious-oprf-ipa-test",
     };
+    command.arg(protocol);
+    if encrypted_inputs {
+        let enc1 = dir.path().join("helper1.enc");
+        let enc2 = dir.path().join("helper2.enc");
+        let enc3 = dir.path().join("helper3.enc");
+        command
+            .args(["--enc-input-file1".as_ref(), enc1.as_os_str()])
+            .args(["--enc-input-file2".as_ref(), enc2.as_os_str()])
+            .args(["--enc-input-file3".as_ref(), enc3.as_os_str()]);
+    }
     command
-        .arg(protocol)
         .args(["--max-breakdown-key", &config.max_breakdown_key.to_string()])
         .args([
             "--per-user-credit-cap",

@@ -118,7 +118,7 @@ fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let mut g = Generator::default();
     let attr = match &ast.data {
         Data::Enum(data) => {
-            for v in VariantAttribute::parse_variants(data)? {
+            for v in VariantAttribute::parse_variants(ident, data)? {
                 g.add_variant(&v);
             }
             VariantAttribute::parse_outer(ident, &ast.attrs, None)?
@@ -165,6 +165,18 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
                 <Self as ::std::fmt::Display>::fmt(self, f)
             }
         }
+
+        impl #name {
+            /// Returns the current index. It matches the index of the latest step
+            /// this gate has been narrowed to.
+            ///
+            /// If gate hasn't been narrowed yet, it returns the index of the default value.
+            #[must_use]
+            pub fn index(&self) -> ::ipa_step::CompactGateIndex {
+                self.0
+            }
+        }
+
     };
 
     // This environment variable is set by build scripts,
@@ -402,6 +414,16 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for ManyArms {}
 
+                impl ManyArms {
+                    pub fn arm(v: u8) -> Self {
+                        assert!(
+                            v < u8::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for ManyArms::Arm with count 3.",
+                        );
+                        Self::Arm(v)
+                    }
+                }
+
                 #[allow(
                     clippy::useless_conversion,
                     clippy::unnecessary_fallible_conversions,
@@ -424,7 +446,8 @@ mod test {
                     const STEP_COUNT: ::ipa_step::CompactGateIndex = 3;
                     fn base_index (& self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Arm (i) => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
+                            Self::Arm (i) if *i < u8::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
+                            Self::Arm (i) => panic!("Step index {i} out of bounds for ManyArms::Arm with count 3. Consider using bounds-checked step constructors."),
                         }
                     }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
@@ -451,6 +474,16 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for ManyArms {}
 
+                impl ManyArms {
+                    pub fn arm(v: u8) -> Self {
+                        assert!(
+                            v < u8::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for ManyArms::Arm with count 3.",
+                        );
+                        Self::Arm(v)
+                    }
+                }
+
                 #[allow(
                     clippy::useless_conversion,
                     clippy::unnecessary_fallible_conversions,
@@ -473,7 +506,8 @@ mod test {
                     const STEP_COUNT: ::ipa_step::CompactGateIndex = 3;
                     fn base_index (& self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Arm (i) => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
+                            Self::Arm (i) if *i < u8::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
+                            Self::Arm (i) => panic!("Step index {i} out of bounds for ManyArms::Arm with count 3. Consider using bounds-checked step constructors."),
                         }
                     }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
@@ -642,6 +676,15 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for Parent {}
 
+                impl Parent {
+                    pub fn offspring(v: u8) -> Self {
+                        assert!(
+                            v < u8::try_from(5usize).unwrap(),
+                            "Step index {v} out of bounds for Parent::Offspring with count 5.",
+                        );
+                        Self::Offspring(v)
+                    }
+                }
 
                 #[allow(
                     clippy::useless_conversion,
@@ -667,7 +710,8 @@ mod test {
                     const STEP_COUNT: ::ipa_step::CompactGateIndex = (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5;
                     fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Offspring(i) => (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
+                            Self::Offspring(i) if *i < u8::try_from(5usize).unwrap() => (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
+                            Self::Offspring(i) => panic!("Step index {i} out of bounds for Parent::Offspring with count 5. Consider using bounds-checked step constructors."),
                         }
                     }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
@@ -726,6 +770,16 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for AllArms {}
 
+                impl AllArms {
+                    pub fn int(v: usize) -> Self {
+                        assert!(
+                            v < usize::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for AllArms::Int with count 3.",
+                        );
+                        Self::Int(v)
+                    }
+                }
+
                 #[allow(
                     clippy::useless_conversion,
                     clippy::unnecessary_fallible_conversions,
@@ -752,7 +806,8 @@ mod test {
                     fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
                             Self::Empty => 0,
-                            Self::Int(i) => ::ipa_step::CompactGateIndex::try_from(*i).unwrap() + 1,
+                            Self::Int(i) if *i < usize::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap() + 1,
+                            Self::Int(i) => panic!("Step index {i} out of bounds for AllArms::Int with count 3. Consider using bounds-checked step constructors."),
                             Self::Child => 4,
                             Self::Final => <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5,
                         }
@@ -847,6 +902,66 @@ mod test {
                             _ if (1..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1).contains(&i)
                               => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1)),
                             _ => None,
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn struct_int() {
+        derive_success(
+            quote! {
+                #[derive(CompactStep)]
+                #[step(count = 3)]
+                struct StructInt(u8);
+            },
+            &quote! {
+                impl ::ipa_step::Step for StructInt {}
+
+                impl From<u8> for StructInt {
+                    fn from(v: u8) -> Self {
+                        assert!(
+                            v < u8::try_from(3usize).unwrap(),
+                            "Step index {v} out of bounds for StructInt with count 3.",
+                        );
+                        Self(v)
+                    }
+                }
+
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                )]
+                impl ::std::convert::AsRef<str> for StructInt {
+                    fn as_ref(&self) -> &str {
+                        const STRUCT_INT_NAMES: [&str; 3] = ["struct_int0" , "struct_int1" , "struct_int2"];
+                        match self {
+                            Self(i) => STRUCT_INT_NAMES[usize::try_from(*i).unwrap()],
+                        }
+                    }
+                }
+
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    clippy::identity_op,
+                )]
+                impl ::ipa_step::CompactStep for StructInt {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 3;
+
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex {
+                        match self {
+                            Self(i) if *i < u8::try_from(3usize).unwrap() => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
+                            Self(i) => panic!("Step index {i} out of bounds for StructInt with count 3. Consider using bounds-checked step constructors."),
+                        }
+                    }
+
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
+                        match i {
+                            _ if i < 3 => Self(u8::try_from(i - (0)).unwrap()).as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }

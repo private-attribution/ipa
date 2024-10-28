@@ -15,12 +15,16 @@ use crate::{
     helpers::{query::DpMechanism, Direction, Role, TotalRecords},
     protocol::{
         boolean::step::ThirtyTwoBitStep,
-        context::{dzkp_validator::DZKPValidator, Context, DZKPUpgraded, UpgradableContext},
+        context::{
+            dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
+            UpgradableContext,
+        },
         dp::step::{ApplyDpNoise, DPStep},
         ipa_prf::{
             aggregation::{aggregate_values, aggregate_values_proof_chunk},
             boolean_ops::addition_sequential::integer_add,
             oprf_padding::insecure::OPRFPaddingDp,
+            step::IpaPrfStep,
         },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
@@ -167,7 +171,7 @@ where
     let aggregation_input = Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
     let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> =
-        aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli).await;
+        aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli, None).await;
     noise_vector
 }
 /// `apply_dp_noise` takes the noise distribution parameters (`num_bernoulli` and in the future `quantization_scale`)
@@ -224,6 +228,7 @@ where
 /// # Panics
 /// may panic from asserts down in  `gen_binomial_noise`
 ///
+#[allow(clippy::too_many_lines)]
 pub async fn dp_for_histogram<C, const B: usize, OV, const SS_BITS: usize>(
     ctx: C,
     histogram_bin_values: BitDecomposed<Replicated<Boolean, B>>,
@@ -240,6 +245,10 @@ where
     BitDecomposed<AdditiveShare<Boolean, B>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
 {
+    let steps = MaliciousProtocolSteps {
+        protocol: &IpaPrfStep::DifferentialPrivacy,
+        validate: &IpaPrfStep::DifferentialPrivacyValidate,
+    };
     match dp_params {
         DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
         DpMechanism::Binomial { epsilon } => {
@@ -286,7 +295,8 @@ where
                     "num_bernoulli of {num_bernoulli} may result in excessively large DZKP"
                 );
             }
-            let dp_validator = ctx.dzkp_validator(num_bernoulli);
+
+            let dp_validator = ctx.dzkp_validator(steps, num_bernoulli);
 
             let noisy_histogram = apply_dp_noise::<_, B, OV>(
                 dp_validator.context(),
@@ -328,7 +338,7 @@ where
                 OV::BITS,
             );
 
-            let dp_validator = ctx.dzkp_validator(1);
+            let dp_validator = ctx.dzkp_validator(steps, 1);
 
             let noised_output = apply_laplace_noise_pass::<_, OV, B>(
                 &dp_validator.context().narrow(&DPStep::LaplacePass1),
@@ -543,7 +553,7 @@ fn delta_constraint(num_bernoulli: u32, noise_params: &NoiseParams) -> bool {
     lhs >= rhs
 }
 /// error of mechanism in Thm 1
-#[allow(dead_code)]
+#[cfg(all(test, unit_test))]
 fn error(num_bernoulli: u32, noise_params: &NoiseParams) -> f64 {
     noise_params.dimensions
         * noise_params.quantization_scale.powi(2)

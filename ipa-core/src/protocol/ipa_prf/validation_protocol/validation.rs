@@ -1,16 +1,23 @@
-use std::iter::{once, repeat};
+use std::{
+    array,
+    iter::{once, repeat, zip},
+};
 
 use futures_util::future::{try_join, try_join4};
+use typenum::{Unsigned, U288, U80};
 
 use crate::{
-    error::Error,
-    ff::Fp61BitPrime,
+    const_assert_eq,
+    error::{Error, UnwrapInfallible},
+    ff::{Fp61BitPrime, Serializable},
     helpers::{
         hashing::{compute_hash, hash_to_field, Hash},
-        Direction, TotalRecords,
+        Direction, MpcMessage, TotalRecords,
     },
     protocol::{
-        context::{step::ZeroKnowledgeProofValidateStep as Step, Context},
+        context::{
+            dzkp_validator::MAX_PROOF_RECURSION, step::DzkpProofVerifyStep as Step, Context,
+        },
         ipa_prf::{
             malicious_security::{
                 prover::{LargeProofGenerator, SmallProofGenerator},
@@ -55,6 +62,7 @@ impl BatchToVerify {
     /// Panics when send and receive over the network channels fail.
     pub async fn generate_batch_to_verify<C>(
         ctx: C,
+        record_id: RecordId,
         my_batch_left_shares: ProofBatch,
         shares_of_batch_from_left_prover: ProofBatch,
         p_mask_from_right_prover: Fp61BitPrime,
@@ -66,8 +74,8 @@ impl BatchToVerify {
         // send one batch left and receive one batch from the right
         let length = my_batch_left_shares.len();
         let ((), shares_of_batch_from_right_prover) = try_join(
-            my_batch_left_shares.send_to_left(&ctx),
-            ProofBatch::receive_from_right(&ctx, length),
+            my_batch_left_shares.send_to_left(&ctx, record_id),
+            ProofBatch::receive_from_right(&ctx, record_id, length),
         )
         .await
         .unwrap();
@@ -88,7 +96,11 @@ impl BatchToVerify {
     /// ## Panics
     /// Panics when recursion factor constant cannot be converted to `u128`
     /// or when sending and receiving hashes over the network fails.
-    pub async fn generate_challenges<C>(&self, ctx: C) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>)
+    pub async fn generate_challenges<C>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+    ) -> (Vec<Fp61BitPrime>, Vec<Fp61BitPrime>)
     where
         C: Context,
     {
@@ -101,15 +113,25 @@ impl BatchToVerify {
         let exclude_small = u128::try_from(SRF).unwrap();
 
         // generate hashes
-        let my_hashes_prover_left = ProofHashes::generate_hashes(self, Side::Left);
-        let my_hashes_prover_right = ProofHashes::generate_hashes(self, Side::Right);
+        let my_hashes_prover_left = ProofHashes::generate_hashes(self, Direction::Left);
+        let my_hashes_prover_right = ProofHashes::generate_hashes(self, Direction::Right);
 
         // receive hashes from the other verifier
         let ((), (), other_hashes_prover_left, other_hashes_prover_right) = try_join4(
-            my_hashes_prover_left.send_hashes(&ctx, Side::Left),
-            my_hashes_prover_right.send_hashes(&ctx, Side::Right),
-            ProofHashes::receive_hashes(&ctx, my_hashes_prover_left.hashes.len(), Side::Left),
-            ProofHashes::receive_hashes(&ctx, my_hashes_prover_right.hashes.len(), Side::Right),
+            my_hashes_prover_left.send_hashes(&ctx, record_id, Direction::Left),
+            my_hashes_prover_right.send_hashes(&ctx, record_id, Direction::Right),
+            ProofHashes::receive_hashes(
+                &ctx,
+                record_id,
+                my_hashes_prover_left.hashes.len(),
+                Direction::Left,
+            ),
+            ProofHashes::receive_hashes(
+                &ctx,
+                record_id,
+                my_hashes_prover_right.hashes.len(),
+                Direction::Right,
+            ),
         )
         .await
         .unwrap();
@@ -174,6 +196,7 @@ impl BatchToVerify {
     /// This function computes and outputs the final `p_r_right_prover * q_r_right_prover` value.
     async fn compute_p_times_q<C>(
         ctx: C,
+        record_id: RecordId,
         p_r_right_prover: Fp61BitPrime,
         q_r_left_prover: Fp61BitPrime,
     ) -> Result<Fp61BitPrime, Error>
@@ -181,7 +204,7 @@ impl BatchToVerify {
         C: Context,
     {
         // send to the left
-        let communication_ctx = ctx.set_total_records(TotalRecords::specified(1usize)?);
+        let communication_ctx = ctx.set_total_records(TotalRecords::Indeterminate);
 
         let send_right =
             communication_ctx.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
@@ -189,8 +212,8 @@ impl BatchToVerify {
             communication_ctx.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
 
         let ((), q_r_right_prover) = try_join(
-            send_right.send(RecordId::FIRST, q_r_left_prover),
-            receive_left.receive(RecordId::FIRST),
+            send_right.send(record_id, q_r_left_prover),
+            receive_left.receive(record_id),
         )
         .await?;
 
@@ -201,9 +224,14 @@ impl BatchToVerify {
     ///
     /// ## Errors
     /// Propagates network errors or when the proof fails to verify.
+    ///
+    /// ## Panics
+    /// If the proof exceeds `MAX_PROOF_RECURSION`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn verify<C>(
         &self,
         ctx: C,
+        record_id: RecordId,
         sum_of_uv_right: Fp61BitPrime,
         p_r_right_prover: Fp61BitPrime,
         q_r_left_prover: Fp61BitPrime,
@@ -221,6 +249,7 @@ impl BatchToVerify {
 
         let p_times_q_right = Self::compute_p_times_q(
             ctx.narrow(&Step::PTimesQ),
+            record_id,
             p_r_right_prover,
             q_r_left_prover,
         )
@@ -243,31 +272,26 @@ impl BatchToVerify {
             p_times_q_right,
         );
 
-        // send dif_left to the right
+        // send diff_left to the right
         let length = diff_left.len();
-        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
+        assert!(length <= MAX_PROOF_RECURSION + 1);
 
-        let send_channel =
-            communication_ctx.send_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Right));
-        let receive_channel =
-            communication_ctx.recv_channel::<Fp61BitPrime>(ctx.role().peer(Direction::Left));
+        let communication_ctx = ctx
+            .narrow(&Step::Diff)
+            .set_total_records(TotalRecords::Indeterminate);
 
-        let send_channel_ref = &send_channel;
-        let receive_channel_ref = &receive_channel;
+        let send_data = array::from_fn(|i| *diff_left.get(i).unwrap_or(&Fp61BitPrime::ZERO));
 
-        let send_future = communication_ctx.parallel_join(
-            diff_left
-                .iter()
-                .enumerate()
-                .map(|(i, f)| async move { send_channel_ref.send(RecordId::from(i), f).await }),
-        );
-
-        let receive_future = communication_ctx.parallel_join(
-            (0..length)
-                .map(|i| async move { receive_channel_ref.receive(RecordId::from(i)).await }),
-        );
-
-        let (_, diff_right_from_other_verifier) = try_join(send_future, receive_future).await?;
+        let ((), receive_data) = try_join(
+            communication_ctx
+                .send_channel::<ProofDiff>(ctx.role().peer(Direction::Right))
+                .send(record_id, send_data),
+            communication_ctx
+                .recv_channel::<ProofDiff>(ctx.role().peer(Direction::Left))
+                .receive(record_id),
+        )
+        .await?;
+        let diff_right_from_other_verifier = receive_data[0..length].to_vec();
 
         // compare recombined dif to zero
         for i in 0..length {
@@ -284,21 +308,15 @@ struct ProofHashes {
     hashes: Vec<Hash>,
 }
 
-#[derive(Clone, Copy, Debug)]
-enum Side {
-    Left,
-    Right,
-}
-
 impl ProofHashes {
-    // Generates hashes for proofs received from prover indicated by `side`
-    fn generate_hashes(batch_to_verify: &BatchToVerify, side: Side) -> Self {
-        let (first_proof, other_proofs) = match side {
-            Side::Left => (
+    // Generates hashes for proofs received from prover indicated by `direction`
+    fn generate_hashes(batch_to_verify: &BatchToVerify, direction: Direction) -> Self {
+        let (first_proof, other_proofs) = match direction {
+            Direction::Left => (
                 &batch_to_verify.first_proof_from_left_prover,
                 &batch_to_verify.proofs_from_left_prover,
             ),
-            Side::Right => (
+            Direction::Right => (
                 &batch_to_verify.first_proof_from_right_prover,
                 &batch_to_verify.proofs_from_right_prover,
             ),
@@ -312,53 +330,115 @@ impl ProofHashes {
     }
 
     /// Sends the one verifier's hashes to the other verifier
-    /// `side` indicates the direction of the prover.
-    async fn send_hashes<C: Context>(&self, ctx: &C, side: Side) -> Result<(), Error> {
-        let communication_ctx = ctx.set_total_records(TotalRecords::specified(self.hashes.len())?);
-
-        let send_channel = match side {
-            // send left hashes to the right
-            Side::Left => communication_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Right)),
-            // send right hashes to the left
-            Side::Right => communication_ctx.send_channel::<Hash>(ctx.role().peer(Direction::Left)),
-        };
-        let send_channel_ref = &send_channel;
-
-        communication_ctx
-            .parallel_join(self.hashes.iter().enumerate().map(|(i, hash)| async move {
-                send_channel_ref.send(RecordId::from(i), hash).await
-            }))
+    /// `direction` indicates the direction of the prover.
+    async fn send_hashes<C: Context>(
+        &self,
+        ctx: &C,
+        record_id: RecordId,
+        direction: Direction,
+    ) -> Result<(), Error> {
+        assert!(self.hashes.len() <= MAX_PROOF_RECURSION);
+        let hashes_send =
+            array::from_fn(|i| self.hashes.get(i).unwrap_or(&Hash::default()).clone());
+        let verifier_direction = !direction;
+        ctx.set_total_records(TotalRecords::Indeterminate)
+            .send_channel::<[Hash; MAX_PROOF_RECURSION]>(ctx.role().peer(verifier_direction))
+            .send(record_id, hashes_send)
             .await?;
 
         Ok(())
     }
 
     /// This function receives hashes from the other verifier
-    /// `side` indicates the direction of the prover.
-    async fn receive_hashes<C: Context>(ctx: &C, length: usize, side: Side) -> Result<Self, Error> {
-        // set up context for the communication over the network
-        let communication_ctx = ctx.set_total_records(TotalRecords::specified(length)?);
-
-        let recv_channel = match side {
-            // receive left hashes from the right helper
-            Side::Left => communication_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Right)),
-            // reeive right hashes from the left helper
-            Side::Right => communication_ctx.recv_channel::<Hash>(ctx.role().peer(Direction::Left)),
-        };
-        let recv_channel_ref = &recv_channel;
-
-        let hashes_received = communication_ctx
-            .parallel_join(
-                (0..length)
-                    .map(|i| async move { recv_channel_ref.receive(RecordId::from(i)).await }),
-            )
+    /// `direction` indicates the direction of the prover.
+    async fn receive_hashes<C: Context>(
+        ctx: &C,
+        record_id: RecordId,
+        length: usize,
+        direction: Direction,
+    ) -> Result<Self, Error> {
+        assert!(length <= MAX_PROOF_RECURSION);
+        let verifier_direction = !direction;
+        let hashes_received = ctx
+            .set_total_records(TotalRecords::Indeterminate)
+            .recv_channel::<[Hash; MAX_PROOF_RECURSION]>(ctx.role().peer(verifier_direction))
+            .receive(record_id)
             .await?;
-
         Ok(Self {
-            hashes: hashes_received,
+            hashes: hashes_received[0..length].to_vec(),
         })
     }
 }
+
+const_assert_eq!(
+    MAX_PROOF_RECURSION,
+    9,
+    "following impl valid only for MAX_PROOF_RECURSION = 9"
+);
+
+impl Serializable for [Hash; MAX_PROOF_RECURSION] {
+    type Size = U288;
+
+    type DeserializationError = <Hash as Serializable>::DeserializationError;
+
+    fn serialize(&self, buf: &mut generic_array::GenericArray<u8, Self::Size>) {
+        for (hash, buf) in zip(
+            self,
+            buf.chunks_mut(<<Hash as Serializable>::Size as Unsigned>::to_usize()),
+        ) {
+            hash.serialize(buf.try_into().unwrap());
+        }
+    }
+
+    fn deserialize(
+        buf: &generic_array::GenericArray<u8, Self::Size>,
+    ) -> Result<Self, Self::DeserializationError> {
+        Ok(buf
+            .chunks(<<Hash as Serializable>::Size as Unsigned>::to_usize())
+            .map(|buf| Hash::deserialize(buf.try_into().unwrap()).unwrap_infallible())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap())
+    }
+}
+
+impl MpcMessage for [Hash; MAX_PROOF_RECURSION] {}
+
+const_assert_eq!(
+    MAX_PROOF_RECURSION,
+    9,
+    "following impl valid only for MAX_PROOF_RECURSION = 9"
+);
+
+type ProofDiff = [Fp61BitPrime; MAX_PROOF_RECURSION + 1];
+
+impl Serializable for ProofDiff {
+    type Size = U80;
+
+    type DeserializationError = <Fp61BitPrime as Serializable>::DeserializationError;
+
+    fn serialize(&self, buf: &mut generic_array::GenericArray<u8, Self::Size>) {
+        for (hash, buf) in zip(
+            self,
+            buf.chunks_mut(<<Fp61BitPrime as Serializable>::Size as Unsigned>::to_usize()),
+        ) {
+            hash.serialize(buf.try_into().unwrap());
+        }
+    }
+
+    fn deserialize(
+        buf: &generic_array::GenericArray<u8, Self::Size>,
+    ) -> Result<Self, Self::DeserializationError> {
+        Ok(buf
+            .chunks(<<Fp61BitPrime as Serializable>::Size as Unsigned>::to_usize())
+            .map(|buf| Fp61BitPrime::deserialize(buf.try_into().unwrap()))
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
+            .unwrap())
+    }
+}
+
+impl MpcMessage for ProofDiff {}
 
 #[cfg(all(test, unit_test))]
 pub mod test {
@@ -382,7 +462,7 @@ pub mod test {
                 validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
             },
             prss::SharedRandomness,
-            RecordId,
+            RecordId, RecordIdRange,
         },
         secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
         test_executor::run,
@@ -526,11 +606,13 @@ pub mod test {
                             q_mask_from_left_prover,
                         ) = ProofBatch::generate(
                             &ctx.narrow("generate_batch"),
+                            RecordIdRange::ALL,
                             uv_tuple_vec.into_iter(),
                         );
 
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
+                            RecordId::FIRST,
                             my_batch_left_shares,
                             shares_of_batch_from_left_prover,
                             p_mask_from_right_prover,
@@ -539,7 +621,9 @@ pub mod test {
                         .await;
 
                         // generate and output challenges
-                        batch_to_verify.generate_challenges(ctx).await
+                        batch_to_verify
+                            .generate_challenges(ctx, RecordId::FIRST)
+                            .await
                     })
                     .await;
 
@@ -637,11 +721,13 @@ pub mod test {
                             q_mask_from_left_prover,
                         ) = ProofBatch::generate(
                             &ctx.narrow("generate_batch"),
+                            RecordIdRange::ALL,
                             vec_my_u_and_v.into_iter(),
                         );
 
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
+                            RecordId::FIRST,
                             my_batch_left_shares,
                             shares_of_batch_from_left_prover,
                             p_mask_from_right_prover,
@@ -652,7 +738,7 @@ pub mod test {
                         // generate challenges
                         let (challenges_for_left_prover, challenges_for_right_prover) =
                             batch_to_verify
-                                .generate_challenges(ctx.narrow("generate_hash"))
+                                .generate_challenges(ctx.narrow("generate_hash"), RecordId::FIRST)
                                 .await;
 
                         assert_eq!(
@@ -741,11 +827,13 @@ pub mod test {
                             q_mask_from_left_prover,
                         ) = ProofBatch::generate(
                             &ctx.narrow("generate_batch"),
+                            RecordIdRange::ALL,
                             vec_my_u_and_v.into_iter(),
                         );
 
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                             ctx.narrow("generate_batch"),
+                            RecordId::FIRST,
                             my_batch_left_shares,
                             shares_of_batch_from_left_prover,
                             p_mask_from_right_prover,
@@ -756,7 +844,7 @@ pub mod test {
                         // generate challenges
                         let (challenges_for_left_prover, challenges_for_right_prover) =
                             batch_to_verify
-                                .generate_challenges(ctx.narrow("generate_hash"))
+                                .generate_challenges(ctx.narrow("generate_hash"), RecordId::FIRST)
                                 .await;
 
                         assert_eq!(
@@ -771,7 +859,10 @@ pub mod test {
                             vec_v_from_left_prover.into_iter(),
                         );
 
-                        let p_times_q = BatchToVerify::compute_p_times_q(ctx, p, q).await.unwrap();
+                        let p_times_q =
+                            BatchToVerify::compute_p_times_q(ctx, RecordId::FIRST, p, q)
+                                .await
+                                .unwrap();
 
                         let denominator = CanonicalLagrangeDenominator::<
                             Fp61BitPrime,
@@ -826,11 +917,13 @@ pub mod test {
                         q_mask_from_left_prover,
                     ) = ProofBatch::generate(
                         &ctx.narrow("generate_batch"),
+                        RecordIdRange::ALL,
                         vec_my_u_and_v.into_iter(),
                     );
 
                     let batch_to_verify = BatchToVerify::generate_batch_to_verify(
                         ctx.narrow("generate_batch"),
+                        RecordId::FIRST,
                         my_batch_left_shares,
                         shares_of_batch_from_left_prover,
                         p_mask_from_right_prover,
@@ -859,7 +952,7 @@ pub mod test {
 
                     // generate challenges
                     let (challenges_for_left_prover, challenges_for_right_prover) = batch_to_verify
-                        .generate_challenges(ctx.narrow("generate_hash"))
+                        .generate_challenges(ctx.narrow("generate_hash"), RecordId::FIRST)
                         .await;
 
                     let (p, q) = batch_to_verify.compute_p_and_q_r(
@@ -872,6 +965,7 @@ pub mod test {
                     batch_to_verify
                         .verify(
                             v_ctx,
+                            RecordId::FIRST,
                             sum_of_uv_right,
                             p,
                             q,

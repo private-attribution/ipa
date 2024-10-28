@@ -2,22 +2,21 @@ use axum::{routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{ApiError, BodyStream, Transport},
+    helpers::{ApiError, BodyStream},
     net::{
         http_serde::{self, query::QueryConfigQueryParams},
-        Error, HttpTransport,
+        transport::MpcHttpTransport,
+        Error,
     },
     query::NewQueryError,
-    sync::Arc,
 };
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
 /// to the [`HttpTransport`].
 async fn handler(
-    transport: Extension<Arc<HttpTransport>>,
+    transport: Extension<MpcHttpTransport>,
     QueryConfigQueryParams(query_config): QueryConfigQueryParams,
 ) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
-    let transport = Transport::clone_ref(&*transport);
     match transport.dispatch(query_config, BodyStream::empty()).await {
         Ok(resp) => Ok(Json(resp.try_into()?)),
         Err(err @ ApiError::NewQuery(NewQueryError::State { .. })) => {
@@ -27,7 +26,7 @@ async fn handler(
     }
 }
 
-pub fn router(transport: Arc<HttpTransport>) -> Router {
+pub fn router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .route(http_serde::query::create::AXUM_PATH, post(handler))
         .layer(Extension(transport))
@@ -90,7 +89,7 @@ mod tests {
     async fn create_test_ipa_no_attr_window() {
         create_test(
             QueryConfig::new(
-                QueryType::OprfIpa(IpaQueryConfig {
+                QueryType::SemiHonestOprfIpa(IpaQueryConfig {
                     per_user_credit_cap: 1,
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
@@ -107,10 +106,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_test_ipa_no_attr_window_with_dp() {
+    async fn create_test_semi_honest_ipa_no_attr_window_with_dp_default_padding() {
         create_test(
             QueryConfig::new(
-                QueryType::OprfIpa(IpaQueryConfig {
+                QueryType::SemiHonestOprfIpa(IpaQueryConfig {
+                    per_user_credit_cap: 8,
+                    max_breakdown_key: 20,
+                    attribution_window_seconds: None,
+                    with_dp: 1,
+                    epsilon: 5.0,
+                    plaintext_match_keys: true,
+                }),
+                FieldType::Fp32BitPrime,
+                1,
+            )
+            .unwrap(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn create_test_malicious_ipa_no_attr_window_with_dp_default_padding() {
+        create_test(
+            QueryConfig::new(
+                QueryType::MaliciousOprfIpa(IpaQueryConfig {
                     per_user_credit_cap: 8,
                     max_breakdown_key: 20,
                     attribution_window_seconds: None,
@@ -131,7 +150,7 @@ mod tests {
         create_test(QueryConfig {
             size: 1.try_into().unwrap(),
             field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::OprfIpa(IpaQueryConfig {
+            query_type: QueryType::SemiHonestOprfIpa(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
@@ -238,7 +257,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 field_type: format!("{:?}", FieldType::Fp32BitPrime),
-                query_type: QueryType::OPRF_IPA_STR.to_string(),
+                query_type: QueryType::SEMI_HONEST_OPRF_IPA_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,

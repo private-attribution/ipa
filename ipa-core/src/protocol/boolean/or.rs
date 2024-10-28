@@ -1,9 +1,11 @@
 use std::iter::zip;
 
+use ipa_step::StepNarrow;
+
 use crate::{
     error::Error,
     ff::{boolean::Boolean, Field},
-    protocol::{basics::SecureMul, boolean::step::SixteenBitStep, context::Context, RecordId},
+    protocol::{basics::SecureMul, boolean::NBitStep, context::Context, Gate, RecordId},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd,
         Linear as LinearSecretSharing,
@@ -34,7 +36,7 @@ pub async fn or<F: Field, C: Context, S: LinearSecretSharing<F> + SecureMul<C>>(
 //
 // Supplying an iterator saves constructing a complete copy of the argument
 // in memory when it is a uniform constant.
-pub async fn bool_or<'a, C, BI, const N: usize>(
+pub async fn bool_or<'a, C, S, BI, const N: usize>(
     ctx: C,
     record_id: RecordId,
     a: &BitDecomposed<AdditiveShare<Boolean, N>>,
@@ -42,17 +44,19 @@ pub async fn bool_or<'a, C, BI, const N: usize>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
+    S: NBitStep,
     BI: IntoIterator,
     <BI as IntoIterator>::IntoIter: ExactSizeIterator<Item = &'a AdditiveShare<Boolean, N>> + Send,
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: SecureMul<C>,
+    Gate: StepNarrow<S>,
 {
     let b = b.into_iter();
     assert_eq!(a.len(), b.len());
 
     BitDecomposed::try_from(
         ctx.parallel_join(zip(a.iter(), b).enumerate().map(|(i, (a, b))| {
-            let ctx = ctx.narrow(&SixteenBitStep::Bit(i));
+            let ctx = ctx.narrow(&S::from(i));
             async move {
                 let ab = a.multiply(b, ctx, record_id).await?;
                 Ok::<_, Error>(-ab + a + b)

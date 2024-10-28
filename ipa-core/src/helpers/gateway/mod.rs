@@ -30,6 +30,7 @@ use crate::{
     protocol::QueryId,
     sharding::ShardIndex,
     sync::{Arc, Mutex},
+    utils::NonZeroU32PowerOfTwo,
 };
 
 /// Alias for the currently configured transport.
@@ -44,9 +45,9 @@ pub type MpcTransportImpl = TransportImpl<crate::helpers::HelperIdentity>;
 pub type ShardTransportImpl = TransportImpl<ShardIndex>;
 
 #[cfg(feature = "real-world-infra")]
-pub type MpcTransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
+pub type MpcTransportImpl = crate::net::MpcHttpTransport;
 #[cfg(feature = "real-world-infra")]
-pub type ShardTransportImpl = crate::net::HttpShardTransport;
+pub type ShardTransportImpl = crate::net::ShardHttpTransport;
 
 pub type MpcTransportError = <MpcTransportImpl as Transport>::Error;
 
@@ -73,7 +74,7 @@ pub struct State {
 pub struct GatewayConfig {
     /// The number of items that can be active at the one time.
     /// This is used to determine the size of sending and receiving buffers.
-    pub active: NonZeroUsize,
+    pub active: NonZeroU32PowerOfTwo,
 
     /// Number of bytes packed and sent together in one batch down to the network layer. This
     /// shouldn't be too small to keep the network throughput, but setting it large enough may
@@ -81,9 +82,20 @@ pub struct GatewayConfig {
     /// A rule of thumb is that this should get as close to network packet size as possible.
     ///
     /// This will be set for all channels and because they send records of different side, the actual
-    /// payload may not be exactly this, but it will be the closest multiple of record size to this
-    /// number. For instance, having 14 bytes records and batch size of 4096 will result in
-    /// 4088 bytes being sent in a batch.
+    /// payload may not be exactly this, but it will be the closest multiple of record size smaller than
+    /// or equal to number. For alignment reasons, this multiple will be a power of two, otherwise
+    /// a deadlock is possible. See ipa/#1300 for details how it can happen.
+    ///
+    /// For instance, having 14 bytes records and batch size of 4096 will result in
+    /// 3584 bytes being sent in a batch (`2^8 * 14 < 4096, 2^9 * 14 > 4096`).
+    ///
+    /// The consequence is that HTTP buffer size may not be perfectly aligned with the target.
+    /// As long as we use TCP it does not matter, but if we want to switch to UDP and have
+    /// precise control over the size of chunk sent, we should tune the buffer size at the
+    /// HTTP layer instead (using Hyper/H3 API or something like that). If we do this, then
+    /// read size becomes obsolete and should be removed in favor of flushing the entire
+    /// buffer chunks from the application layer down to HTTP and let network to figure out
+    /// the best way to slice this data before sending it to a peer.
     pub read_size: NonZeroUsize,
 
     /// Time to wait before checking gateway progress. If no progress has been made between
@@ -150,12 +162,15 @@ impl Gateway {
         &self,
         channel_id: &HelperChannelId,
         total_records: TotalRecords,
+        active_work: NonZeroU32PowerOfTwo,
     ) -> send::SendingEnd<Role, M> {
         let transport = &self.transports.mpc;
         let channel = self.inner.mpc_senders.get::<M, _>(
             channel_id,
             transport,
-            self.config,
+            // we override the active work provided in config if caller
+            // wants to use a different value.
+            self.config.set_active_work(active_work),
             self.query_id,
             total_records,
         );
@@ -257,6 +272,11 @@ impl GatewayConfig {
     /// The configured amount of active work.
     #[must_use]
     pub fn active_work(&self) -> NonZeroUsize {
+        self.active.to_non_zero_usize()
+    }
+
+    #[must_use]
+    pub fn active_work_as_power_of_two(&self) -> NonZeroU32PowerOfTwo {
         self.active
     }
 
@@ -276,32 +296,60 @@ impl GatewayConfig {
                 // capabilities (see #ipa/1171) to allow that currently.
                 usize::from(value.size),
             ),
-        );
+        )
+        .next_power_of_two();
         // we set active to be at least 2, so unwrap is fine.
-        self.active = NonZeroUsize::new(active).unwrap();
+        self.active = NonZeroU32PowerOfTwo::try_from(active).unwrap();
+    }
+
+    /// Creates a new configuration by overriding the value of active work.
+    #[must_use]
+    pub fn set_active_work(&self, active_work: NonZeroU32PowerOfTwo) -> Self {
+        Self {
+            active: active_work,
+            ..*self
+        }
     }
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::{repeat, zip};
+    use std::{
+        iter::{repeat, zip},
+        sync::Arc,
+    };
 
     use futures::{
         future::{join, try_join, try_join_all},
+        stream,
         stream::StreamExt,
     };
+    use proptest::proptest;
+    use tokio::sync::Barrier;
 
     use crate::{
-        ff::{boolean_array::BA3, Fp31, Fp32BitPrime, Gf2, U128Conversions},
-        helpers::{Direction, GatewayConfig, MpcMessage, Role, SendingEnd},
+        ff::{
+            boolean_array::{BA20, BA256, BA3, BA4, BA5, BA6, BA7, BA8},
+            FieldType, Fp31, Fp32BitPrime, Gf2, U128Conversions,
+        },
+        helpers::{
+            gateway::QueryConfig,
+            query::{QuerySize, QueryType},
+            ChannelId, Direction, GatewayConfig, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
+            TotalRecords,
+        },
         protocol::{
             context::{Context, ShardedContext},
-            RecordId,
+            Gate, RecordId,
         },
-        secret_sharing::replicated::semi_honest::AdditiveShare,
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare, SharedValue, SharedValueArray, StdArray,
+        },
+        seq_join::seq_join,
         sharding::ShardConfiguration,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards},
+        utils::NonZeroU32PowerOfTwo,
     };
 
     /// Verifies that [`Gateway`] send buffer capacity is adjusted to the message size.
@@ -516,6 +564,129 @@ mod tests {
         });
     }
 
+    #[test]
+    fn custom_active_work() {
+        run(|| async move {
+            let world = TestWorld::new_with(TestWorldConfig {
+                gateway_config: GatewayConfig {
+                    active: 8.try_into().unwrap(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            let new_active_work = NonZeroU32PowerOfTwo::try_from(4).unwrap();
+            assert!(
+                new_active_work
+                    < world
+                        .gateway(Role::H1)
+                        .config()
+                        .active_work_as_power_of_two()
+            );
+            let sender = world.gateway(Role::H1).get_mpc_sender::<BA3>(
+                &ChannelId::new(Role::H2, Gate::default()),
+                TotalRecords::specified(15).unwrap(),
+                new_active_work,
+            );
+            try_join_all(
+                (0..new_active_work.get())
+                    .map(|record_id| sender.send(record_id.into(), BA3::ZERO)),
+            )
+            .await
+            .unwrap();
+            let recv = world.gateway(Role::H2).get_mpc_receiver::<BA3>(&ChannelId {
+                peer: Role::H1,
+                gate: Gate::default(),
+            });
+            // this will hang if the original active work is used
+            try_join_all(
+                (0..new_active_work.get()).map(|record_id| recv.receive(record_id.into())),
+            )
+            .await
+            .unwrap();
+        });
+    }
+
+    macro_rules! send_recv_test {
+        (
+            message: $message:expr,
+            read_size: $read_size:expr,
+            active_work: $active_work:expr,
+            total_records: $total_records:expr,
+            $test_fn: ident
+        ) => {
+            #[test]
+            fn $test_fn() {
+                run(|| async {
+                    send_recv($read_size, $active_work, $total_records, $message).await;
+                });
+            }
+        };
+    }
+
+    send_recv_test! {
+        message: BA20::ZERO,
+        read_size: 5,
+        active_work: 8,
+        total_records: 25,
+        test_ba20_5_10_25
+    }
+
+    send_recv_test! {
+        message: StdArray::<BA256, 16>::ZERO_ARRAY,
+        read_size: 2048,
+        active_work: 16,
+        total_records: 43,
+        test_ba256_by_16_2048_10_43
+    }
+
+    send_recv_test! {
+        message: StdArray::<BA8, 16>::ZERO_ARRAY,
+        read_size: 2048,
+        active_work: 32,
+        total_records: 50,
+        test_ba8_by_16_2048_37_50
+    }
+
+    proptest! {
+        #[test]
+        fn send_recv_randomized(
+            total_records in 1_usize..500,
+            active in 2_usize..1000,
+            read_size in (1_usize..32768),
+            record_size in 1_usize..=8,
+        ) {
+            let active = active.next_power_of_two();
+            run(move || async move {
+                match record_size {
+                    1 => send_recv(read_size, active, total_records, StdArray::<BA8, 32>::ZERO_ARRAY).await,
+                    2 => send_recv(read_size, active, total_records, StdArray::<BA8, 64>::ZERO_ARRAY).await,
+                    3 => send_recv(read_size, active, total_records, BA3::ZERO).await,
+                    4 => send_recv(read_size, active, total_records, BA4::ZERO).await,
+                    5 => send_recv(read_size, active, total_records, BA5::ZERO).await,
+                    6 => send_recv(read_size, active, total_records, BA6::ZERO).await,
+                    7 => send_recv(read_size, active, total_records, BA7::ZERO).await,
+                    8 => send_recv(read_size, active, total_records, StdArray::<BA256, 16>::ZERO_ARRAY).await,
+                    _ => unreachable!(),
+                }
+            });
+        }
+    }
+
+    /// ensures when active work is set from query input, it is always a power of two
+    #[test]
+    fn gateway_config_active_work_power_of_two() {
+        let mut config = GatewayConfig {
+            active: 2.try_into().unwrap(),
+            ..Default::default()
+        };
+        config.set_active_work_from_query_config(&QueryConfig {
+            size: QuerySize::try_from(5).unwrap(),
+            field_type: FieldType::Fp31,
+            query_type: QueryType::TestAddInPrimeField,
+        });
+        assert_eq!(8, config.active_work().get());
+    }
+
     async fn shard_comms_test(test_world: &TestWorld<WithShards<2>>) {
         let input = vec![BA3::truncate_from(0_u32), BA3::truncate_from(1_u32)];
 
@@ -552,5 +723,113 @@ mod tests {
         let world = Box::leak(Box::<TestWorld>::default());
         let world_ptr = world as *mut _;
         (world, world_ptr)
+    }
+
+    /// This serves the purpose of randomized testing of our send channels by providing
+    /// variable sizes for read size, active work and record size
+    async fn send_recv<M>(read_size: usize, active_work: usize, total_records: usize, sample: M)
+    where
+        M: MpcMessage + Clone + PartialEq,
+    {
+        fn duplex_channel<M: MpcMessage>(
+            world: &TestWorld,
+            left: Role,
+            right: Role,
+            total_records: usize,
+            active_work: usize,
+        ) -> (SendingEnd<Role, M>, MpcReceivingEnd<M>) {
+            (
+                world.gateway(left).get_mpc_sender::<M>(
+                    &ChannelId::new(right, Gate::default()),
+                    TotalRecords::specified(total_records).unwrap(),
+                    active_work.try_into().unwrap(),
+                ),
+                world
+                    .gateway(right)
+                    .get_mpc_receiver::<M>(&ChannelId::new(left, Gate::default())),
+            )
+        }
+
+        async fn circuit<M>(
+            send_channel: SendingEnd<Role, M>,
+            recv_channel: MpcReceivingEnd<M>,
+            active_work: usize,
+            total_records: usize,
+            msg: M,
+        ) where
+            M: MpcMessage + Clone + PartialEq,
+        {
+            let last_batch_size = total_records % active_work;
+            let last_batch = total_records / active_work;
+
+            let barrier = Arc::new(Barrier::new(active_work));
+            let last_batch_barrier = Arc::new(Barrier::new(last_batch_size));
+
+            // perform "multiplication-like" operation (send + subsequent receive)
+            // and "validate": block the future until we have at least `active_work`
+            // futures pending and unblock them all at the same time
+            seq_join(
+                active_work.try_into().unwrap(),
+                stream::iter(std::iter::repeat(msg).take(total_records).enumerate()).map(
+                    |(record_id, msg)| {
+                        let send_channel = &send_channel;
+                        let recv_channel = &recv_channel;
+                        let barrier = Arc::clone(&barrier);
+                        let last_batch_barrier = Arc::clone(&last_batch_barrier);
+                        async move {
+                            send_channel
+                                .send(record_id.into(), msg.clone())
+                                .await
+                                .unwrap();
+                            let r = recv_channel.receive(record_id.into()).await.unwrap();
+                            // this simulates validate_record API by forcing futures to wait
+                            // until the entire batch is validated by the last future in that batch
+                            if record_id >= last_batch * active_work {
+                                last_batch_barrier.wait().await;
+                            } else {
+                                barrier.wait().await;
+                            }
+
+                            assert_eq!(msg, r);
+                        }
+                    },
+                ),
+            )
+            .collect::<Vec<_>>()
+            .await;
+        }
+
+        let config = TestWorldConfig {
+            gateway_config: GatewayConfig {
+                active: active_work.try_into().unwrap(),
+                read_size: read_size.try_into().unwrap(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let world = TestWorld::new_with(&config);
+        let (h1_send_channel, h1_recv_channel) =
+            duplex_channel(&world, Role::H1, Role::H2, total_records, active_work);
+        let (h2_send_channel, h2_recv_channel) =
+            duplex_channel(&world, Role::H2, Role::H1, total_records, active_work);
+
+        join(
+            circuit(
+                h1_send_channel,
+                h1_recv_channel,
+                active_work,
+                total_records,
+                sample.clone(),
+            ),
+            circuit(
+                h2_send_channel,
+                h2_recv_channel,
+                active_work,
+                total_records,
+                sample,
+            ),
+        )
+        .await;
     }
 }

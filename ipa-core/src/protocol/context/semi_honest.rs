@@ -16,9 +16,10 @@ use crate::{
     },
     protocol::{
         context::{
-            dzkp_validator::SemiHonestDZKPValidator, upgrade::Upgradable,
-            validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
-            InstrumentedSequentialSharedRandomness, ShardedContext, SpecialAccessToUpgradedContext,
+            dzkp_validator::SemiHonestDZKPValidator, step::MaliciousProtocolStep,
+            upgrade::Upgradable, validator::SemiHonest as Validator, Base, Context as _,
+            InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
+            MaliciousProtocolSteps, ShardedContext, SpecialAccessToUpgradedContext,
             UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
@@ -151,13 +152,21 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
     type Validator<F: ExtendableField> = Validator<'a, B, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
-        Self::Validator::new(self.inner)
+        Self::Validator::new(self.inner.narrow(&MaliciousProtocolStep::MaliciousProtocol))
     }
 
     type DZKPValidator = SemiHonestDZKPValidator<'a, B>;
 
-    fn dzkp_validator(self, _max_multiplications_per_gate: usize) -> Self::DZKPValidator {
-        Self::DZKPValidator::new(self.inner)
+    fn dzkp_validator<S>(
+        self,
+        steps: MaliciousProtocolSteps<S>,
+        _max_multiplications_per_gate: usize,
+    ) -> Self::DZKPValidator
+    where
+        S: ipa_step::Step + ?Sized,
+        Gate: StepNarrow<S>,
+    {
+        Self::DZKPValidator::new(self.inner.narrow(steps.protocol))
     }
 }
 
@@ -293,14 +302,14 @@ impl<B: ShardBinding, F: ExtendableField> Debug for Upgraded<'_, B, F> {
 }
 
 #[async_trait]
-impl<'a, V: ExtendableField + Vectorizable<N>, const N: usize>
-    Upgradable<Upgraded<'a, NotSharded, V>> for Replicated<V, N>
+impl<'a, V: ExtendableField + Vectorizable<N>, B: ShardBinding, const N: usize>
+    Upgradable<Upgraded<'a, B, V>> for Replicated<V, N>
 {
     type Output = Replicated<V, N>;
 
     async fn upgrade(
         self,
-        _context: Upgraded<'a, NotSharded, V>,
+        _context: Upgraded<'a, B, V>,
         _record_id: RecordId,
     ) -> Result<Self::Output, Error> {
         Ok(self)

@@ -295,7 +295,6 @@ where
     inner: Arc<Mutex<OperatingState<S, C>>>,
 }
 
-#[allow(dead_code)]
 impl<S, C> UnorderedReceiver<S, C>
 where
     S: Stream<Item = C> + Send,

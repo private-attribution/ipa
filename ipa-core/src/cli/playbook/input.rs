@@ -7,8 +7,9 @@ use std::{
 };
 
 use crate::{
-    cli::playbook::generator::U128Generator, ff::U128Conversions,
-    test_fixture::ipa::TestRawDataRecord,
+    cli::playbook::generator::U128Generator,
+    ff::U128Conversions,
+    test_fixture::{hybrid::TestHybridRecord, ipa::TestRawDataRecord},
 };
 
 pub trait InputItem {
@@ -49,6 +50,40 @@ impl InputItem for TestRawDataRecord {
                 is_trigger_report: is_trigger_bit.parse::<u8>().unwrap() == 1,
                 breakdown_key: breakdown_key.parse().unwrap(),
                 trigger_value: trigger_value.parse().unwrap(),
+            }
+        } else {
+            panic!("{s} is not a valid {}", type_name::<Self>())
+        }
+    }
+}
+
+impl InputItem for TestHybridRecord {
+    fn from_str(s: &str) -> Self {
+        if let [event_type, match_key, number] = s.splitn(3, ',').collect::<Vec<_>>()[..] {
+            let match_key: u64 = match_key
+                .parse()
+                .unwrap_or_else(|e| panic!("Expected an u64, got {match_key}: {e}"));
+
+            let number: u32 = number
+                .parse()
+                .unwrap_or_else(|e| panic!("Expected an u32, got {number}: {e}"));
+
+            match event_type {
+                "i" => TestHybridRecord::TestImpression {
+                    match_key,
+                    breakdown_key: number,
+                },
+
+                "c" => TestHybridRecord::TestConversion {
+                    match_key,
+                    value: number,
+                },
+                _ => panic!(
+                    "{}",
+                    format!(
+                    "Invalid input. Rows should start with 'i' or 'c'. Did not expect {event_type}"
+                )
+                ),
             }
         } else {
             panic!("{s} is not a valid {}", type_name::<Self>())
@@ -203,13 +238,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "ParseIntError")]
     fn parse_negative() {
         Fp31::from_str("-1");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "ParseIntError")]
     fn parse_empty() {
         Fp31::from_str("");
     }
@@ -229,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "ParseIntError")]
     fn tuple_parse_error() {
         <(Fp31, Fp31)>::from_str("20,");
     }

@@ -31,6 +31,7 @@ pub fn install_collector() -> CollectorHandle {
 
     // register metrics
     crate::telemetry::metrics::register();
+    tracing::info!("Metrics enabled");
 
     CollectorHandle { snapshotter }
 }

@@ -9,30 +9,19 @@ pub(crate) enum AggregationStep {
     PaddingDp,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
-    RevealStep,
-    #[step(child = BucketStep)]
-    MoveToBucket,
-    #[step(count = 32, child = AggregateChunkStep)]
-    AggregateChunk(usize),
-}
-
-/// the number of steps must be kept in sync with `MAX_BREAKDOWNS` defined
-/// [here](https://tinyurl.com/mwnbbnj6)
-#[derive(CompactStep)]
-#[step(count = 512, child = crate::protocol::boolean::step::EightBitStep, name = "b")]
-pub struct BucketStep(usize);
-
-impl From<usize> for BucketStep {
-    fn from(v: usize) -> Self {
-        Self(v)
-    }
-}
-
-#[derive(CompactStep)]
-pub(crate) enum AggregateChunkStep {
-    #[step(count = 32, child = AggregateValuesStep)]
+    Reveal,
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    RevealValidate, // only partly used -- see code
+    #[step(count = 4, child = AggregateChunkStep, name = "chunks")]
     Aggregate(usize),
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    AggregateValidate,
 }
+
+// The step count here is duplicated as the AGGREGATE_DEPTH constant in the code.
+#[derive(CompactStep)]
+#[step(count = 24, child = AggregateValuesStep, name = "fold")]
+pub(crate) struct AggregateChunkStep(usize);
 
 #[derive(CompactStep)]
 pub(crate) enum AggregateValuesStep {

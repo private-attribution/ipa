@@ -1,3 +1,27 @@
+// Several of the reveal impls use distinct type parameters for the value being revealed
+// and the context-assiciated field.
+//
+// For MAC, this takes the form of distinct `V` and `CtxF` type parameters. For DZKP,
+// this takes the form of a `V` type parameter different from the implicit `Boolean`
+// used by the context.
+//
+// This decoupling is needed to support:
+//
+//  1. The PRF evaluation protocol, which uses `Fp25519` for the malicious context, but
+//     needs to reveal `RP25519` values.
+//  2. The breakdown reveal aggregation protocol, which uses `Boolean` for the malicious
+//     context, but needs to reveal `BK` values.
+//
+// The malicious reveal protocol must check the shares being revealed for consistency,
+// but doesn't care that they are in the same field as is used for the malicious
+// context. Contrast with multiplication, which can only be supported in the malicious
+// context's field.
+//
+// It also doesn't matter that `V` and `CtxF` support the same vectorization dimension
+// `N`, but the compiler would not be able to infer the value of a decoupled
+// vectorization dimension for `CtxF` from context, so it's easier to make them the same
+// absent a need for them to be different.
+
 use std::{
     future::Future,
     iter::{repeat, zip},
@@ -8,7 +32,6 @@ use futures::{FutureExt, TryFutureExt};
 
 use crate::{
     error::Error,
-    ff::boolean::Boolean,
     helpers::{Direction, MaybeFuture, Role},
     protocol::{
         boolean::step::TwoHundredFiftySixBitOpStep,
@@ -98,7 +121,7 @@ where
         ctx.parallel_join(zip(&**self, repeat(ctx.clone())).enumerate().map(
             |(i, (bit, ctx))| async move {
                 generic_reveal(
-                    ctx.narrow(&TwoHundredFiftySixBitOpStep::Bit(i)),
+                    ctx.narrow(&TwoHundredFiftySixBitOpStep::from(i)),
                     record_id,
                     excluded,
                     bit,
@@ -170,8 +193,6 @@ where
     }
 }
 
-// Like the impl for `UpgradedMaliciousContext`, this impl uses distinct `V` and `CtxF` type
-// parameters. See the comment on that impl for more details.
 impl<'a, B, V, CtxF, const N: usize> Reveal<UpgradedSemiHonestContext<'a, B, CtxF>>
     for Replicated<V, N>
 where
@@ -194,12 +215,12 @@ where
     }
 }
 
-impl<'a, B, const N: usize> Reveal<DZKPUpgradedSemiHonestContext<'a, B>> for Replicated<Boolean, N>
+impl<'a, V, B, const N: usize> Reveal<DZKPUpgradedSemiHonestContext<'a, B>> for Replicated<V, N>
 where
     B: ShardBinding,
-    Boolean: Vectorizable<N>,
+    V: SharedValue + Vectorizable<N>,
 {
-    type Output = <Boolean as Vectorizable<N>>::Array;
+    type Output = <V as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
@@ -270,15 +291,6 @@ where
     }
 }
 
-// This impl uses distinct `V` and `CtxF` type parameters to support the PRF evaluation protocol,
-// which uses `Fp25519` for the malicious context, but needs to reveal `RP25519` values. The
-// malicious reveal protocol must check the shares being revealed for consistency, but doesn't care
-// that they are in the same field as is used for the malicious context. Contrast with
-// multiplication, which can only be supported in the malicious context's field.
-//
-// It also doesn't matter that `V` and `CtxF` support the same vectorization dimension `N`, but the
-// compiler would not be able to infer the value of a decoupled vectorization dimension for `CtxF`
-// from context, so it's easier to make them the same absent a need for them to be different.
 impl<'a, V, const N: usize, CtxF> Reveal<UpgradedMaliciousContext<'a, CtxF>> for Replicated<V, N>
 where
     CtxF: ExtendableField,
@@ -321,20 +333,21 @@ where
     }
 }
 
-impl<'a, const N: usize> Reveal<DZKPUpgradedMaliciousContext<'a>> for Replicated<Boolean, N>
+impl<'a, V, B, const N: usize> Reveal<DZKPUpgradedMaliciousContext<'a, B>> for Replicated<V, N>
 where
-    Boolean: Vectorizable<N>,
+    B: ShardBinding,
+    V: SharedValue + Vectorizable<N>,
 {
-    type Output = <Boolean as Vectorizable<N>>::Array;
+    type Output = <V as Vectorizable<N>>::Array;
 
     async fn generic_reveal<'fut>(
         &'fut self,
-        ctx: DZKPUpgradedMaliciousContext<'a>,
+        ctx: DZKPUpgradedMaliciousContext<'a, B>,
         record_id: RecordId,
         excluded: Option<Role>,
     ) -> Result<Option<Self::Output>, Error>
     where
-        DZKPUpgradedMaliciousContext<'a>: 'fut,
+        DZKPUpgradedMaliciousContext<'a, B>: 'fut,
     {
         malicious_reveal(ctx, record_id, excluded, self).await
     }

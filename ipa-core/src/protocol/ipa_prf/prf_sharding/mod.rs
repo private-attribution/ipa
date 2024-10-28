@@ -1,7 +1,6 @@
 use std::{
     convert::Infallible,
-    iter,
-    iter::zip,
+    iter::{self, repeat_n, zip},
     num::NonZeroU32,
     ops::{Not, Range},
 };
@@ -12,7 +11,7 @@ use futures::{
     FutureExt, Stream, StreamExt, TryStreamExt,
 };
 
-use super::aggregation::{aggregate_contributions, breakdown_reveal::breakdown_reveal_aggregation};
+use super::aggregation::breakdown_reveal::breakdown_reveal_aggregation;
 use crate::{
     error::{Error, LengthError},
     ff::{
@@ -20,9 +19,9 @@ use crate::{
         boolean_array::{BooleanArray, BA32, BA7},
         ArrayAccess, Field, U128Conversions,
     },
-    helpers::{repeat_n, stream::TryFlattenItersExt, TotalRecords},
+    helpers::{stream::TryFlattenItersExt, TotalRecords},
     protocol::{
-        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
+        basics::{select, BooleanArrayMul, BooleanProtocols, Reveal, SecureMul, ShareKnownValue},
         boolean::{
             or::or,
             step::{EightBitStep, ThirtyTwoBitStep},
@@ -30,7 +29,7 @@ use crate::{
         },
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPContext, DZKPUpgraded, UpgradableContext,
+            Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
             boolean_ops::{
@@ -38,6 +37,7 @@ use crate::{
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
                 expand_shared_array_in_place,
             },
+            oprf_padding::PaddingParameters,
             prf_sharding::step::{
                 AttributionPerRowStep as PerRowStep, AttributionStep as Step,
                 AttributionWindowStep as WindowStep,
@@ -49,7 +49,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
 };
 
@@ -319,14 +319,14 @@ pub struct AttributionOutputs<BK, TV> {
 pub type SecretSharedAttributionOutputs<BK, TV> =
     AttributionOutputs<Replicated<BK>, Replicated<TV>>;
 
-#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[cfg(test)]
 #[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
 pub struct AttributionOutputsTestInput<BK: BooleanArray, TV: BooleanArray> {
     pub bk: BK,
     pub tv: TV,
 }
 
-#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[cfg(test)]
 impl<BK, TV> crate::secret_sharing::IntoShares<(Replicated<BK>, Replicated<TV>)>
     for AttributionOutputsTestInput<BK, TV>
 where
@@ -385,18 +385,10 @@ where
     (histogram, ranges)
 }
 
-fn set_up_contexts<C>(
-    root_ctx: C,
-    chunk_size: usize,
-    histogram: &[usize],
-) -> Result<(C::DZKPValidator, Vec<DZKPUpgraded<C>>), Error>
+fn set_up_contexts<C>(ctx: &C, histogram: &[usize]) -> Result<Vec<C>, Error>
 where
-    C: UpgradableContext,
+    C: Context,
 {
-    let mut dzkp_validator = root_ctx.dzkp_validator(chunk_size);
-    let ctx = dzkp_validator.context();
-    dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
-
     let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
         if row_number == 0 {
@@ -409,7 +401,7 @@ where
             context_per_row_depth.push(ctx_for_row_number);
         }
     }
-    Ok((dzkp_validator, context_per_row_depth))
+    Ok(context_per_row_depth)
 }
 
 ///
@@ -476,6 +468,7 @@ pub async fn attribute_cap_aggregate<
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
+    padding_parameters: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
     C: UpgradableContext + 'ctx,
@@ -487,9 +480,10 @@ where
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     Replicated<Boolean, AGG_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, AGG_CHUNK>,
-    for<'a> Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>,
-    for<'a> Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
-    for<'a> Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
+    Replicated<TS>: BooleanArrayMul<DZKPUpgraded<C>>,
+    Replicated<TV>: BooleanArrayMul<DZKPUpgraded<C>>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
         for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
     BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
@@ -512,9 +506,17 @@ where
             * multiplications_per_record::<BK, TV, TS>(attribution_window_seconds));
 
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = input_rows.len() - histogram[0];
-    let (dzkp_validator, ctx_for_row_number) =
-        set_up_contexts(sh_ctx.narrow(&Step::Attribute), chunk_size, histogram)?;
+    let mut dzkp_validator = sh_ctx.clone().dzkp_validator(
+        MaliciousProtocolSteps {
+            protocol: &Step::Attribute,
+            validate: &Step::AttributeValidate,
+        },
+        // TODO: this should not be necessary, but probably can't be removed
+        // until we align read_size with the batch size.
+        std::cmp::min(sh_ctx.active_work().get(), chunk_size.next_power_of_two()),
+    );
+    dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
+    let ctx_for_row_number = set_up_contexts(&dzkp_validator.context(), histogram)?;
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
@@ -535,24 +537,13 @@ where
         attribution_window_seconds,
     );
 
-    let aggregation_validator = sh_ctx.narrow(&Step::Aggregate).dzkp_validator(0);
-    let ctx = aggregation_validator.context();
-
-    // New aggregation is still experimental, we need proofs that it is private,
-    // hence it is only enabled behind a feature flag.
-    if cfg!(feature = "reveal-aggregation") {
-        // If there was any error in attribution we stop the execution with an error
-        tracing::warn!("Using the experimental aggregation based on revealing breakdown keys");
-        let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
-        breakdown_reveal_aggregation::<_, _, _, HV, B>(ctx, user_contributions).await
-    } else {
-        aggregate_contributions::<_, _, _, _, HV, B>(
-            sh_ctx.narrow(&Step::Aggregate),
-            flattened_user_results,
-            num_outputs,
-        )
-        .await
-    }
+    let user_contributions = flattened_user_results.try_collect::<Vec<_>>().await?;
+    breakdown_reveal_aggregation::<_, BK, TV, HV, B>(
+        sh_ctx.narrow(&Step::Aggregate),
+        user_contributions,
+        padding_parameters,
+    )
+    .await
 }
 
 #[tracing::instrument(name = "attribute_cap", skip_all, fields(unique_match_keys = input.len()))]
@@ -568,9 +559,9 @@ where
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    for<'a> Replicated<BK>: BooleanArrayMul<V::Context>,
-    for<'a> Replicated<TS>: BooleanArrayMul<V::Context>,
-    for<'a> Replicated<TV>: BooleanArrayMul<V::Context>,
+    Replicated<BK>: BooleanArrayMul<V::Context>,
+    Replicated<TS>: BooleanArrayMul<V::Context>,
+    Replicated<TV>: BooleanArrayMul<V::Context>,
 {
     let chunked_user_results =
         input
@@ -608,9 +599,9 @@ where
     BK: BooleanArray + U128Conversions,
     TV: BooleanArray + U128Conversions,
     TS: BooleanArray + U128Conversions,
-    for<'a> Replicated<BK>: BooleanArrayMul<C>,
-    for<'a> Replicated<TS>: BooleanArrayMul<C>,
-    for<'a> Replicated<TV>: BooleanArrayMul<C>,
+    Replicated<BK>: BooleanArrayMul<C>,
+    Replicated<TS>: BooleanArrayMul<C>,
+    Replicated<TV>: BooleanArrayMul<C>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -885,7 +876,7 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::num::NonZeroU32;
+    use std::{iter::repeat_n, num::NonZeroU32};
 
     use super::{AttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
@@ -894,7 +885,9 @@ pub mod tests {
             boolean_array::{BooleanArray, BA16, BA20, BA3, BA5, BA8},
             Field, U128Conversions,
         },
-        protocol::ipa_prf::prf_sharding::attribute_cap_aggregate,
+        protocol::ipa_prf::{
+            oprf_padding::PaddingParameters, prf_sharding::attribute_cap_aggregate,
+        },
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
@@ -904,6 +897,7 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
+    #[derive(Clone)]
     struct PreShardedAndSortedOPRFTestInput<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
         prf_of_match_key: u64,
         is_trigger_bit: Boolean,
@@ -1079,7 +1073,11 @@ pub mod tests {
                 .malicious(records.into_iter(), |ctx, input_rows| async move {
                     Vec::transposed_from(
                         &attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, 5, 32>(
-                            ctx, input_rows, None, &histogram,
+                            ctx,
+                            input_rows,
+                            None,
+                            &histogram,
+                            &PaddingParameters::relaxed(),
                         )
                         .await
                         .unwrap(),
@@ -1097,6 +1095,7 @@ pub mod tests {
             );
         });
     }
+
     #[test]
     fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;
@@ -1139,6 +1138,7 @@ pub mod tests {
                             input_rows,
                             NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
                             &histogram,
+                            &PaddingParameters::relaxed(),
                         )
                         .await
                         .unwrap(),
@@ -1157,6 +1157,33 @@ pub mod tests {
         });
     }
 
+    #[test]
+    #[should_panic(expected = "Step index 64 out of bounds for UserNthRowStep with count 64.")]
+    fn attribution_too_many_records_per_user() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> =
+                repeat_n(oprf_test_input(123, false, 17, 0), 65).collect();
+
+            let histogram = repeat_n(1, 65).collect::<Vec<_>>();
+            let histogram_ref = histogram.as_slice();
+
+            world
+                .malicious(records.into_iter(), |ctx, input_rows| async move {
+                    attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, 5, 32>(
+                        ctx,
+                        input_rows,
+                        None,
+                        histogram_ref,
+                        &PaddingParameters::relaxed(),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await;
+        });
+    }
     #[test]
     fn capping_bugfix() {
         const HISTOGRAM: [usize; 10] = [5, 5, 5, 5, 5, 5, 5, 2, 1, 1];
@@ -1236,7 +1263,13 @@ pub mod tests {
                             BA20,
                             { SaturatingSumType::BITS as usize },
                             256,
-                        >(ctx, input_rows, None, &HISTOGRAM)
+                        >(
+                            ctx,
+                            input_rows,
+                            None,
+                            &HISTOGRAM,
+                            &PaddingParameters::relaxed(),
+                        )
                         .await
                         .unwrap(),
                     )

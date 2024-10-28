@@ -16,6 +16,7 @@ pub enum RouteId {
     QueryInput,
     QueryStatus,
     CompleteQuery,
+    KillQuery,
 }
 
 /// The header/metadata of the incoming request.

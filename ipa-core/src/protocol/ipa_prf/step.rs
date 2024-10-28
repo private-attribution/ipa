@@ -6,10 +6,12 @@ pub(crate) enum IpaPrfStep {
     PaddingDp,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
-    // ConvertInputRowsToPrf,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::Fp25519ConversionStep)]
     ConvertFp25519,
-    #[step(child = PrfStep)]
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    ConvertFp25519Validate,
+    PrfKeyGen,
+    #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
     EvalPrf,
     #[step(child = QuicksortStep)]
     SortByTimestamp,
@@ -17,6 +19,8 @@ pub(crate) enum IpaPrfStep {
     Attribution,
     #[step(child = crate::protocol::dp::step::DPStep, name = "dp")]
     DifferentialPrivacy,
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    DifferentialPrivacyValidate,
 }
 
 #[derive(CompactStep)]
@@ -24,6 +28,8 @@ pub(crate) enum QuicksortStep {
     /// Sort up to 1B rows. We can't exceed that limit for other reasons as well `record_id`.
     #[step(count = 30, child = crate::protocol::ipa_prf::step::QuicksortPassStep)]
     QuicksortPass(usize),
+    #[step(count = 30, child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    QuicksortPassValidate(usize),
 }
 
 #[derive(CompactStep)]
@@ -35,10 +41,12 @@ pub(crate) enum QuicksortPassStep {
 
 #[derive(CompactStep)]
 pub(crate) enum PrfStep {
-    PRFKeyGen,
     GenRandomMask,
+    #[step(child = crate::protocol::context::step::UpgradeStep)]
     UpgradeY,
+    #[step(child = crate::protocol::context::step::UpgradeStep)]
     UpgradeMask,
+    #[step(child = crate::protocol::basics::mul::step::MaliciousMultiplyStep)]
     MultMaskWithPRFInput,
     RevealR,
     Revealz,

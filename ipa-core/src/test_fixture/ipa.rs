@@ -27,10 +27,6 @@ pub enum IpaSecurityModel {
     Malicious,
 }
 
-pub enum IpaQueryStyle {
-    Oprf,
-}
-
 #[derive(Debug, Clone, Ord, PartialEq, PartialOrd, Eq)]
 pub struct TestRawDataRecord {
     pub timestamp: u64,
@@ -219,7 +215,7 @@ pub async fn test_oprf_ipa<F>(
         world.semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA8, BA20>>| async move {
-                oprf_ipa::<BA5, BA8, BA32, BA20, 8, 32>(ctx, input_rows, aws, dp_params, padding_params)
+                oprf_ipa::<_, BA5, BA8, BA32, BA20, 8, 32>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap()
             },
@@ -231,19 +227,19 @@ pub async fn test_oprf_ipa<F>(
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
-                    8 => oprf_ipa::<BA8, BA3, BA32, BA20, 3, 256>(ctx, input_rows, aws, dp_params, padding_params)
+                    8 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 3, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
-                    16 => oprf_ipa::<BA8, BA3, BA32, BA20, 4, 256>(ctx, input_rows, aws, dp_params, padding_params)
+                    16 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 4, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
-                    32 => oprf_ipa::<BA8, BA3, BA32, BA20, 5, 256>(ctx, input_rows, aws, dp_params, padding_params)
+                    32 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 5, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
-                    64 => oprf_ipa::<BA8, BA3, BA32, BA20, 6, 256>(ctx, input_rows, aws, dp_params, padding_params)
+                    64 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 6, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
-                    128 => oprf_ipa::<BA8, BA3, BA32, BA20, 7, 256>(ctx, input_rows, aws, dp_params, padding_params)
+                    128 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 7, 256>(ctx, input_rows, aws, dp_params, padding_params)
                     .await
                     .unwrap(),
                     _ =>

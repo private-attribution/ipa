@@ -7,6 +7,7 @@ use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
+    ops::Not,
 };
 
 use generic_array::GenericArray;
@@ -181,6 +182,10 @@ impl HelperIdentity {
     pub const TWO: Self = Self { id: 2 };
     pub const THREE: Self = Self { id: 3 };
 
+    pub const ONE_STR: &'static str = "A";
+    pub const TWO_STR: &'static str = "B";
+    pub const THREE_STR: &'static str = "C";
+
     /// Given a helper identity, return an array of the identities of the other two helpers.
     // The order that helpers are returned here is not intended to be meaningful, however,
     // it is currently used directly to determine the assignment of roles in
@@ -265,6 +270,17 @@ pub struct RoleAssignment {
 pub enum Direction {
     Left,
     Right,
+}
+
+impl Not for Direction {
+    type Output = Self;
+
+    fn not(self) -> Self {
+        match self {
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+        }
+    }
 }
 
 impl Role {
@@ -618,36 +634,6 @@ where
     }
 }
 
-pub struct RepeatN<T> {
-    element: T,
-    count: usize,
-}
-
-// As of Apr. 2024, this is unstable in `std::iter`. It is also available in `itertools`.
-// The advantage over `repeat(element).take(count)` that we care about is that this
-// implements `ExactSizeIterator`. The other advantage is that `repeat_n` can return
-// the original value (saving a clone) on the last iteration.
-pub fn repeat_n<T: Clone>(element: T, count: usize) -> RepeatN<T> {
-    RepeatN { element, count }
-}
-
-impl<T: Clone> Iterator for RepeatN<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.count > 0).then(|| {
-            self.count -= 1;
-            self.element.clone()
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.count, Some(self.count))
-    }
-}
-
-impl<T: Clone> ExactSizeIterator for RepeatN<T> {}
-
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
@@ -817,7 +803,7 @@ mod concurrency_tests {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
                         gateway_config: GatewayConfig {
-                            active: input.len().try_into().unwrap(),
+                            active: input.len().next_power_of_two().try_into().unwrap(),
                             ..Default::default()
                         },
                         ..Default::default()
@@ -875,7 +861,7 @@ mod concurrency_tests {
                     let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                     let config = TestWorldConfig {
                         gateway_config: GatewayConfig {
-                            active: input.len().try_into().unwrap(),
+                            active: input.len().next_power_of_two().try_into().unwrap(),
                             ..Default::default()
                         },
                         ..Default::default()

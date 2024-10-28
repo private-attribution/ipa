@@ -1,68 +1,12 @@
 use std::{
     fmt::{Debug, Display, Formatter},
     num::TryFromIntError,
+    ops::{Index, IndexMut},
 };
 
 /// A unique zero-based index of the helper shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ShardIndex(u32);
-
-#[derive(Debug, Copy, Clone)]
-pub struct Sharded {
-    pub shard_id: ShardIndex,
-    pub shard_count: ShardIndex,
-}
-
-impl ShardConfiguration for Sharded {
-    fn shard_id(&self) -> ShardIndex {
-        self.shard_id
-    }
-
-    fn shard_count(&self) -> ShardIndex {
-        self.shard_count
-    }
-}
-
-impl Display for ShardIndex {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-/// Shard-specific configuration required by sharding API. Each shard must know its own index and
-/// the total number of shards in the system.
-pub trait ShardConfiguration {
-    /// Returns the index of the current shard.
-    fn shard_id(&self) -> ShardIndex;
-
-    /// Total number of shards present on this helper. It is expected that all helpers have the
-    /// same number of shards.
-    fn shard_count(&self) -> ShardIndex;
-
-    /// Returns an iterator that yields shard indices for all shards present in the system, except
-    /// this one. Shards are yielded in ascending order.
-    ///
-    /// ## Panics
-    /// if current shard index is greater or equal to the total number of shards.
-    fn peer_shards(&self) -> impl Iterator<Item = ShardIndex> {
-        let this = self.shard_id();
-        let max = self.shard_count();
-        assert!(
-            this < max,
-            "Current shard index '{this}' >= '{max}' (total number of shards)"
-        );
-
-        max.iter().filter(move |&v| v != this)
-    }
-}
-
-pub trait ShardBinding: Debug + Send + Sync + Clone {}
-
-#[derive(Debug, Copy, Clone)]
-pub struct NotSharded;
-
-impl ShardBinding for NotSharded {}
-impl ShardBinding for Sharded {}
+pub struct ShardIndex(pub u32);
 
 impl ShardIndex {
     pub const FIRST: Self = Self(0);
@@ -98,6 +42,12 @@ impl From<ShardIndex> for usize {
     }
 }
 
+impl From<ShardIndex> for u32 {
+    fn from(value: ShardIndex) -> Self {
+        value.0
+    }
+}
+
 impl TryFrom<usize> for ShardIndex {
     type Error = TryFromIntError;
 
@@ -105,6 +55,85 @@ impl TryFrom<usize> for ShardIndex {
         u32::try_from(value).map(Self)
     }
 }
+
+impl TryFrom<u128> for ShardIndex {
+    type Error = TryFromIntError;
+
+    fn try_from(value: u128) -> Result<Self, Self::Error> {
+        u32::try_from(value).map(Self)
+    }
+}
+
+impl Display for ShardIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl<T> Index<ShardIndex> for Vec<T> {
+    type Output = T;
+
+    fn index(&self, index: ShardIndex) -> &Self::Output {
+        self.as_slice().index(usize::from(index))
+    }
+}
+
+impl<T> IndexMut<ShardIndex> for Vec<T> {
+    fn index_mut(&mut self, index: ShardIndex) -> &mut Self::Output {
+        self.as_mut_slice().index_mut(usize::from(index))
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Sharded {
+    pub shard_id: ShardIndex,
+    pub shard_count: ShardIndex,
+}
+
+impl ShardConfiguration for Sharded {
+    fn shard_id(&self) -> ShardIndex {
+        self.shard_id
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.shard_count
+    }
+}
+
+/// Shard-specific configuration required by sharding API. Each shard must know its own index and
+/// the total number of shards in the system.
+pub trait ShardConfiguration {
+    /// Returns the index of the current shard.
+    fn shard_id(&self) -> ShardIndex;
+
+    /// Total number of shards present on this helper. It is expected that all helpers have the
+    /// same number of shards.
+    fn shard_count(&self) -> ShardIndex;
+
+    /// Returns an iterator that yields shard indices for all shards present in the system, except
+    /// this one. Shards are yielded in ascending order.
+    ///
+    /// ## Panics
+    /// if current shard index is greater or equal to the total number of shards.
+    fn peer_shards(&self) -> impl Iterator<Item = ShardIndex> {
+        let this = self.shard_id();
+        let max = self.shard_count();
+        assert!(
+            this < max,
+            "Current shard index '{this}' >= '{max}' (total number of shards)"
+        );
+
+        max.iter().filter(move |&v| v != this)
+    }
+}
+
+pub trait ShardBinding: Debug + Send + Sync + Clone + 'static {}
+
+#[derive(Debug, Copy, Clone)]
+pub struct NotSharded;
+
+impl ShardBinding for NotSharded {}
+impl ShardBinding for Sharded {}
 
 #[cfg(all(test, unit_test))]
 mod tests {

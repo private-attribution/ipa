@@ -2,25 +2,25 @@ use axum::{extract::Path, response::IntoResponse, routing::post, Extension, Json
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::PrepareQuery, BodyStream, Transport},
+    helpers::{query::PrepareQuery, BodyStream, HelperIdentity},
     net::{
         http_serde::{
             self,
             query::{prepare::RequestBody, QueryConfigQueryParams},
         },
         server::ClientIdentity,
-        Error, HttpTransport,
+        transport::MpcHttpTransport,
+        Error,
     },
     protocol::QueryId,
     query::PrepareQueryError,
-    sync::Arc,
 };
 
 /// Called by whichever peer helper is the leader for an individual query, to initiatialize
 /// processing of that query.
 async fn handler(
-    transport: Extension<Arc<HttpTransport>>,
-    _: Extension<ClientIdentity>, // require that client is an authenticated helper
+    transport: Extension<MpcHttpTransport>,
+    _: Extension<ClientIdentity<HelperIdentity>>, // require that client is an authenticated helper
     Path(query_id): Path<QueryId>,
     QueryConfigQueryParams(config): QueryConfigQueryParams,
     Json(RequestBody { roles }): Json<RequestBody>,
@@ -30,7 +30,6 @@ async fn handler(
         config,
         roles,
     };
-    let transport = Transport::clone_ref(&*transport);
     let _ = transport
         .dispatch(data, BodyStream::empty())
         .await
@@ -45,7 +44,7 @@ impl IntoResponse for PrepareQueryError {
     }
 }
 
-pub fn router(transport: Arc<HttpTransport>) -> Router {
+pub fn router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .route(http_serde::query::prepare::AXUM_PATH, post(handler))
         .layer(Extension(transport))
@@ -100,7 +99,7 @@ mod tests {
     // since we tested `QueryType` with `create`, skip it here
     // More lenient version of Request, specifically so to test failure scenarios
     struct OverrideReq {
-        client_id: Option<ClientIdentity>,
+        client_id: Option<ClientIdentity<HelperIdentity>>,
         query_id: String,
         field_type: String,
         size: Option<i32>,
