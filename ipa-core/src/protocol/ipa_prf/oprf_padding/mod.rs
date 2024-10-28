@@ -166,11 +166,11 @@ where
                                 Direction::Left => AdditiveShare::new(BA64::ZERO, dummy_mk),
                                 Direction::Right => AdditiveShare::new(dummy_mk, BA64::ZERO),
                             };
-                            let row = IndistinguishableHybridReport::new(
-                                match_key_shares,
-                                AdditiveShare::ZERO,
-                                AdditiveShare::ZERO,
-                            );
+                            let row = IndistinguishableHybridReport {
+                                match_key: match_key_shares,
+                                value: AdditiveShare::ZERO,
+                                breakdown_key: AdditiveShare::ZERO,
+                            };
                             padding_input_rows.extend(std::iter::once(row));
                         }
                     }
@@ -185,11 +185,11 @@ where
         total_number_of_fake_rows: u32,
     ) {
         for _ in 0..total_number_of_fake_rows as usize {
-            let row = IndistinguishableHybridReport::new(
-                AdditiveShare::ZERO,
-                AdditiveShare::ZERO,
-                AdditiveShare::ZERO,
-            );
+            let row = IndistinguishableHybridReport {
+                match_key: AdditiveShare::ZERO,
+                value: AdditiveShare::ZERO,
+                breakdown_key: AdditiveShare::ZERO,
+            };
 
             padding_input_rows.extend(std::iter::once(row));
         }
