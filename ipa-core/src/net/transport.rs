@@ -196,7 +196,7 @@ impl MpcHttpTransport {
         identity: HelperIdentity,
         server_config: ServerConfig,
         network_config: NetworkConfig<Helper>,
-        clients: &[MpcHelperClient; 3],
+        clients: &[MpcHelperClient<Helper>; 3],
         handler: Option<HandlerRef<HelperIdentity>>,
     ) -> (Self, MpcHelperServer<Helper>) {
         let transport = Self {

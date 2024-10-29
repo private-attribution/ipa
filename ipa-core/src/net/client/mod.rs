@@ -175,7 +175,7 @@ async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
 /// TODO: It probably isn't necessary to always use `[MpcHelperClient; 3]`. Instead, a single
 ///       client can be configured to talk to all three helpers.
 #[derive(Debug, Clone)]
-pub struct MpcHelperClient<F: ConnectionFlavor = Helper> {
+pub struct MpcHelperClient<F: ConnectionFlavor> {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     scheme: uri::Scheme,
     authority: uri::Authority,

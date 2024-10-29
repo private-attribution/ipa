@@ -394,7 +394,7 @@ pub struct TestServer {
     pub handle: IpaJoinHandle<()>,
     pub transport: MpcHttpTransport,
     pub server: MpcHelperServer<Helper>,
-    pub client: MpcHelperClient,
+    pub client: MpcHelperClient<Helper>,
     pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
 }
 
