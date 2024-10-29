@@ -23,7 +23,7 @@ use crate::{
         BodyStream,
     },
     hpke::PublicKeyRegistry,
-    net::{Helper, MpcHelperClient},
+    net::{Helper, IpaHttpClient},
     protocol::{ipa_prf::OPRFIPAInputRow, QueryId},
     query::QueryStatus,
     report::{KeyIdentifier, OprfReport},
@@ -37,7 +37,7 @@ use crate::{
 /// If report encryption fails
 pub async fn playbook_oprf_ipa<HV, KR>(
     records: Vec<TestRawDataRecord>,
-    clients: &[MpcHelperClient<Helper>; 3],
+    clients: &[IpaHttpClient<Helper>; 3],
     query_id: QueryId,
     query_config: IpaQueryConfig,
     encryption: Option<(KeyIdentifier, [&KR; 3])>,
@@ -101,7 +101,7 @@ where
 pub async fn run_query_and_validate<HV>(
     inputs: [BodyStream; 3],
     query_size: usize,
-    clients: &[MpcHelperClient<Helper>; 3],
+    clients: &[IpaHttpClient<Helper>; 3],
     query_id: QueryId,
     query_config: IpaQueryConfig,
 ) -> IpaQueryResult

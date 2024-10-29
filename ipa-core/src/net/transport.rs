@@ -20,7 +20,7 @@ use crate::{
         NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
         StepBinding, StreamCollection, Transport, TransportIdentity,
     },
-    net::{client::MpcHelperClient, error::Error, MpcHelperServer},
+    net::{client::IpaHttpClient, error::Error, MpcHelperServer},
     protocol::{Gate, QueryId},
     sharding::ShardIndex,
     sync::Arc,
@@ -30,7 +30,7 @@ use crate::{
 pub struct HttpTransport<F: ConnectionFlavor> {
     http_runtime: IpaRuntime,
     identity: F::Identity,
-    clients: Vec<MpcHelperClient<F>>,
+    clients: Vec<IpaHttpClient<F>>,
     record_streams: StreamCollection<F::Identity, BodyStream>,
     handler: Option<HandlerRef<F::Identity>>,
 }
@@ -196,7 +196,7 @@ impl MpcHttpTransport {
         identity: HelperIdentity,
         server_config: ServerConfig,
         network_config: NetworkConfig<Helper>,
-        clients: &[MpcHelperClient<Helper>; 3],
+        clients: &[IpaHttpClient<Helper>; 3],
         handler: Option<HandlerRef<HelperIdentity>>,
     ) -> (Self, MpcHelperServer<Helper>) {
         let transport = Self {
@@ -292,7 +292,7 @@ impl ShardHttpTransport {
         identity: ShardIndex,
         server_config: ServerConfig,
         network_config: NetworkConfig<Shard>,
-        clients: Vec<MpcHelperClient<Shard>>,
+        clients: Vec<IpaHttpClient<Shard>>,
         handler: Option<HandlerRef<ShardIndex>>,
     ) -> (Self, MpcHelperServer<Shard>) {
         let transport = Self {
@@ -458,7 +458,7 @@ mod tests {
                 let identities = ClientIdentities::new(conf.disable_https, sid);
 
                 // Ring config
-                let clients = MpcHelperClient::from_conf(
+                let clients = IpaHttpClient::from_conf(
                     &IpaRuntime::current(),
                     &leaders_ring.network,
                     &identities.helper,
@@ -476,7 +476,7 @@ mod tests {
                 let helper_shards = conf.get_shards_for_helper(id);
                 let addr_shard = helper_shards.get_first_shard();
                 let shard_network_config = helper_shards.network.clone();
-                let shard_clients = MpcHelperClient::<Shard>::shards_from_conf(
+                let shard_clients = IpaHttpClient::<Shard>::shards_from_conf(
                     &IpaRuntime::current(),
                     &shard_network_config,
                     &identities.shard,
@@ -512,7 +512,7 @@ mod tests {
     }
 
     async fn test_three_helpers(conf: TestConfig) {
-        let clients = MpcHelperClient::from_conf(
+        let clients = IpaHttpClient::from_conf(
             &IpaRuntime::current(),
             &conf.leaders_ring().network,
             &ClientIdentity::None,
@@ -524,7 +524,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn happy_case_twice() {
         let conf = TestConfigBuilder::default().build();
-        let clients = MpcHelperClient::from_conf(
+        let clients = IpaHttpClient::from_conf(
             &IpaRuntime::current(),
             &conf.leaders_ring().network,
             &ClientIdentity::None,
@@ -535,7 +535,7 @@ mod tests {
         test_multiply(&clients).await;
     }
 
-    async fn test_multiply(clients: &[MpcHelperClient<Helper>; 3]) {
+    async fn test_multiply(clients: &[IpaHttpClient<Helper>; 3]) {
         const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
 
         // send a create query command

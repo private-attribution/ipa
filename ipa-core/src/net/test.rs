@@ -26,7 +26,7 @@ use crate::{
     executor::{IpaJoinHandle, IpaRuntime},
     helpers::{HandlerBox, HelperIdentity, RequestHandler, TransportIdentity},
     hpke::{Deserializable as _, IpaPublicKey},
-    net::{ClientIdentity, Helper, MpcHelperClient, MpcHelperServer},
+    net::{ClientIdentity, Helper, IpaHttpClient, MpcHelperServer},
     sharding::{ShardIndex, ShardedHelperIdentity},
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
@@ -394,7 +394,7 @@ pub struct TestServer {
     pub handle: IpaJoinHandle<()>,
     pub transport: MpcHttpTransport,
     pub server: MpcHelperServer<Helper>,
-    pub client: MpcHelperClient<Helper>,
+    pub client: IpaHttpClient<Helper>,
     pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
 }
 
@@ -471,7 +471,7 @@ impl TestServerBuilder {
             .build();
         let leaders_ring = test_config.rings.pop().unwrap();
         let first_server = leaders_ring.servers.into_iter().next().unwrap();
-        let clients = MpcHelperClient::from_conf(
+        let clients = IpaHttpClient::from_conf(
             &IpaRuntime::current(),
             &leaders_ring.network,
             &identities.helper.clone_with_key(),

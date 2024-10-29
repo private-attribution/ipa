@@ -175,7 +175,7 @@ async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
 /// TODO: It probably isn't necessary to always use `[MpcHelperClient; 3]`. Instead, a single
 ///       client can be configured to talk to all three helpers.
 #[derive(Debug, Clone)]
-pub struct MpcHelperClient<F: ConnectionFlavor> {
+pub struct IpaHttpClient<F: ConnectionFlavor> {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     scheme: uri::Scheme,
     authority: uri::Authority,
@@ -183,7 +183,7 @@ pub struct MpcHelperClient<F: ConnectionFlavor> {
     _restriction: PhantomData<F>,
 }
 
-impl<F: ConnectionFlavor> MpcHelperClient<F> {
+impl<F: ConnectionFlavor> IpaHttpClient<F> {
     /// Create a new client with the given configuration
     ///
     /// `identity`, if present, configures whether and how the client will authenticate to the server
@@ -371,7 +371,7 @@ impl<F: ConnectionFlavor> MpcHelperClient<F> {
     }
 }
 
-impl MpcHelperClient<Helper> {
+impl IpaHttpClient<Helper> {
     /// Create a set of clients for the MPC helpers in the supplied helper network configuration.
     ///
     /// This function returns a set of three clients, which may be used to talk to each of the
@@ -469,7 +469,7 @@ impl MpcHelperClient<Helper> {
     }
 }
 
-impl MpcHelperClient<Shard> {
+impl IpaHttpClient<Shard> {
     /// This is a mirror of [`MpcHelperClient<Helper>::from_config`] but for Shards. This creates
     /// set of Shard clients in the supplied helper network configuration, which can be used to
     /// talk to each of the shards in this helper.
@@ -544,7 +544,7 @@ pub(crate) mod tests {
             certificate: None,
             hpke_config: None,
         };
-        let client = MpcHelperClient::new(
+        let client = IpaHttpClient::new(
             IpaRuntime::current(),
             &ClientConfig::default(),
             peer_config,
@@ -573,7 +573,7 @@ pub(crate) mod tests {
     where
         ClientOut: Eq + Debug,
         ClientFut: Future<Output = ClientOut>,
-        ClientF: Fn(MpcHelperClient<Helper>) -> ClientFut,
+        ClientF: Fn(IpaHttpClient<Helper>) -> ClientFut,
         HandlerF: Fn() -> Arc<dyn RequestHandler<Identity = HelperIdentity>>,
     {
         let mut results = Vec::with_capacity(4);
