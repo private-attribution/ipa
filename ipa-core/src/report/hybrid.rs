@@ -353,9 +353,35 @@ where
     BK: SharedValue,
     V: SharedValue,
 {
-    match_key: Replicated<BA64>,
-    value: Replicated<V>,
-    breakdown_key: Replicated<BK>,
+    pub match_key: Replicated<BA64>,
+    pub value: Replicated<V>,
+    pub breakdown_key: Replicated<BK>,
+}
+
+impl<BK, V> IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    pub const ZERO: Self = Self {
+        match_key: Replicated::<BA64>::ZERO,
+        value: Replicated::<V>::ZERO,
+        breakdown_key: Replicated::<BK>::ZERO,
+    };
+}
+
+impl<BK, V> From<Replicated<BA64>> for IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    fn from(match_key: Replicated<BA64>) -> Self {
+        Self {
+            match_key,
+            value: Replicated::<V>::ZERO,
+            breakdown_key: Replicated::<BK>::ZERO,
+        }
+    }
 }
 
 impl<BK, V> From<HybridReport<BK, V>> for IndistinguishableHybridReport<BK, V>

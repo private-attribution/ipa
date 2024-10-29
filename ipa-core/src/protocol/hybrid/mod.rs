@@ -1,5 +1,7 @@
 pub(crate) mod step;
 
+use step::HybridStep as Step;
+
 use crate::{
     error::Error,
     ff::{
@@ -9,12 +11,14 @@ use crate::{
     helpers::query::DpMechanism,
     protocol::{
         context::{ShardedContext, UpgradableContext},
-        ipa_prf::{oprf_padding::PaddingParameters, shuffle::Shuffle},
+        ipa_prf::{
+            oprf_padding::{apply_dp_padding, PaddingParameters},
+            shuffle::Shuffle,
+        },
     },
     report::hybrid::IndistinguishableHybridReport,
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-
 // In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
 // ≤ 2^|bk|, with all three values distinct, but at present, there is no runtime configuration and
 // the latter two must be equal. The implementation of `move_single_value_to_bucket` does support a
@@ -61,10 +65,10 @@ impl BreakdownKey<256> for BA8 {}
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
 pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const SS_BITS: usize, const B: usize>(
-    _ctx: C,
+    ctx: C,
     input_rows: Vec<IndistinguishableHybridReport<BK, V>>,
     _dp_params: DpMechanism,
-    _dp_padding_params: PaddingParameters,
+    dp_padding_params: PaddingParameters,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
     C: UpgradableContext + 'ctx + Shuffle + ShardedContext,
@@ -75,5 +79,14 @@ where
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
     }
+
+    // Apply DP padding for OPRF
+    let _padded_input_rows = apply_dp_padding::<_, IndistinguishableHybridReport<BK, V>, B>(
+        ctx.narrow(&Step::PaddingDp),
+        input_rows,
+        &dp_padding_params,
+    )
+    .await?;
+
     unimplemented!("protocol::hybrid::hybrid_protocol is not fully implemented")
 }
