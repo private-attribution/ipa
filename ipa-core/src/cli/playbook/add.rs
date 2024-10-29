@@ -9,7 +9,7 @@ use typenum::Unsigned;
 use crate::{
     ff::{Field, Serializable},
     helpers::{query::QueryInput, BodyStream},
-    net::MpcHelperClient,
+    net::{Helper, IpaHttpClient},
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::Reconstruct,
@@ -19,7 +19,7 @@ use crate::{
 #[allow(clippy::missing_panics_doc, clippy::disallowed_methods)]
 pub async fn secure_add<F>(
     input: impl Iterator<Item = F>,
-    clients: &[MpcHelperClient; 3],
+    clients: &[IpaHttpClient<Helper>; 3],
     query_id: QueryId,
 ) -> F
 where

@@ -23,7 +23,7 @@ mod server;
 pub mod test;
 mod transport;
 
-pub use client::{ClientIdentity, MpcHelperClient};
+pub use client::{ClientIdentity, IpaHttpClient};
 pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
 pub use transport::{HttpTransport, MpcHttpTransport, ShardHttpTransport};

@@ -20,7 +20,7 @@ use crate::{
     executor::IpaRuntime,
     ff::boolean_array::{BA20, BA3, BA8},
     helpers::query::DpMechanism,
-    net::{ClientIdentity, Helper, MpcHelperClient},
+    net::{ClientIdentity, Helper, IpaHttpClient},
     protocol::{dp::NoiseParams, ipa_prf::oprf_padding::insecure::OPRFPaddingDp},
 };
 
@@ -194,7 +194,7 @@ pub async fn make_clients(
     network_path: Option<&Path>,
     scheme: Scheme,
     wait: usize,
-) -> ([MpcHelperClient; 3], NetworkConfig<Helper>) {
+) -> ([IpaHttpClient<Helper>; 3], NetworkConfig<Helper>) {
     let mut wait = wait;
     let network = if let Some(path) = network_path {
         NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
@@ -212,8 +212,7 @@ pub async fn make_clients(
 
     // Note: This closure is only called when the selected action uses clients.
 
-    let clients =
-        MpcHelperClient::from_conf(&IpaRuntime::current(), &network, &ClientIdentity::None);
+    let clients = IpaHttpClient::from_conf(&IpaRuntime::current(), &network, &ClientIdentity::None);
     while wait > 0 && !clients_ready(&clients).await {
         tracing::debug!("waiting for servers to come up");
         sleep(Duration::from_secs(1)).await;
@@ -222,7 +221,7 @@ pub async fn make_clients(
     (clients, network)
 }
 
-async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
+async fn clients_ready(clients: &[IpaHttpClient<Helper>; 3]) -> bool {
     clients[0].echo("").await.is_ok()
         && clients[1].echo("").await.is_ok()
         && clients[2].echo("").await.is_ok()

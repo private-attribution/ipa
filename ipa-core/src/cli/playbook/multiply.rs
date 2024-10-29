@@ -9,7 +9,7 @@ use typenum::Unsigned;
 use crate::{
     ff::{Field, Serializable},
     helpers::{query::QueryInput, BodyStream},
-    net::MpcHelperClient,
+    net::{Helper, IpaHttpClient},
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::Reconstruct,
@@ -21,7 +21,7 @@ use crate::{
 pub async fn secure_mul<F>(
     // I couldn't make `share` work with `&[(F, F)]`
     input: Vec<(F, F)>,
-    clients: &[MpcHelperClient; 3],
+    clients: &[IpaHttpClient<Helper>; 3],
     query_id: QueryId,
 ) -> Vec<F>
 where
