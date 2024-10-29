@@ -138,6 +138,12 @@ where
     BK: BooleanArray + U128Conversions,
     V: BooleanArray,
 {
+    /// Given an extendable collection of `IndistinguishableHybridReport`s,
+    /// this function will pad the collection with dummy reports. The reports
+    /// have a random `match_key` and zeros for `breakdown_key` and `value`.
+    /// Dummies need to be added at every possible cardinality of `match_key`s,
+    /// e.g., we add sets of dummies with the same `match_key` at each possible cardinality.
+    /// The number of sets at each cardinality is random, and determined by `padding_params`.
     fn add_padding_items<VC: Extend<Self>, const B: usize>(
         direction_to_excluded_helper: Direction,
         padding_input_rows: &mut VC,
@@ -181,6 +187,8 @@ where
         Ok(total_number_of_fake_rows)
     }
 
+    /// Given an extendable collection of `IndistinguishableHybridReport`s,
+    /// this function ads `total_number_of_fake_rows` of Reports with zeros in all fields.
     fn add_zero_shares<VC: Extend<Self>>(
         padding_input_rows: &mut VC,
         total_number_of_fake_rows: u32,
