@@ -20,7 +20,7 @@ use crate::{
         NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
         StepBinding, StreamCollection, Transport, TransportIdentity,
     },
-    net::{client::IpaHttpClient, error::Error, MpcHelperServer},
+    net::{client::IpaHttpClient, error::Error, IpaHttpServer},
     protocol::{Gate, QueryId},
     sharding::ShardIndex,
     sync::Arc,
@@ -198,7 +198,7 @@ impl MpcHttpTransport {
         network_config: NetworkConfig<Helper>,
         clients: &[IpaHttpClient<Helper>; 3],
         handler: Option<HandlerRef<HelperIdentity>>,
-    ) -> (Self, MpcHelperServer<Helper>) {
+    ) -> (Self, IpaHttpServer<Helper>) {
         let transport = Self {
             inner_transport: Arc::new(HttpTransport {
                 http_runtime,
@@ -209,7 +209,7 @@ impl MpcHttpTransport {
             }),
         };
 
-        let server = MpcHelperServer::new_mpc(&transport, server_config, network_config);
+        let server = IpaHttpServer::new_mpc(&transport, server_config, network_config);
         (transport, server)
     }
 
@@ -294,7 +294,7 @@ impl ShardHttpTransport {
         network_config: NetworkConfig<Shard>,
         clients: Vec<IpaHttpClient<Shard>>,
         handler: Option<HandlerRef<ShardIndex>>,
-    ) -> (Self, MpcHelperServer<Shard>) {
+    ) -> (Self, IpaHttpServer<Shard>) {
         let transport = Self {
             inner_transport: Arc::new(HttpTransport {
                 http_runtime,
@@ -305,7 +305,7 @@ impl ShardHttpTransport {
             }),
         };
 
-        let server = MpcHelperServer::new_shards(&transport, server_config, network_config);
+        let server = IpaHttpServer::new_shards(&transport, server_config, network_config);
         (transport, server)
     }
 }

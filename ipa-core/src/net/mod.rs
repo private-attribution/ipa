@@ -25,7 +25,7 @@ mod transport;
 
 pub use client::{ClientIdentity, IpaHttpClient};
 pub use error::Error;
-pub use server::{MpcHelperServer, TracingSpanMaker};
+pub use server::{IpaHttpServer, TracingSpanMaker};
 pub use transport::{HttpTransport, MpcHttpTransport, ShardHttpTransport};
 
 const APPLICATION_JSON: &str = "application/json";

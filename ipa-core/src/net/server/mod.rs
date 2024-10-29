@@ -86,13 +86,13 @@ impl TracingSpanMaker for () {
 /// The Transport Restriction generic is used to make the server aware whether it should offer a
 /// HTTP API for shards or for other Helpers. External clients can reach out to both APIs to push
 /// the input data among other things.
-pub struct MpcHelperServer<F: ConnectionFlavor = Helper> {
+pub struct IpaHttpServer<F: ConnectionFlavor> {
     config: ServerConfig,
     network_config: NetworkConfig<F>,
     router: Router,
 }
 
-impl MpcHelperServer<Helper> {
+impl IpaHttpServer<Helper> {
     #[must_use]
     pub fn new_mpc(
         transport: &MpcHttpTransport,
@@ -100,7 +100,7 @@ impl MpcHelperServer<Helper> {
         network_config: NetworkConfig<Helper>,
     ) -> Self {
         let router = handlers::mpc_router(transport.clone());
-        MpcHelperServer {
+        IpaHttpServer {
             config,
             network_config,
             router,
@@ -108,14 +108,14 @@ impl MpcHelperServer<Helper> {
     }
 }
 
-impl MpcHelperServer<Shard> {
+impl IpaHttpServer<Shard> {
     #[must_use]
     pub fn new_shards(
         _transport: &ShardHttpTransport,
         config: ServerConfig,
         network_config: NetworkConfig<Shard>,
     ) -> Self {
-        MpcHelperServer {
+        IpaHttpServer {
             config,
             network_config,
             router: Router::new(),
@@ -123,7 +123,7 @@ impl MpcHelperServer<Shard> {
     }
 }
 
-impl<F: ConnectionFlavor> MpcHelperServer<F> {
+impl<F: ConnectionFlavor> IpaHttpServer<F> {
     #[cfg(all(test, unit_test))]
     async fn handle_req(&self, req: hyper::Request<axum::body::Body>) -> axum::response::Response {
         use tower::ServiceExt;
