@@ -27,17 +27,21 @@ where
     V: BooleanArray + U128Conversions + IntoShares<Replicated<V>>,
 {
     fn reconstruct(&self) -> TestIndistinguishableHybridReport {
-        let [s0, s1, s2] = self;
-
-        let match_key = [&s0.match_key, &s1.match_key, &s2.match_key]
+        let match_key = self
+            .each_ref()
+            .map(|v| v.match_key.clone())
             .reconstruct()
             .as_u128();
-
-        let breakdown_key = [&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key]
+        let breakdown_key = self
+            .each_ref()
+            .map(|v| v.breakdown_key.clone())
             .reconstruct()
             .as_u128();
-
-        let value = [&s0.value, &s1.value, &s2.value].reconstruct().as_u128();
+        let value = self
+            .each_ref()
+            .map(|v| v.value.clone())
+            .reconstruct()
+            .as_u128();
 
         TestIndistinguishableHybridReport {
             match_key: match_key.try_into().unwrap(),
