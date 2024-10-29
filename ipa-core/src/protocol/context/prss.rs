@@ -1,6 +1,7 @@
 //! Metric-aware PRSS decorators
 
 use generic_array::{ArrayLength, GenericArray};
+use ipa_metrics::counter;
 use rand_core::{CryptoRng, Error, RngCore};
 
 use crate::{
@@ -75,11 +76,10 @@ impl<'a, I: Iterator> Iterator for InstrumentedChunkIter<'a, I> {
     type Item = <I as Iterator>::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let step = self.instrumented.step.as_ref().to_string();
         // TODO: what we really want here is a gauge indicating the maximum index used to generate
         // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to
         // handle gauges
-        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => step, ROLE => self.instrumented.role.as_static_str());
+        counter!(INDEXED_PRSS_GENERATED, 1, STEP => self.instrumented.step, ROLE => &self.instrumented.role);
         self.inner.next()
     }
 }
@@ -97,11 +97,10 @@ impl<Z: ArrayLength> Iterator for InstrumentedChunksIter<'_, IndexedSharedRandom
         let l = self.left.next()?;
         let r = self.right.next()?;
 
-        let step = self.instrumented.step.as_ref().to_string();
         // TODO: what we really want here is a gauge indicating the maximum index used to generate
         // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to
         // handle gauges
-        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => step, ROLE => self.instrumented.role.as_static_str());
+        counter!(INDEXED_PRSS_GENERATED, 1, STEP => self.instrumented.step, ROLE => &self.instrumented.role);
 
         Some((l, r))
     }
@@ -132,8 +131,7 @@ impl RngCore for InstrumentedSequentialSharedRandomness<'_> {
     }
 
     fn next_u64(&mut self) -> u64 {
-        let step = self.step.as_ref().to_string();
-        metrics::increment_counter!(SEQUENTIAL_PRSS_GENERATED, STEP => step, ROLE => self.role.as_static_str());
+        counter!(SEQUENTIAL_PRSS_GENERATED, 1, STEP => self.step, ROLE => &self.role);
         self.inner.next_u64()
     }
 
