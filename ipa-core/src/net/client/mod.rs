@@ -171,7 +171,7 @@ async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
 
 /// HTTP Client for calls to IPA hosts. It supports calls from Report Collector to Helper Network,
 /// from one Helper to another Helper and from one Shard to another Shard. Handles authentication.
-/// 
+///
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
 ///       separated from prepare/step data etc.
