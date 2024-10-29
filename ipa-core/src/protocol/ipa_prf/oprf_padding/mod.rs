@@ -2,6 +2,8 @@ pub(crate) mod distributions;
 pub mod insecure;
 pub mod step;
 
+use std::iter::{repeat, repeat_with};
+
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use insecure::DiscreteDp as InsecureDiscreteDp;
 use rand::Rng;
@@ -157,23 +159,22 @@ where
                     let sample = oprf_padding.sample(rng);
                     total_number_of_fake_rows += sample * cardinality;
 
-                    // this means there will be `sample` many unique
-                    // matchkeys to add each with cardinality = `cardinality`
-                    for _ in 0..sample {
-                        let dummy_mk: BA64 = rng.gen();
-                        for _ in 0..cardinality {
-                            let match_key_shares = match direction_to_excluded_helper {
-                                Direction::Left => AdditiveShare::new(BA64::ZERO, dummy_mk),
-                                Direction::Right => AdditiveShare::new(dummy_mk, BA64::ZERO),
-                            };
-                            let row = IndistinguishableHybridReport {
-                                match_key: match_key_shares,
-                                value: AdditiveShare::ZERO,
-                                breakdown_key: AdditiveShare::ZERO,
-                            };
-                            padding_input_rows.extend(std::iter::once(row));
-                        }
-                    }
+                    padding_input_rows.extend(
+                        repeat_with(|| {
+                            let dummy_mk: BA64 = rng.gen();
+                            repeat(IndistinguishableHybridReport::from(
+                                AdditiveShare::new_excluding_direction(
+                                    dummy_mk,
+                                    direction_to_excluded_helper,
+                                ),
+                            ))
+                            .take(cardinality as usize)
+                        })
+                        // this means there will be `sample` many unique
+                        // matchkeys to add each with cardinality = `cardinality`
+                        .take(sample as usize)
+                        .flatten(),
+                    );
                 }
             }
         }
@@ -184,15 +185,9 @@ where
         padding_input_rows: &mut VC,
         total_number_of_fake_rows: u32,
     ) {
-        for _ in 0..total_number_of_fake_rows as usize {
-            let row = IndistinguishableHybridReport {
-                match_key: AdditiveShare::ZERO,
-                value: AdditiveShare::ZERO,
-                breakdown_key: AdditiveShare::ZERO,
-            };
-
-            padding_input_rows.extend(std::iter::once(row));
-        }
+        padding_input_rows.extend(
+            repeat(IndistinguishableHybridReport::ZERO).take(total_number_of_fake_rows as usize),
+        );
     }
 }
 
