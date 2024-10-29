@@ -47,6 +47,7 @@ pub const DEFAULT_TEST_PORTS: Ports = Ports {
 
 /// Configuration of a server that can be reached via socket or port.
 pub struct AddressableTestServer {
+    /// The identity of this server in the network.
     pub id: ShardedHelperIdentity,
     /// Contains the ports
     pub config: ServerConfig,
@@ -375,8 +376,7 @@ impl TestConfigBuilder {
         if let Some(ports_by_ring) = &self.ports_by_ring {
             ports_by_ring
                 .iter()
-                .map(|r| r.shards[id.as_index()])
-                .map(Some)
+                .map(|r| Some(r.shards[id.as_index()]))
                 .collect()
         } else {
             vec![None; self.shard_count.try_into().unwrap()]
