@@ -43,6 +43,7 @@ use crate::{
                 AttributionWindowStep as WindowStep,
                 AttributionZeroOutTriggerStep as ZeroOutTriggerStep, UserNthRowStep,
             },
+            shuffle::Shuffle,
             BreakdownKey, AGG_CHUNK,
         },
         RecordId,
@@ -471,7 +472,7 @@ pub async fn attribute_cap_aggregate<
     padding_parameters: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradableContext + 'ctx,
+    C: UpgradableContext + Shuffle + 'ctx,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
