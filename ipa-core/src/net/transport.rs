@@ -535,7 +535,7 @@ mod tests {
         test_multiply(&clients).await;
     }
 
-    async fn test_multiply(clients: &[MpcHelperClient; 3]) {
+    async fn test_multiply(clients: &[MpcHelperClient<Helper>; 3]) {
         const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
 
         // send a create query command

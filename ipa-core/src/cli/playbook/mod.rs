@@ -194,7 +194,7 @@ pub async fn make_clients(
     network_path: Option<&Path>,
     scheme: Scheme,
     wait: usize,
-) -> ([MpcHelperClient; 3], NetworkConfig<Helper>) {
+) -> ([MpcHelperClient<Helper>; 3], NetworkConfig<Helper>) {
     let mut wait = wait;
     let network = if let Some(path) = network_path {
         NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
@@ -222,7 +222,7 @@ pub async fn make_clients(
     (clients, network)
 }
 
-async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
+async fn clients_ready(clients: &[MpcHelperClient<Helper>; 3]) -> bool {
     clients[0].echo("").await.is_ok()
         && clients[1].echo("").await.is_ok()
         && clients[2].echo("").await.is_ok()

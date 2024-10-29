@@ -573,7 +573,7 @@ pub(crate) mod tests {
     where
         ClientOut: Eq + Debug,
         ClientFut: Future<Output = ClientOut>,
-        ClientF: Fn(MpcHelperClient) -> ClientFut,
+        ClientF: Fn(MpcHelperClient<Helper>) -> ClientFut,
         HandlerF: Fn() -> Arc<dyn RequestHandler<Identity = HelperIdentity>>,
     {
         let mut results = Vec::with_capacity(4);

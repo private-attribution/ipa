@@ -13,7 +13,7 @@ use ipa_core::{
         QueryConfig,
         QueryType::{TestAddInPrimeField, TestMultiply},
     },
-    net::MpcHelperClient,
+    net::{Helper, MpcHelperClient},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
 };
 
@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn multiply_in_field<F>(args: &Args, helper_clients: &[MpcHelperClient; 3])
+async fn multiply_in_field<F>(args: &Args, helper_clients: &[MpcHelperClient<Helper>; 3])
 where
     F: Field + U128Conversions + IntoShares<AdditiveShare<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
@@ -130,14 +130,14 @@ where
     validate(&expected, &actual);
 }
 
-async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
+async fn multiply(args: &Args, helper_clients: &[MpcHelperClient<Helper>; 3]) {
     match args.input.field {
         FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients).await,
         FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(args, helper_clients).await,
     };
 }
 
-async fn add_in_field<F>(args: &Args, helper_clients: &[MpcHelperClient; 3])
+async fn add_in_field<F>(args: &Args, helper_clients: &[MpcHelperClient<Helper>; 3])
 where
     F: Field + U128Conversions + IntoShares<AdditiveShare<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
@@ -159,13 +159,13 @@ where
     validate(&vec![expected], &vec![actual]);
 }
 
-async fn add(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
+async fn add(args: &Args, helper_clients: &[MpcHelperClient<Helper>; 3]) {
     match args.input.field {
         FieldType::Fp31 => add_in_field::<Fp31>(args, helper_clients).await,
         FieldType::Fp32BitPrime => add_in_field::<Fp32BitPrime>(args, helper_clients).await,
     };
 }
 
-async fn sharded_shuffle(_args: &Args, _helper_clients: &[MpcHelperClient; 3]) {
+async fn sharded_shuffle(_args: &Args, _helper_clients: &[MpcHelperClient<Helper>; 3]) {
     unimplemented!()
 }

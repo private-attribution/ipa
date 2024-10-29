@@ -333,7 +333,7 @@ async fn ipa(
     args: &Args,
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
-    helper_clients: &[MpcHelperClient; 3],
+    helper_clients: &[MpcHelperClient<Helper>; 3],
     encrypted_inputs: &EncryptedInputs,
 ) -> Result<(), Box<dyn Error>> {
     let query_type = get_query_type(security_model, ipa_query_config);
@@ -383,7 +383,7 @@ async fn ipa_test(
     network: &NetworkConfig<Helper>,
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
-    helper_clients: &[MpcHelperClient; 3],
+    helper_clients: &[MpcHelperClient<Helper>; 3],
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
     let query_type = get_query_type(security_model, ipa_query_config);
