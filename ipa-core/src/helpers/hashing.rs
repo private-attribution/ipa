@@ -284,7 +284,8 @@ mod test {
     fn empty_accept() {
         // SHA256 hash of zero-length input.
         let empty_hash = Hash::deserialize(GenericArray::from_slice(
-            b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            &hex::decode(b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+                .unwrap(),
         ))
         .unwrap();
         assert_eq!(compute_hash(iter::empty::<Fp31>()), empty_hash);
