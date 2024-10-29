@@ -3,6 +3,7 @@ use curve25519_dalek::{
     Scalar,
 };
 use generic_array::GenericArray;
+use ipa_metrics::counter;
 use typenum::U32;
 
 use crate::{
@@ -45,6 +46,9 @@ impl SharedValue for RP25519 {
     impl_shared_value_common!();
 }
 
+pub const DECOMPRESS_OP: &str = "RP25519.decompress";
+pub const COMPRESS_OP: &str = "RP25519.compress";
+
 impl Vectorizable<1> for RP25519 {
     type Array = StdArray<Self, 1>;
 }
@@ -68,6 +72,7 @@ impl Serializable for RP25519 {
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let point = CompressedRistretto((*buf).into());
         if cfg!(debug_assertions) && point.decompress().is_none() {
+            counter!(DECOMPRESS_OP, 1);
             return Err(NonCanonicalEncoding(point));
         }
 
@@ -82,6 +87,7 @@ impl std::ops::Add for RP25519 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
+        counter!(DECOMPRESS_OP, 2);
         Self((self.0.decompress().unwrap() + rhs.0.decompress().unwrap()).compress())
     }
 }
@@ -100,6 +106,8 @@ impl std::ops::Neg for RP25519 {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
+        counter!(DECOMPRESS_OP, 1);
+        counter!(COMPRESS_OP, 1);
         Self(self.0.decompress().unwrap().neg().compress())
     }
 }
@@ -111,6 +119,8 @@ impl std::ops::Sub for RP25519 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
+        counter!(DECOMPRESS_OP, 2);
+        counter!(COMPRESS_OP, 1);
         Self((self.0.decompress().unwrap() - rhs.0.decompress().unwrap()).compress())
     }
 }
@@ -131,6 +141,8 @@ impl std::ops::Mul<Fp25519> for RP25519 {
     type Output = Self;
 
     fn mul(self, rhs: Fp25519) -> RP25519 {
+        counter!(DECOMPRESS_OP, 1);
+        counter!(COMPRESS_OP, 1);
         (self.0.decompress().unwrap() * Scalar::from(rhs))
             .compress()
             .into()
@@ -146,12 +158,14 @@ impl std::ops::MulAssign<Fp25519> for RP25519 {
 
 impl From<Scalar> for RP25519 {
     fn from(s: Scalar) -> Self {
+        counter!(COMPRESS_OP, 1);
         RP25519(RistrettoPoint::mul_base(&s).compress())
     }
 }
 
 impl From<Fp25519> for RP25519 {
     fn from(s: Fp25519) -> Self {
+        counter!(COMPRESS_OP, 1);
         RP25519(RistrettoPoint::mul_base(&s.into()).compress())
     }
 }
@@ -196,6 +210,7 @@ impl rand::distributions::Distribution<RP25519> for rand::distributions::Standar
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> RP25519 {
         let mut scalar_bytes = [0u8; 64];
         rng.fill_bytes(&mut scalar_bytes);
+        counter!(COMPRESS_OP, 1);
         RP25519(RistrettoPoint::from_uniform_bytes(&scalar_bytes).compress())
     }
 }
