@@ -111,7 +111,10 @@ mod tests {
         thread::{Scope, ScopedJoinHandle},
     };
 
-    use crate::{controller::Status, counter, install, install_new_thread, producer::Producer};
+    use crate::{
+        controller::Status, counter, install, install_new_thread, producer::Producer,
+        MetricChannelType,
+    };
 
     struct MeteredScope<'scope, 'env: 'scope>(&'scope Scope<'scope, 'env>, Producer);
 
@@ -145,7 +148,7 @@ mod tests {
 
     #[test]
     fn start_stop() {
-        let (collector, producer, controller) = install();
+        let (collector, producer, controller) = install(MetricChannelType::Unbounded);
         let handle = thread::spawn(|| {
             let store = collector.install().block_until_shutdown();
             store.counter_val(counter!("foo"))
@@ -165,7 +168,8 @@ mod tests {
 
     #[test]
     fn with_thread() {
-        let (producer, controller, handle) = install_new_thread().unwrap();
+        let (producer, controller, handle) =
+            install_new_thread(MetricChannelType::Unbounded).unwrap();
         thread::scope(move |s| {
             let s = s.metered(producer);
             s.spawn(|| counter!("baz", 4));
@@ -178,5 +182,22 @@ mod tests {
         });
 
         handle.join().unwrap(); // Collector thread should be terminated by now
+    }
+
+    #[test]
+    fn with_thread_rendezvous() {
+        let (producer, controller, _handle) =
+            install_new_thread(MetricChannelType::Rendezvous).unwrap();
+        let counter = thread::scope(move |s| {
+            let s = s.metered(producer);
+            s.spawn(|| counter!("foo", 3)).join().unwrap();
+            s.spawn(|| counter!("foo", 5)).join().unwrap();
+            // we don't need to check the status because producer threads are now
+            // blocked until the collector receives their stores. This means that
+            // the snapshot must be up to date by now.
+            controller.snapshot().unwrap().counter_val(counter!("foo"))
+        });
+
+        assert_eq!(8, counter);
     }
 }

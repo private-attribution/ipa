@@ -1,7 +1,12 @@
 [package]
 name = "ipa-core"
 version = "0.1.0"
-rust-version = "1.80.0"
+# When updating the rust version:
+# 1. Check at https://hub.docker.com/_/rust that the relevant version of the
+#    rust:slim-bullseye docker image is available.
+# 2. Update the rust version used for draft in
+#    https://github.com/private-attribution/draft/blob/main/sidecar/ansible/provision.yaml.
+rust-version = "1.82.0"
 edition = "2021"
 build = "build.rs"
 
@@ -16,11 +21,14 @@ default = [
     "stall-detection",
     "aggregate-circuit",
     "ipa-prf",
-    "ipa-step/string-step",
+    "descriptive-gate",
 ]
 cli = ["comfy-table", "clap"]
-# Enabling compact gates disables any tests that rely on descriptive gates.
-compact-gate = ["ipa-step/string-step"]
+# Enable compact gate optimization
+compact-gate = []
+# mutually exclusive with compact-gate and disables compact gate optimization.
+# It is enabled by default
+descriptive-gate = ["ipa-step/string-step"]
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
@@ -44,7 +52,7 @@ web-app = [
     "http-body",
     "http-body-util",
 ]
-test-fixture = ["weak-field"]
+test-fixture = ["weak-field", "ipa-metrics-tracing", "ipa-metrics/partitions"]
 # Include observability instruments that detect lack of progress inside MPC. If there is a bug that leads to helper
 # miscommunication, this feature helps to detect it. Turning it on has some cost.
 # If "shuttle" feature is enabled, turning this on has no effect.
@@ -78,11 +86,12 @@ ipa-prf = []
 relaxed-dp = []
 
 [dependencies]
+ipa-metrics = { path = "../ipa-metrics" }
+ipa-metrics-tracing = { optional = true, path = "../ipa-metrics-tracing" }
 ipa-step = { version = "*", path = "../ipa-step" }
 ipa-step-derive = { version = "*", path = "../ipa-step-derive" }
 
 aes = "0.8.3"
-assertions = "0.1.0"
 async-trait = "0.1.79"
 async-scoped = { version = "0.9.0", features = ["use-tokio"], optional = true }
 axum = { version = "0.7.5", optional = true, features = ["http2", "macros"] }
@@ -121,9 +130,6 @@ hyper-util = { version = "0.1.3", optional = true, features = ["http2"] }
 http-body-util = { version = "0.1.1", optional = true }
 http-body = { version = "1", optional = true }
 iai = { version = "0.1.1", optional = true }
-metrics = "0.21.0"
-metrics-tracing-context = "0.14.0"
-metrics-util = { version = "0.15.0" }
 once_cell = "1.18"
 pin-project = "1.0"
 rand = "0.8"
@@ -168,6 +174,8 @@ permutation = "0.4.1"
 proptest = "1.4"
 rustls = { version = "0.23" }
 tempfile = "3"
+ipa-metrics-tracing = { path = "../ipa-metrics-tracing" }
+ipa-metrics = { path = "../ipa-metrics", features = ["partitions"] }
 
 
 [lib]

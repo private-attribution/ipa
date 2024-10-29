@@ -10,17 +10,17 @@ pub(crate) enum AggregationStep {
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     Shuffle,
     Reveal,
-    #[step(child = crate::protocol::context::step::DzkpSingleBatchStep)]
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     RevealValidate, // only partly used -- see code
-    #[step(count = 4, child = AggregateChunkStep)]
+    #[step(count = 4, child = AggregateChunkStep, name = "chunks")]
     Aggregate(usize),
-    #[step(count = 600, child = crate::protocol::context::step::DzkpSingleBatchStep)]
-    AggregateValidate(usize),
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    AggregateValidate,
 }
 
 // The step count here is duplicated as the AGGREGATE_DEPTH constant in the code.
 #[derive(CompactStep)]
-#[step(count = 24, child = AggregateValuesStep, name = "depth")]
+#[step(count = 24, child = AggregateValuesStep, name = "fold")]
 pub(crate) struct AggregateChunkStep(usize);
 
 #[derive(CompactStep)]

@@ -17,14 +17,20 @@ mod tests {
 
     #[test]
     fn narrows() {
+        assert_eq!(ComplexGate::default().index(), 0);
         assert_eq!(ComplexGate::default().as_ref(), "/");
         assert_eq!(
             ComplexGate::default().narrow(&ComplexStep::One).as_ref(),
             "/one"
         );
+        assert_eq!(ComplexGate::default().narrow(&ComplexStep::One).index(), 1,);
         assert_eq!(
             ComplexGate::default().narrow(&ComplexStep::Two(2)).as_ref(),
             "/two2"
+        );
+        assert_eq!(
+            ComplexGate::default().narrow(&ComplexStep::Two(2)).index(),
+            10,
         );
         assert_eq!(
             ComplexGate::default()
@@ -32,6 +38,13 @@ mod tests {
                 .narrow(&BasicStep::One)
                 .as_ref(),
             "/two2/one"
+        );
+        assert_eq!(
+            ComplexGate::default()
+                .narrow(&ComplexStep::Two(2))
+                .narrow(&BasicStep::One)
+                .index(),
+            11,
         );
         assert_eq!(
             ComplexGate::from("/two2/one"),

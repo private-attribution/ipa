@@ -11,7 +11,8 @@ use clap::{self, Parser, Subcommand};
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, TestSetupArgs, Verbosity,
+        client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, LoggingHandle,
+        TestSetupArgs, Verbosity,
     },
     config::{hpke_registry, HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     error::BoxError,
@@ -113,7 +114,7 @@ fn read_file(path: &Path) -> Result<BufReader<fs::File>, BoxError> {
         .map_err(|e| format!("failed to open file {}: {e:?}", path.display()))?)
 }
 
-async fn server(args: ServerArgs) -> Result<(), BoxError> {
+async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), BoxError> {
     let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
 
     let (identity, server_tls) = match (args.tls_cert, args.tls_key) {
@@ -136,7 +137,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         private_key_file: sk_path,
     });
 
-    let query_runtime = new_query_runtime();
+    let query_runtime = new_query_runtime(&logging_handle);
     let app_config = AppConfig::default()
         .with_key_registry(hpke_registry(mk_encryption.as_ref()).await?)
         .with_active_work(args.active_work)
@@ -165,7 +166,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let shard_server_config = server_config.clone();
     // ---
 
-    let http_runtime = new_http_runtime();
+    let http_runtime = new_http_runtime(&logging_handle);
     let clients = MpcHelperClient::from_conf(
         &IpaRuntime::from_tokio_runtime(&http_runtime),
         &network_config,
@@ -230,18 +231,26 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
 /// if for some reason query runtime becomes overloaded.
 /// When multi-threading feature is enabled it creates a runtime with thread-per-core,
 /// otherwise a single-threaded runtime is created.
-fn new_http_runtime() -> Runtime {
+fn new_http_runtime(logging_handle: &LoggingHandle) -> Runtime {
     if cfg!(feature = "multi-threading") {
-        tokio::runtime::Builder::new_multi_thread()
-            .thread_name("http-worker")
-            .enable_all()
+        logging_handle
+            .metrics_handle
+            .tokio_bind(
+                tokio::runtime::Builder::new_multi_thread()
+                    .thread_name("http-worker")
+                    .enable_all(),
+            )
             .build()
             .unwrap()
     } else {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .thread_name("http-worker")
-            .enable_all()
+        logging_handle
+            .metrics_handle
+            .tokio_bind(
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(1)
+                    .thread_name("http-worker")
+                    .enable_all(),
+            )
             .build()
             .unwrap()
     }
@@ -250,21 +259,29 @@ fn new_http_runtime() -> Runtime {
 /// This function creates a runtime suitable for executing MPC queries.
 /// When multi-threading feature is enabled it creates a runtime with thread-per-core,
 /// otherwise a single-threaded runtime is created.
-fn new_query_runtime() -> Runtime {
+fn new_query_runtime(logging_handle: &LoggingHandle) -> Runtime {
     // it is intentional that IO driver is not enabled here (enable_time() call only).
     // query runtime is supposed to use CPU/memory only, no writes to disk and all
     // network communication is handled by HTTP runtime.
     if cfg!(feature = "multi-threading") {
-        tokio::runtime::Builder::new_multi_thread()
-            .thread_name("query-executor")
-            .enable_time()
+        logging_handle
+            .metrics_handle
+            .tokio_bind(
+                tokio::runtime::Builder::new_multi_thread()
+                    .thread_name("query-executor")
+                    .enable_time(),
+            )
             .build()
             .unwrap()
     } else {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .thread_name("query-executor")
-            .enable_time()
+        logging_handle
+            .metrics_handle
+            .tokio_bind(
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(1)
+                    .thread_name("query-executor")
+                    .enable_time(),
+            )
             .build()
             .unwrap()
     }
@@ -275,10 +292,10 @@ fn new_query_runtime() -> Runtime {
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() {
     let args = Args::parse();
-    let _handle = args.logging.setup_logging();
+    let handle = args.logging.setup_logging();
 
     let res = match args.command {
-        None => server(args.server).await,
+        None => server(args.server, handle).await,
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
         Some(HelperCommand::Confgen(args)) => client_config_setup(args),

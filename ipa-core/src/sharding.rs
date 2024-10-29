@@ -4,6 +4,8 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+use ipa_metrics::LabelValue;
+
 use crate::helpers::{HelperIdentity, TransportIdentity};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -109,6 +111,16 @@ impl<T> Index<ShardIndex> for Vec<T> {
 impl<T> IndexMut<ShardIndex> for Vec<T> {
     fn index_mut(&mut self, index: ShardIndex) -> &mut Self::Output {
         self.as_mut_slice().index_mut(usize::from(index))
+    }
+}
+
+impl LabelValue for ShardIndex {
+    fn hash(&self) -> u64 {
+        u64::from(self.0)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
     }
 }
 

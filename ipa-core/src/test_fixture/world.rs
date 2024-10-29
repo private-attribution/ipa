@@ -1,7 +1,13 @@
 // We have quite a bit of code that is only used when descriptive-gate is enabled.
 #![allow(dead_code)]
 use std::{
-    array::from_fn, borrow::Borrow, fmt::Debug, io::stdout, iter, iter::zip, marker::PhantomData,
+    array::from_fn,
+    borrow::Borrow,
+    fmt::Debug,
+    io::stdout,
+    iter::{self, zip},
+    marker::PhantomData,
+    sync::Mutex,
 };
 
 use async_trait::async_trait;
@@ -9,7 +15,7 @@ use futures::{future::join_all, stream::FuturesOrdered, Future, StreamExt};
 use rand::{
     distributions::{Distribution, Standard},
     rngs::StdRng,
-    thread_rng, Rng, RngCore, SeedableRng,
+    Rng, RngCore, SeedableRng,
 };
 use tracing::{Instrument, Level, Span};
 
@@ -29,6 +35,7 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
         Gate, QueryId, RecordId,
     },
+    rand::thread_rng,
     secret_sharing::{
         replicated::malicious::{
             DowngradeMalicious, ExtendableField, ThisCodeIsAuthorizedToDowngradeFromMalicious,
@@ -66,7 +73,7 @@ pub trait ShardingScheme {
 /// Helper trait to parametrize [`Runner`] trait based on the sharding scheme chosen. The whole
 /// purpose of it is to be able to say for sharded runs, the input must be in a form of a [`Vec`]
 pub trait RunnerInput<S: ShardingScheme, A: Send>: Send {
-    fn share(self) -> [S::Container<A>; 3];
+    fn share_with<R: Rng>(self, rng: &mut R) -> [S::Container<A>; 3];
 }
 
 /// Trait that defines how helper inputs are distributed across shards. The simplest implementation
@@ -93,6 +100,9 @@ pub struct WithShards<const SHARDS: usize, D: Distribute = RoundRobin> {
 pub struct TestWorld<S: ShardingScheme = NotSharded> {
     shards: Box<[ShardWorld<S::ShardBinding>]>,
     metrics_handle: MetricsHandle,
+    // Using a mutex here is not as unfortunate as it might initially appear, because we
+    // only use this RNG as a source of seeds for other RNGs. See `fn rng`.
+    rng: Mutex<StdRng>,
     gate_vendor: Box<dyn TestGateVendor>,
     _shard_network: InMemoryShardNetwork,
     _phantom: PhantomData<S>,
@@ -184,7 +194,7 @@ impl<const N: usize, D: Distribute> ShardingScheme for WithShards<N, D> {
     }
 }
 
-impl Default for TestWorld {
+impl Default for TestWorld<NotSharded> {
     fn default() -> Self {
         Self::new_with(TestWorldConfig::default())
     }
@@ -255,6 +265,11 @@ impl TestWorld<NotSharded> {
         Self::with_config(config.borrow())
     }
 
+    #[must_use]
+    pub fn with_seed(seed: u64) -> Self {
+        Self::new_with(TestWorldConfig::default().with_seed(seed))
+    }
+
     /// Creates protocol contexts for 3 helpers
     ///
     /// # Panics
@@ -301,8 +316,10 @@ impl<S: ShardingScheme> TestWorld<S> {
     #[must_use]
     pub fn with_config(config: &TestWorldConfig) -> Self {
         logging::setup();
+
         // Print to stdout so that it appears in test runs only on failure.
         println!("TestWorld random seed {seed}", seed = config.seed);
+        let mut rng = StdRng::seed_from_u64(config.seed);
 
         let shard_count = ShardIndex::try_from(S::SHARDS).unwrap();
         let shard_network =
@@ -314,7 +331,7 @@ impl<S: ShardingScheme> TestWorld<S> {
                 ShardWorld::new(
                     S::bind_shard(shard),
                     config,
-                    u64::from(shard),
+                    &mut rng,
                     shard_network.shard_transports(shard),
                 )
             })
@@ -324,6 +341,7 @@ impl<S: ShardingScheme> TestWorld<S> {
         Self {
             shards,
             metrics_handle: MetricsHandle::new(config.metrics_level),
+            rng: Mutex::new(rng),
             gate_vendor: gate_vendor(config.initial_gate.clone()),
             _shard_network: shard_network,
             _phantom: PhantomData,
@@ -338,6 +356,17 @@ impl<S: ShardingScheme> TestWorld<S> {
     #[must_use]
     fn next_gate(&self) -> Gate {
         self.gate_vendor.next()
+    }
+
+    /// Return a new `Rng` seeded from the primary `TestWorld` RNG.
+    ///
+    /// ## Panics
+    /// If the mutex is poisoned.
+    #[must_use]
+    pub fn rng(&self) -> impl Rng {
+        // We need to use the `TestWorld` RNG within the `Runner` helpers, which
+        // unfortunately take `&self`.
+        StdRng::from_seed(self.rng.lock().unwrap().gen())
     }
 }
 
@@ -385,8 +414,8 @@ impl TestWorldConfig {
 }
 
 impl<I: IntoShares<A> + Send, A: Send> RunnerInput<NotSharded, A> for I {
-    fn share(self) -> [A; 3] {
-        I::share(self)
+    fn share_with<R: Rng>(self, rng: &mut R) -> [A; 3] {
+        I::share_with(self, rng)
     }
 }
 
@@ -396,8 +425,8 @@ where
     A: Send,
     D: Distribute,
 {
-    fn share(self) -> [Vec<A>; 3] {
-        I::share(self)
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<A>; 3] {
+        I::share_with(self, rng)
     }
 }
 
@@ -499,7 +528,8 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         R: Future<Output = O> + Send,
     {
         let shards = self.shards();
-        let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share().map(D::distribute);
+        let mut rng = self.rng();
+        let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share_with(&mut rng).map(D::distribute);
         let gate = self.next_gate();
 
         // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
@@ -549,7 +579,8 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         R: Future<Output = O> + Send,
     {
         let shards = self.shards();
-        let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share().map(D::distribute);
+        let mut rng = self.rng();
+        let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share_with(&mut rng).map(D::distribute);
         let gate = self.next_gate();
         // todo!()
 
@@ -619,7 +650,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         ShardWorld::<NotSharded>::run_either(
             self.contexts(),
             self.metrics_handle.span(),
-            input.share(),
+            input.share_with(&mut self.rng()),
             helper_fn,
         )
         .await
@@ -658,7 +689,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         ShardWorld::<NotSharded>::run_either(
             self.malicious_contexts(),
             self.metrics_handle.span(),
-            input.share(),
+            input.share_with(&mut self.rng()),
             helper_fn,
         )
         .await
@@ -766,10 +797,10 @@ impl<B: ShardBinding> ShardWorld<B> {
     pub fn new(
         shard_info: B,
         config: &TestWorldConfig,
-        shard_seed: u64,
+        rng: &mut StdRng,
         transports: [InMemoryTransport<ShardIndex>; 3],
     ) -> Self {
-        let participants = make_participants(&mut StdRng::seed_from_u64(config.seed + shard_seed));
+        let participants = make_participants(rng);
         let network = InMemoryMpcNetwork::with_stream_interceptor(
             InMemoryMpcNetwork::noop_handlers(),
             &config.stream_interceptor,
@@ -897,26 +928,33 @@ mod tests {
     use futures_util::future::try_join4;
 
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA3, Field, Fp31, U128Conversions},
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BA3, BA8},
+            ArrayAccess, Field, Fp31, U128Conversions,
+        },
         helpers::{
             in_memory_config::{MaliciousHelper, MaliciousHelperContext},
             Direction, Role, TotalRecords,
         },
         protocol::{
             basics::SecureMul,
+            boolean::step::EightBitStep,
             context::{
-                dzkp_validator::DZKPValidator, upgrade::Upgradable, Context, UpgradableContext,
-                UpgradedContext, Validator, TEST_DZKP_STEPS,
+                dzkp_validator::DZKPValidator, upgrade::Upgradable, Context, DZKPContext,
+                UpgradableContext, UpgradedContext, Validator, TEST_DZKP_STEPS,
             },
+            ipa_prf::boolean_ops::addition_sequential::integer_add,
             prss::SharedRandomness,
             RecordId,
         },
+        rand::Rng,
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
         },
         sharding::ShardConfiguration,
-        test_executor::run,
+        test_executor::{run, run_random},
         test_fixture::{world::WithShards, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
@@ -1099,6 +1137,107 @@ mod tests {
                 .collect::<Vec<_>>();
 
             assert_eq!(input, r);
+        });
+    }
+
+    #[test]
+    fn mac_reproducible_from_seed() {
+        run_random(|mut rng| async move {
+            async fn test(seed: u64) -> Vec<u8> {
+                let u_and_w = Arc::new(Mutex::new(vec![]));
+                let u_and_w_ref = Arc::clone(&u_and_w);
+
+                let mut config = TestWorldConfig::default();
+                config.seed = seed;
+                config.stream_interceptor = MaliciousHelper::new(
+                    Role::H1,
+                    config.role_assignment(),
+                    move |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
+                        if ctx.gate.as_ref().contains("propagate_u_and_w") {
+                            u_and_w_ref.lock().unwrap().extend(data.iter());
+                        }
+                    },
+                );
+
+                let world = TestWorld::with_config(&config);
+                let mut rng = world.rng();
+                let input: (Fp31, Fp31) = (rng.gen(), rng.gen());
+                world
+                    .malicious(input, |ctx, input| async move {
+                        let validator = ctx.set_total_records(1).validator();
+                        let ctx = validator.context();
+                        let (a_upgraded, b_upgraded) = input
+                            .clone()
+                            .upgrade(ctx.clone(), RecordId::FIRST)
+                            .await
+                            .unwrap();
+                        a_upgraded
+                            .multiply(&b_upgraded, ctx.narrow("multiply"), RecordId::FIRST)
+                            .await
+                            .unwrap();
+                        ctx.validate_record(RecordId::FIRST).await.unwrap();
+                    })
+                    .await;
+
+                let result = u_and_w.lock().unwrap().clone();
+                result
+            }
+
+            let seed = rng.gen();
+            let first_result = test(seed).await;
+            let second_result = test(seed).await;
+
+            assert_eq!(first_result, second_result);
+        });
+    }
+
+    #[test]
+    fn zkp_reproducible_from_seed() {
+        run_random(|mut rng| async move {
+            async fn test(seed: u64) -> Vec<u8> {
+                let proof_diff = Arc::new(Mutex::new(vec![]));
+                let proof_diff_ref = Arc::clone(&proof_diff);
+
+                let mut config = TestWorldConfig::default();
+                config.seed = seed;
+                config.stream_interceptor = MaliciousHelper::new(
+                    Role::H1,
+                    config.role_assignment(),
+                    move |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
+                        if ctx.gate.as_ref().contains("verify_proof/diff") {
+                            proof_diff_ref.lock().unwrap().extend(data.iter());
+                        }
+                    },
+                );
+
+                let world = TestWorld::with_config(&config);
+                let mut rng = world.rng();
+                let input: (BA8, BA8) = (rng.gen(), rng.gen());
+                world
+                    .malicious(input, |ctx, input| async move {
+                        let validator = ctx.set_total_records(1).dzkp_validator(TEST_DZKP_STEPS, 8);
+                        let ctx = validator.context();
+                        integer_add::<_, EightBitStep, 1>(
+                            ctx.clone(),
+                            RecordId::FIRST,
+                            &input.0.to_bits(),
+                            &input.1.to_bits(),
+                        )
+                        .await
+                        .unwrap();
+                        ctx.validate_record(RecordId::FIRST).await.unwrap();
+                    })
+                    .await;
+
+                let result = proof_diff.lock().unwrap().clone();
+                result
+            }
+
+            let seed = rng.gen();
+            let first_result = test(seed).await;
+            let second_result = test(seed).await;
+
+            assert_eq!(first_result, second_result);
         });
     }
 }

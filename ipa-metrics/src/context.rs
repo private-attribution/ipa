@@ -39,6 +39,11 @@ impl CurrentThreadContext {
     pub fn store_mut<F: FnOnce(&mut MetricsStore) -> T, T>(f: F) -> T {
         METRICS_CTX.with_borrow_mut(|ctx| f(ctx.store_mut()))
     }
+
+    #[must_use]
+    pub fn is_connected() -> bool {
+        METRICS_CTX.with_borrow(|ctx| ctx.tx.is_some())
+    }
 }
 
 /// This context is used inside thread-local storage,
@@ -122,7 +127,7 @@ impl Drop for MetricsContext {
 mod tests {
     use std::thread;
 
-    use crate::MetricsContext;
+    use crate::{context::CurrentThreadContext, MetricsContext};
 
     /// Each thread has its local store by default, and it is exclusive to it
     #[test]
@@ -164,5 +169,18 @@ mod tests {
         ctx.flush();
         drop(ctx);
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn is_connected() {
+        assert!(!CurrentThreadContext::is_connected());
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        CurrentThreadContext::init(tx);
+        CurrentThreadContext::store_mut(|store| store.counter(counter!("foo")).inc(1));
+        CurrentThreadContext::flush();
+
+        assert!(CurrentThreadContext::is_connected());
+        assert_eq!(1, rx.recv().unwrap().counter_val(counter!("foo")));
     }
 }

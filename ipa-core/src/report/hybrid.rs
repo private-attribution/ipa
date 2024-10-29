@@ -1,3 +1,32 @@
+//! Provides report types which are aggregated by the Hybrid protocol
+//!
+//! The `IndistinguishableHybridReport` is the primary data type which each helpers uses
+//! to aggreate in the Hybrid protocol.
+//!
+//! From each Helper's POV, the Report Collector POSTs a length delimited byte
+//! stream, which is then processed as follows:
+//!
+//! `BodyStream` → `EncryptedHybridReport` → `HybridReport` → `IndistinguishableHybridReport`
+//!
+//! The difference between a `HybridReport` and a `IndistinguishableHybridReport` is that a
+//! a `HybridReport` is an `enum` with two possible options: `Impression` and `Conversion`.
+//! These two options are implemented as `HybridImpressionReport` and `HybridConversionReport`.
+//! A `IndistinguishableHybridReport` contains the union of the fields across
+//! `HybridImpressionReport` and `HybridConversionReport`. Those fields are secret sharings,
+//! which allows for building a collection of `IndistinguishableHybridReport` which carry
+//! the information of the underlying `HybridImpressionReport` and `HybridConversionReport`
+//! (and secret sharings of zero in the fields unique to each report type) without the
+//! ability to infer if a given report is a `HybridImpressionReport`
+//! or a `HybridConversionReport`.
+
+//! Note: immediately following convertion of a `HybridReport` into a
+//! `IndistinguishableHybridReport`, each helper will know which type it was built from,
+//! both from the position in the collection as well as the fact that both replicated
+//! secret shares for one or more fields are zero. A shuffle is required to delink
+//! a `IndistinguishableHybridReport`'s position in a collection, which also rerandomizes
+//! all secret sharings (including the sharings of zero), making the collection of reports
+//! cryptographically indistinguishable.
+
 use std::{
     collections::HashSet,
     convert::Infallible,
@@ -5,7 +34,6 @@ use std::{
     ops::{Add, Deref},
 };
 
-use assertions::const_assert;
 use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
@@ -13,6 +41,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::{Sum, Unsigned, U16};
 
 use crate::{
+    const_assert_eq,
     error::{BoxError, Error},
     ff::{boolean_array::BA64, Serializable},
     hpke::{
@@ -52,6 +81,7 @@ pub enum InvalidHybridReportError {
     Length(usize, usize),
 }
 
+/// Reports for impression events are represented here.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HybridImpressionReport<BK>
 where
@@ -169,6 +199,7 @@ where
     }
 }
 
+/// Reports for conversion events are represented here.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HybridConversionReport<V>
 where
@@ -178,6 +209,7 @@ where
     value: Replicated<V>,
 }
 
+/// This enum contains both report types, impression and conversion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HybridReport<BK, V>
 where
@@ -205,6 +237,9 @@ where
     }
 }
 
+/// `HybridImpressionReport`s are encrypted when they arrive to the helpers,
+/// which is represented here. A `EncryptedHybridImpressionReport` decrypts
+/// into a `HybridImpressionReport`.
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct EncryptedHybridImpressionReport<BK, B>
 where
@@ -308,6 +343,62 @@ where
     }
 }
 
+/// This struct is designed to fit both `HybridConversionReport`s
+/// and `HybridImpressionReport`s so that they can be made indistingushable.
+/// Note: these need to be shuffled (and secret shares need to be rerandomized)
+/// to provide any formal indistinguishability.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    match_key: Replicated<BA64>,
+    value: Replicated<V>,
+    breakdown_key: Replicated<BK>,
+}
+
+impl<BK, V> From<HybridReport<BK, V>> for IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    fn from(report: HybridReport<BK, V>) -> Self {
+        match report {
+            HybridReport::Impression(r) => r.into(),
+            HybridReport::Conversion(r) => r.into(),
+        }
+    }
+}
+
+impl<BK, V> From<HybridImpressionReport<BK>> for IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    fn from(impression_report: HybridImpressionReport<BK>) -> Self {
+        Self {
+            match_key: impression_report.match_key,
+            value: Replicated::ZERO,
+            breakdown_key: impression_report.breakdown_key,
+        }
+    }
+}
+
+impl<BK, V> From<HybridConversionReport<V>> for IndistinguishableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    fn from(conversion_report: HybridConversionReport<V>) -> Self {
+        Self {
+            match_key: conversion_report.match_key,
+            value: conversion_report.value,
+            breakdown_key: Replicated::ZERO,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct EncryptedHybridReport {
     bytes: Bytes,
@@ -407,14 +498,9 @@ impl UniqueBytes for EncryptedHybridReport {
 }
 
 impl UniqueTag {
-    fn _compile_check() {
-        // This will vaild at compile time if TAG_SIZE doesn't match U16
-        // the macro expansion needs to be wrapped in a function
-        const_assert!(TAG_SIZE == 16);
-    }
-
     // Function to attempt to create a UniqueTag from a UniqueBytes implementor
     pub fn from_unique_bytes<T: UniqueBytes>(item: &T) -> Self {
+        const_assert_eq!(16, TAG_SIZE);
         UniqueTag {
             bytes: item.unique_bytes(),
         }
@@ -496,8 +582,8 @@ mod test {
 
     use super::{
         EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
-        HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag,
-        UniqueTagValidator,
+        HybridConversionReport, HybridImpressionReport, HybridReport,
+        IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
     };
     use crate::{
         error::Error,
@@ -592,6 +678,67 @@ mod test {
             .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
+    }
+
+    /// We create a random `HybridConversionReport`, convert it into an
+    ///`IndistinguishableHybridReport`, and check that the field values are the same
+    /// (or zero, for the breakdown key, which doesn't exist on the conversion report.)
+    /// We then build a generic `HybridReport` from the conversion report, convert it
+    /// into an `IndistingushableHybridReport`, and validate that it has the same value
+    /// as the previous `IndistingushableHybridReport`.
+    #[test]
+    fn convert_hybrid_conversion_report_to_indistinguishable_report() {
+        let mut rng = thread_rng();
+
+        let conversion_report = HybridConversionReport::<BA3> {
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            value: AdditiveShare::new(rng.gen(), rng.gen()),
+        };
+        let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
+            conversion_report.clone().into();
+        assert_eq!(
+            conversion_report.match_key,
+            indistinguishable_report.match_key
+        );
+        assert_eq!(conversion_report.value, indistinguishable_report.value);
+        assert_eq!(AdditiveShare::ZERO, indistinguishable_report.breakdown_key);
+
+        let hybrid_report = HybridReport::Conversion::<BA8, BA3>(conversion_report.clone());
+        let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
+            hybrid_report.clone().into();
+        assert_eq!(indistinguishable_report, indistinguishable_report2);
+    }
+
+    /// We create a random `HybridImpressionReport`, convert it into an
+    ///`IndistinguishableHybridReport`, and check that the field values are the same
+    /// (or zero, for the value, which doesn't exist on the impression report.)
+    /// We then build a generic `HybridReport` from the impression report, convert it
+    /// into an `IndistingushableHybridReport`, and validate that it has the same value
+    /// as the previous `IndistingushableHybridReport`.
+    #[test]
+    fn convert_hybrid_impression_report_to_indistinguishable_report() {
+        let mut rng = thread_rng();
+
+        let impression_report = HybridImpressionReport::<BA8> {
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+        };
+        let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
+            impression_report.clone().into();
+        assert_eq!(
+            impression_report.match_key,
+            indistinguishable_report.match_key
+        );
+        assert_eq!(AdditiveShare::ZERO, indistinguishable_report.value);
+        assert_eq!(
+            impression_report.breakdown_key,
+            indistinguishable_report.breakdown_key
+        );
+
+        let hybrid_report = HybridReport::Impression::<BA8, BA3>(impression_report.clone());
+        let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
+            hybrid_report.clone().into();
+        assert_eq!(indistinguishable_report, indistinguishable_report2);
     }
 
     #[test]

@@ -94,6 +94,13 @@ impl Store {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns an iterator over the counters in the store.
+    ///
+    /// The iterator item is a tuple of the metric name and the counter value.
+    pub fn counters(&self) -> impl Iterator<Item = (&OwnedMetricName, CounterValue)> {
+        self.counters.iter().map(|(key, value)| (key, *value))
+    }
 }
 
 pub struct CounterHandle<'a, const LABELS: usize> {
@@ -221,5 +228,16 @@ mod tests {
 
         store.counter(counter!("bar")).inc(1);
         assert_eq!(2, store.len());
+    }
+
+    #[test]
+    fn counters() {
+        let mut store = Store::default();
+        store.counter(counter!("foo")).inc(1);
+        store.counter(counter!("foo", "h1" => &1)).inc(1);
+        store.counter(counter!("foo", "h2" => &2)).inc(1);
+        store.counter(counter!("bar")).inc(1);
+
+        assert_eq!((4, Some(4)), store.counters().size_hint());
     }
 }
