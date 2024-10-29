@@ -25,7 +25,7 @@ use pin_project::pin_project;
 use rustls::RootCertStore;
 use tracing::error;
 
-use super::{ConnectionFlavor, Helper};
+use super::{ConnectionFlavor, Helper, Shard};
 use crate::{
     config::{
         ClientConfig, HyperClientConfigurator, NetworkConfig, OwnedCertificate, OwnedPrivateKey,
@@ -466,6 +466,33 @@ impl MpcHelperClient<Helper> {
         } else {
             Err(Error::from_failed_resp(resp).await)
         }
+    }
+}
+
+impl MpcHelperClient<Shard> {
+    /// This is a mirror of [`MpcHelperClient<Helper>::from_config`] but for Shards. This creates
+    /// set of Shard clients in the supplied helper network configuration, which can be used to
+    /// talk to each of the shards in this helper.
+    ///
+    /// `identity` configures whether and how the client will authenticate to the server. It is for
+    /// the shard making the calls, so the same one is used for all three of the clients.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn shards_from_conf(
+        runtime: &IpaRuntime,
+        conf: &NetworkConfig<Shard>,
+        identity: &ClientIdentity<Shard>,
+    ) -> Vec<Self> {
+        conf.peers_iter()
+            .map(|peer_conf| {
+                Self::new(
+                    runtime.clone(),
+                    &conf.client,
+                    peer_conf.clone(),
+                    identity.clone_with_key(),
+                )
+            })
+            .collect()
     }
 }
 
