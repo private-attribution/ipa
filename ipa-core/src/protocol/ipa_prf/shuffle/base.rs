@@ -1,23 +1,20 @@
-use std::{
-    num::NonZeroUsize,
-    ops::{Add, AddAssign},
-};
+use std::{borrow::Borrow, num::NonZeroUsize, ops::Add};
 
 use futures::future;
-use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng};
+use rand::seq::SliceRandom;
 
 use crate::{
     error::Error,
     helpers::{Direction, MpcReceivingEnd, Role, TotalRecords},
     protocol::{
         context::Context,
-        ipa_prf::shuffle::{step::OPRFShuffleStep, IntermediateShuffleMessages},
+        ipa_prf::shuffle::{
+            sharded::Shuffleable, step::OPRFShuffleStep, IntermediateShuffleMessages,
+        },
+        prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        SharedValue,
-    },
+    secret_sharing::Sendable,
 };
 
 /// Internal entry point to non-sharded shuffle protocol, excluding validation of
@@ -25,18 +22,15 @@ use crate::{
 ///
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-pub(super) async fn shuffle_protocol<C, I, S>(
+pub(super) async fn shuffle_protocol<C, S, I>(
     ctx: C,
     shares: I,
-) -> Result<(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>), Error>
+) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), Error>
 where
     C: Context,
-    I: IntoIterator<Item = AdditiveShare<S>>,
+    S: Shuffleable,
+    I: IntoIterator<Item = S>,
     I::IntoIter: ExactSizeIterator,
-    S: SharedValue + Add<Output = S>,
-    for<'a> &'a S: Add<S, Output = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
 {
     // TODO: this code works with iterators and that costs it an extra allocation at the end.
     // This protocol can take a mutable iterator and replace items in the input.
@@ -44,8 +38,10 @@ where
     let Some(shares_len) = NonZeroUsize::new(shares.len()) else {
         return Ok((vec![], IntermediateShuffleMessages::empty(&ctx)));
     };
-    let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
-    let zs = generate_random_tables_with_peers(shares_len, &ctx_z);
+    let zs = generate_random_tables_with_peers::<_, S>(
+        ctx.narrow(&OPRFShuffleStep::GenerateZ),
+        shares_len,
+    );
 
     match ctx.role() {
         Role::H1 => Box::pin(run_h1(&ctx, shares_len, shares, zs)).await,
@@ -54,81 +50,81 @@ where
     }
 }
 
-async fn run_h1<C, I, S, Zl, Zr>(
+async fn run_h1<C, S, I, Zl, Zr>(
     ctx: &C,
     batch_size: NonZeroUsize,
     shares: I,
     (z_31, z_12): (Zl, Zr),
-) -> Result<(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>), Error>
+) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), Error>
 where
     C: Context,
-    I: IntoIterator<Item = AdditiveShare<S>>,
-    S: SharedValue + Add<Output = S>,
-    Zl: IntoIterator<Item = S>,
-    Zr: IntoIterator<Item = S>,
-    for<'a> &'a S: Add<Output = S>,
-    Standard: Distribution<S>,
+    S: Shuffleable,
+    I: IntoIterator<Item = S>,
+    Zl: IntoIterator<Item = S::Share>,
+    Zr: IntoIterator<Item = S::Share>,
 {
     // 1. Generate helper-specific random tables
-    let ctx_a_hat = ctx.narrow(&OPRFShuffleStep::GenerateAHat);
-    let a_hat = generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Left);
+    let a_hat = generate_random_table_solo::<_, S>(
+        ctx.narrow(&OPRFShuffleStep::GenerateAHat),
+        Direction::Left,
+        batch_size,
+    );
 
-    let ctx_b_hat = ctx.narrow(&OPRFShuffleStep::GenerateBHat);
-    let b_hat = generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Right);
+    let b_hat = generate_random_table_solo::<_, S>(
+        ctx.narrow(&OPRFShuffleStep::GenerateBHat),
+        Direction::Right,
+        batch_size,
+    );
 
     // 2. Run computations
-    let a_add_b_iter = shares
-        .into_iter()
-        .map(|s: AdditiveShare<S>| s.left().add(s.right()));
-    let mut x_1: Vec<S> = add_single_shares(a_add_b_iter, z_12).collect();
+    let a_add_b_iter = shares.into_iter().map(|s: S| s.left().add(s.right()));
+    let mut x_1 = add_single_shares::<S, _>(a_add_b_iter, z_12).collect::<Vec<_>>();
 
     let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
     x_1.shuffle(&mut rng_perm_r);
 
-    // need to output x_1
-    // call to clone causes allocation
-    // ideally in the semi honest setting, we would not clone
-    let mut x_2 = x_1.clone();
-    add_single_shares_in_place(&mut x_2, z_31);
+    // Need to output x_1. Ideally in the semi honest setting, we would add to x_1 in
+    // place instead of allocating for x_2.
+    let mut x_2 = add_single_shares::<S, _>(x_1.iter().cloned(), z_31).collect::<Vec<_>>();
     x_2.shuffle(&mut rng_perm_l);
     send_to_peer(&x_2, ctx, &OPRFShuffleStep::TransferXY, Direction::Right).await?;
 
-    let res = combine_single_shares(a_hat, b_hat).collect::<Vec<_>>();
+    let res = combine_single_shares::<S, _, _>(a_hat, b_hat).collect::<Vec<_>>();
     // we only need to store x_1 in IntermediateShuffleMessage
     Ok((res, IntermediateShuffleMessages::H1 { x1: x_1 }))
 }
 
-async fn run_h2<C, I, S, Zl, Zr>(
+async fn run_h2<C, S, I, Zl, Zr>(
     ctx: &C,
     batch_size: NonZeroUsize,
     shares: I,
     (z_12, z_23): (Zl, Zr),
-) -> Result<(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>), Error>
+) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), Error>
 where
     C: Context,
-    I: IntoIterator<Item = AdditiveShare<S>>,
-    S: SharedValue + Add<Output = S>,
-    Zl: IntoIterator<Item = S>,
-    Zr: IntoIterator<Item = S>,
-    for<'a> &'a S: Add<S, Output = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
+    S: Shuffleable,
+    I: IntoIterator<Item = S>,
+    Zl: IntoIterator<Item = S::Share>,
+    Zr: IntoIterator<Item = S::Share>,
 {
     // 1. Generate helper-specific random tables
-    let ctx_b_hat = ctx.narrow(&OPRFShuffleStep::GenerateBHat);
-    let b_hat: Vec<S> =
-        generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Left).collect();
+    let b_hat = generate_random_table_solo::<_, S>(
+        ctx.narrow(&OPRFShuffleStep::GenerateBHat),
+        Direction::Left,
+        batch_size,
+    )
+    .collect::<Vec<_>>();
 
     // 2. Run computations
     let c = shares.into_iter().map(|s| s.right());
-    let mut y_1: Vec<S> = add_single_shares(c, z_12).collect();
+    let mut y_1 = add_single_shares::<S, _>(c, z_12).collect::<Vec<_>>();
 
     let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
     y_1.shuffle(&mut rng_perm_l);
 
-    let mut x_2: Vec<S> = Vec::with_capacity(batch_size.get());
+    let mut x_2: Vec<S::Share> = Vec::with_capacity(batch_size.get());
     future::try_join(
         send_to_peer(&y_1, ctx, &OPRFShuffleStep::TransferXY, Direction::Right),
         receive_from_peer_into(
@@ -141,17 +137,14 @@ where
     )
     .await?;
 
-    // we need to output x_2
-    // call to clone causes allocation
-    // ideally in the semi honest setting, we would not clone
-    let mut x_3 = x_2.clone();
-    add_single_shares_in_place(&mut x_3, z_23);
+    // Need to output x_2. Ideally in the semi honest setting, we would add to x_2 in
+    // place instead of allocating for x_3.
+    let mut x_3 = add_single_shares::<S, _>(x_2.iter().cloned(), z_23).collect::<Vec<_>>();
     x_3.shuffle(&mut rng_perm_r);
 
-    let mut c_hat_1 = repurpose_allocation(y_1);
-    c_hat_1.extend(add_single_shares(x_3.iter(), b_hat.iter()));
+    let c_hat_1 = add_single_shares_in_place::<S, _>(x_3, &b_hat);
 
-    let mut c_hat_2 = repurpose_allocation(x_3);
+    let mut c_hat_2 = repurpose_allocation(y_1);
     future::try_join(
         send_to_peer(&c_hat_1, ctx, &OPRFShuffleStep::TransferC, Direction::Right),
         receive_from_peer_into(
@@ -164,7 +157,7 @@ where
     )
     .await?;
 
-    let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter());
+    let c_hat = add_single_shares::<S, _>(c_hat_1, &c_hat_2);
     let res = combine_single_shares(b_hat, c_hat).collect::<Vec<_>>();
     // we only need to store x_2 in IntermediateShuffleMessage
     Ok((res, IntermediateShuffleMessages::H2 { x2: x_2 }))
@@ -174,22 +167,23 @@ async fn run_h3<C, S, Zl, Zr>(
     ctx: &C,
     batch_size: NonZeroUsize,
     (z_23, z_31): (Zl, Zr),
-) -> Result<(Vec<AdditiveShare<S>>, IntermediateShuffleMessages<S>), Error>
+) -> Result<(Vec<S>, IntermediateShuffleMessages<S::Share>), Error>
 where
     C: Context,
-    S: SharedValue + Add<Output = S>,
-    Zl: IntoIterator<Item = S>,
-    Zr: IntoIterator<Item = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
+    S: Shuffleable,
+    Zl: IntoIterator<Item = S::Share>,
+    Zr: IntoIterator<Item = S::Share>,
 {
     // 1. Generate helper-specific random tables
-    let ctx_a_hat = ctx.narrow(&OPRFShuffleStep::GenerateAHat);
-    let a_hat: Vec<S> =
-        generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Right).collect();
+    let a_hat = generate_random_table_solo::<_, S>(
+        ctx.narrow(&OPRFShuffleStep::GenerateAHat),
+        Direction::Right,
+        batch_size,
+    )
+    .collect::<Vec<_>>();
 
     // 2. Run computations
-    let mut y_1 = Vec::<S>::with_capacity(batch_size.get());
+    let mut y_1 = Vec::<S::Share>::with_capacity(batch_size.get());
     receive_from_peer_into(
         &mut y_1,
         batch_size,
@@ -199,25 +193,22 @@ where
     )
     .await?;
 
-    // need to output y_1
-    // call to clone causes allocation
-    // ideally in the semi honest setting, we would not clone
-    let mut y_2 = y_1.clone();
-    add_single_shares_in_place(&mut y_2, z_31);
+    // Need to output y_1. Ideally in the semi honest setting, we would add to y_1 in
+    // place instead of allocating for y_2.
+    let mut y_2 = add_single_shares::<S, _>(y_1.iter().cloned(), z_31).collect::<Vec<_>>();
 
     let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
     y_2.shuffle(&mut rng_perm_r);
 
-    // need to output y_2
-    // call to clone causes allocation
-    // ideally in the semi honest setting, we would not clone
-    let mut y_3 = y_2.clone();
-    add_single_shares_in_place(&mut y_3, z_23);
+    // Need to output y_2. Ideally in the semi honest setting, we would add to y_2 in
+    // place instead of allocating for y_3.
+    let mut y_3 = add_single_shares::<S, _>(y_2.iter().cloned(), z_23).collect::<Vec<_>>();
     y_3.shuffle(&mut rng_perm_l);
 
-    let c_hat_2: Vec<S> = add_single_shares(y_3.iter(), a_hat.iter()).collect();
-    let mut c_hat_1 = repurpose_allocation(y_3);
+    let c_hat_2 = add_single_shares_in_place::<S, _>(y_3, &a_hat);
+
+    let mut c_hat_1 = Vec::with_capacity(batch_size.get());
     future::try_join(
         send_to_peer(&c_hat_2, ctx, &OPRFShuffleStep::TransferC, Direction::Left),
         receive_from_peer_into(
@@ -230,81 +221,85 @@ where
     )
     .await?;
 
-    let c_hat = add_single_shares(c_hat_1, c_hat_2);
+    let c_hat = add_single_shares::<S, _>(c_hat_1, c_hat_2);
     let res = combine_single_shares(c_hat, a_hat).collect::<Vec<_>>();
     Ok((res, IntermediateShuffleMessages::H3 { y1: y_1, y2: y_2 }))
 }
 
-fn add_single_shares<A, B, S, L, R>(l: L, r: R) -> impl Iterator<Item = S>
-where
-    A: Add<B, Output = S>,
-    L: IntoIterator<Item = A>,
-    R: IntoIterator<Item = B>,
-{
-    l.into_iter().zip(r).map(|(a, b)| a + b)
+fn add_single_shares<S: Shuffleable, B: Borrow<S::Share>>(
+    l: impl IntoIterator<Item = S::Share>,
+    r: impl IntoIterator<Item = B>,
+) -> impl Iterator<Item = S::Share> {
+    l.into_iter().zip(r).map(|(a, b)| a + b.borrow())
 }
 
-fn add_single_shares_in_place<S, R>(items: &mut [S], r: R)
+fn add_single_shares_in_place<S, I>(mut l: Vec<S::Share>, r: I) -> Vec<S::Share>
 where
-    S: AddAssign,
-    R: IntoIterator<Item = S>,
+    S: Shuffleable,
+    I: IntoIterator,
+    I::Item: Borrow<S::Share>,
 {
-    items
-        .iter_mut()
+    l.iter_mut()
         .zip(r)
-        .for_each(|(item, rhs)| item.add_assign(rhs));
+        .for_each(|(item, rhs)| *item += rhs.borrow());
+
+    l
 }
 
-fn repurpose_allocation<S>(mut buf: Vec<S>) -> Vec<S> {
+fn repurpose_allocation<T>(mut buf: Vec<T>) -> Vec<T> {
     buf.clear();
     buf
 }
 
 // --------------------------------------------------------------------------- //
 
-fn combine_single_shares<S, Il, Ir>(l: Il, r: Ir) -> impl Iterator<Item = AdditiveShare<S>>
+fn combine_single_shares<S, Il, Ir>(l: Il, r: Ir) -> impl Iterator<Item = S>
 where
-    S: SharedValue,
-    Il: IntoIterator<Item = S>,
-    Ir: IntoIterator<Item = S>,
+    S: Shuffleable,
+    Il: IntoIterator<Item = S::Share>,
+    Ir: IntoIterator<Item = S::Share>,
 {
     l.into_iter()
         .zip(r)
-        .map(|(li, ri)| AdditiveShare::new(li, ri))
+        .map(|(li, ri)| Shuffleable::new(li, ri))
 }
 
-fn generate_random_tables_with_peers<'a, C, S>(
+fn generate_random_tables_with_peers<'ctx, C, S>(
+    ctx: C,
     batch_size: NonZeroUsize,
-    narrow_ctx: &'a C,
-) -> (impl Iterator<Item = S> + 'a, impl Iterator<Item = S> + 'a)
+) -> (
+    impl Iterator<Item = S::Share> + 'ctx,
+    impl Iterator<Item = S::Share> + 'ctx,
+)
 where
-    C: Context,
-    Standard: Distribution<S>,
-    S: 'a,
+    C: Context + 'ctx,
+    S: Shuffleable,
 {
-    let (rng_l, rng_r) = narrow_ctx.prss_rng();
-    let with_left = rng_l.sample_iter(Standard).take(batch_size.get());
-    let with_right = rng_r.sample_iter(Standard).take(batch_size.get());
-    (with_left, with_right)
+    let ctx_left = ctx.clone();
+    let ctx_right = ctx;
+    let left = (0..batch_size.get()).map(move |i| {
+        ctx_left
+            .prss()
+            .generate_one_side(RecordId::from(i), Direction::Left)
+    });
+    let right = (0..batch_size.get()).map(move |i| {
+        ctx_right
+            .prss()
+            .generate_one_side(RecordId::from(i), Direction::Right)
+    });
+    (left, right)
 }
 
-fn generate_random_table_solo<'a, C, S>(
+fn generate_random_table_solo<'ctx, C, S>(
+    ctx: C,
+    direction: Direction,
     batch_size: NonZeroUsize,
-    narrow_ctx: &'a C,
-    peer: Direction,
-) -> impl Iterator<Item = S> + 'a
+) -> impl Iterator<Item = S::Share> + 'ctx
 where
-    C: Context,
-    Standard: Distribution<S>,
-    S: 'a,
+    C: Context + 'ctx,
+    S: Shuffleable,
 {
-    let rngs = narrow_ctx.prss_rng();
-    let rng = match peer {
-        Direction::Left => rngs.0,
-        Direction::Right => rngs.1,
-    };
-
-    rng.sample_iter(Standard).take(batch_size.get())
+    (0..batch_size.get()).map(move |i| ctx.prss().generate_one_side(RecordId::from(i), direction))
 }
 
 // ---------------------------- helper communication ------------------------------------ //
@@ -317,16 +312,16 @@ async fn send_to_peer<C, S>(
 ) -> Result<(), Error>
 where
     C: Context,
-    S: Copy + SharedValue,
+    S: Sendable,
 {
     let role = ctx.role().peer(direction);
     let send_channel = ctx
         .narrow(step)
         .set_total_records(TotalRecords::specified(items.len())?)
-        .send_channel(role);
+        .send_channel::<S>(role);
 
     for (record_id, row) in items.iter().enumerate() {
-        send_channel.send(RecordId::from(record_id), *row).await?;
+        send_channel.send(RecordId::from(record_id), row).await?;
     }
     Ok(())
 }
@@ -340,7 +335,7 @@ async fn receive_from_peer_into<C, S>(
 ) -> Result<(), Error>
 where
     C: Context,
-    S: SharedValue,
+    S: Sendable,
 {
     let role = ctx.role().peer(direction);
     let receive_channel: MpcReceivingEnd<S> = ctx
@@ -440,7 +435,7 @@ pub(super) mod tests {
 
     use super::shuffle_protocol;
     use crate::{
-        ff::{Gf40Bit, U128Conversions},
+        ff::{boolean_array::BA64, U128Conversions},
         protocol::ipa_prf::shuffle::base::test_helpers::{
             extract_shuffle_results, ExtractedShuffleResults,
         },
@@ -448,7 +443,7 @@ pub(super) mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
-    pub type MatchKey = Gf40Bit;
+    pub type MatchKey = BA64;
 
     #[tokio::test]
     async fn shuffles_the_order() {
@@ -473,7 +468,7 @@ pub(super) mod tests {
             "Shuffle should produce a different order of items"
         );
 
-        actual.sort();
+        actual.sort_by_key(U128Conversions::as_u128);
 
         assert_eq!(
             actual, records,
@@ -487,10 +482,7 @@ pub(super) mod tests {
         run(|| async {
             let world = TestWorld::default();
             let mut rng = thread_rng();
-            // using Gf40Bit here since it implements cmp such that vec can later be sorted
-            let mut records = (0..RECORD_AMOUNT)
-                .map(|_| rng.gen())
-                .collect::<Vec<Gf40Bit>>();
+            let mut records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA64>>();
 
             let results = world
                 .semi_honest(records.clone().into_iter(), |ctx, records| async move {
@@ -505,10 +497,10 @@ pub(super) mod tests {
             } = extract_shuffle_results(results);
 
             // unshuffle by sorting
-            records.sort();
-            x1_xor_y1.sort();
-            x2_xor_y2.sort();
-            a_xor_b_xor_c.sort();
+            records.sort_by_key(U128Conversions::as_u128);
+            x1_xor_y1.sort_by_key(U128Conversions::as_u128);
+            x2_xor_y2.sort_by_key(U128Conversions::as_u128);
+            a_xor_b_xor_c.sort_by_key(U128Conversions::as_u128);
 
             assert_eq!(records, a_xor_b_xor_c);
             assert_eq!(records, x1_xor_y1);

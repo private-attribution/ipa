@@ -1,7 +1,6 @@
-use std::{future::Future, ops::Add};
+use std::future::Future;
 
 use futures::FutureExt;
-use rand::distributions::{Distribution, Standard};
 
 use super::{
     boolean_ops::{expand_shared_array_in_place, extract_from_shared_array},
@@ -11,16 +10,13 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA112, BA144, BA64, BA96},
+        boolean_array::{BooleanArray, BA112, BA64},
         ArrayAccess,
     },
     helpers::Role,
     protocol::{
         context::{Context, MaliciousContext, SemiHonestContext},
-        ipa_prf::{
-            shuffle::sharded::{MaliciousShuffleable, ShuffleContext},
-            OPRFIPAInputRow,
-        },
+        ipa_prf::{shuffle::sharded::ShuffleContext, OPRFIPAInputRow},
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -37,6 +33,7 @@ pub(crate) mod step; // must be pub(crate) for compact gate gen
 use base::shuffle_protocol as base_shuffle;
 use malicious::{malicious_sharded_shuffle, malicious_shuffle};
 use sharded::shuffle as sharded_shuffle;
+pub use sharded::MaliciousShuffleable;
 
 /// This struct stores some intermediate messages during the shuffle.
 /// In a maliciously secure shuffle,
@@ -49,7 +46,7 @@ enum IntermediateShuffleMessages<S> {
     H3 { y1: Vec<S>, y2: Vec<S> },
 }
 
-impl<S: SharedValue> IntermediateShuffleMessages<S> {
+impl<S> IntermediateShuffleMessages<S> {
     pub fn role(&self) -> Role {
         match *self {
             IntermediateShuffleMessages::H1 { .. } => Role::H1,
@@ -74,54 +71,33 @@ impl<S: SharedValue> IntermediateShuffleMessages<S> {
 /// Trait used by protocols to invoke either semi-honest or malicious non-sharded
 /// shuffle, depending on the type of context being used.
 pub trait Shuffle: Context {
-    fn shuffle<S, B, I>(
-        self,
-        shares: I,
-    ) -> impl Future<Output = Result<Vec<AdditiveShare<S>>, Error>> + Send
+    fn shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
-        S: BooleanArray,
-        B: BooleanArray,
-        I: IntoIterator<Item = AdditiveShare<S>> + Send,
-        I::IntoIter: ExactSizeIterator + Send,
-        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
-        for<'a> &'a B: Add<B, Output = B> + Add<&'a B, Output = B>,
-        Standard: Distribution<S> + Distribution<B>;
+        S: MaliciousShuffleable,
+        I: IntoIterator<Item = S> + Send,
+        I::IntoIter: ExactSizeIterator + Send;
 }
 
-impl<'b, T: ShardBinding> Shuffle for SemiHonestContext<'b, T> {
-    fn shuffle<S, B, I>(
-        self,
-        shares: I,
-    ) -> impl Future<Output = Result<Vec<AdditiveShare<S>>, Error>> + Send
+impl<T: ShardBinding> Shuffle for SemiHonestContext<'_, T> {
+    fn shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
-        S: BooleanArray,
-        B: BooleanArray,
-        I: IntoIterator<Item = AdditiveShare<S>> + Send,
+        S: MaliciousShuffleable,
+        I: IntoIterator<Item = S> + Send,
         I::IntoIter: ExactSizeIterator + Send,
-        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
-        for<'a> &'a B: Add<B, Output = B> + Add<&'a B, Output = B>,
-        Standard: Distribution<S> + Distribution<B>,
     {
-        let fut = base_shuffle::<_, I, S>(self, shares);
+        let fut = base_shuffle::<_, S, _>(self, shares);
         fut.map(|res| res.map(|(output, _intermediates)| output))
     }
 }
 
-impl<'b, T: ShardBinding> Shuffle for MaliciousContext<'b, T> {
-    fn shuffle<S, B, I>(
-        self,
-        shares: I,
-    ) -> impl Future<Output = Result<Vec<AdditiveShare<S>>, Error>> + Send
+impl<T: ShardBinding> Shuffle for MaliciousContext<'_, T> {
+    fn shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
-        S: BooleanArray,
-        B: BooleanArray,
-        I: IntoIterator<Item = AdditiveShare<S>> + Send,
+        S: MaliciousShuffleable,
+        I: IntoIterator<Item = S> + Send,
         I::IntoIter: ExactSizeIterator + Send,
-        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
-        for<'a> &'a B: Add<B, Output = B> + Add<&'a B, Output = B>,
-        Standard: Distribution<S> + Distribution<B>,
     {
-        malicious_shuffle::<_, S, B, I>(self, shares)
+        malicious_shuffle::<_, S, _>(self, shares)
     }
 }
 
@@ -132,37 +108,30 @@ pub trait ShardedShuffle: ShuffleContext {
     fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
-        I: IntoIterator<Item = AdditiveShare<S::Share>> + Send,
-        I::IntoIter: ExactSizeIterator + Send,
-        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
-        Standard: Distribution<S>;
+        I: IntoIterator<Item = S> + Send,
+        I::IntoIter: ExactSizeIterator + Send;
 }
 
-impl<'b> ShardedShuffle for SemiHonestContext<'b, Sharded> {
+impl ShardedShuffle for SemiHonestContext<'_, Sharded> {
     fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
-        I: IntoIterator<Item = AdditiveShare<S::Share>> + Send,
+        I: IntoIterator<Item = S> + Send,
         I::IntoIter: ExactSizeIterator + Send,
-        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
-        Standard: Distribution<S>,
     {
-        let fut = sharded_shuffle::<_, S, _>(self, shares.into_iter().map(S::from));
+        let fut = sharded_shuffle::<_, S, _>(self, shares);
         fut.map(|res| res.map(|(output, _intermediates)| output))
     }
 }
 
-impl<'b> ShardedShuffle for MaliciousContext<'b, Sharded> {
+impl ShardedShuffle for MaliciousContext<'_, Sharded> {
     fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
-        I: IntoIterator<Item = AdditiveShare<S::Share>> + Send,
+        I: IntoIterator<Item = S> + Send,
         I::IntoIter: ExactSizeIterator + Send,
-        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
-        Standard: Distribution<S>,
     {
-        let fut = malicious_sharded_shuffle::<_, S::Share, S::ShareAndTag, _>(self, shares);
-        fut.map(|res| res.map(|vec| vec.into_iter().map(S::from).collect()))
+        malicious_sharded_shuffle::<_, S, _>(self, shares)
     }
 }
 
@@ -182,7 +151,9 @@ where
         .map(|item| oprfreport_to_shuffle_input::<BA112, BK, TV, TS>(&item))
         .collect::<Vec<_>>();
 
-    let shuffled = ctx.shuffle::<BA112, BA144, _>(shuffle_input).await?;
+    let shuffled = ctx
+        .shuffle::<AdditiveShare<BA112>, _>(shuffle_input)
+        .await?;
 
     Ok(shuffled
         .into_iter()
@@ -200,20 +171,18 @@ where
     BK: BooleanArray,
     TV: BooleanArray,
     R: BooleanArray,
-    Standard: rand::distributions::Distribution<R>,
-    for<'a> &'a R: Add<R, Output = R>,
-    for<'a> &'a R: Add<&'a R, Output = R>,
+    AdditiveShare<R>: MaliciousShuffleable,
 {
     let shuffle_input: Vec<AdditiveShare<R>> = input
         .into_iter()
         .map(|item| attribution_outputs_to_shuffle_input::<BK, TV, R>(&item))
         .collect::<Vec<_>>();
 
-    let shuffled = ctx.shuffle::<R, BA96, _>(shuffle_input).await?;
+    let shuffled = ctx.shuffle::<AdditiveShare<R>, _>(shuffle_input).await?;
 
     Ok(shuffled
         .into_iter()
-        .map(|item| shuffled_to_attribution_outputs(&item))
+        .map(|item| shuffled_to_attribution_outputs::<R, BK, TV>(&item))
         .collect::<Vec<_>>())
 }
 

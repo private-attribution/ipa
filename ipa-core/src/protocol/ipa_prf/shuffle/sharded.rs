@@ -8,15 +8,23 @@
 //! MPC communication, it uses 6 rounds of intra-helper communications to send data between shards.
 //! In this implementation, this operation is called "resharding".
 
-use std::{future::Future, num::NonZeroUsize};
+use std::{
+    borrow::Borrow,
+    future::Future,
+    num::NonZeroUsize,
+    ops::{Add, AddAssign},
+};
 
-use futures::{future::try_join, stream, StreamExt, TryFutureExt};
+use futures::{future::try_join, stream, StreamExt};
 use rand::seq::SliceRandom;
+use typenum::Unsigned;
 
 use crate::{
+    const_assert_eq,
+    error::LengthError,
     ff::{
-        boolean_array::{BooleanArray, BA32, BA64},
-        Serializable, U128Conversions,
+        boolean_array::{BooleanArray, BA112, BA144, BA32, BA64, BA96},
+        Gf32Bit, Serializable, U128Conversions,
     },
     helpers::{Direction, Error, Role, TotalRecords},
     protocol::{
@@ -25,7 +33,10 @@ use crate::{
         prss::{FromRandom, SharedRandomness},
         RecordId,
     },
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        Block, Sendable, SharedValue,
+    },
     seq_join::{assert_send, seq_join},
 };
 
@@ -87,8 +98,9 @@ pub trait ShuffleContext: ShardedContext {
         data: I,
     ) -> impl Future<Output = Result<Vec<S>, crate::error::Error>> + Send
     where
-        I: IntoIterator<Item = S>,
+        I: IntoIterator,
         I::IntoIter: ExactSizeIterator + Send,
+        I::Item: Borrow<S>,
         S: ShuffleShare,
     {
         let data = data.into_iter();
@@ -97,14 +109,10 @@ pub trait ShuffleContext: ShardedContext {
             let mut resharded = assert_send(reshard_iter(
                 self.clone(),
                 data.enumerate().map(|(i, item)| {
-                    // FIXME(1029): update PRSS trait to compute only left or right part
-                    let (l, r) = masking_ctx.prss().generate(RecordId::from(i));
-                    let mask: S = match direction {
-                        Direction::Left => l,
-                        Direction::Right => r,
-                    };
-
-                    item + mask
+                    masking_ctx
+                        .prss()
+                        .generate_one_side::<S, _>(RecordId::from(i), direction)
+                        + item.borrow()
                 }),
                 |ctx, record_id, _| ctx.pick_shard(record_id, direction),
             ))
@@ -198,16 +206,33 @@ impl<C: ShardedContext> ShuffleContext for C {}
 ///
 /// [`ShuffleShare`] and [`Shuffleable`] are added to bridge the gap. They can be implemented for
 /// arbitrary structs as long as `Add` operation can be defined on them.
-pub trait ShuffleShare: BooleanArray + Serializable + FromRandom {}
+pub trait ShuffleShare:
+    Sendable
+    + Clone
+    + Serializable
+    + FromRandom
+    + Add<Output = Self>
+    + for<'a> Add<&'a Self, Output = Self>
+    + for<'a> AddAssign<&'a Self>
+{
+    const BITS: u32;
+    const ZERO: Self;
+}
 
-impl<V: BooleanArray + Serializable + FromRandom> ShuffleShare for V {}
+impl<V> ShuffleShare for V
+where
+    V: SharedValue
+        + Serializable
+        + FromRandom
+        + for<'a> Add<&'a Self, Output = Self>
+        + for<'a> AddAssign<&'a Self>,
+{
+    const BITS: u32 = <V as SharedValue>::BITS;
+    const ZERO: Self = <V as SharedValue>::ZERO;
+}
 
 /// Trait for shuffle inputs that consists of two values (left and right).
-// The `From` and `Into` bounds are necessary to work with routines that have not been
-// updated to use the `Shuffleable` trait.
-pub trait Shuffleable:
-    From<AdditiveShare<Self::Share>> + Into<AdditiveShare<Self::Share>> + Send + 'static
-{
+pub trait Shuffleable: Send + 'static {
     type Share: ShuffleShare;
 
     fn left(&self) -> Self::Share;
@@ -216,7 +241,10 @@ pub trait Shuffleable:
     fn new(l: Self::Share, r: Self::Share) -> Self;
 }
 
-impl<V: BooleanArray + FromRandom> Shuffleable for AdditiveShare<V> {
+impl<V> Shuffleable for AdditiveShare<V>
+where
+    V: BooleanArray + FromRandom + for<'a> Add<&'a V, Output = V> + for<'a> AddAssign<&'a V>,
+{
     type Share = V;
 
     fn left(&self) -> Self::Share {
@@ -233,14 +261,83 @@ impl<V: BooleanArray + FromRandom> Shuffleable for AdditiveShare<V> {
 }
 
 /// Trait for inputs to malicious shuffle.
-pub trait MaliciousShuffleable: Shuffleable {
+///
+/// Do not implement this trait directly. Implement `Shuffleable` and add an invocation
+/// of `impl_malicious_shuffle_share` for your `<T as Shuffleable>::Share` type, if it
+/// does not already exist.
+pub trait MaliciousShuffleable: Shuffleable<Share = Self::MaliciousShare> {
+    /// The `Shuffleable::Share` type, with additional bounds for malicious shuffle.
+    type MaliciousShare: ShuffleShare + MaliciousShuffleShare;
+
     /// A type that can hold `<Self as Shuffleable>::Share` along with a 32-bit MAC.
-    type ShareAndTag: BooleanArray + FromRandom;
+    type ShareAndTag: BooleanArray
+        + FromRandom
+        + for<'a> Add<&'a Self::ShareAndTag, Output = Self::ShareAndTag>
+        + for<'a> AddAssign<&'a Self::ShareAndTag>;
+
+    /// The offset to the MAC in `ShareAndTag`.
+    const TAG_OFFSET: usize;
+
+    fn to_gf32bit(
+        &self,
+    ) -> Result<impl Iterator<Item = AdditiveShare<Gf32Bit>>, crate::error::Error> {
+        let left_shares: Vec<Gf32Bit> = self.left().try_into()?;
+        let right_shares: Vec<Gf32Bit> = self.right().try_into()?;
+        Ok(left_shares
+            .into_iter()
+            .zip(right_shares)
+            .map(|(left, right)| ReplicatedSecretSharing::new(left, right)))
+    }
 }
 
-impl MaliciousShuffleable for AdditiveShare<BA32> {
-    type ShareAndTag = BA64;
+impl<T> MaliciousShuffleable for T
+where
+    T: Shuffleable,
+    T::Share: MaliciousShuffleShare,
+{
+    type MaliciousShare = T::Share;
+    type ShareAndTag = <T::Share as MaliciousShuffleShare>::ShareAndTag;
+    const TAG_OFFSET: usize = <T::Share as MaliciousShuffleShare>::TAG_OFFSET;
 }
+
+/// Trait for a share of an input to malicious shuffle.
+///
+/// This trait should be implemented using the `impl_malicious_shuffleable!` macro,
+/// which will check the size of the `ShareAndTag` type and compute `TAG_OFFSET`
+/// automatically.
+pub trait MaliciousShuffleShare: TryInto<Vec<Gf32Bit>, Error = LengthError> {
+    type ShareAndTag: BooleanArray
+        + FromRandom
+        + for<'a> Add<&'a Self::ShareAndTag, Output = Self::ShareAndTag>
+        + for<'a> AddAssign<&'a Self::ShareAndTag>;
+
+    const TAG_OFFSET: usize;
+}
+
+/// Implement `MaliciousShuffleShare`, checking that the type combination is valid.
+macro_rules! impl_malicious_shuffle_share {
+    ($share:ty, $share_and_tag:ty) => {
+        impl MaliciousShuffleShare for $share {
+            type ShareAndTag = $share_and_tag;
+            const TAG_OFFSET: usize = <<$share as SharedValue>::Storage as Block>::Size::USIZE;
+        }
+
+        const_assert_eq!(
+            <$share_and_tag as SharedValue>::BITS as usize,
+            <$share as MaliciousShuffleShare>::TAG_OFFSET * 8 + 32,
+            concat!(
+                stringify!($share_and_tag),
+                " is not the right size to hold ",
+                "share and tag for ",
+                stringify!($share),
+            ),
+        );
+    };
+}
+
+impl_malicious_shuffle_share!(BA32, BA64);
+impl_malicious_shuffle_share!(BA64, BA96);
+impl_malicious_shuffle_share!(BA112, BA144);
 
 /// Sharded shuffle as performed by shards on H1.
 pub(super) async fn h1_shuffle_for_shard<I, S, C>(
@@ -266,7 +363,7 @@ where
     // shared with the left helper.
     let x2: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute31)
-        .mask_and_shuffle(Direction::Left, x1.iter().copied())
+        .mask_and_shuffle(Direction::Left, &x1)
         .await?;
 
     // X_2 is masked now and cannot reveal anything to the helper on the right.
@@ -332,7 +429,7 @@ where
     // generate X_3 = perm_23(X_2 ⊕ z_23)
     let x3: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute23)
-        .mask_and_shuffle(Direction::Right, x2.iter().copied())
+        .mask_and_shuffle(Direction::Right, &x2)
         .await?;
 
     // at this moment we know the cardinality of C, and we let H1 know it, so it can start
@@ -351,25 +448,29 @@ where
     let send_channel = ctx
         .narrow(&ShuffleStep::TransferC)
         .set_total_records(x3_len)
-        .send_channel(ctx.role().peer(Direction::Right));
+        .send_channel::<S::Share>(ctx.role().peer(Direction::Right));
     let recv_channel = ctx
         .narrow(&ShuffleStep::TransferC)
-        .recv_channel(ctx.role().peer(Direction::Right));
+        .recv_channel::<S::Share>(ctx.role().peer(Direction::Right));
 
     let res = ctx
         .try_join(x3.into_iter().enumerate().map(|(i, x3)| {
             let record_id = RecordId::from(i);
-            // FIXME(1029): update PRSS trait to compute only left or right part
-            let (b, _): (S::Share, S::Share) = ctx
+            let b: S::Share = ctx
                 .narrow(&ShuffleStep::PseudoRandomTable)
                 .prss()
-                .generate(RecordId::from(i));
-            let c1: S::Share = x3 + b;
-            try_join(
-                send_channel.send(record_id, c1),
-                recv_channel.receive(record_id),
-            )
-            .map_ok(move |((), c2)| S::new(b, c1 + c2))
+                .generate_one_side(RecordId::from(i), Direction::Left);
+            let send_channel_ref = &send_channel;
+            let recv_channel_ref = &recv_channel;
+            async move {
+                let c1 = x3 + &b;
+                let ((), c2) = try_join(
+                    send_channel_ref.send(record_id, &c1),
+                    recv_channel_ref.receive(record_id),
+                )
+                .await?;
+                Ok::<_, Error<_>>(S::new(b, c1 + c2))
+            }
         }))
         .await?;
 
@@ -397,13 +498,13 @@ where
     // Generate y2 = perm_31(y_1 ⊕ z_31)
     let y2: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute31)
-        .mask_and_shuffle(Direction::Right, y1.iter().copied())
+        .mask_and_shuffle(Direction::Right, &y1)
         .await?;
 
     // Generate y3 = perm_23(y_2 ⊕ z_23)
     let y3: Vec<S::Share> = ctx
         .narrow(&ShuffleStep::Permute23)
-        .mask_and_shuffle(Direction::Left, y2.iter().copied())
+        .mask_and_shuffle(Direction::Left, &y2)
         .await?;
 
     let Some(y3_len) = NonZeroUsize::new(y3.len()) else {
@@ -415,24 +516,28 @@ where
     let send_channel = ctx
         .narrow(&ShuffleStep::TransferC)
         .set_total_records(y3_len)
-        .send_channel(ctx.role().peer(Direction::Left));
+        .send_channel::<S::Share>(ctx.role().peer(Direction::Left));
     let recv_channel = ctx
         .narrow(&ShuffleStep::TransferC)
         .recv_channel::<S::Share>(ctx.role().peer(Direction::Left));
     let res = ctx
         .try_join(y3.into_iter().enumerate().map(|(i, y3)| {
             let record_id = RecordId::from(i);
-            // FIXME(1029): update PRSS trait to compute only left or right part
-            let (_, a): (S::Share, S::Share) = ctx
+            let a: S::Share = ctx
                 .narrow(&ShuffleStep::PseudoRandomTable)
                 .prss()
-                .generate(RecordId::from(i));
-            let c2 = y3 + a;
-            try_join(
-                send_channel.send(record_id, c2),
-                recv_channel.receive(record_id),
-            )
-            .map_ok(move |((), c1)| S::new(c1 + c2, a))
+                .generate_one_side(RecordId::from(i), Direction::Right);
+            let send_channel_ref = &send_channel;
+            let recv_channel_ref = &recv_channel;
+            async move {
+                let c2 = y3 + &a;
+                let ((), c1) = try_join(
+                    send_channel_ref.send(record_id, &c2),
+                    recv_channel_ref.receive(record_id),
+                )
+                .await?;
+                Ok::<_, Error<_>>(S::new(c1 + c2, a))
+            }
         }))
         .await?;
 

@@ -8,13 +8,10 @@ use generic_array::GenericArray;
 use typenum::{U12, U14, U18, U2, U32, U8};
 
 use crate::{
-    error::{Error, LengthError},
+    error::LengthError,
     ff::{boolean::Boolean, ArrayAccess, Expand, Field, Gf32Bit, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        Block, SharedValue, StdArray, Vectorizable,
-    },
+    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -39,7 +36,7 @@ pub trait BooleanArray:
     + ArrayAccess<Output = Boolean>
     + Expand<Input = Boolean>
     + FromIterator<Boolean>
-    + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
+    + TryInto<Vec<Gf32Bit>, Error = LengthError>
 {
 }
 
@@ -48,23 +45,8 @@ impl<A> BooleanArray for A where
         + ArrayAccess<Output = Boolean>
         + Expand<Input = Boolean>
         + FromIterator<Boolean>
-        + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
+        + TryInto<Vec<Gf32Bit>, Error = LengthError>
 {
-}
-
-impl<A> AdditiveShare<A>
-where
-    A: BooleanArray,
-    AdditiveShare<A>: Sized,
-{
-    pub(crate) fn to_gf32bit(&self) -> Result<impl Iterator<Item = AdditiveShare<Gf32Bit>>, Error> {
-        let left_shares: Vec<Gf32Bit> = self.left().try_into()?;
-        let right_shares: Vec<Gf32Bit> = self.right().try_into()?;
-        Ok(left_shares
-            .into_iter()
-            .zip(right_shares)
-            .map(|(left, right)| AdditiveShare::new(left, right)))
-    }
 }
 
 /// Iterator returned by `.iter()` on Boolean arrays
@@ -525,7 +507,7 @@ macro_rules! boolean_array_impl {
             /// ##Errors
             /// Outputs an error when conversion from raw slice to Galois field element fails.
             impl TryFrom<$name> for Vec<Gf32Bit> {
-                type Error = crate::error::Error;
+                type Error = LengthError;
 
                 fn try_from(value: $name) -> Result<Self, Self::Error> {
                     // len() returns bits, so divide by 8
