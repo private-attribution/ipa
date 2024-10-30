@@ -7,10 +7,12 @@ use std::{
 use async_trait::async_trait;
 use futures::Stream;
 
+#[cfg(feature = "in-memory-infra")]
+use crate::{helpers::in_memory_config::InspectContext, sharding::ShardContext};
 use crate::{
-    helpers::{in_memory_config::InspectContext, HelperIdentity},
+    helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
-    sharding::ShardContext,
+    sharding::ShardIndex,
 };
 
 mod handler;
@@ -35,11 +37,6 @@ pub use stream::{
     StreamCollection, StreamKey, WrappedBoxBodyStream,
 };
 
-use crate::{
-    helpers::{transport::routing::RouteId, Role, TransportIdentity},
-    sharding::ShardIndex,
-};
-
 /// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
 /// types of peers - helpers and shards.
 pub trait Identity:
@@ -56,6 +53,7 @@ pub trait Identity:
     /// Returns a 0-based index suitable to index Vec or other containers.
     fn as_index(&self) -> usize;
 
+    #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
         shard: ShardContext,
@@ -81,6 +79,7 @@ impl Identity for ShardIndex {
         usize::from(*self)
     }
 
+    #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
         shard: ShardContext,
@@ -121,6 +120,7 @@ impl Identity for HelperIdentity {
         usize::from(self.id) - 1
     }
 
+    #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
         shard: ShardContext,
@@ -162,6 +162,7 @@ impl Identity for Role {
         }
     }
 
+    #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
         _shard: ShardContext,
