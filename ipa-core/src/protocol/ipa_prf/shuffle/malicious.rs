@@ -12,7 +12,7 @@ use crate::{
     error::Error,
     ff::{boolean_array::BooleanArray, Field, Gf32Bit, Serializable},
     helpers::{
-        hashing::{compute_hash, Hash},
+        hashing::{compute_possibly_empty_hash, Hash},
         Direction, TotalRecords,
     },
     protocol::{
@@ -348,7 +348,7 @@ where
             .into_iter()
             .chain(iter::once(tag))
     });
-    compute_hash(iterator.map(|row_entry_iterator| {
+    compute_possibly_empty_hash(iterator.map(|row_entry_iterator| {
         row_entry_iterator
             .zip(keys)
             .fold(Gf32Bit::ZERO, |acc, (row_entry, key)| {

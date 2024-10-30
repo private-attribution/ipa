@@ -76,12 +76,10 @@ where
 
 /// Computes Hash of serializable values from an iterator
 ///
-/// This version panics if an empty input is provided. This can offer defense-in-depth
-/// by helping to prevent fail-open bugs when the input should never be empty.
-///
 /// ## Panics
-/// Panics when Iterator is empty.
-pub fn compute_non_empty_hash<I, T, S>(input: I) -> Hash
+/// Panics if an empty input is provided. This can offer defense-in-depth by helping to
+/// prevent fail-open bugs when the input should never be empty.
+pub fn compute_hash<I, T, S>(input: I) -> Hash
 where
     I: IntoIterator<Item = T>,
     T: SerializeAs<S>,
@@ -93,13 +91,15 @@ where
 }
 
 /// Computes Hash of serializable values from an iterator
-pub fn compute_hash<I, T, S>(input: I) -> Hash
+///
+/// Unlike `compute_hash`, this version accepts empty inputs.
+pub fn compute_possibly_empty_hash<I, T, S>(iter: I) -> Hash
 where
     I: IntoIterator<Item = T>,
     T: SerializeAs<S>,
     S: Serializable,
 {
-    let (hash, _) = compute_hash_internal(input);
+    let (hash, _) = compute_hash_internal(iter);
     hash
 }
 
@@ -136,7 +136,7 @@ where
     );
 
     // set state
-    let combine = compute_non_empty_hash([left, right]);
+    let combine = compute_hash([left, right]);
     let mut buf = GenericArray::default();
     combine.serialize(&mut buf);
 
@@ -158,7 +158,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U8;
 
-    use super::{compute_hash, compute_non_empty_hash, Hash};
+    use super::{compute_hash, compute_possibly_empty_hash, Hash};
     use crate::{
         ff::{Fp31, Fp32BitPrime, Serializable},
         helpers::hashing::hash_to_field,
@@ -169,7 +169,7 @@ mod test {
         let mut rng = thread_rng();
         let list: GenericArray<Fp32BitPrime, U8> =
             GenericArray::generate(|_| rng.gen::<Fp32BitPrime>());
-        let hash: Hash = compute_non_empty_hash(list);
+        let hash: Hash = compute_hash(list);
         let mut buf: GenericArray<u8, _> = GenericArray::default();
         hash.serialize(&mut buf);
         let deserialized_hash = Hash::deserialize(&buf);
@@ -186,7 +186,7 @@ mod test {
         for _ in 0..LIST_LENGTH {
             list.push(rng.gen::<Fp31>());
         }
-        let hash_1 = compute_non_empty_hash(&list);
+        let hash_1 = compute_hash(&list);
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -196,7 +196,7 @@ mod test {
         }
         list[random_index] = different_field_element;
 
-        let hash_2 = compute_non_empty_hash(&list);
+        let hash_2 = compute_hash(&list);
 
         assert_ne!(
             hash_1, hash_2,
@@ -218,7 +218,7 @@ mod test {
         }
         list.swap(index_1, index_2);
 
-        let hash_3 = compute_non_empty_hash(&list);
+        let hash_3 = compute_hash(&list);
 
         assert_ne!(
             hash_2, hash_3,
@@ -239,11 +239,7 @@ mod test {
             left.push(rng.gen::<Fp32BitPrime>());
             right.push(rng.gen::<Fp32BitPrime>());
         }
-        let r1: Fp32BitPrime = hash_to_field(
-            &compute_non_empty_hash(&left),
-            &compute_non_empty_hash(&right),
-            EXCLUDE,
-        );
+        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -255,11 +251,7 @@ mod test {
             right[random_index] = modified_value;
         }
 
-        let r2: Fp32BitPrime = hash_to_field(
-            &compute_non_empty_hash(&left),
-            &compute_non_empty_hash(&right),
-            EXCLUDE,
-        );
+        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         assert_ne!(
             r1, r2,
@@ -271,13 +263,13 @@ mod test {
     fn check_hash_from_owned_values() {
         let mut rng = thread_rng();
         let vec = (0..100).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
-        assert_eq!(compute_non_empty_hash(&vec), compute_non_empty_hash(vec));
+        assert_eq!(compute_hash(&vec), compute_hash(vec));
     }
 
     #[test]
     #[should_panic(expected = "must not provide an empty iterator")]
     fn empty_reject() {
-        compute_non_empty_hash(iter::empty::<Fp31>());
+        compute_hash(iter::empty::<Fp31>());
     }
 
     #[test]
@@ -288,6 +280,9 @@ mod test {
                 .unwrap(),
         ))
         .unwrap();
-        assert_eq!(compute_hash(iter::empty::<Fp31>()), empty_hash);
+        assert_eq!(
+            compute_possibly_empty_hash(iter::empty::<Fp31>()),
+            empty_hash
+        );
     }
 }
