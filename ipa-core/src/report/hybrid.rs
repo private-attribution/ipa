@@ -52,38 +52,13 @@ pub enum InvalidHybridReportError {
     WrongInfoType(&'static str),
 }
 
-/*#[derive(thiserror::Error, Debug)]
-#[error("{0} is not a valid event type, only 0 and 1 are allowed.")]
-pub struct UnknownEventType(u8);
-
-impl Serializable for EventType {
-    type Size = U1;
-    type DeserializationError = UnknownEventType;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw: &[u8] = match self {
-            EventType::Trigger => &[1],
-            EventType::Source => &[0],
-        };
-        buf.copy_from_slice(raw);
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        match buf[0] {
-            1 => Ok(EventType::Trigger),
-            0 => Ok(EventType::Source),
-            _ => Err(UnknownEventType(buf[0])),
-        }
-    }
-}*/
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HybridImpressionReport<BK>
 where
     BK: SharedValue,
 {
-    match_key: Replicated<BA64>,
-    breakdown_key: Replicated<BK>,
+    pub match_key: Replicated<BA64>,
+    pub breakdown_key: Replicated<BK>,
 }
 
 impl<BK: SharedValue> Serializable for HybridImpressionReport<BK>
@@ -134,6 +109,21 @@ where
         let len = EncryptedHybridImpressionReport::<BK>::SITE_DOMAIN_OFFSET;
         len.try_into().unwrap()
     }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        info: &HybridImpressionInfo,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidHybridReportError> {
+        out.put_u16_le(self.encrypted_len());
+        self.encrypt_to(key_id, key_registry, info, rng, out)
+    }
+
     /// # Errors
     /// If there is a problem encrypting the report.
     pub fn encrypt<R: CryptoRng + RngCore>(
@@ -199,8 +189,8 @@ pub struct HybridConversionReport<V>
 where
     V: SharedValue,
 {
-    match_key: Replicated<BA64>,
-    value: Replicated<V>,
+    pub match_key: Replicated<BA64>,
+    pub value: Replicated<V>,
 }
 
 impl<V: SharedValue> Serializable for HybridConversionReport<V>
@@ -251,6 +241,21 @@ where
         let len = EncryptedHybridConversionReport::<V>::SITE_DOMAIN_OFFSET;
         len.try_into().unwrap()
     }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        info: &HybridConversionInfo,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidHybridReportError> {
+        out.put_u16_le(self.encrypted_len());
+        self.encrypt_to(key_id, key_registry, info, rng, out)
+    }
+
     /// # Errors
     /// If there is a problem encrypting the report.
     pub fn encrypt<R: CryptoRng + RngCore>(
@@ -326,16 +331,113 @@ impl<BK, V> HybridReport<BK, V>
 where
     BK: SharedValue,
     V: SharedValue,
+    Replicated<BK>: Serializable,
+    Replicated<V>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<U16>,
+    <Replicated<V> as Serializable>::Size: Add<U16>,
+    <<Replicated<BK> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
+    <<Replicated<V> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
 {
+    /// # Panics
+    /// If report length does not fit in `u16`.
+    pub fn encrypted_len(&self) -> u16 {
+        match self {
+            HybridReport::Impression(impression_report) => {
+                impression_report.encrypted_len()
+            }
+            HybridReport::Conversion(conversion_report) => {
+                conversion_report.encrypted_len()
+            }
+        }
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        info: &HybridInfo,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidHybridReportError> {
+        match self {
+            HybridReport::Impression(impression_report) => match info {
+                HybridInfo::Impression(impression_info) =>{
+                    out.put_u8(1u8);
+                    impression_report.delimited_encrypt_to(key_id, key_registry, impression_info, rng, out)},
+                HybridInfo::Conversion(_) => {
+                    Err(InvalidHybridReportError::WrongInfoType("Impression"))
+                }
+            },
+            HybridReport::Conversion(conversion_report) => match info {
+                HybridInfo::Conversion(conversion_info) =>{
+                    out.put_u8(0u8);
+                    conversion_report.delimited_encrypt_to(key_id, key_registry, conversion_info, rng, out)},
+                HybridInfo::Impression(_) => {
+                    Err(InvalidHybridReportError::WrongInfoType("Conversion"))
+                }
+            },
+        }
+    }
+
     /// # Errors
     /// If there is a problem encrypting the report.
     pub fn encrypt<R: CryptoRng + RngCore>(
         &self,
-        _key_id: KeyIdentifier,
-        _key_registry: &impl PublicKeyRegistry,
-        _rng: &mut R,
-    ) -> Result<Vec<u8>, InvalidReportError> {
-        unimplemented!()
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        info: &HybridInfo,
+        rng: &mut R,
+    ) -> Result<Vec<u8>, InvalidHybridReportError> {
+        match self {
+            HybridReport::Impression(impression_report) => match info {
+                HybridInfo::Impression(impression_info) =>
+                    // Prepend a 1u8 byte to indicate this is an impression report
+                    impression_report.encrypt(key_id, key_registry, impression_info, rng).map(|v| vec![1u8].into_iter().chain(v).collect()),
+                HybridInfo::Conversion(_) => {
+                    Err(InvalidHybridReportError::WrongInfoType("Impression"))
+                }
+            },
+            HybridReport::Conversion(conversion_report) => match info {
+                HybridInfo::Conversion(conversion_info) =>
+                    // Prepend a 0u8 byte to indicate this is a conversion report
+                    conversion_report.encrypt(key_id, key_registry, conversion_info, rng).map(|v| vec![0u8].into_iter().chain(v).collect()),
+                HybridInfo::Impression(_) => {
+                    Err(InvalidHybridReportError::WrongInfoType("Conversion"))
+                }
+            },
+        }
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        info: &HybridInfo,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidHybridReportError> {
+        match self {
+            HybridReport::Impression(impression_report) => match info {
+                HybridInfo::Impression(impression_info) =>{
+                    out.put_u8(1u8);
+                    impression_report.encrypt_to(key_id, key_registry, impression_info, rng, out)},
+                HybridInfo::Conversion(_) => {
+                    Err(InvalidHybridReportError::WrongInfoType("Impression"))
+                }
+            },
+            HybridReport::Conversion(conversion_report) => match info {
+                HybridInfo::Conversion(conversion_info) =>{
+                    out.put_u8(0u8);
+                    conversion_report.encrypt_to(key_id, key_registry, conversion_info, rng, out)},
+                HybridInfo::Impression(_) => {
+                    Err(InvalidHybridReportError::WrongInfoType("Conversion"))
+                }
+            },
+        }
     }
 }
 
@@ -714,6 +816,24 @@ where
                 }
             },
         }
+    }
+}
+
+impl<BK, V> TryFrom<Bytes> for EncryptedHybridGeneralReport<BK, V>
+where
+    V: SharedValue,
+    BK: SharedValue,
+    Replicated<V>: Serializable,
+    Replicated<BK>: Serializable,
+    <Replicated<V> as Serializable>::Size: Add<U16>,
+    <<Replicated<V> as Serializable>::Size as Add<U16>>::Output: ArrayLength,
+    <Replicated<BK> as Serializable>::Size: Add<U16>,
+    <<Replicated<BK> as Serializable>::Size as Add<U16>>::Output: ArrayLength,
+{
+    type Error = InvalidHybridReportError;
+
+    fn try_from(bytes: Bytes) -> Result<Self, InvalidHybridReportError> {
+        Self::from_bytes(bytes)
     }
 }
 

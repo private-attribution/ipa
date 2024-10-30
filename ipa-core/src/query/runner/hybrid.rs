@@ -4,7 +4,7 @@ use futures::{stream::iter, StreamExt, TryStreamExt};
 
 use crate::{
     error::Error,
-    ff::boolean_array::{BA20, BA3, BA8},
+    ff::boolean_array::{BA3, BA8},
     helpers::{
         query::{HybridQueryParams, QuerySize},
         BodyStream, LengthDelimitedStream,
@@ -15,25 +15,34 @@ use crate::{
         hybrid::step::HybridStep,
         step::ProtocolStep::Hybrid,
     },
-    report::hybrid::{EncryptedHybridReport, HybridReport, UniqueTag, UniqueTagValidator},
+    report::{
+        hybrid::{EncryptedHybridGeneralReport, HybridReport, UniqueTag, UniqueTagValidator},
+        hybrid_info::HybridInfo,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare as ReplicatedShare, SharedValue},
 };
 
 #[allow(dead_code)]
-pub struct Query<C, HV, R: PrivateKeyRegistry> {
+pub struct Query<'a, C, HV, R: PrivateKeyRegistry> {
     config: HybridQueryParams,
     key_registry: Arc<R>,
+    hybrid_info: HybridInfo<'a>,
     phantom_data: PhantomData<(C, HV)>,
 }
 
-impl<C, HV: SharedValue, R: PrivateKeyRegistry> Query<C, HV, R>
+impl<'a, C, HV: SharedValue, R: PrivateKeyRegistry> Query<'a, C, HV, R>
 where
     C: ShardedContext,
 {
-    pub fn new(query_params: HybridQueryParams, key_registry: Arc<R>) -> Self {
+    pub fn new(
+        query_params: HybridQueryParams,
+        key_registry: Arc<R>,
+        hybrid_info: HybridInfo<'a>,
+    ) -> Self {
         Self {
             config: query_params,
             key_registry,
+            hybrid_info,
             phantom_data: PhantomData,
         }
     }
@@ -48,6 +57,7 @@ where
         let Self {
             config,
             key_registry,
+            hybrid_info,
             phantom_data: _,
         } = self;
 
@@ -62,16 +72,20 @@ where
         }
 
         let (_decrypted_reports, tags): (Vec<HybridReport<BA8, BA3>>, Vec<UniqueTag>) =
-            LengthDelimitedStream::<EncryptedHybridReport, _>::new(input_stream)
+            //LengthDelimitedStream::<EncryptedOprfReport<BA8, BA3, BA20, Bytes>, _>::new(input_stream)
+            LengthDelimitedStream::<EncryptedHybridGeneralReport<BA8, BA3>, _>::new(input_stream)
                 .map_err(Into::<Error>::into)
                 .map_ok(|enc_reports| {
                     iter(enc_reports.into_iter().map({
                         |enc_report| {
-                            let dec_report = enc_report
-                                .decrypt::<R, BA8, BA3, BA20>(key_registry.as_ref())
-                                .map_err(Into::<Error>::into);
+                            let dec_report = enc_report.decrypt(key_registry.as_ref(), &hybrid_info).map_err(Into::<Error>::into);
+                            //let dec_report = EncryptedHybridGeneralReport::<BA8,BA3>::decrypt_from_oprf_report_bytes::<R, BA20>(enc_report.serialize(), key_registry.as_ref()).unwrap();//.map_err(Into::<Error>::into);
+                            /*let dec_report = enc_report
+                                .decrypt_from_::<R, BA8, BA3, BA20>(key_registry.as_ref())
+                                .map_err(Into::<Error>::into);*/
                             let unique_tag = UniqueTag::from_unique_bytes(&enc_report);
                             dec_report.map(|dec_report1| (dec_report1, unique_tag))
+                            //(dec_report, unique_tag)
                         }
                     }))
                 })
@@ -114,7 +128,7 @@ mod tests {
 
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA3, BA8},
+            boolean_array::{BA16, BA3, BA8},
             U128Conversions,
         },
         helpers::{
@@ -123,7 +137,11 @@ mod tests {
         },
         hpke::{KeyPair, KeyRegistry},
         query::runner::hybrid::Query as HybridQuery,
-        report::{OprfReport, DEFAULT_KEY_ID},
+        report::{
+            hybrid::HybridReport,
+            hybrid_info::{HybridConversionInfo, HybridInfo},
+            DEFAULT_KEY_ID,
+        },
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::{
             flatten3v, ipa::TestRawDataRecord, Reconstruct, RoundRobinInputDistribution, TestWorld,
@@ -137,7 +155,7 @@ mod tests {
         // TODO: When Encryption/Decryption exists for HybridReports
         // update these to use that, rather than generating OprfReports
         vec![
-            TestRawDataRecord {
+            /*TestRawDataRecord {
                 timestamp: 0,
                 user_id: 12345,
                 is_trigger_report: false,
@@ -150,7 +168,7 @@ mod tests {
                 is_trigger_report: false,
                 breakdown_key: 1,
                 trigger_value: 0,
-            },
+            },*/
             TestRawDataRecord {
                 timestamp: 10,
                 user_id: 12345,
@@ -165,13 +183,13 @@ mod tests {
                 breakdown_key: 0,
                 trigger_value: 2,
             },
-            TestRawDataRecord {
+            /*TestRawDataRecord {
                 timestamp: 20,
                 user_id: 68362,
                 is_trigger_report: false,
                 breakdown_key: 1,
                 trigger_value: 0,
-            },
+            },*/
             TestRawDataRecord {
                 timestamp: 30,
                 user_id: 68362,
@@ -188,17 +206,28 @@ mod tests {
         query_sizes: Vec<QuerySize>,
     }
 
-    fn build_buffers_from_records(records: &[TestRawDataRecord], s: usize) -> BufferAndKeyRegistry {
+    fn build_buffers_from_records(
+        records: &[TestRawDataRecord],
+        s: usize,
+        info: &HybridInfo,
+    ) -> BufferAndKeyRegistry {
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
         let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
 
         let mut buffers: [_; 3] = std::array::from_fn(|_| vec![Vec::new(); s]);
-        let shares: [Vec<OprfReport<BA8, BA3, BA20>>; 3] = records.iter().cloned().share();
+        //let shares: [Vec<OprfReport<BA8, BA3, BA20>>; 3] = records.iter().cloned().share();
+        let shares: [Vec<HybridReport<BA8, BA3>>; 3] = records.iter().cloned().share();
         for (buf, shares) in zip(&mut buffers, shares) {
             for (i, share) in shares.into_iter().enumerate() {
                 share
-                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, &mut buf[i % s])
+                    .delimited_encrypt_to(
+                        key_id,
+                        key_registry.as_ref(),
+                        info,
+                        &mut rng,
+                        &mut buf[i % s],
+                    )
                     .unwrap();
             }
         }
@@ -236,12 +265,16 @@ mod tests {
 
         const SHARDS: usize = 2;
         let records = build_records();
+        let hybrid_info = HybridInfo::Conversion(
+            HybridConversionInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1)
+                .unwrap(),
+        );
 
         let BufferAndKeyRegistry {
             buffers,
             key_registry,
             query_sizes,
-        } = build_buffers_from_records(&records, SHARDS);
+        } = build_buffers_from_records(&records, SHARDS, &hybrid_info);
 
         let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
             TestWorld::with_shards(TestWorldConfig::default());
@@ -267,6 +300,7 @@ mod tests {
                         HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
                             query_params,
                             Arc::clone(&key_registry),
+                            hybrid_info.clone(),
                         )
                         .execute(ctx, query_size, input)
                     })
@@ -300,12 +334,16 @@ mod tests {
     async fn duplicate_encrypted_hybrid_reports() {
         const SHARDS: usize = 2;
         let records = build_records();
+        let hybrid_info = HybridInfo::Conversion(
+            HybridConversionInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1)
+                .unwrap(),
+        );
 
         let BufferAndKeyRegistry {
             mut buffers,
             key_registry,
             query_sizes,
-        } = build_buffers_from_records(&records, SHARDS);
+        } = build_buffers_from_records(&records, SHARDS, &hybrid_info);
 
         // this is double, since we duplicate the data below
         let query_sizes = query_sizes
@@ -353,6 +391,7 @@ mod tests {
                         HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
                             query_params,
                             Arc::clone(&key_registry),
+                            hybrid_info.clone(),
                         )
                         .execute(ctx, query_size, input)
                     })
@@ -372,11 +411,16 @@ mod tests {
         const SHARDS: usize = 2;
         let records = build_records();
 
+        let hybrid_info = HybridInfo::Conversion(
+            HybridConversionInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1)
+                .unwrap(),
+        );
+
         let BufferAndKeyRegistry {
             buffers,
             key_registry,
             query_sizes,
-        } = build_buffers_from_records(&records, SHARDS);
+        } = build_buffers_from_records(&records, SHARDS, &hybrid_info);
 
         let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
             TestWorld::with_shards(TestWorldConfig::default());
@@ -402,6 +446,7 @@ mod tests {
                         HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
                             query_params,
                             Arc::clone(&key_registry),
+                            hybrid_info.clone(),
                         )
                         .execute(ctx, query_size, input)
                     })

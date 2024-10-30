@@ -8,7 +8,10 @@ use crate::{
     },
     protocol::ipa_prf::OPRFIPAInputRow,
     rand::Rng,
-    report::{EventType, OprfReport},
+    report::{
+        hybrid::{HybridConversionReport, HybridImpressionReport, HybridReport},
+        EventType, OprfReport,
+    },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         IntoShares,
@@ -66,6 +69,47 @@ where
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
+    }
+}
+
+impl<BK, V> IntoShares<HybridReport<BK, V>> for TestRawDataRecord
+where
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    V: BooleanArray + U128Conversions + IntoShares<Replicated<V>>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [HybridReport<BK, V>; 3] {
+        let match_key = BA64::try_from(u128::from(self.user_id))
+            .unwrap()
+            .share_with(rng);
+        let breakdown_key = BK::try_from(self.breakdown_key.into())
+            .unwrap()
+            .share_with(rng);
+        let trigger_value = V::try_from(self.trigger_value.into())
+            .unwrap()
+            .share_with(rng);
+        if self.is_trigger_report {
+            zip(match_key, trigger_value)
+                .map(|(match_key_share, trigger_value_share)| {
+                    HybridReport::Conversion::<BK, V>(HybridConversionReport {
+                        match_key: match_key_share,
+                        value: trigger_value_share,
+                    })
+                })
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap()
+        } else {
+            zip(match_key, breakdown_key)
+                .map(|(match_key_share, breakdown_key_share)| {
+                    HybridReport::Impression::<BK, V>(HybridImpressionReport {
+                        match_key: match_key_share,
+                        breakdown_key: breakdown_key_share,
+                    })
+                })
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap()
+        }
     }
 }
 

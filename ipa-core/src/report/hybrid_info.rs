@@ -2,7 +2,7 @@ use crate::report::{hybrid::NonAsciiStringError, KeyIdentifier};
 
 const DOMAIN: &str = "private-attribution";
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HybridImpressionInfo<'a> {
     pub key_id: KeyIdentifier,
     pub helper_origin: &'a str,
@@ -48,7 +48,7 @@ impl<'a> HybridImpressionInfo<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HybridConversionInfo<'a> {
     pub key_id: KeyIdentifier,
     pub helper_origin: &'a str,
@@ -122,6 +122,7 @@ impl<'a> HybridConversionInfo<'a> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum HybridInfo<'a> {
     Impression(HybridImpressionInfo<'a>),
     Conversion(HybridConversionInfo<'a>),
