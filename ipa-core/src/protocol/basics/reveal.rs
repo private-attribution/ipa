@@ -447,7 +447,7 @@ mod tests {
 
         let input = rng.gen::<TestField>();
         let results = world
-            .upgraded_semi_honest::<TestField, _, _, _, _, _>(input, |ctx, share| async move {
+            .dzkp_semi_honest(input, |ctx, share| async move {
                 TestField::from_array(
                     &share
                         .reveal(ctx.set_total_records(1), RecordId::from(0))
@@ -474,7 +474,7 @@ mod tests {
         for &excluded in Role::all() {
             let input = rng.gen::<TestField>();
             let results = world
-                .upgraded_semi_honest::<TestField, _, _, _, _, _>(input, |ctx, share| async move {
+                .dzkp_semi_honest(input, |ctx, share| async move {
                     share
                         .partial_reveal(ctx.set_total_records(1), RecordId::from(0), excluded)
                         .await
@@ -505,7 +505,7 @@ mod tests {
 
         let input = rng.gen::<TestFieldArray>();
         let results = world
-            .upgraded_semi_honest::<TestField, _, _, _, _, _>(
+            .dzkp_semi_honest(
                 input,
                 |ctx, share: AdditiveShare<TestField, 32>| async move {
                     share
@@ -724,17 +724,14 @@ mod tests {
     #[tokio::test]
     async fn reveal_empty_vec() {
         let [res0, res1, res2] = TestWorld::default()
-            .upgraded_semi_honest::<Boolean, _, _, _, _, _>(
-                iter::empty::<Boolean>(),
-                |ctx, share| async move {
-                    reveal(ctx, RecordId::FIRST, &BitDecomposed::new(share))
-                        .await
-                        .unwrap()
-                        .into_iter()
-                        .map(|v| Boolean::from_array(&v))
-                        .collect::<Vec<_>>()
-                },
-            )
+            .dzkp_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
+                reveal(ctx, RecordId::FIRST, &BitDecomposed::new(share))
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .map(|v| Boolean::from_array(&v))
+                    .collect::<Vec<_>>()
+            })
             .await;
 
         assert_eq!(res0, vec![]);
@@ -745,14 +742,11 @@ mod tests {
     #[tokio::test]
     async fn reveal_empty_vec_partial() {
         let [res0, res1, res2] = TestWorld::default()
-            .upgraded_semi_honest::<Boolean, _, _, _, _, _>(
-                iter::empty::<Boolean>(),
-                |ctx, share| async move {
-                    partial_reveal(ctx, RecordId::FIRST, Role::H3, &BitDecomposed::new(share))
-                        .await
-                        .unwrap()
-                },
-            )
+            .dzkp_semi_honest(iter::empty::<Boolean>(), |ctx, share| async move {
+                partial_reveal(ctx, RecordId::FIRST, Role::H3, &BitDecomposed::new(share))
+                    .await
+                    .unwrap()
+            })
             .await;
 
         assert_eq!(res0, Some(vec![]));

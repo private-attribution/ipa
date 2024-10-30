@@ -18,7 +18,7 @@ use ipa_core::{
     error::BoxError,
     executor::IpaRuntime,
     helpers::HelperIdentity,
-    net::{ClientIdentity, MpcHelperClient, MpcHttpTransport, ShardHttpTransport},
+    net::{ClientIdentity, IpaHttpClient, MpcHttpTransport, ShardHttpTransport},
     sharding::ShardIndex,
     AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
@@ -167,7 +167,7 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
     // ---
 
     let http_runtime = new_http_runtime(&logging_handle);
-    let clients = MpcHelperClient::from_conf(
+    let clients = IpaHttpClient::from_conf(
         &IpaRuntime::from_tokio_runtime(&http_runtime),
         &network_config,
         &identity,

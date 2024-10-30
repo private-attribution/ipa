@@ -118,7 +118,7 @@ mod test {
             let random_y_values = (0..256).map(|_| rng.gen::<BA8>()).collect::<Vec<_>>();
 
             let result: Vec<BA16> = world
-                .upgraded_semi_honest(
+                .dzkp_semi_honest(
                     all_x_values
                         .clone()
                         .into_iter()

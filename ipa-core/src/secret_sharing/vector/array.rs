@@ -6,7 +6,7 @@ use std::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{U16, U256, U32, U64};
+use typenum::{Unsigned, U16, U256, U32, U64};
 
 use crate::{
     const_assert_eq,
@@ -355,7 +355,6 @@ macro_rules! impl_serializable {
             fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                 use typenum::Unsigned;
                 let sz: usize = <V as Serializable>::Size::USIZE;
-
                 for i in 0..$width {
                     self.0[i].serialize(
                         GenericArray::try_from_mut_slice(&mut buf[sz * i..sz * (i + 1)]).unwrap(),
@@ -368,7 +367,6 @@ macro_rules! impl_serializable {
             ) -> Result<Self, Self::DeserializationError> {
                 use typenum::Unsigned;
                 let sz: usize = <V as Serializable>::Size::USIZE;
-
                 let mut res = [V::ZERO; $width];
                 for i in 0..$width {
                     res[i] = V::deserialize(GenericArray::from_slice(&buf[sz * i..sz * (i + 1)]))?;
@@ -394,6 +392,7 @@ mod test {
     };
 
     use super::*;
+    use crate::ff::boolean_array::BA3;
 
     impl<V: SharedValue, const N: usize> Arbitrary for StdArray<V, N>
     where
@@ -486,6 +485,13 @@ mod test {
             let iter = a.0.iter().copied();
             let copy = StdArray::<Fp32BitPrime, 32>::from_iter(iter);
             assert_eq!(copy, a);
+        }
+
+        #[test]
+        fn serde(a: StdArray<BA3, 32>) {
+            let mut buf = GenericArray::default();
+            a.serialize(&mut buf);
+            assert_eq!(a, StdArray::deserialize(&buf).unwrap());
         }
     }
 

@@ -829,7 +829,7 @@ mod test {
         let input: BitDecomposed<[Boolean; NUM_BREAKDOWNS as usize]> =
             vectorize_input(16, &input_values);
         let result = world
-            .upgraded_semi_honest(input, |ctx, input| async move {
+            .dzkp_semi_honest(input, |ctx, input| async move {
                 apply_dp_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                     ctx,
                     input,
@@ -871,7 +871,7 @@ mod test {
         }
         let world = TestWorld::default();
         let result: [Vec<Replicated<OutputValue>>; 3] = world
-            .upgraded_semi_honest((), |ctx, ()| async move {
+            .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
@@ -906,7 +906,7 @@ mod test {
         let num_bernoulli: u32 = 2000;
         let world = TestWorld::default();
         let result: [Vec<Replicated<OutputValue>>; 3] = world
-            .upgraded_semi_honest((), |ctx, ()| async move {
+            .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
@@ -941,7 +941,7 @@ mod test {
         let num_bernoulli: u32 = 1000;
         let world = TestWorld::default();
         let result: [Vec<Replicated<OutputValue>>; 3] = world
-            .upgraded_semi_honest((), |ctx, ()| async move {
+            .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,
@@ -982,7 +982,7 @@ mod test {
 
         let num_bernoulli: u32 = 1_000;
         let result: [Vec<Replicated<OutputValue>>; 3] = world
-            .upgraded_semi_honest((), |ctx, ()| async move {
+            .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
                     &gen_binomial_noise::<_, { NUM_BREAKDOWNS as usize }, OutputValue>(
                         ctx,

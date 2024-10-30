@@ -23,9 +23,9 @@ mod server;
 pub mod test;
 mod transport;
 
-pub use client::{ClientIdentity, MpcHelperClient};
+pub use client::{ClientIdentity, IpaHttpClient};
 pub use error::Error;
-pub use server::{MpcHelperServer, TracingSpanMaker};
+pub use server::{IpaHttpServer, TracingSpanMaker};
 pub use transport::{HttpTransport, MpcHttpTransport, ShardHttpTransport};
 
 const APPLICATION_JSON: &str = "application/json";
@@ -115,15 +115,15 @@ pub fn parse_certificate_and_private_key_bytes(
 mod tests {
     use std::io::ErrorKind;
 
-    use crate::net::test;
+    use super::test::get_test_certificate_and_key;
+    use crate::sharding::ShardedHelperIdentity;
 
     const NOTHING: &[u8] = b" ";
     const GARBAGE: &[u8] = b"ksjdhfskjdfhsdf";
 
     #[test]
     fn parse_cert_pk_happy_path() {
-        let mut c = test::TEST_CERTS[0];
-        let mut pk = test::TEST_KEYS[0];
+        let (mut c, mut pk) = get_test_certificate_and_key(ShardedHelperIdentity::ONE_FIRST);
         super::parse_certificate_and_private_key_bytes(&mut c, &mut pk).unwrap();
     }
 
@@ -131,7 +131,7 @@ mod tests {
     #[should_panic(expected = "No certificates found")]
     fn parse_cert_pk_no_cert() {
         let mut c = NOTHING;
-        let mut pk = test::TEST_KEYS[0];
+        let (_, mut pk) = get_test_certificate_and_key(ShardedHelperIdentity::ONE_FIRST);
         let r = super::parse_certificate_and_private_key_bytes(&mut c, &mut pk);
         assert_eq!(r.as_ref().unwrap_err().kind(), ErrorKind::Other);
         r.unwrap();
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "No private key")]
     fn parse_cert_pk_no_pk() {
-        let mut c = test::TEST_CERTS[0];
+        let (mut c, _) = get_test_certificate_and_key(ShardedHelperIdentity::ONE_FIRST);
         let mut pk = NOTHING;
         let r = super::parse_certificate_and_private_key_bytes(&mut c, &mut pk);
         assert_eq!(r.as_ref().unwrap_err().kind(), ErrorKind::Other);

@@ -6,6 +6,34 @@ use std::{
 
 use ipa_metrics::LabelValue;
 
+use crate::helpers::{HelperIdentity, TransportIdentity};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ShardedHelperIdentity {
+    pub helper_identity: HelperIdentity,
+    pub shard_index: ShardIndex,
+}
+
+impl ShardedHelperIdentity {
+    pub const ONE_FIRST: ShardedHelperIdentity = ShardedHelperIdentity {
+        helper_identity: HelperIdentity::ONE,
+        shard_index: ShardIndex::FIRST,
+    };
+
+    #[must_use]
+    pub fn new(helper_identity: HelperIdentity, shard_index: ShardIndex) -> Self {
+        Self {
+            helper_identity,
+            shard_index,
+        }
+    }
+
+    #[must_use]
+    pub fn as_index(&self) -> usize {
+        self.shard_index.as_index() * 3 + self.helper_identity.as_index()
+    }
+}
+
 /// A unique zero-based index of the helper shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ShardIndex(pub u32);

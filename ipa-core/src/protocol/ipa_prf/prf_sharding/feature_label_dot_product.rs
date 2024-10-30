@@ -453,7 +453,7 @@ pub mod tests {
             let users_having_n_records = vec![4, 3, 2, 2, 1, 1, 1, 1];
 
             let result = world
-                .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
+                .dzkp_semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = users_having_n_records.as_slice();
                     async move {
                         compute_feature_label_dot_product::<_, BA8, BA16, 32>(ctx, input_rows, h)

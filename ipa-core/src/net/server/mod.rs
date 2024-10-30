@@ -86,13 +86,13 @@ impl TracingSpanMaker for () {
 /// The Transport Restriction generic is used to make the server aware whether it should offer a
 /// HTTP API for shards or for other Helpers. External clients can reach out to both APIs to push
 /// the input data among other things.
-pub struct MpcHelperServer<F: ConnectionFlavor = Helper> {
+pub struct IpaHttpServer<F: ConnectionFlavor> {
     config: ServerConfig,
     network_config: NetworkConfig<F>,
     router: Router,
 }
 
-impl MpcHelperServer<Helper> {
+impl IpaHttpServer<Helper> {
     #[must_use]
     pub fn new_mpc(
         transport: &MpcHttpTransport,
@@ -100,7 +100,7 @@ impl MpcHelperServer<Helper> {
         network_config: NetworkConfig<Helper>,
     ) -> Self {
         let router = handlers::mpc_router(transport.clone());
-        MpcHelperServer {
+        IpaHttpServer {
             config,
             network_config,
             router,
@@ -108,14 +108,14 @@ impl MpcHelperServer<Helper> {
     }
 }
 
-impl MpcHelperServer<Shard> {
+impl IpaHttpServer<Shard> {
     #[must_use]
     pub fn new_shards(
         _transport: &ShardHttpTransport,
         config: ServerConfig,
         network_config: NetworkConfig<Shard>,
     ) -> Self {
-        MpcHelperServer {
+        IpaHttpServer {
             config,
             network_config,
             router: Router::new(),
@@ -123,7 +123,7 @@ impl MpcHelperServer<Shard> {
     }
 }
 
-impl<F: ConnectionFlavor> MpcHelperServer<F> {
+impl<F: ConnectionFlavor> IpaHttpServer<F> {
     #[cfg(all(test, unit_test))]
     async fn handle_req(&self, req: hyper::Request<axum::body::Body>) -> axum::response::Response {
         use tower::ServiceExt;
@@ -161,7 +161,7 @@ impl<F: ConnectionFlavor> MpcHelperServer<F> {
             TraceLayer::new_for_http()
                 .make_span_with(move |_request: &hyper::Request<_>| tracing.make_span())
                 .on_request(|request: &hyper::Request<_>, _: &Span| {
-                    counter!(RequestProtocolVersion::from(request.version()), 1);
+                    counter!(RequestProtocolVersion::from(request.version()).as_str(), 1);
                     counter!(REQUESTS_RECEIVED, 1);
                 }),
         );
@@ -733,15 +733,15 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11).as_str())
         );
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2).as_str())
         );
         assert_eq!(
             None,
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3).as_str())
         );
     }
 
@@ -768,7 +768,7 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2).as_str())
         );
     }
 }

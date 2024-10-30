@@ -532,8 +532,11 @@ mod tests {
     };
 
     const URI_1: &str = "http://localhost:3000";
+    const URI_1S: &str = "http://localhost:6000";
     const URI_2: &str = "http://localhost:3001";
+    const URI_2S: &str = "http://localhost:6001";
     const URI_3: &str = "http://localhost:3002";
+    const URI_3S: &str = "http://localhost:6002";
 
     #[test]
     fn parse_config() {
@@ -541,18 +544,27 @@ mod tests {
 
         let uri1 = URI_1.parse::<Uri>().unwrap();
         let id1 = HelperIdentity::try_from(1usize).unwrap();
-        let value1 = &conf.network.peers()[id1];
-        assert_eq!(value1.url, uri1);
+        let ring_value1 = &conf.leaders_ring().network.peers()[id1];
+        assert_eq!(ring_value1.url, uri1);
+        let uri1s = URI_1S.parse::<Uri>().unwrap();
+        let sharding_value1 = conf.get_shards_for_helper(id1).network.get_peer(0).unwrap();
+        assert_eq!(sharding_value1.url, uri1s);
 
         let uri2 = URI_2.parse::<Uri>().unwrap();
         let id2 = HelperIdentity::try_from(2usize).unwrap();
-        let value2 = &conf.network.peers()[id2];
-        assert_eq!(value2.url, uri2);
+        let ring_value2 = &conf.leaders_ring().network.peers()[id2];
+        assert_eq!(ring_value2.url, uri2);
+        let uri2s = URI_2S.parse::<Uri>().unwrap();
+        let sharding_value2 = conf.get_shards_for_helper(id2).network.get_peer(0).unwrap();
+        assert_eq!(sharding_value2.url, uri2s);
 
         let uri3 = URI_3.parse::<Uri>().unwrap();
         let id3 = HelperIdentity::try_from(3usize).unwrap();
-        let value3 = &conf.network.peers()[id3];
-        assert_eq!(value3.url, uri3);
+        let ring_value3 = &conf.leaders_ring().network.peers()[id3];
+        assert_eq!(ring_value3.url, uri3);
+        let uri3s = URI_3S.parse::<Uri>().unwrap();
+        let sharding_value3 = conf.get_shards_for_helper(id3).network.get_peer(0).unwrap();
+        assert_eq!(sharding_value3.url, uri3s);
     }
 
     #[test]

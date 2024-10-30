@@ -531,10 +531,9 @@ mod test {
     use crate::{
         ff::{Fp31, Fp32BitPrime, Gf9Bit, PrimeField, Serializable, U128Conversions},
         helpers::MpcMessage,
-        rand::thread_rng,
         secret_sharing::SharedValue,
         sync::Arc,
-        test_executor::run,
+        test_executor::{run, run_random},
     };
 
     fn sender<F: PrimeField>() -> Arc<OrderingSender> {
@@ -725,9 +724,9 @@ mod test {
     }
 
     /// Shuffle `count` indices.
-    pub fn shuffle_indices(count: usize) -> Vec<usize> {
+    pub fn shuffle_indices(count: usize, rng: &mut impl Rng) -> Vec<usize> {
         let mut indices = (0..count).collect::<Vec<_>>();
-        indices.shuffle(&mut thread_rng());
+        indices.shuffle(rng);
         indices
     }
 
@@ -737,11 +736,10 @@ mod test {
         const COUNT: usize = 16;
         const SZ: usize = <<Fp31 as Serializable>::Size as Unsigned>::USIZE;
 
-        run(|| async {
-            let mut rng = thread_rng();
+        run_random(|mut rng| async move {
             let mut values = Vec::with_capacity(COUNT);
             values.resize_with(COUNT, || rng.gen::<Fp31>());
-            let indices = shuffle_indices(COUNT);
+            let indices = shuffle_indices(COUNT, &mut rng);
 
             let sender = sender::<Fp31>();
             let (_, (), output) = join3(
