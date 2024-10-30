@@ -318,7 +318,7 @@ where
 // multiplications per batch
 const CONV_PROOF_CHUNK: usize = 256;
 
-#[tracing::instrument(name = "compute_prf_for_inputs", skip_all, fields(sz = input_rows.len()))]
+#[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
     ctx: C,
     input_rows: &[OPRFIPAInputRow<BK, TV, TS>],
