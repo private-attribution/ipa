@@ -353,7 +353,9 @@ macro_rules! impl_serializable {
             type DeserializationError = <V as Serializable>::DeserializationError;
 
             fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-                let sz: usize = (<V as SharedValue>::BITS / 8).try_into().unwrap();
+                use typenum::Unsigned;
+                let sz: usize = <V as Serializable>::Size::USIZE;
+
                 for i in 0..$width {
                     self.0[i].serialize(
                         GenericArray::try_from_mut_slice(&mut buf[sz * i..sz * (i + 1)]).unwrap(),
@@ -364,7 +366,9 @@ macro_rules! impl_serializable {
             fn deserialize(
                 buf: &GenericArray<u8, Self::Size>,
             ) -> Result<Self, Self::DeserializationError> {
-                let sz: usize = (<V as SharedValue>::BITS / 8).try_into().unwrap();
+                use typenum::Unsigned;
+                let sz: usize = <V as Serializable>::Size::USIZE;
+
                 let mut res = [V::ZERO; $width];
                 for i in 0..$width {
                     res[i] = V::deserialize(GenericArray::from_slice(&buf[sz * i..sz * (i + 1)]))?;
