@@ -125,10 +125,10 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
     /// `https://eprint.iacr.org/2023/909.pdf`
-    pub fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
+    pub fn compute_proof<J>(uv_iterator: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
     where
-        J: Iterator<Item = B>,
-        B: Borrow<([F; L], [F; L])>,
+        J: Iterator,
+        J::Item: Borrow<([F; L], [F; L])>,
     {
         let mut proof = [F::ZERO; P];
         for uv_polynomial in uv_iterator {
@@ -147,14 +147,14 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         proof
     }
 
-    fn gen_challenge_and_recurse<J, B, const N: usize>(
+    fn gen_challenge_and_recurse<J, const N: usize>(
         proof_left: &[F; P],
         proof_right: &[F; P],
         uv_iterator: J,
     ) -> UVValues<F, N>
     where
-        J: Iterator<Item = B>,
-        B: Borrow<([F; L], [F; L])>,
+        J: Iterator,
+        J::Item: Borrow<([F; L], [F; L])>,
     {
         let r: F = hash_to_field(
             &compute_hash(proof_left),
@@ -213,7 +213,7 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     /// where
     /// `share_of_proof_from_prover_left` from left has type `Vec<[F; P]>`,
     /// `my_proof_left_share` has type `Vec<[F; P]>`,
-    pub fn gen_artefacts_from_recursive_step<C, J, B, const N: usize>(
+    pub fn gen_artefacts_from_recursive_step<C, J, const N: usize>(
         ctx: &C,
         record_ids: &mut RecordIdRange,
         lagrange_table: &LagrangeTable<F, L, M>,
@@ -221,8 +221,8 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
-        J: Iterator<Item = B> + Clone,
-        B: Borrow<([F; L], [F; L])>,
+        J: Iterator + Clone,
+        J::Item: Borrow<([F; L], [F; L])>,
     {
         // generate next proof
         // from iterator
@@ -356,7 +356,7 @@ mod test {
             .unwrap();
 
         // fiat-shamir
-        let uv_3 = TestProofGenerator::gen_challenge_and_recurse::<_, _, 4>(
+        let uv_3 = TestProofGenerator::gen_challenge_and_recurse::<_, 4>(
             &proof_left_2,
             &proof_right_2,
             uv_2.iter(),
@@ -397,13 +397,12 @@ mod test {
             // first iteration
             let world = TestWorld::default();
             let mut record_ids = RecordIdRange::ALL;
-            let (uv_values, _, _) =
-                TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, _, 4>(
-                    &world.contexts()[0],
-                    &mut record_ids,
-                    &lagrange_table,
-                    uv_1.iter(),
-                );
+            let (uv_values, _, _) = TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, 4>(
+                &world.contexts()[0],
+                &mut record_ids,
+                &lagrange_table,
+                uv_1.iter(),
+            );
 
             assert_eq!(7, uv_values.len());
         });
@@ -441,7 +440,7 @@ mod test {
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
 
-        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
+        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, 8>(
             &proof,
             &proof,
             uv_before.iter(),
@@ -477,7 +476,7 @@ mod test {
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
 
-        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
+        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, 8>(
             &proof,
             &proof,
             uv_before.iter(),
