@@ -369,7 +369,7 @@ where
                 send_channel.send(record_id, c1),
                 recv_channel.receive(record_id),
             )
-            .map_ok(move |((), c2)| S::new(b, c1 + c2))
+            .map_ok(move |((), c2): ((), S::Share)| S::new(b, c1 + c2))
         }))
         .await?;
 

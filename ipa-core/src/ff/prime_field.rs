@@ -117,14 +117,22 @@ macro_rules! field_impl {
             const PRIME: Self::PrimeInteger = $prime;
         }
 
-        impl std::ops::Add for $field {
+        impl std::ops::Add<&$field> for $field {
             type Output = Self;
 
-            fn add(self, rhs: Self) -> Self::Output {
+            fn add(self, rhs: &Self) -> Self::Output {
                 let c = u64::from;
                 debug_assert!(c(Self::PRIME) < (u64::MAX >> 1));
                 #[allow(clippy::cast_possible_truncation)]
                 Self(((c(self.0) + c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
+            }
+        }
+
+        impl std::ops::Add for $field {
+            type Output = Self;
+
+            fn add(self, rhs: Self) -> Self::Output {
+                std::ops::Add::add(self, &rhs)
             }
         }
 
@@ -143,10 +151,10 @@ macro_rules! field_impl {
             }
         }
 
-        impl std::ops::Sub for $field {
+        impl std::ops::Sub<&$field> for $field {
             type Output = Self;
 
-            fn sub(self, rhs: Self) -> Self::Output {
+            fn sub(self, rhs: &Self) -> Self::Output {
                 let c = u64::from;
                 debug_assert!(c(Self::PRIME) < (u64::MAX >> 1));
                 // TODO(mt) - constant time?
@@ -155,6 +163,14 @@ macro_rules! field_impl {
                     ((c(Self::PRIME) + c(self.0) - c(rhs.0)) % c(Self::PRIME))
                         as <Self as SharedValue>::Storage,
                 )
+            }
+        }
+
+        impl std::ops::Sub for $field {
+            type Output = Self;
+
+            fn sub(self, rhs: Self) -> Self::Output {
+                std::ops::Sub::sub(self, &rhs)
             }
         }
 

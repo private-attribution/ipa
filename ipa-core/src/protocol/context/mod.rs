@@ -690,7 +690,7 @@ mod tests {
             ctx.role().peer(Direction::Right),
         );
         let record_id = index.into();
-        let (l, r) = ctx.prss().generate_fields(record_id);
+        let (l, r): (F, F) = ctx.prss().generate_fields(record_id);
 
         let (seq_l, seq_r) = {
             let ctx = ctx.narrow(&format!("seq-prss-{record_id}"));

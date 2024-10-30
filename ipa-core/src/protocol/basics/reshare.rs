@@ -74,7 +74,7 @@ impl<C: Context, F: Field> Reshare<C> for Replicated<F> {
                 .await?;
 
             // Sleep until `to_helper.right` sends us their part2 value
-            let part2 = ctx
+            let part2: F = ctx
                 .recv_channel(to_helper.peer(Direction::Right))
                 .receive(record_id)
                 .await?;

@@ -78,11 +78,19 @@ impl Serializable for RP25519 {
 ///## Panics
 /// Panics when decompressing invalid curve point. This can happen when deserialize curve point
 /// from bit array that does not have a valid representation on the curve
+impl std::ops::Add<&Self> for RP25519 {
+    type Output = Self;
+
+    fn add(self, rhs: &Self) -> Self::Output {
+        Self((self.0.decompress().unwrap() + rhs.0.decompress().unwrap()).compress())
+    }
+}
+
 impl std::ops::Add for RP25519 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self((self.0.decompress().unwrap() + rhs.0.decompress().unwrap()).compress())
+        std::ops::Add::add(self, &rhs)
     }
 }
 
@@ -107,11 +115,19 @@ impl std::ops::Neg for RP25519 {
 ///## Panics
 /// Panics when decompressing invalid curve point. This can happen when deserialize curve point
 /// from bit array that does not have a valid representation on the curve
+impl std::ops::Sub<&Self> for RP25519 {
+    type Output = Self;
+
+    fn sub(self, rhs: &Self) -> Self::Output {
+        Self((self.0.decompress().unwrap() - rhs.0.decompress().unwrap()).compress())
+    }
+}
+
 impl std::ops::Sub for RP25519 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self((self.0.decompress().unwrap() - rhs.0.decompress().unwrap()).compress())
+        std::ops::Sub::sub(self, &rhs)
     }
 }
 

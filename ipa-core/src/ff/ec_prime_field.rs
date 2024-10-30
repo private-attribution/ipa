@@ -84,11 +84,19 @@ impl rand::distributions::Distribution<Fp25519> for rand::distributions::Standar
     }
 }
 
+impl std::ops::Add<&Self> for Fp25519 {
+    type Output = Self;
+
+    fn add(self, rhs: &Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
 impl std::ops::Add for Fp25519 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
+        std::ops::Add::add(self, &rhs)
     }
 }
 
@@ -107,11 +115,19 @@ impl std::ops::Neg for Fp25519 {
     }
 }
 
+impl std::ops::Sub<&Self> for Fp25519 {
+    type Output = Self;
+
+    fn sub(self, rhs: &Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
 impl std::ops::Sub for Fp25519 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
+        std::ops::Sub::sub(self, &rhs)
     }
 }
 

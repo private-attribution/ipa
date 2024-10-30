@@ -36,12 +36,15 @@ use crate::{
 
 /// Operations supported for weak shared values.
 pub trait Additive<Rhs = Self, Output = Self>:
-    AddSub<Rhs, Output> + AddSubAssign<Rhs> + Neg<Output = Output>
+    AddSub<Rhs, Output> + for<'a> AddSub<&'a Rhs, Output> + AddSubAssign<Rhs> + Neg<Output = Output>
 {
 }
 
 impl<T, Rhs, Output> Additive<Rhs, Output> for T where
-    T: AddSub<Rhs, Output> + AddSubAssign<Rhs> + Neg<Output = Output>
+    T: AddSub<Rhs, Output>
+        + for<'a> AddSub<&'a Rhs, Output>
+        + AddSubAssign<Rhs>
+        + Neg<Output = Output>
 {
 }
 

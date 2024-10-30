@@ -287,10 +287,17 @@ macro_rules! bit_array_impl {
                 }
             }
 
+            impl std::ops::Sub<&$name> for $name {
+                type Output = Self;
+                fn sub(self, rhs: &Self) -> Self::Output {
+                    std::ops::Add::add(self, rhs)
+                }
+            }
+
             impl std::ops::Sub for $name {
                 type Output = Self;
                 fn sub(self, rhs: Self) -> Self::Output {
-                    self + rhs
+                    std::ops::Sub::sub(self, &rhs)
                 }
             }
 

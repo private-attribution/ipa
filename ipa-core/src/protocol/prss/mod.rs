@@ -655,8 +655,8 @@ pub mod test {
         let s3 = p3.indexed(&step);
 
         let r1: Fp31 = random(&*s1, IDX1);
-        let r2 = random(&*s2, IDX1);
-        let r3 = random(&*s3, IDX1);
+        let r2: Fp31 = random(&*s2, IDX1);
+        let r3: Fp31 = random(&*s3, IDX1);
         let v1 = r1 + r2 + r3;
 
         // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
@@ -664,8 +664,8 @@ pub mod test {
         let mut v2 = Fp31::truncate_from(0_u8);
         for i in IDX2..(IDX2 + 21) {
             let r1: Fp31 = random(&*s1, i);
-            let r2 = random(&*s2, i);
-            let r3 = random(&*s3, i);
+            let r2: Fp31 = random(&*s2, i);
+            let r3: Fp31 = random(&*s3, i);
 
             v2 = r1 + r2 + r3;
             if v1 != v2 {
