@@ -26,7 +26,7 @@ use crate::{
     executor::{IpaJoinHandle, IpaRuntime},
     helpers::{HandlerBox, HelperIdentity, RequestHandler, TransportIdentity},
     hpke::{Deserializable as _, IpaPublicKey},
-    net::{ClientIdentity, Helper, IpaHttpClient, MpcHelperServer},
+    net::{ClientIdentity, Helper, IpaHttpClient, IpaHttpServer},
     sharding::{ShardIndex, ShardedHelperIdentity},
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
@@ -393,7 +393,7 @@ pub struct TestServer {
     pub addr: SocketAddr,
     pub handle: IpaJoinHandle<()>,
     pub transport: MpcHttpTransport,
-    pub server: MpcHelperServer<Helper>,
+    pub server: IpaHttpServer<Helper>,
     pub client: IpaHttpClient<Helper>,
     pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
 }
