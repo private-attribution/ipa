@@ -276,7 +276,7 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 0, 0, 1, 0, 1, 1])),
             ];
             let result: BitDecomposed<BA8> = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -299,7 +299,7 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
             ];
             let result = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -325,7 +325,7 @@ pub mod tests {
                 Ok(input_row(3, &[0, 0, 0, 1, 3, 1, 2, 0])),
             ];
             let result = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -353,7 +353,7 @@ pub mod tests {
                 Ok(input_row(7, &[0, 0, 0, 1, 0, 2, 2, 1])),
             ];
             let result = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -380,7 +380,7 @@ pub mod tests {
                 Ok(input_row(7, &[0, 0x40, 0x7f, 1, 0, 0, 0, 0])),
             ];
             let result = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -400,7 +400,7 @@ pub mod tests {
     fn aggregate_empty() {
         run(|| async move {
             let result = TestWorld::default()
-                .upgraded_semi_honest((), |ctx, ()| {
+                .dzkp_semi_honest((), |ctx, ()| {
                     aggregate_values::<_, BA8, 8>(ctx, stream::empty().boxed(), 0, None)
                 })
                 .await
@@ -420,7 +420,7 @@ pub mod tests {
                 Err(Error::Internal),
             ];
             let result = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -440,7 +440,7 @@ pub mod tests {
         run(|| async move {
             let inputs = vec![Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0]))];
             let _ = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() + 1;
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -462,7 +462,7 @@ pub mod tests {
                 Ok(input_row(1, &[0, 0, 1, 1, 0, 0, 0, 0])),
             ];
             let _ = TestWorld::default()
-                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .dzkp_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len() - 1;
                     aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows, None)
                 })
@@ -544,7 +544,7 @@ pub mod tests {
                     Ok(input_row(tv_bits, &row))
                 });
                 let result: BitDecomposed<PropHistogramValue> = TestWorld::with_seed(seed)
-                    .upgraded_semi_honest(inputs, |ctx, inputs| {
+                    .dzkp_semi_honest(inputs, |ctx, inputs| {
                         let num_rows = inputs.len();
                         aggregate_values::<_, PropHistogramValue, PROP_BUCKETS>(
                             ctx,

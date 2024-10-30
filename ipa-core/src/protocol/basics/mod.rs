@@ -79,11 +79,6 @@ where
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>>
-    for AdditiveShare<Boolean>
-{
-}
-
 impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>>
     for AdditiveShare<Boolean>
 {
@@ -95,13 +90,8 @@ impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'a, B>>
 }
 
 // Used for aggregation tests
-impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 8>
+impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, 8>
     for AdditiveShare<Boolean, 8>
-{
-}
-
-impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, PRF_CHUNK>
-    for AdditiveShare<Boolean, PRF_CHUNK>
 {
 }
 
@@ -112,11 +102,6 @@ impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>,
 
 impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'a, B>, PRF_CHUNK>
     for AdditiveShare<Boolean, PRF_CHUNK>
-{
-}
-
-impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, AGG_CHUNK>
-    for AdditiveShare<Boolean, AGG_CHUNK>
 {
 }
 
@@ -147,12 +132,7 @@ const_assert_eq!(
     "Implementation for N = 16 required for num_breakdowns"
 );
 
-impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 32>
-    for AdditiveShare<Boolean, 32>
-{
-}
-
-impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, 3>
+impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, 3>
     for AdditiveShare<Boolean, 3>
 {
 }
