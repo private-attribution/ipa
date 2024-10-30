@@ -52,11 +52,7 @@ impl<'a, T: Serializable> SerializeAs<T> for &'a T {
 
 impl MpcMessage for Hash {}
 
-/// Computes Hash of serializable values from an iterator
-///
-/// ## Panics
-/// Panics when Iterator is empty.
-pub fn compute_hash<I, T, S>(input: I) -> Hash
+fn compute_hash_internal<I, T, S>(input: I) -> (Hash, bool)
 where
     I: IntoIterator<Item = T>,
     T: SerializeAs<S>,
@@ -74,9 +70,37 @@ where
         sha.update(&buf);
     }
 
-    assert!(!is_empty, "must not provide an empty iterator");
     // compute hash
-    Hash(sha.finalize())
+    (Hash(sha.finalize()), is_empty)
+}
+
+/// Computes Hash of serializable values from an iterator
+///
+/// ## Panics
+/// Panics if an empty input is provided. This can offer defense-in-depth by helping to
+/// prevent fail-open bugs when the input should never be empty.
+pub fn compute_hash<I, T, S>(input: I) -> Hash
+where
+    I: IntoIterator<Item = T>,
+    T: SerializeAs<S>,
+    S: Serializable,
+{
+    let (hash, empty) = compute_hash_internal(input);
+    assert!(!empty, "must not provide an empty iterator");
+    hash
+}
+
+/// Computes Hash of serializable values from an iterator
+///
+/// Unlike `compute_hash`, this version accepts empty inputs.
+pub fn compute_possibly_empty_hash<I, T, S>(iter: I) -> Hash
+where
+    I: IntoIterator<Item = T>,
+    T: SerializeAs<S>,
+    S: Serializable,
+{
+    let (hash, _) = compute_hash_internal(iter);
+    hash
 }
 
 /// This function takes two hashes, combines them together and returns a single field element.
@@ -128,11 +152,13 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::iter;
+
     use generic_array::{sequence::GenericSequence, GenericArray};
     use rand::{thread_rng, Rng};
     use typenum::U8;
 
-    use super::{compute_hash, Hash};
+    use super::{compute_hash, compute_possibly_empty_hash, Hash};
     use crate::{
         ff::{Fp31, Fp32BitPrime, Serializable},
         helpers::hashing::hash_to_field,
@@ -238,5 +264,25 @@ mod test {
         let mut rng = thread_rng();
         let vec = (0..100).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
         assert_eq!(compute_hash(&vec), compute_hash(vec));
+    }
+
+    #[test]
+    #[should_panic(expected = "must not provide an empty iterator")]
+    fn empty_reject() {
+        compute_hash(iter::empty::<Fp31>());
+    }
+
+    #[test]
+    fn empty_accept() {
+        // SHA256 hash of zero-length input.
+        let empty_hash = Hash::deserialize(GenericArray::from_slice(
+            &hex::decode(b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+                .unwrap(),
+        ))
+        .unwrap();
+        assert_eq!(
+            compute_possibly_empty_hash(iter::empty::<Fp31>()),
+            empty_hash
+        );
     }
 }

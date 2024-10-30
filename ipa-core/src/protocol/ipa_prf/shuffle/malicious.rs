@@ -12,7 +12,7 @@ use crate::{
     error::Error,
     ff::{boolean_array::BooleanArray, Field, Gf32Bit, Serializable},
     helpers::{
-        hashing::{compute_hash, Hash},
+        hashing::{compute_possibly_empty_hash, Hash},
         Direction, TotalRecords,
     },
     protocol::{
@@ -348,7 +348,7 @@ where
             .into_iter()
             .chain(iter::once(tag))
     });
-    compute_hash(iterator.map(|row_entry_iterator| {
+    compute_possibly_empty_hash(iterator.map(|row_entry_iterator| {
         row_entry_iterator
             .zip(keys)
             .fold(Gf32Bit::ZERO, |acc, (row_entry, key)| {
@@ -414,9 +414,12 @@ where
 {
     let row_iterator = rows.into_iter();
     let length = row_iterator.len();
+    if length == 0 {
+        return Ok(Vec::new());
+    }
     let row_length = keys.len();
-    // make sure total records is not 0
-    debug_assert!(length * row_length != 0);
+    // Make sure `total_records` is not zero.
+    debug_assert!(row_length != 0);
     let tag_ctx = ctx.set_total_records(TotalRecords::specified(length * row_length)?);
     let p_ctx = &tag_ctx;
 
@@ -566,6 +569,23 @@ mod tests {
             result.sort_by_key(BA112::as_u128);
 
             assert_eq!(records, result);
+        });
+    }
+
+    #[test]
+    fn empty() {
+        run(|| async {
+            assert_eq!(
+                TestWorld::default()
+                    .semi_honest(iter::empty::<BA32>(), |ctx, records| async move {
+                        malicious_shuffle::<_, _, BA64, _>(ctx, records)
+                            .await
+                            .unwrap()
+                    })
+                    .await
+                    .reconstruct(),
+                Vec::<BA32>::new(),
+            );
         });
     }
 
