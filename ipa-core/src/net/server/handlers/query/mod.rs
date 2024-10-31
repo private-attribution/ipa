@@ -52,6 +52,7 @@ pub fn h2h_router(transport: MpcHttpTransport) -> Router {
         .layer(layer_fn(HelperAuthentication::<_, Helper>::new))
 }
 
+/// Construct router for shard-to-shard communications similar to [`h2h_router`].
 pub fn s2s_router(transport: ShardHttpTransport) -> Router {
     Router::new()
         .merge(prepare::router(transport.inner_transport))
