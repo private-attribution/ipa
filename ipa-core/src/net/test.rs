@@ -46,7 +46,7 @@ pub const DEFAULT_TEST_PORTS: Ports = Ports {
     shards: [6000, 6001, 6002],
 };
 
-/// A network with 4 shards per helper.
+/// A network with two shards per helper.
 pub const TWO_SHARDS: [Ports; 2] = [
     Ports {
         ring: [3000, 3001, 3002],
@@ -240,11 +240,58 @@ fn server_config_https(
     }
 }
 
+/// This struct contains the components needed to start a new IPA app from a [`TestConfig`].
 pub struct TestApp {
     pub mpc_server: AddressableTestServer,
     pub shard_server: AddressableTestServer,
     pub mpc_network_config: NetworkConfig<Helper>,
     pub shard_network_config: NetworkConfig<Shard>,
+}
+
+#[cfg(all(test, web_test, descriptive_gate))]
+impl TestApp {
+    pub async fn start_app(mut self, disable_https: bool) -> crate::HelperApp {
+        let (setup, mpc_handler) = crate::AppSetup::new(crate::AppConfig::default());
+        let sid = self.mpc_server.id;
+        let identities = ClientIdentities::new(disable_https, sid);
+
+        // Ring config
+        let clients = IpaHttpClient::from_conf(
+            &IpaRuntime::current(),
+            &self.mpc_network_config,
+            &identities.helper,
+        );
+        let (transport, server) = MpcHttpTransport::new(
+            IpaRuntime::current(),
+            sid.helper_identity,
+            self.mpc_server.config,
+            self.mpc_network_config,
+            &clients,
+            Some(mpc_handler),
+        );
+
+        // Shard Config
+        let shard_clients = IpaHttpClient::<Shard>::shards_from_conf(
+            &IpaRuntime::current(),
+            &self.shard_network_config,
+            &identities.shard,
+        );
+        let (shard_transport, shard_server) = super::ShardHttpTransport::new(
+            IpaRuntime::current(),
+            sid.shard_index,
+            self.shard_server.config,
+            self.shard_network_config,
+            shard_clients,
+            None,
+        );
+
+        futures::future::join(
+            server.start_on(&IpaRuntime::current(), self.mpc_server.socket.take(), ()),
+            shard_server.start_on(&IpaRuntime::current(), self.shard_server.socket.take(), ()),
+        )
+        .await;
+        setup.connect(transport, shard_transport)
+    }
 }
 
 /// Uber container for test configuration. Provides access to a vec of MPC rings and 3 sharding

@@ -351,10 +351,7 @@ mod tests {
     use std::{iter::zip, task::Poll};
 
     use bytes::Bytes;
-    use futures::{
-        future::join,
-        stream::{poll_immediate, StreamExt},
-    };
+    use futures::stream::{poll_immediate, StreamExt};
     use futures_util::future::{join_all, try_join_all};
     use generic_array::GenericArray;
     use once_cell::sync::Lazy;
@@ -371,11 +368,11 @@ mod tests {
         },
         net::{
             client::ClientIdentity,
-            test::{ClientIdentities, TestApp, TestConfig, TestConfigBuilder, TestServer},
+            test::{TestConfig, TestConfigBuilder, TestServer},
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::Reconstruct,
-        AppConfig, AppSetup, HelperApp,
+        HelperApp,
     };
 
     static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
@@ -447,67 +444,13 @@ mod tests {
         );
     }
 
-    async fn start_app(mut test_app: TestApp, disable_https: bool) -> HelperApp {
-        let (setup, mpc_handler, shard_handler) = AppSetup::new(AppConfig::default());
-        let sid = test_app.mpc_server.id;
-        let identities = ClientIdentities::new(disable_https, sid);
-
-        // Ring config
-        let clients = IpaHttpClient::from_conf(
-            &IpaRuntime::current(),
-            &test_app.mpc_network_config,
-            &identities.helper,
-        );
-        let (transport, server) = MpcHttpTransport::new(
-            IpaRuntime::current(),
-            sid.helper_identity,
-            test_app.mpc_server.config,
-            test_app.mpc_network_config,
-            &clients,
-            Some(mpc_handler),
-        );
-
-        // Shard Config
-        let shard_clients = IpaHttpClient::<Shard>::shards_from_conf(
-            &IpaRuntime::current(),
-            &test_app.shard_network_config,
-            &identities.shard,
-        );
-        let (shard_transport, shard_server) = ShardHttpTransport::new(
-            IpaRuntime::current(),
-            Sharded {
-                shard_id: sid.shard_index,
-                shard_count: test_app.shard_network_config.shard_count(),
-            },
-            test_app.shard_server.config,
-            test_app.shard_network_config,
-            shard_clients,
-            Some(shard_handler),
-        );
-
-        join(
-            server.start_on(
-                &IpaRuntime::current(),
-                test_app.mpc_server.socket.take(),
-                (),
-            ),
-            shard_server.start_on(
-                &IpaRuntime::current(),
-                test_app.shard_server.socket.take(),
-                (),
-            ),
-        )
-        .await;
-        setup.connect(transport, shard_transport)
-    }
-
     // TODO(651): write a test for an error while reading the body (after error handling is finalized)
     async fn make_helpers(conf: TestConfig) -> Vec<HelperApp> {
         let disable_https = conf.disable_https;
         join_all(
             conf.into_apps()
                 .into_iter()
-                .map(|a| start_app(a, disable_https)),
+                .map(|a| a.start_app(disable_https)),
         )
         .await
     }
