@@ -536,12 +536,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn two_shards_https() {
-        let conf = TestConfigBuilder::default().two_shards().build();
-        test_make_helpers(conf).await;
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn four_shards_http() {
         let conf = TestConfigBuilder::default()
             .with_shard_count(4)

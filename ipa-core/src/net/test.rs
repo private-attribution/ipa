@@ -46,20 +46,8 @@ pub const DEFAULT_TEST_PORTS: Ports = Ports {
     shards: [6000, 6001, 6002],
 };
 
-/// A network with two shards per helper.
-pub const TWO_SHARDS: [Ports; 2] = [
-    Ports {
-        ring: [3000, 3001, 3002],
-        shards: [6000, 6001, 6002],
-    },
-    Ports {
-        ring: [3010, 3011, 3012],
-        shards: [6010, 6011, 6012],
-    },
-];
-
 /// A network with 4 shards per helper.
-pub const FOUR_SHARDS: [Ports; 4] = [
+const FOUR_SHARDS: [Ports; 4] = [
     Ports {
         ring: [10000, 10001, 10002],
         shards: [10005, 10006, 10007],
@@ -447,16 +435,6 @@ impl TestConfigBuilder {
     }
 
     #[must_use]
-    pub fn four_shards(self) -> Self {
-        self.with_ports_by_ring(FOUR_SHARDS.to_vec())
-    }
-
-    #[must_use]
-    pub fn two_shards(self) -> Self {
-        self.with_ports_by_ring(TWO_SHARDS.to_vec())
-    }
-
-    #[must_use]
     pub fn with_shard_count(mut self, value: u32) -> Self {
         self.shard_count = value;
         self
@@ -838,7 +816,7 @@ mod tests {
         // Providing ports and no https certs to keep this test fast
         let conf = TestConfigBuilder::default()
             .with_disable_https_option(true)
-            .four_shards()
+            .with_ports_by_ring(FOUR_SHARDS.to_vec())
             .build();
 
         assert!(conf.disable_https);
