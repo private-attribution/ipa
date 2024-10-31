@@ -464,7 +464,7 @@ pub struct TestServer {
     pub transport: MpcHttpTransport,
     pub server: IpaHttpServer<Helper>,
     pub client: IpaHttpClient<Helper>,
-    pub request_handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
+    pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
 }
 
 impl TestServer {
@@ -485,7 +485,7 @@ impl TestServer {
 
 #[derive(Default)]
 pub struct TestServerBuilder {
-    handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
+    handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
     use_http1: bool,
@@ -496,7 +496,7 @@ impl TestServerBuilder {
     #[must_use]
     pub fn with_request_handler(
         mut self,
-        handler: Arc<dyn RequestHandler<HelperIdentity>>,
+        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
     ) -> Self {
         self.handler = Some(handler);
         self
