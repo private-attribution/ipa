@@ -7,9 +7,12 @@ use std::{
 use async_trait::async_trait;
 use futures::Stream;
 
+#[cfg(feature = "in-memory-infra")]
+use crate::{helpers::in_memory_config::InspectContext, sharding::ShardContext};
 use crate::{
-    helpers::HelperIdentity,
+    helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
+    sharding::ShardIndex,
 };
 
 mod handler;
@@ -34,11 +37,6 @@ pub use stream::{
     StreamCollection, StreamKey, WrappedBoxBodyStream,
 };
 
-use crate::{
-    helpers::{transport::routing::RouteId, Role, TransportIdentity},
-    sharding::ShardIndex,
-};
-
 /// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
 /// types of peers - helpers and shards.
 pub trait Identity:
@@ -54,6 +52,14 @@ pub trait Identity:
 
     /// Returns a 0-based index suitable to index Vec or other containers.
     fn as_index(&self) -> usize;
+
+    #[cfg(feature = "in-memory-infra")]
+    fn inspect_context(
+        &self,
+        shard: ShardContext,
+        helper: HelperIdentity,
+        gate: Gate,
+    ) -> InspectContext;
 }
 
 impl Identity for ShardIndex {
@@ -72,7 +78,23 @@ impl Identity for ShardIndex {
     fn as_index(&self) -> usize {
         usize::from(*self)
     }
+
+    #[cfg(feature = "in-memory-infra")]
+    fn inspect_context(
+        &self,
+        shard: ShardContext,
+        helper: HelperIdentity,
+        gate: Gate,
+    ) -> InspectContext {
+        InspectContext::ShardMessage {
+            helper,
+            source: shard.unwrap(),
+            dest: *self,
+            gate,
+        }
+    }
 }
+
 impl Identity for HelperIdentity {
     fn as_str(&self) -> Cow<'static, str> {
         Cow::Borrowed(match *self {
@@ -96,6 +118,21 @@ impl Identity for HelperIdentity {
 
     fn as_index(&self) -> usize {
         usize::from(self.id) - 1
+    }
+
+    #[cfg(feature = "in-memory-infra")]
+    fn inspect_context(
+        &self,
+        shard: ShardContext,
+        helper: HelperIdentity,
+        gate: Gate,
+    ) -> InspectContext {
+        InspectContext::MpcMessage {
+            shard,
+            source: helper,
+            dest: *self,
+            gate,
+        }
     }
 }
 
@@ -123,6 +160,16 @@ impl Identity for Role {
             Self::H2 => 1,
             Self::H3 => 2,
         }
+    }
+
+    #[cfg(feature = "in-memory-infra")]
+    fn inspect_context(
+        &self,
+        _shard: ShardContext,
+        _helper: HelperIdentity,
+        _gate: Gate,
+    ) -> InspectContext {
+        unimplemented!("inspection should use helper identities, not roles")
     }
 }
 

@@ -11,6 +11,7 @@ use crate::{
         in_memory_config::DynStreamInterceptor, transport::in_memory::config::passthrough,
         HandlerRef, HelperIdentity,
     },
+    sharding::ShardContext,
     sync::{Arc, Weak},
 };
 
@@ -34,21 +35,28 @@ impl InMemoryMpcNetwork {
         [None, None, None]
     }
 
+    /// Construct an unsharded `InMemoryMpcNetwork` with no stream interceptor.
     #[must_use]
     pub fn new(handlers: [Option<HandlerRef>; 3]) -> Self {
-        Self::with_stream_interceptor(handlers, &passthrough())
+        Self::with_stream_interceptor(handlers, &passthrough(), None)
     }
 
+    /// Construct an `InMemoryMpcNetwork` with a stream interceptor.
+    ///
+    /// For sharded environments, the `shard_index` must be provided so that the
+    /// interceptor can distinguish helper-to-helper streams for different shards.
+    /// For unsharded environments, pass `None` for `shard_index`.
     #[must_use]
     pub fn with_stream_interceptor(
         handlers: [Option<HandlerRef>; 3],
         interceptor: &DynStreamInterceptor,
+        shard_context: ShardContext,
     ) -> Self {
         let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three().map(|i| {
             let mut config_builder = TransportConfigBuilder::for_helper(i);
             config_builder.with_interceptor(interceptor);
 
-            Setup::with_config(i, config_builder.not_sharded())
+            Setup::with_config(i, config_builder.with_sharding(shard_context))
         });
 
         first.connect(&mut second);

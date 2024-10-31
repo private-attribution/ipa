@@ -798,6 +798,7 @@ impl<B: ShardBinding> ShardWorld<B> {
         let network = InMemoryMpcNetwork::with_stream_interceptor(
             InMemoryMpcNetwork::noop_handlers(),
             &config.stream_interceptor,
+            shard_info.context(),
         );
 
         let mut gateways = zip3_ref(&network.transports(), &transports).map(|(mpc, shard)| {
@@ -916,6 +917,7 @@ impl<const SEED: u64> Distribute for Random<SEED> {
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
+        iter,
         sync::{Arc, Mutex},
     };
 
@@ -947,7 +949,7 @@ mod tests {
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
         },
-        sharding::ShardConfiguration,
+        sharding::{ShardConfiguration, ShardIndex},
         test_executor::{run, run_random},
         test_fixture::{world::WithShards, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
@@ -1011,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn peeker_can_corrupt_data() {
+    fn interceptor_can_corrupt_data() {
         const STEP: &str = "corruption";
         run(|| async move {
             fn corrupt_byte(data: &mut u8) {
@@ -1029,6 +1031,7 @@ mod tests {
                 Role::H1,
                 config.role_assignment(),
                 |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
+                    assert!(ctx.shard.is_none());
                     if ctx.gate.as_ref().contains(STEP) {
                         corrupt_byte(&mut data[0]);
                     }
@@ -1070,6 +1073,96 @@ mod tests {
 
             // values shared between H2 and H3 must be consistent
             assert_eq!(shares[1].right(), shares[2].left());
+        });
+    }
+
+    #[test]
+    fn interceptor_can_corrupt_data_sharded() {
+        const STEP: &str = "corruption";
+        const TARGET_SHARD: ShardIndex = ShardIndex::FIRST;
+        run(|| async move {
+            fn corrupt_byte(data: &mut u8) {
+                // flipping the bit may result in prime overflow,
+                // so we just set the value to be 0 or 1 if it was 0
+                if *data == 0 {
+                    *data = 1;
+                } else {
+                    *data = 0;
+                }
+            }
+
+            let mut config = TestWorldConfig::default();
+            config.stream_interceptor = MaliciousHelper::new(
+                Role::H1,
+                config.role_assignment(),
+                |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
+                    assert!(ctx.shard.is_some());
+                    if ctx.shard == Some(TARGET_SHARD) && ctx.gate.as_ref().contains(STEP) {
+                        corrupt_byte(&mut data[0]);
+                    }
+                },
+            );
+
+            let world: TestWorld<WithShards<2>> = TestWorld::with_shards(config);
+
+            let shares = world
+                .semi_honest(iter::empty::<Fp31>(), |ctx, _inputs| async move {
+                    let ctx = ctx.narrow(STEP).set_total_records(1);
+                    let (l, r): (Fp31, Fp31) = ctx.prss().generate(RecordId::FIRST);
+
+                    let ((), (), r, l) = try_join4(
+                        ctx.send_channel(ctx.role().peer(Direction::Right))
+                            .send(RecordId::FIRST, r),
+                        ctx.send_channel(ctx.role().peer(Direction::Left))
+                            .send(RecordId::FIRST, l),
+                        ctx.recv_channel::<Fp31>(ctx.role().peer(Direction::Right))
+                            .receive(RecordId::FIRST),
+                        ctx.recv_channel::<Fp31>(ctx.role().peer(Direction::Left))
+                            .receive(RecordId::FIRST),
+                    )
+                    .await
+                    .unwrap();
+
+                    AdditiveShare::new(l, r)
+                })
+                .await;
+
+            println!("{shares:?}");
+
+            let shard0 = ShardIndex::FIRST;
+            let shard1 = ShardIndex::from(1);
+
+            // shares received from H1 on shard0 must be corrupted...
+            assert_ne!(
+                shares[shard0][Role::H1].right(),
+                shares[shard0][Role::H2].left()
+            );
+            assert_ne!(
+                shares[shard0][Role::H1].left(),
+                shares[shard0][Role::H3].right()
+            );
+
+            // ... and must be set to either 0 or 1
+            assert!([Fp31::ZERO, Fp31::ONE].contains(&shares[shard0][Role::H2].left()));
+            assert!([Fp31::ZERO, Fp31::ONE].contains(&shares[shard0][Role::H3].right()));
+
+            // shares received from H1 on shard1 must be consistent
+            assert_eq!(
+                shares[shard1][Role::H1].right(),
+                shares[shard1][Role::H2].left()
+            );
+            assert_eq!(
+                shares[shard1][Role::H1].left(),
+                shares[shard1][Role::H3].right()
+            );
+
+            for shard in [shard0, shard1] {
+                // values shared between H2 and H3 must be consistent
+                assert_eq!(
+                    shares[shard][Role::H2].right(),
+                    shares[shard][Role::H3].left()
+                );
+            }
         });
     }
 
