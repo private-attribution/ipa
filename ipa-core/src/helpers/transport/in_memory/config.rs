@@ -52,6 +52,29 @@ impl<F: Fn(&InspectContext, &mut Vec<u8>) + Send + Sync + 'static> StreamInterce
 }
 
 /// The general context provided to stream inspectors.
+///
+/// This structure identifies the channel carrying an intercepted message.
+/// There are three kinds of channels:
+///
+/// 1. Helper-to-helper messages in a non-sharded environment.
+/// 2. Helper-to-helper messages in a sharded environment. Uniquely identifying
+///    these channels requires identifying which shard the message is associated
+///    with. Step `Foo`, from shard 0 of H1 to shard 0 of H2, is not the same channel
+///    as step `Foo`, from shard 1 of H1 to shard 1 of H2.
+/// 3. Shard-to-shard messages in a sharded environment. i.e. step `Bar` from shard 0 of
+///    H1 to shard 1 of H1.
+///
+/// Cases (1) and (2) use the `InspectContext::MpcMessage` variant. The
+/// `MaliciousHelper` utility can be used to simplify tests intercepting these kinds of
+/// channels.
+///
+/// Case (3) is uses the `InspectContext::ShardMessage` variant. These messages are
+/// captured by the interception code in `<Weak<InMemoryTransport<I>> as
+/// Transport>::send`, but as of Oct. 2024, we do not have tests that intercept messages
+/// on these channels. This case is less interesting than cases (1) and (2) because the
+/// shards of a helper are in the same trust domain, so it not relevant to testing
+/// malicious security protocols. An example of where case (3) might be used is to test
+/// unintentional corruption due to network failures.
 #[derive(Debug)]
 pub enum InspectContext {
     ShardMessage {
