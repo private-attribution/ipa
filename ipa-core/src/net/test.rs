@@ -46,26 +46,6 @@ pub const DEFAULT_TEST_PORTS: Ports = Ports {
     shards: [6000, 6001, 6002],
 };
 
-/// A network with 4 shards per helper.
-const FOUR_SHARDS: [Ports; 4] = [
-    Ports {
-        ring: [10000, 10001, 10002],
-        shards: [10005, 10006, 10007],
-    },
-    Ports {
-        ring: [10010, 10011, 10012],
-        shards: [10015, 10016, 10017],
-    },
-    Ports {
-        ring: [10020, 10021, 10022],
-        shards: [10025, 10026, 10027],
-    },
-    Ports {
-        ring: [10030, 10031, 10032],
-        shards: [10035, 10036, 10037],
-    },
-];
-
 /// Configuration of a server that can be reached via socket or port.
 pub struct AddressableTestServer {
     /// The identity of this server in the network.
@@ -797,11 +777,31 @@ mod tests {
         config::NetworkConfig,
         helpers::HelperIdentity,
         net::{
-            test::{Ports, FOUR_SHARDS, TEST_CERTS, TEST_KEYS},
+            test::{Ports, TEST_CERTS, TEST_KEYS},
             ConnectionFlavor,
         },
         sharding::{ShardIndex, ShardedHelperIdentity},
     };
+
+    /// A network with 4 shards per helper.
+    const FOUR_SHARDS: [Ports; 4] = [
+        Ports {
+            ring: [10000, 10001, 10002],
+            shards: [10005, 10006, 10007],
+        },
+        Ports {
+            ring: [10010, 10011, 10012],
+            shards: [10015, 10016, 10017],
+        },
+        Ports {
+            ring: [10020, 10021, 10022],
+            shards: [10025, 10026, 10027],
+        },
+        Ports {
+            ring: [10030, 10031, 10032],
+            shards: [10035, 10036, 10037],
+        },
+    ];
 
     fn assert_eq_configs<F: ConnectionFlavor>(nc1: &NetworkConfig<F>, nc2: &NetworkConfig<F>) {
         let urls1: Vec<_> = nc1.vec_peers().into_iter().map(|p| p.url).collect();
