@@ -635,7 +635,12 @@ macro_rules! boolean_array_impl {
 
                     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
                         <[u8; $name::STORE_LEN]>::arbitrary_with(args)
-                            .prop_map(|arr| $name(Store::from(arr)))
+                            .prop_map(|arr| {
+                                let mut v = Store::from(arr);
+                                // make sure the value does not overflow
+                                v[$bits..].fill(false);
+                                $name(v)
+                            })
                     }
                 }
 
@@ -693,6 +698,17 @@ macro_rules! boolean_array_impl {
                         assert_eq!(a * Boolean::from(true), a);
                         assert_eq!(a * c, if bool::from(c) { a } else { $name::ZERO });
                         assert_eq!(a * &c, if bool::from(c) { a } else { $name::ZERO });
+                    }
+
+                    #[test]
+                    fn serde_prop(a: $name) {
+                        let mut buf = GenericArray::default();
+                        a.serialize(&mut buf);
+                        assert_eq!(
+                            a,
+                            $name::deserialize(&buf).unwrap(),
+                            "Failed to deserialize a valid value: {a:?}"
+                        );
                     }
                 }
 

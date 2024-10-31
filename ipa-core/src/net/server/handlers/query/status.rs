@@ -2,29 +2,27 @@ use axum::{extract::Path, routing::get, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{BodyStream, Transport},
+    helpers::BodyStream,
     net::{
         http_serde::query::status::{self, Request},
         server::Error,
-        HttpTransport,
+        transport::MpcHttpTransport,
     },
     protocol::QueryId,
-    sync::Arc,
 };
 
 async fn handler(
-    transport: Extension<Arc<HttpTransport>>,
+    transport: Extension<MpcHttpTransport>,
     Path(query_id): Path<QueryId>,
 ) -> Result<Json<status::ResponseBody>, Error> {
     let req = Request { query_id };
-    let transport = Transport::clone_ref(&*transport);
     match transport.dispatch(req, BodyStream::empty()).await {
         Ok(state) => Ok(Json(status::ResponseBody::from(state))),
         Err(e) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
 
-pub fn router(transport: Arc<HttpTransport>) -> Router {
+pub fn router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .route(status::AXUM_PATH, get(handler))
         .layer(Extension(transport))

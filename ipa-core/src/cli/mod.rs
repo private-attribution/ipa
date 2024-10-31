@@ -23,4 +23,4 @@ pub use metric_collector::{install_collector, CollectorHandle};
 pub use paths::PathExt as CliPaths;
 #[cfg(feature = "web-app")]
 pub use test_setup::{test_setup, TestSetupArgs};
-pub use verbosity::Verbosity;
+pub use verbosity::{LoggingHandle, Verbosity};

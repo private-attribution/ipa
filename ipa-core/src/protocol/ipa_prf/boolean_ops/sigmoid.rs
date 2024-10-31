@@ -206,7 +206,7 @@ mod test {
             let all_x_values = (0..256).map(|i| BA8::truncate_from(u128::try_from(i).unwrap()));
 
             let result: Vec<BA8> = world
-                .upgraded_semi_honest(all_x_values, |ctx, all_x_values| async move {
+                .dzkp_semi_honest(all_x_values, |ctx, all_x_values| async move {
                     let vectorized_inputs = BitDecomposed::transposed_from(&all_x_values).unwrap();
 
                     let result = sigmoid::<_, 256>(

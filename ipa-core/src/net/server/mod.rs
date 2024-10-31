@@ -32,13 +32,17 @@ use futures::{
     FutureExt,
 };
 use hyper::{body::Incoming, Request};
-use metrics::increment_counter;
+use ipa_metrics::counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
 use tokio_rustls::server::TlsStream;
 use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
 
+use super::{
+    transport::{MpcHttpTransport, ShardHttpTransport},
+    Shard,
+};
 use crate::{
     config::{
         NetworkConfig, OwnedCertificate, OwnedPrivateKey, PeerConfig, ServerConfig, TlsConfig,
@@ -48,7 +52,7 @@ use crate::{
     helpers::TransportIdentity,
     net::{
         parse_certificate_and_private_key_bytes, server::config::HttpServerConfig,
-        ConnectionFlavor, Error, Helper, HttpTransport, CRYPTO_PROVIDER,
+        ConnectionFlavor, Error, Helper, CRYPTO_PROVIDER,
     },
     sync::Arc,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -82,20 +86,21 @@ impl TracingSpanMaker for () {
 /// The Transport Restriction generic is used to make the server aware whether it should offer a
 /// HTTP API for shards or for other Helpers. External clients can reach out to both APIs to push
 /// the input data among other things.
-pub struct MpcHelperServer<F: ConnectionFlavor = Helper> {
+pub struct IpaHttpServer<F: ConnectionFlavor> {
     config: ServerConfig,
     network_config: NetworkConfig<F>,
     router: Router,
 }
 
-impl MpcHelperServer<Helper> {
+impl IpaHttpServer<Helper> {
+    #[must_use]
     pub fn new_mpc(
-        transport: Arc<HttpTransport>,
+        transport: &MpcHttpTransport,
         config: ServerConfig,
         network_config: NetworkConfig<Helper>,
     ) -> Self {
-        let router = handlers::mpc_router(transport);
-        MpcHelperServer {
+        let router = handlers::mpc_router(transport.clone());
+        IpaHttpServer {
             config,
             network_config,
             router,
@@ -103,7 +108,22 @@ impl MpcHelperServer<Helper> {
     }
 }
 
-impl<F: ConnectionFlavor> MpcHelperServer<F> {
+impl IpaHttpServer<Shard> {
+    #[must_use]
+    pub fn new_shards(
+        _transport: &ShardHttpTransport,
+        config: ServerConfig,
+        network_config: NetworkConfig<Shard>,
+    ) -> Self {
+        IpaHttpServer {
+            config,
+            network_config,
+            router: Router::new(),
+        }
+    }
+}
+
+impl<F: ConnectionFlavor> IpaHttpServer<F> {
     #[cfg(all(test, unit_test))]
     async fn handle_req(&self, req: hyper::Request<axum::body::Body>) -> axum::response::Response {
         use tower::ServiceExt;
@@ -141,8 +161,8 @@ impl<F: ConnectionFlavor> MpcHelperServer<F> {
             TraceLayer::new_for_http()
                 .make_span_with(move |_request: &hyper::Request<_>| tracing.make_span())
                 .on_request(|request: &hyper::Request<_>, _: &Span| {
-                    increment_counter!(RequestProtocolVersion::from(request.version()));
-                    increment_counter!(REQUESTS_RECEIVED);
+                    counter!(RequestProtocolVersion::from(request.version()).as_str(), 1);
+                    counter!(REQUESTS_RECEIVED, 1);
                 }),
         );
         let handle = Handle::new();
@@ -509,7 +529,6 @@ mod e2e_tests {
         },
         rt::{TokioExecutor, TokioTimer},
     };
-    use metrics_util::debugging::Snapshotter;
     use rustls::{
         client::danger::{ServerCertVerified, ServerCertVerifier},
         pki_types::ServerName,
@@ -668,9 +687,6 @@ mod e2e_tests {
         // request
         let expected = expected_req(addr.to_string());
 
-        let snapshot = Snapshotter::current_thread_snapshot();
-        assert!(snapshot.is_none());
-
         let request_count = 10;
         for _ in 0..request_count {
             let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
@@ -717,15 +733,15 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11).as_str())
         );
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2).as_str())
         );
         assert_eq!(
             None,
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3).as_str())
         );
     }
 
@@ -752,7 +768,7 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2).as_str())
         );
     }
 }

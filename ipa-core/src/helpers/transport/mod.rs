@@ -25,6 +25,7 @@ pub use handler::{
 };
 #[cfg(feature = "in-memory-infra")]
 pub use in_memory::{config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
+use ipa_metrics::LabelValue;
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
 pub use stream::WrappedAxumBodyStream;
@@ -41,7 +42,7 @@ use crate::{
 /// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
 /// types of peers - helpers and shards.
 pub trait Identity:
-    Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + 'static
+    Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + LabelValue + 'static
 {
     fn as_str(&self) -> Cow<'static, str>;
 
@@ -50,6 +51,9 @@ pub trait Identity:
     /// # Errors
     /// If there where any problems parsing the identity.
     fn from_str(s: &str) -> Result<Self, crate::error::Error>;
+
+    /// Returns a 0-based index suitable to index Vec or other containers.
+    fn as_index(&self) -> usize;
 }
 
 impl Identity for ShardIndex {
@@ -63,6 +67,10 @@ impl Identity for ShardIndex {
                 crate::error::Error::InvalidId(format!("The string {s} is an invalid Shard Index"))
             })
             .map(ShardIndex::from)
+    }
+
+    fn as_index(&self) -> usize {
+        usize::from(*self)
     }
 }
 impl Identity for HelperIdentity {
@@ -85,6 +93,10 @@ impl Identity for HelperIdentity {
             ))),
         }
     }
+
+    fn as_index(&self) -> usize {
+        usize::from(self.id) - 1
+    }
 }
 
 /// Role is an identifier of helper peer, only valid within a given query. For every query, there
@@ -102,6 +114,14 @@ impl Identity for Role {
             _ => Err(crate::error::Error::InvalidId(format!(
                 "The string {s} is an invalid Role"
             ))),
+        }
+    }
+
+    fn as_index(&self) -> usize {
+        match self {
+            Self::H1 => 0,
+            Self::H2 => 1,
+            Self::H3 => 2,
         }
     }
 }

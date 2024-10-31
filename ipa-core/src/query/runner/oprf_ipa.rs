@@ -21,8 +21,8 @@ use crate::{
         basics::{BooleanArrayMul, Reveal, ShareKnownValue},
         context::{DZKPUpgraded, MacUpgraded, UpgradableContext},
         ipa_prf::{
-            oprf_ipa, oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle,
-            OPRFIPAInputRow, AGG_CHUNK, CONV_CHUNK, PRF_CHUNK, SORT_CHUNK,
+            oprf_ipa, oprf_padding::PaddingParameters, prf_eval::PrfSharing, OPRFIPAInputRow,
+            Shuffle, AGG_CHUNK, CONV_CHUNK, PRF_CHUNK, SORT_CHUNK,
         },
         prss::FromPrss,
         step::ProtocolStep::IpaPrf,

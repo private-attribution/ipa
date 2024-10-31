@@ -4,6 +4,36 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+use ipa_metrics::LabelValue;
+
+use crate::helpers::{HelperIdentity, TransportIdentity};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ShardedHelperIdentity {
+    pub helper_identity: HelperIdentity,
+    pub shard_index: ShardIndex,
+}
+
+impl ShardedHelperIdentity {
+    pub const ONE_FIRST: ShardedHelperIdentity = ShardedHelperIdentity {
+        helper_identity: HelperIdentity::ONE,
+        shard_index: ShardIndex::FIRST,
+    };
+
+    #[must_use]
+    pub fn new(helper_identity: HelperIdentity, shard_index: ShardIndex) -> Self {
+        Self {
+            helper_identity,
+            shard_index,
+        }
+    }
+
+    #[must_use]
+    pub fn as_index(&self) -> usize {
+        self.shard_index.as_index() * 3 + self.helper_identity.as_index()
+    }
+}
+
 /// A unique zero-based index of the helper shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ShardIndex(pub u32);
@@ -81,6 +111,16 @@ impl<T> Index<ShardIndex> for Vec<T> {
 impl<T> IndexMut<ShardIndex> for Vec<T> {
     fn index_mut(&mut self, index: ShardIndex) -> &mut Self::Output {
         self.as_mut_slice().index_mut(usize::from(index))
+    }
+}
+
+impl LabelValue for ShardIndex {
+    fn hash(&self) -> u64 {
+        u64::from(self.0)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
     }
 }
 

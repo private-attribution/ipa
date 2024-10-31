@@ -2,6 +2,8 @@ pub(crate) mod distributions;
 pub mod insecure;
 pub mod step;
 
+use std::iter::{repeat, repeat_with};
+
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use insecure::DiscreteDp as InsecureDiscreteDp;
 use rand::Rng;
@@ -28,6 +30,7 @@ use crate::{
         },
         RecordId,
     },
+    report::hybrid::IndistinguishableHybridReport,
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -128,6 +131,72 @@ pub trait Paddable {
     fn add_zero_shares<V: Extend<Self>>(padding_input_rows: &mut V, total_number_of_fake_rows: u32)
     where
         Self: Sized;
+}
+
+impl<BK, V> Paddable for IndistinguishableHybridReport<BK, V>
+where
+    BK: BooleanArray + U128Conversions,
+    V: BooleanArray,
+{
+    /// Given an extendable collection of `IndistinguishableHybridReport`s,
+    /// this function will pad the collection with dummy reports. The reports
+    /// have a random `match_key` and zeros for `breakdown_key` and `value`.
+    /// Dummies need to be added at every possible cardinality of `match_key`s,
+    /// e.g., we add sets of dummies with the same `match_key` at each possible cardinality.
+    /// The number of sets at each cardinality is random, and determined by `padding_params`.
+    fn add_padding_items<VC: Extend<Self>, const B: usize>(
+        direction_to_excluded_helper: Direction,
+        padding_input_rows: &mut VC,
+        padding_params: &PaddingParameters,
+        rng: &mut InstrumentedSequentialSharedRandomness,
+    ) -> Result<u32, Error> {
+        let mut total_number_of_fake_rows = 0;
+        match padding_params.oprf_padding {
+            OPRFPadding::NoOPRFPadding => {}
+            OPRFPadding::Parameters {
+                oprf_epsilon,
+                oprf_delta,
+                matchkey_cardinality_cap,
+                oprf_padding_sensitivity,
+            } => {
+                let oprf_padding =
+                    OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity)?;
+                for cardinality in 1..=matchkey_cardinality_cap {
+                    let sample = oprf_padding.sample(rng);
+                    total_number_of_fake_rows += sample * cardinality;
+
+                    padding_input_rows.extend(
+                        repeat_with(|| {
+                            let dummy_mk: BA64 = rng.gen();
+                            repeat(IndistinguishableHybridReport::from(
+                                AdditiveShare::new_excluding_direction(
+                                    dummy_mk,
+                                    direction_to_excluded_helper,
+                                ),
+                            ))
+                            .take(cardinality as usize)
+                        })
+                        // this means there will be `sample` many unique
+                        // matchkeys to add each with cardinality = `cardinality`
+                        .take(sample as usize)
+                        .flatten(),
+                    );
+                }
+            }
+        }
+        Ok(total_number_of_fake_rows)
+    }
+
+    /// Given an extendable collection of `IndistinguishableHybridReport`s,
+    /// this function ads `total_number_of_fake_rows` of Reports with zeros in all fields.
+    fn add_zero_shares<VC: Extend<Self>>(
+        padding_input_rows: &mut VC,
+        total_number_of_fake_rows: u32,
+    ) {
+        padding_input_rows.extend(
+            repeat(IndistinguishableHybridReport::ZERO).take(total_number_of_fake_rows as usize),
+        );
+    }
 }
 
 impl<BK, TV, TS> Paddable for OPRFIPAInputRow<BK, TV, TS>
@@ -426,6 +495,7 @@ mod tests {
             },
             RecordId,
         },
+        report::hybrid::IndistinguishableHybridReport,
         secret_sharing::replicated::semi_honest::AdditiveShare,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -442,6 +512,31 @@ mod tests {
     {
         let mut input: Vec<OPRFIPAInputRow<BK, TV, TS>> = Vec::new();
         input = apply_dp_padding_pass::<C, OPRFIPAInputRow<BK, TV, TS>, B>(
+            ctx,
+            input,
+            Role::H3,
+            &padding_params,
+        )
+        .await?;
+        Ok(input)
+    }
+
+    pub async fn set_up_apply_dp_padding_pass_for_indistinguishable_reports<
+        C,
+        BK,
+        V,
+        const B: usize,
+    >(
+        ctx: C,
+        padding_params: PaddingParameters,
+    ) -> Result<Vec<IndistinguishableHybridReport<BK, V>>, Error>
+    where
+        C: Context,
+        BK: BooleanArray + U128Conversions,
+        V: BooleanArray,
+    {
+        let mut input: Vec<IndistinguishableHybridReport<BK, V>> = Vec::new();
+        input = apply_dp_padding_pass::<C, IndistinguishableHybridReport<BK, V>, B>(
             ctx,
             input,
             Role::H3,
@@ -498,6 +593,83 @@ mod tests {
         // Now look at now many times a user_id occured
         let mut sample_per_cardinality: BTreeMap<u32, u32> = BTreeMap::new();
         for cardinality in user_id_counts.values() {
+            let count = sample_per_cardinality.entry(*cardinality).or_insert(0);
+            *count += 1;
+        }
+        let mut distribution_of_samples: BTreeMap<u32, u32> = BTreeMap::new();
+
+        for (cardinality, sample) in sample_per_cardinality {
+            println!("{sample} user IDs occurred {cardinality} time(s)");
+            let count = distribution_of_samples.entry(sample).or_insert(0);
+            *count += 1;
+        }
+
+        let oprf_padding =
+            OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity).unwrap();
+
+        let (mean, std_bound) = oprf_padding.mean_and_std_bound();
+        let tolerance_bound = 12.0;
+        assert!(std_bound > 1.0); // bound on the std only holds if this is true.
+        println!("mean = {mean}, std_bound = {std_bound}");
+        for (sample, count) in &distribution_of_samples {
+            println!("An OPRFPadding sample value equal to {sample} occurred {count} time(s)",);
+            assert!(
+                (f64::from(*sample) - mean).abs() < tolerance_bound * std_bound,
+                "aggregation noise sample was not within {tolerance_bound} times the standard deviation bound from what was expected."
+            );
+        }
+    }
+
+    #[tokio::test]
+    pub async fn indistinguishable_report_noise_in_dp_padding_pass() {
+        // Note: This is a close copy of the test `oprf_noise_in_dp_padding_pass`
+        // Which will make this easier to delete the former test
+        // when we remove the oprf protocol.
+        type BK = BA8;
+        type V = BA3;
+        const B: usize = 256;
+        let world = TestWorld::default();
+        let oprf_epsilon = 1.0;
+        let oprf_delta = 1e-6;
+        let matchkey_cardinality_cap = 10;
+        let oprf_padding_sensitivity = 2;
+
+        let result = world
+            .semi_honest((), |ctx, ()| async move {
+                let padding_params = PaddingParameters {
+                    oprf_padding: OPRFPadding::Parameters {
+                        oprf_epsilon,
+                        oprf_delta,
+                        matchkey_cardinality_cap,
+                        oprf_padding_sensitivity,
+                    },
+                    aggregation_padding: AggregationPadding::NoAggPadding,
+                };
+                set_up_apply_dp_padding_pass_for_indistinguishable_reports::<_, BK, V, B>(
+                    ctx,
+                    padding_params,
+                )
+                .await
+            })
+            .await
+            .map(Result::unwrap);
+        // check that all three helpers added the same number of dummy shares
+        assert!(result[0].len() == result[1].len() && result[0].len() == result[2].len());
+
+        let result_reconstructed = result.reconstruct();
+        // check that all fields besides the matchkey are zero and matchkey is not zero
+        let mut match_key_counts: HashMap<u64, u32> = HashMap::new();
+        for row in result_reconstructed {
+            assert!(row.value == 0);
+            assert!(row.breakdown_key == 0); // since we set AggregationPadding::NoAggPadding
+            assert!(row.match_key != 0);
+
+            let count = match_key_counts.entry(row.match_key).or_insert(0);
+            *count += 1;
+        }
+        // Now look at now many times a match_key occured
+        let mut sample_per_cardinality: BTreeMap<u32, u32> = BTreeMap::new();
+        for cardinality in match_key_counts.values() {
             let count = sample_per_cardinality.entry(*cardinality).or_insert(0);
             *count += 1;
         }

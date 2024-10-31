@@ -24,7 +24,7 @@ use crate::{
             },
             oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
-            shuffle::shuffle_attribution_outputs,
+            shuffle::{shuffle_attribution_outputs, Shuffle},
             BreakdownKey,
         },
         BooleanProtocols, RecordId,
@@ -70,7 +70,7 @@ pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
     padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradableContext,
+    C: UpgradableContext + Shuffle,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     BK: BreakdownKey<B>,
@@ -118,7 +118,7 @@ where
             let validator = ctx.clone().dzkp_validator(
                 MaliciousProtocolSteps {
                     protocol: &Step::aggregate(depth),
-                    validate: &Step::aggregate_validate(chunk_counter),
+                    validate: &Step::AggregateValidate,
                 },
                 usize::MAX, // See note about batching above.
             );
@@ -129,7 +129,7 @@ where
                 Some(&mut record_ids),
             )
             .await?;
-            validator.validate().await?;
+            validator.validate_indexed(chunk_counter).await?;
             chunk_counter += 1;
             next_intermediate_results.push(result);
         }
@@ -153,7 +153,7 @@ async fn shuffle_attributions<C, BK, TV, const B: usize>(
     contribs: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
 where
-    C: Context,
+    C: Context + Shuffle,
     BK: BreakdownKey<B>,
     TV: BooleanArray + U128Conversions,
 {
@@ -255,7 +255,7 @@ where
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
     use futures::TryFutureExt;
-    use rand::{seq::SliceRandom, Rng};
+    use rand::seq::SliceRandom;
 
     #[cfg(not(feature = "shuttle"))]
     use crate::{ff::boolean_array::BA16, test_executor::run};
@@ -270,6 +270,7 @@ pub mod tests {
             oprf_padding::PaddingParameters,
             prf_sharding::{AttributionOutputsTestInput, SecretSharedAttributionOutputs},
         },
+        rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
@@ -293,7 +294,7 @@ pub mod tests {
         // (workers there are really slow).
         run_with::<_, _, 3>(|| async {
             let world = TestWorld::default();
-            let mut rng = rand::thread_rng();
+            let mut rng = world.rng();
             let mut expectation = Vec::new();
             for _ in 0..32 {
                 expectation.push(rng.gen_range(0u128..256));
@@ -346,7 +347,7 @@ pub mod tests {
         type HV = BA16;
         run(|| async {
             let world = TestWorld::default();
-            let mut rng = rand::thread_rng();
+            let mut rng = world.rng();
             let mut expectation = Vec::new();
             for _ in 0..32 {
                 expectation.push(rng.gen_range(0u128..512));

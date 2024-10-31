@@ -55,6 +55,9 @@ pub(crate) mod shuffle;
 pub(crate) mod step;
 pub mod validation_protocol;
 
+pub use malicious_security::prover::{LargeProofGenerator, SmallProofGenerator};
+pub use shuffle::Shuffle;
+
 /// Match key type
 pub type MatchKey = BA64;
 /// Match key size
@@ -96,7 +99,7 @@ use crate::{
     protocol::{
         context::Validator,
         dp::dp_for_histogram,
-        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing},
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
@@ -733,7 +736,7 @@ pub mod tests {
     }
 }
 
-#[cfg(all(test, all(feature = "compact-gate", feature = "in-memory-infra")))]
+#[cfg(all(test, all(compact_gate, feature = "in-memory-infra")))]
 mod compact_gate_tests {
     use ipa_step::{CompactStep, StepNarrow};
 
@@ -755,7 +758,7 @@ mod compact_gate_tests {
     fn step_count_limit() {
         // This is an arbitrary limit intended to catch changes that unintentionally
         // blow up the step count. It can be increased, within reason.
-        const STEP_COUNT_LIMIT: u32 = 35_000;
+        const STEP_COUNT_LIMIT: u32 = 24_000;
         assert!(
             ProtocolStep::STEP_COUNT < STEP_COUNT_LIMIT,
             "Step count of {actual} exceeds limit of {STEP_COUNT_LIMIT}.",

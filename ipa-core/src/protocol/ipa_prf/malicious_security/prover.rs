@@ -3,14 +3,14 @@ use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 #[cfg(all(test, unit_test))]
 use crate::ff::Fp31;
 use crate::{
-    error::{Error, Error::DZKPMasks},
+    error::Error::{self, DZKPMasks},
     ff::{Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
         context::Context,
         ipa_prf::malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
         prss::SharedRandomness,
-        RecordId,
+        RecordId, RecordIdRange,
     },
 };
 
@@ -125,10 +125,10 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
     /// `https://eprint.iacr.org/2023/909.pdf`
-    pub fn compute_proof<J, B>(uv_iterator: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
+    pub fn compute_proof<J>(uv_iterator: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
     where
-        J: Iterator<Item = B>,
-        B: Borrow<([F; L], [F; L])>,
+        J: Iterator,
+        J::Item: Borrow<([F; L], [F; L])>,
     {
         let mut proof = [F::ZERO; P];
         for uv_polynomial in uv_iterator {
@@ -147,14 +147,14 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         proof
     }
 
-    fn gen_challenge_and_recurse<J, B, const N: usize>(
+    fn gen_challenge_and_recurse<J, const N: usize>(
         proof_left: &[F; P],
         proof_right: &[F; P],
         uv_iterator: J,
     ) -> UVValues<F, N>
     where
-        J: Iterator<Item = B>,
-        B: Borrow<([F; L], [F; L])>,
+        J: Iterator,
+        J::Item: Borrow<([F; L], [F; L])>,
     {
         let r: F = hash_to_field(
             &compute_hash(proof_left),
@@ -179,7 +179,7 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
             .collect::<UVValues<F, N>>()
     }
 
-    fn gen_proof_shares_from_prss<C>(ctx: &C, record_counter: &mut RecordId) -> ([F; P], [F; P])
+    fn gen_proof_shares_from_prss<C>(ctx: &C, record_ids: &mut RecordIdRange) -> ([F; P], [F; P])
     where
         C: Context,
     {
@@ -187,9 +187,9 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         let mut out_right = [F::ZERO; P];
         // use PRSS
         for i in 0..P {
-            let (left, right) = ctx.prss().generate_fields::<F, RecordId>(*record_counter);
-
-            *record_counter += 1;
+            let (left, right) = ctx
+                .prss()
+                .generate_fields::<F, RecordId>(record_ids.expect_next());
 
             out_left[i] = left;
             out_right[i] = right;
@@ -213,16 +213,16 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     /// where
     /// `share_of_proof_from_prover_left` from left has type `Vec<[F; P]>`,
     /// `my_proof_left_share` has type `Vec<[F; P]>`,
-    pub fn gen_artefacts_from_recursive_step<C, J, B, const N: usize>(
+    pub fn gen_artefacts_from_recursive_step<C, J, const N: usize>(
         ctx: &C,
-        record_counter: &mut RecordId,
+        record_ids: &mut RecordIdRange,
         lagrange_table: &LagrangeTable<F, L, M>,
         uv_iterator: J,
     ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
-        J: Iterator<Item = B> + Clone,
-        B: Borrow<([F; L], [F; L])>,
+        J: Iterator + Clone,
+        J::Item: Borrow<([F; L], [F; L])>,
     {
         // generate next proof
         // from iterator
@@ -230,7 +230,7 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
 
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
-            Self::gen_proof_shares_from_prss(ctx, record_counter);
+            Self::gen_proof_shares_from_prss(ctx, record_ids);
 
         // generate prover left proof
         let my_proof_left_share = Self::gen_other_proof_share(my_proof, my_proof_right_share);
@@ -267,7 +267,7 @@ mod test {
                 lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
                 prover::{LargeProofGenerator, SmallProofGenerator, TestProofGenerator, UVValues},
             },
-            RecordId,
+            RecordId, RecordIdRange,
         },
         seq_join::SeqJoin,
         test_executor::run,
@@ -356,7 +356,7 @@ mod test {
             .unwrap();
 
         // fiat-shamir
-        let uv_3 = TestProofGenerator::gen_challenge_and_recurse::<_, _, 4>(
+        let uv_3 = TestProofGenerator::gen_challenge_and_recurse::<_, 4>(
             &proof_left_2,
             &proof_right_2,
             uv_2.iter(),
@@ -396,14 +396,13 @@ mod test {
 
             // first iteration
             let world = TestWorld::default();
-            let mut record_counter = RecordId::from(0);
-            let (uv_values, _, _) =
-                TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, _, 4>(
-                    &world.contexts()[0],
-                    &mut record_counter,
-                    &lagrange_table,
-                    uv_1.iter(),
-                );
+            let mut record_ids = RecordIdRange::ALL;
+            let (uv_values, _, _) = TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, 4>(
+                &world.contexts()[0],
+                &mut record_ids,
+                &lagrange_table,
+                uv_1.iter(),
+            );
 
             assert_eq!(7, uv_values.len());
         });
@@ -441,7 +440,7 @@ mod test {
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
 
-        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
+        let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, 8>(
             &proof,
             &proof,
             uv_before.iter(),
@@ -477,7 +476,7 @@ mod test {
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
 
-        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, _, 8>(
+        let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, 8>(
             &proof,
             &proof,
             uv_before.iter(),
@@ -496,11 +495,11 @@ mod test {
         let world = TestWorld::default();
         let [helper_1_proofs, helper_2_proofs, helper_3_proofs] = world
             .semi_honest((), |ctx, ()| async move {
-                let mut record_counter = RecordId::from(0);
+                let mut record_ids = RecordIdRange::ALL;
                 (0..NUM_PROOFS)
                     .map(|i| {
-                        assert_eq!(i * 7, usize::from(record_counter));
-                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_counter)
+                        assert_eq!(i * 7, usize::from(record_ids.peek_first()));
+                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_ids)
                     })
                     .collect::<Vec<_>>()
             })
@@ -550,9 +549,9 @@ mod test {
         let [(h1_proof_left, h1_proof_right), (h2_proof_left, h2_proof_right), (h3_proof_left, h3_proof_right)] =
             world
                 .semi_honest((), |ctx, ()| async move {
-                    let mut record_counter = RecordId::from(0);
+                    let mut record_ids = RecordIdRange::ALL;
                     let (proof_share_left, my_share_of_right) =
-                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_counter);
+                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_ids);
                     let proof_u128 = match ctx.role() {
                         Role::H1 => PROOF_1,
                         Role::H2 => PROOF_2,

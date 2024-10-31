@@ -30,7 +30,7 @@ impl CsvExporter for Metrics {
         for (counter_name, details) in &self.counters {
             if let Some(steps) = details.dimensions.get(labels::STEP) {
                 for (step, val) in steps {
-                    steps_stats.offer(step, counter_name.as_str(), *val);
+                    steps_stats.offer(step, counter_name, *val);
                 }
             }
         }

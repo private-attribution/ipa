@@ -12,16 +12,16 @@ use crate::{
     error::Error,
     ff::{boolean_array::BooleanArray, Field, Gf32Bit, Serializable},
     helpers::{
-        hashing::{compute_hash, Hash},
-        Direction, Role, TotalRecords,
+        hashing::{compute_possibly_empty_hash, Hash},
+        Direction, TotalRecords,
     },
     protocol::{
         basics::{malicious_reveal, mul::semi_honest_multiply},
         context::Context,
         ipa_prf::shuffle::{
-            base::IntermediateShuffleMessages,
             shuffle_protocol,
             step::{OPRFShuffleStep, VerifyShuffleStep},
+            IntermediateShuffleMessages,
         },
         prss::SharedRandomness,
         RecordId,
@@ -40,7 +40,7 @@ use crate::{
 ///
 /// ## Panics
 /// Panics when `S::Bits + 32 != B::Bits` or type conversions fail.
-pub async fn malicious_shuffle<C, S, B, I>(
+pub(super) async fn malicious_shuffle<C, S, B, I>(
     ctx: C,
     shares: I,
 ) -> Result<Vec<AdditiveShare<S>>, Error>
@@ -149,16 +149,17 @@ async fn verify_shuffle<C: Context, S: BooleanArray, B: BooleanArray>(
         .map(Gf32Bit::from_array)
         .collect::<Vec<_>>();
 
+    assert_eq!(messages.role(), ctx.role());
+
     // verify messages and shares
-    match ctx.role() {
-        Role::H1 => {
-            h1_verify::<_, S, B>(ctx, &keys, shuffled_shares, messages.get_x1_or_y1()).await
+    match messages {
+        IntermediateShuffleMessages::H1 { x1 } => {
+            h1_verify::<_, S, B>(ctx, &keys, shuffled_shares, x1).await
         }
-        Role::H2 => {
-            h2_verify::<_, S, B>(ctx, &keys, shuffled_shares, messages.get_x2_or_y2()).await
+        IntermediateShuffleMessages::H2 { x2 } => {
+            h2_verify::<_, S, B>(ctx, &keys, shuffled_shares, x2).await
         }
-        Role::H3 => {
-            let (y1, y2) = messages.get_both_x_or_ys();
+        IntermediateShuffleMessages::H3 { y1, y2 } => {
             h3_verify::<_, S, B>(ctx, &keys, shuffled_shares, y1, y2).await
         }
     }
@@ -347,7 +348,7 @@ where
             .into_iter()
             .chain(iter::once(tag))
     });
-    compute_hash(iterator.map(|row_entry_iterator| {
+    compute_possibly_empty_hash(iterator.map(|row_entry_iterator| {
         row_entry_iterator
             .zip(keys)
             .fold(Gf32Bit::ZERO, |acc, (row_entry, key)| {
@@ -413,9 +414,12 @@ where
 {
     let row_iterator = rows.into_iter();
     let length = row_iterator.len();
+    if length == 0 {
+        return Ok(Vec::new());
+    }
     let row_length = keys.len();
-    // make sure total records is not 0
-    debug_assert!(length * row_length != 0);
+    // Make sure `total_records` is not zero.
+    debug_assert!(row_length != 0);
     let tag_ctx = ctx.set_total_records(TotalRecords::specified(length * row_length)?);
     let p_ctx = &tag_ctx;
 
@@ -479,7 +483,10 @@ mod tests {
             boolean_array::{BA112, BA144, BA20, BA32, BA64},
             Serializable, U128Conversions,
         },
-        helpers::in_memory_config::{MaliciousHelper, MaliciousHelperContext},
+        helpers::{
+            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
+            Role,
+        },
         protocol::ipa_prf::shuffle::base::shuffle_protocol,
         secret_sharing::SharedValue,
         test_executor::run,
@@ -562,6 +569,23 @@ mod tests {
             result.sort_by_key(BA112::as_u128);
 
             assert_eq!(records, result);
+        });
+    }
+
+    #[test]
+    fn empty() {
+        run(|| async {
+            assert_eq!(
+                TestWorld::default()
+                    .semi_honest(iter::empty::<BA32>(), |ctx, records| async move {
+                        malicious_shuffle::<_, _, BA64, _>(ctx, records)
+                            .await
+                            .unwrap()
+                    })
+                    .await
+                    .reconstruct(),
+                Vec::<BA32>::new(),
+            );
         });
     }
 

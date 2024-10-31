@@ -1,9 +1,54 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::{
+    ff::{boolean_array::BooleanArray, U128Conversions},
+    report::hybrid::IndistinguishableHybridReport,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    test_fixture::sharing::Reconstruct,
+};
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq)]
 pub enum TestHybridRecord {
     TestImpression { match_key: u64, breakdown_key: u32 },
     TestConversion { match_key: u64, value: u32 },
+}
+
+#[derive(PartialEq, Eq)]
+pub struct TestIndistinguishableHybridReport {
+    pub match_key: u64,
+    pub value: u32,
+    pub breakdown_key: u32,
+}
+
+impl<BK, V> Reconstruct<TestIndistinguishableHybridReport>
+    for [&IndistinguishableHybridReport<BK, V>; 3]
+where
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    V: BooleanArray + U128Conversions + IntoShares<Replicated<V>>,
+{
+    fn reconstruct(&self) -> TestIndistinguishableHybridReport {
+        let match_key = self
+            .each_ref()
+            .map(|v| v.match_key.clone())
+            .reconstruct()
+            .as_u128();
+        let breakdown_key = self
+            .each_ref()
+            .map(|v| v.breakdown_key.clone())
+            .reconstruct()
+            .as_u128();
+        let value = self
+            .each_ref()
+            .map(|v| v.value.clone())
+            .reconstruct()
+            .as_u128();
+
+        TestIndistinguishableHybridReport {
+            match_key: match_key.try_into().unwrap(),
+            breakdown_key: breakdown_key.try_into().unwrap(),
+            value: value.try_into().unwrap(),
+        }
+    }
 }
 
 struct HashmapEntry {

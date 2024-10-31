@@ -1,8 +1,8 @@
 use std::{future::Future, ops::Add};
 
+use futures::FutureExt;
 use rand::distributions::{Distribution, Standard};
 
-use self::base::shuffle_protocol;
 use super::{
     boolean_ops::{expand_shared_array_in_place, extract_from_shared_array},
     prf_sharding::SecretSharedAttributionOutputs,
@@ -14,10 +14,11 @@ use crate::{
         boolean_array::{BooleanArray, BA112, BA144, BA64, BA96},
         ArrayAccess,
     },
+    helpers::Role,
     protocol::{
         context::{Context, MaliciousContext, SemiHonestContext},
         ipa_prf::{
-            shuffle::{base::semi_honest_shuffle, malicious::malicious_shuffle},
+            shuffle::{base::shuffle_protocol, malicious::malicious_shuffle},
             OPRFIPAInputRow,
         },
     },
@@ -34,6 +35,41 @@ pub mod malicious;
 mod sharded;
 pub(crate) mod step;
 
+/// This struct stores some intermediate messages during the shuffle.
+/// In a maliciously secure shuffle,
+/// these messages need to be checked for consistency across helpers.
+/// `H1` stores `x1`, `H2` stores `x2` and `H3` stores `y1` and `y2`.
+#[derive(Debug, Clone)]
+enum IntermediateShuffleMessages<S> {
+    H1 { x1: Vec<S> },
+    H2 { x2: Vec<S> },
+    H3 { y1: Vec<S>, y2: Vec<S> },
+}
+
+impl<S: SharedValue> IntermediateShuffleMessages<S> {
+    pub fn role(&self) -> Role {
+        match *self {
+            IntermediateShuffleMessages::H1 { .. } => Role::H1,
+            IntermediateShuffleMessages::H2 { .. } => Role::H2,
+            IntermediateShuffleMessages::H3 { .. } => Role::H3,
+        }
+    }
+
+    /// Return an empty `IntermediateShuffleMessages` for the currrent helper.
+    pub fn empty<C: Context>(ctx: &C) -> Self {
+        match ctx.role() {
+            Role::H1 => IntermediateShuffleMessages::H1 { x1: vec![] },
+            Role::H2 => IntermediateShuffleMessages::H2 { x2: vec![] },
+            Role::H3 => IntermediateShuffleMessages::H3 {
+                y1: vec![],
+                y2: vec![],
+            },
+        }
+    }
+}
+
+/// Trait used by protocols to invoke either semi-honest or malicious shuffle, depending
+/// on the type of context being used.
 pub trait Shuffle: Context {
     fn shuffle<S, B, I>(
         self,
@@ -43,14 +79,10 @@ pub trait Shuffle: Context {
         S: BooleanArray,
         B: BooleanArray,
         I: IntoIterator<Item = AdditiveShare<S>> + Send,
-        I::IntoIter: ExactSizeIterator,
-        <I as IntoIterator>::IntoIter: Send,
-        for<'a> &'a S: Add<S, Output = S>,
-        for<'a> &'a S: Add<&'a S, Output = S>,
-        for<'a> &'a B: Add<B, Output = B>,
-        for<'a> &'a B: Add<&'a B, Output = B>,
-        Standard: Distribution<S>,
-        Standard: Distribution<B>;
+        I::IntoIter: ExactSizeIterator + Send,
+        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
+        for<'a> &'a B: Add<B, Output = B> + Add<&'a B, Output = B>,
+        Standard: Distribution<S> + Distribution<B>;
 }
 
 impl<'b, T: ShardBinding> Shuffle for SemiHonestContext<'b, T> {
@@ -62,16 +94,13 @@ impl<'b, T: ShardBinding> Shuffle for SemiHonestContext<'b, T> {
         S: BooleanArray,
         B: BooleanArray,
         I: IntoIterator<Item = AdditiveShare<S>> + Send,
-        I::IntoIter: ExactSizeIterator,
-        <I as IntoIterator>::IntoIter: Send,
-        for<'a> &'a S: Add<S, Output = S>,
-        for<'a> &'a S: Add<&'a S, Output = S>,
-        for<'a> &'a B: Add<B, Output = B>,
-        for<'a> &'a B: Add<&'a B, Output = B>,
-        Standard: Distribution<S>,
-        Standard: Distribution<B>,
+        I::IntoIter: ExactSizeIterator + Send,
+        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
+        for<'a> &'a B: Add<B, Output = B> + Add<&'a B, Output = B>,
+        Standard: Distribution<S> + Distribution<B>,
     {
-        semi_honest_shuffle::<_, I, S>(self, shares)
+        let fut = shuffle_protocol::<_, I, S>(self, shares);
+        fut.map(|res| res.map(|(output, _intermediates)| output))
     }
 }
 
@@ -84,14 +113,10 @@ impl<'b> Shuffle for MaliciousContext<'b> {
         S: BooleanArray,
         B: BooleanArray,
         I: IntoIterator<Item = AdditiveShare<S>> + Send,
-        I::IntoIter: ExactSizeIterator,
-        <I as IntoIterator>::IntoIter: Send,
-        for<'a> &'a S: Add<S, Output = S>,
-        for<'a> &'a S: Add<&'a S, Output = S>,
-        for<'a> &'a B: Add<B, Output = B>,
-        for<'a> &'a B: Add<&'a B, Output = B>,
-        Standard: Distribution<S>,
-        Standard: Distribution<B>,
+        I::IntoIter: ExactSizeIterator + Send,
+        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
+        for<'a> &'a B: Add<B, Output = B> + Add<&'a B, Output = B>,
+        Standard: Distribution<S> + Distribution<B>,
     {
         malicious_shuffle::<_, S, B, I>(self, shares)
     }
@@ -127,7 +152,7 @@ pub async fn shuffle_attribution_outputs<C, BK, TV, R>(
     input: Vec<SecretSharedAttributionOutputs<BK, TV>>,
 ) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
 where
-    C: Context,
+    C: Context + Shuffle,
     BK: BooleanArray,
     TV: BooleanArray,
     R: BooleanArray,
@@ -140,7 +165,7 @@ where
         .map(|item| attribution_outputs_to_shuffle_input::<BK, TV, R>(&item))
         .collect::<Vec<_>>();
 
-    let shuffled = malicious_shuffle::<_, R, BA96, _>(ctx, shuffle_input).await?;
+    let shuffled = ctx.shuffle::<R, BA96, _>(shuffle_input).await?;
 
     Ok(shuffled
         .into_iter()
@@ -260,21 +285,16 @@ pub mod tests {
 
     use crate::{
         ff::{
-            boolean::Boolean,
             boolean_array::{BA20, BA3, BA32, BA64, BA8},
             U128Conversions,
         },
-        protocol::{
-            context::UpgradedSemiHonestContext,
-            ipa_prf::{
-                prf_sharding::{
-                    tests::PreAggregationTestOutputInDecimal, AttributionOutputsTestInput,
-                    SecretSharedAttributionOutputs,
-                },
-                shuffle::{shuffle_attribution_outputs, shuffle_inputs},
+        protocol::ipa_prf::{
+            prf_sharding::{
+                tests::PreAggregationTestOutputInDecimal, AttributionOutputsTestInput,
+                SecretSharedAttributionOutputs,
             },
+            shuffle::{shuffle_attribution_outputs, shuffle_inputs},
         },
-        sharding::NotSharded,
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
@@ -351,21 +371,18 @@ pub mod tests {
                 expectation.push(e);
             }
             let mut result: Vec<PreAggregationTestOutputInDecimal> = world
-                .upgraded_semi_honest(
-                    inputs.into_iter(),
-                    |ctx: UpgradedSemiHonestContext<NotSharded, Boolean>, input_rows| async move {
-                        let aos: Vec<_> = input_rows
-                            .into_iter()
-                            .map(|ti| SecretSharedAttributionOutputs {
-                                attributed_breakdown_key_bits: ti.0,
-                                capped_attributed_trigger_value: ti.1,
-                            })
-                            .collect();
-                        shuffle_attribution_outputs::<_, BA32, BA32, BA64>(ctx, aos)
-                            .await
-                            .unwrap()
-                    },
-                )
+                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                    let aos: Vec<_> = input_rows
+                        .into_iter()
+                        .map(|ti| SecretSharedAttributionOutputs {
+                            attributed_breakdown_key_bits: ti.0,
+                            capped_attributed_trigger_value: ti.1,
+                        })
+                        .collect();
+                    shuffle_attribution_outputs::<_, BA32, BA32, BA64>(ctx, aos)
+                        .await
+                        .unwrap()
+                })
                 .await
                 .reconstruct();
             assert_ne!(result, expectation);

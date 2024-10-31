@@ -7,6 +7,7 @@ use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
+    ops::Not,
 };
 
 use generic_array::GenericArray;
@@ -61,6 +62,7 @@ pub use gateway::{
     MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportImpl,
 };
 pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEnd};
+use ipa_metrics::LabelValue;
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
@@ -176,6 +178,22 @@ impl From<i32> for HelperIdentity {
     }
 }
 
+impl Display for HelperIdentity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl LabelValue for HelperIdentity {
+    fn hash(&self) -> u64 {
+        u64::from(self.id)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
+    }
+}
+
 impl HelperIdentity {
     pub const ONE: Self = Self { id: 1 };
     pub const TWO: Self = Self { id: 2 };
@@ -269,6 +287,17 @@ pub struct RoleAssignment {
 pub enum Direction {
     Left,
     Right,
+}
+
+impl Not for Direction {
+    type Output = Self;
+
+    fn not(self) -> Self {
+        match self {
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+        }
+    }
 }
 
 impl Role {
@@ -387,6 +416,22 @@ impl<T> Index<Role> for Vec<T> {
 impl<T> IndexMut<Role> for Vec<T> {
     fn index_mut(&mut self, index: Role) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
+    }
+}
+
+impl Display for Role {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_static_str())
+    }
+}
+
+impl LabelValue for Role {
+    fn hash(&self) -> u64 {
+        u64::from(*self as u32)
+    }
+
+    fn boxed(&self) -> Box<dyn LabelValue> {
+        Box::new(*self)
     }
 }
 
@@ -622,36 +667,6 @@ where
     }
 }
 
-pub struct RepeatN<T> {
-    element: T,
-    count: usize,
-}
-
-// As of Apr. 2024, this is unstable in `std::iter`. It is also available in `itertools`.
-// The advantage over `repeat(element).take(count)` that we care about is that this
-// implements `ExactSizeIterator`. The other advantage is that `repeat_n` can return
-// the original value (saving a clone) on the last iteration.
-pub fn repeat_n<T: Clone>(element: T, count: usize) -> RepeatN<T> {
-    RepeatN { element, count }
-}
-
-impl<T: Clone> Iterator for RepeatN<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.count > 0).then(|| {
-            self.count -= 1;
-            self.element.clone()
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.count, Some(self.count))
-    }
-}
-
-impl<T: Clone> ExactSizeIterator for RepeatN<T> {}
-
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
@@ -695,6 +710,23 @@ mod tests {
             assert_eq!(3, data[Role::H1]);
             assert_eq!(4, data[Role::H2]);
             assert_eq!(5, data[Role::H3]);
+        }
+    }
+
+    mod helper_identity_tests {
+        use ipa_metrics::LabelValue;
+
+        use crate::helpers::HelperIdentity;
+
+        #[test]
+        fn label_value() {
+            for (id, hash) in [
+                (HelperIdentity::ONE, 1),
+                (HelperIdentity::TWO, 2),
+                (HelperIdentity::THREE, 3),
+            ] {
+                assert_eq!(id.boxed().hash(), hash);
+            }
         }
     }
 

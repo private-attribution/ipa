@@ -367,7 +367,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::{self, repeat_with};
+    use std::iter::{self, repeat_n, repeat_with};
 
     use curve25519_dalek::Scalar;
     use futures::stream::TryStreamExt;
@@ -378,7 +378,7 @@ mod tests {
     use super::*;
     use crate::{
         ff::{boolean_array::BA64, Serializable},
-        helpers::{repeat_n, stream::process_slice_by_chunks},
+        helpers::stream::process_slice_by_chunks,
         protocol::{
             context::{dzkp_validator::DZKPValidator, UpgradableContext, TEST_DZKP_STEPS},
             ipa_prf::{CONV_CHUNK, CONV_PROOF_CHUNK, PRF_CHUNK},

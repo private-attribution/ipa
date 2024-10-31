@@ -50,6 +50,16 @@ where
     }
 }
 
+impl<F, const N: usize> Default for CanonicalLagrangeDenominator<F, N>
+where
+    F: PrimeField + TryFrom<u128>,
+    <F as TryFrom<u128>>::Error: Debug,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// `LagrangeTable` is a precomputed table for the Lagrange evaluation.
 /// Allows to compute points on the polynomial, i.e. output points,
 /// given enough points on the polynomial, i.e. input points,
@@ -91,11 +101,11 @@ where
     /// that were used to generate this table.
     /// It is assumed that the `y_coordinates` provided to this function correspond the values of the _input_ "x coordinates"
     /// that were used to generate this table.
-    pub fn eval<I, J>(&self, y_coordinates: I) -> [F; M]
+    pub fn eval<I>(&self, y_coordinates: I) -> [F; M]
     where
-        I: IntoIterator<Item = J> + Copy,
+        I: IntoIterator + Copy,
         I::IntoIter: ExactSizeIterator,
-        J: Borrow<F>,
+        I::Item: Borrow<F>,
     {
         debug_assert_eq!(y_coordinates.into_iter().len(), N);
 
@@ -198,11 +208,11 @@ mod test {
 
         /// test helper function that evaluates a polynomial in monomial form, i.e. `sum_i c_i x^i` on points `x_output`
         /// where `c_0` to `c_N` are stored in `polynomial`
-        fn eval<const M: usize, I, J>(&self, x_output: I) -> [F; M]
+        fn eval<const M: usize, I>(&self, x_output: I) -> [F; M]
         where
-            I: IntoIterator<Item = J>,
+            I: IntoIterator,
             I::IntoIter: ExactSizeIterator,
-            J: Borrow<F>,
+            I::Item: Borrow<F>,
         {
             x_output
                 .into_iter()

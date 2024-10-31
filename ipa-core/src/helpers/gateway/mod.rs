@@ -45,9 +45,9 @@ pub type MpcTransportImpl = TransportImpl<crate::helpers::HelperIdentity>;
 pub type ShardTransportImpl = TransportImpl<ShardIndex>;
 
 #[cfg(feature = "real-world-infra")]
-pub type MpcTransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
+pub type MpcTransportImpl = crate::net::MpcHttpTransport;
 #[cfg(feature = "real-world-infra")]
-pub type ShardTransportImpl = crate::net::HttpShardTransport;
+pub type ShardTransportImpl = crate::net::ShardHttpTransport;
 
 pub type MpcTransportError = <MpcTransportImpl as Transport>::Error;
 
