@@ -982,17 +982,6 @@ where
     }
 }
 
-/*impl UniqueBytes for EncryptedHybridReport {
-    /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
-    /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
-    fn unique_bytes(&self) -> [u8; TAG_SIZE] {
-        let slice = &self.mk_ciphertext()[0..TAG_SIZE];
-        let mut array = [0u8; TAG_SIZE];
-        array.copy_from_slice(slice);
-        array
-    }
-}*/
-
 impl UniqueTag {
     // Function to attempt to create a UniqueTag from a UniqueBytes implementor
     pub fn from_unique_bytes<T: UniqueBytes>(item: &T) -> Self {
@@ -1463,7 +1452,8 @@ mod test {
         let enc_report2 =
             EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes2.into()).unwrap();
         let enc_report3 = enc_report2.clone();
-        // Match first, then decrypt
+
+        // Case 1: Match first, then decrypt
         match enc_report2 {
             EncryptedHybridReport::Impression(_) => panic!("Expected conversion report"),
             EncryptedHybridReport::Conversion(enc_report_conv) => {
@@ -1472,7 +1462,7 @@ mod test {
                 assert_eq!(dec_report2, hybrid_conversion_report);
             }
         }
-        // Decrypt directly
+        // Case 2: Decrypt directly
         let dec_report3 = enc_report3
             .decrypt(&key_registry, &HybridInfo::Conversion(info))
             .unwrap();
