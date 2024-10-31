@@ -45,7 +45,6 @@ pub struct MpcHttpTransport {
 #[derive(Clone)]
 pub struct ShardHttpTransport {
     pub(super) inner_transport: Arc<HttpTransport<Shard>>,
-    pub(super) shard_config: Sharded,
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
