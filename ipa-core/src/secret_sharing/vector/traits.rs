@@ -100,6 +100,12 @@ pub trait SharedValueArray<V>:
     const ZERO_ARRAY: Self;
 
     fn from_fn<F: FnMut(usize) -> V>(f: F) -> Self;
+
+    /// This returns an iterator over references to [`V`]. If you need owned values,
+    /// use [`IntoIterator`] implementation that this trait provides.
+    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a V>
+    where
+        V: 'a;
 }
 
 // Some `SharedValue` types (and thus their arrays) implement `FromRandom`, but `RP25519` does not.

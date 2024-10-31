@@ -5,13 +5,15 @@ use curve25519_dalek::{
     Scalar,
 };
 use generic_array::GenericArray;
+use hkdf::Hkdf;
+use sha2::Sha256;
 use typenum::{U128, U32};
 
 use crate::{
     ff::{ec_prime_field::Fp25519, Serializable},
     impl_shared_value_common,
     protocol::ipa_prf::PRF_CHUNK,
-    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
+    secret_sharing::{Block, SharedValue, SharedValueArray, StdArray, Vectorizable},
 };
 
 impl Block for CompressedRistretto {
@@ -170,14 +172,52 @@ impl From<RistrettoPoint> for RP25519 {
     }
 }
 
+/// This function allows converting curve points into unsigned 8-byte integers in batch.
+/// It provides better performance as the cost of invert is amortized.
+///
+/// This functionality is based on the assumption that if any Ristretto point `P` provides
+/// sufficient entropy to generate a uniformly random 64 bit value, then `2*P` does the same.
+///
+/// ## Panics
+/// If size of the input iterator is greater than `N`.
+pub fn batch_convert<const N: usize, I: Iterator<Item = RP25519>>(input: I) -> [u64; N]
+where
+    RP25519: Vectorizable<N>,
+{
+    let points = input.collect::<<RP25519 as Vectorizable<N>>::Array>();
+    let compressed: [_; N] =
+        RistrettoPoint::double_and_compress_batch(points.iter().map(|p| p.0.as_point()))
+            .try_into()
+            .unwrap();
+
+    compressed.map(|compressed_point| {
+        let hk = extract(compressed_point);
+        let mut okm = [0u8; 8];
+        hk.expand(&[], &mut okm).unwrap();
+
+        u64::from_le_bytes(okm)
+    })
+}
+
+fn extract(point: CompressedRistretto) -> Hkdf<Sha256> {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+
+    Hkdf::<Sha256>::new(None, point.as_bytes())
+}
+
 ///allows to convert curve points into unsigned integers, preserving high entropy
 macro_rules! cp_hash_impl {
-    ( $u_type:ty) => {
+    ($u_type:ty) => {
         impl From<RP25519> for $u_type {
             fn from(s: RP25519) -> Self {
-                use hkdf::Hkdf;
-                use sha2::Sha256;
-                let hk = Hkdf::<Sha256>::new(None, s.0.as_point().compress().as_bytes());
+                use crate::ff::curve_points::extract;
+
+                // make the behavior of this function consistent with batch_compress
+                // by multiplying the Ristretto point by a factor of two.
+                let two = Scalar::from(2_u64);
+
+                let hk = extract((two * s.0.as_point()).compress());
                 let mut okm = <$u_type>::MIN.to_le_bytes();
                 //error invalid length from expand only happens when okm is very large
                 hk.expand(&[], &mut okm).unwrap();
@@ -250,13 +290,20 @@ impl From<RistrettoPoint> for RistrettoRepr {
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::array;
+
     use curve25519_dalek::{constants, scalar::Scalar};
     use generic_array::GenericArray;
-    use rand::{thread_rng, Rng};
+    use rand::{rngs::StdRng, thread_rng, Rng};
+    use rand_core::SeedableRng;
     use typenum::U32;
 
     use crate::{
-        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
+        ff::{
+            curve_points::{batch_convert, RP25519},
+            ec_prime_field::Fp25519,
+            Serializable,
+        },
         secret_sharing::SharedValue,
     };
 
@@ -304,13 +351,32 @@ mod test {
         assert_eq!(fp_h, fp_h + RP25519::ZERO);
     }
 
-    ///testing curve to unsigned integer conversion has entropy (!= 0)
+    /// testing curve to unsigned integer conversion has entropy (!= 0)
     #[test]
     fn curve_point_to_hash() {
         let mut rng = thread_rng();
         let fp_a = rng.gen::<RP25519>();
         assert_ne!(0u64, u64::from(fp_a));
         assert_ne!(0u32, u32::from(fp_a));
+
+        assert_ne!(
+            batch_convert::<16, _>(
+                array::from_fn::<_, 16, _>(|_| rng.gen::<RP25519>()).into_iter()
+            ),
+            array::from_fn(|_| 0u64)
+        );
+    }
+
+    #[test]
+    fn batch_convert_matches_hash() {
+        let seed = thread_rng().gen();
+        let mut rng = StdRng::seed_from_u64(seed);
+        println!("seed = {seed}");
+        let input: [RP25519; 16] = array::from_fn(|_| rng.gen());
+        let a = batch_convert::<16, _>(input.into_iter());
+        let b = input.map(u64::from);
+
+        assert_eq!(a, b);
     }
 
     #[test]

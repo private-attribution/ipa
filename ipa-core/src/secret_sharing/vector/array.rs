@@ -69,6 +69,13 @@ where
     fn from_fn<F: FnMut(usize) -> V>(f: F) -> Self {
         Self(array::from_fn(f))
     }
+
+    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a V>
+    where
+        V: 'a,
+    {
+        self.0.iter()
+    }
 }
 
 impl<F: Field, const N: usize> FieldArray<F> for StdArray<F, N> where Self: FromRandom + Sendable {}

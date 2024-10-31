@@ -558,6 +558,10 @@ macro_rules! boolean_array_impl {
 
                     res
                 }
+
+                fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Boolean> where Boolean: 'a {
+                    self.0.iter().take(<$name>::BITS as usize).map(|bit| match *bit { true => &Boolean::TRUE, false => &Boolean::FALSE })
+                }
             }
 
             impl FieldArray<Boolean> for $name {}
@@ -743,11 +747,22 @@ macro_rules! boolean_array_impl {
                 proptest! {
                     #[test]
                     fn iterate_boolean_array(a: $name) {
-                        let mut iter = a.iter().enumerate();
+                        let mut iter = <$name as ArrayAccess>::iter(&a).enumerate();
                         assert_eq!(iter.len(), $bits);
                         while let Some((i, b)) = iter.next() {
                             assert_eq!(bool::from(b), a.0[i]);
                             assert_eq!(iter.len(), $bits - 1 - i);
+                        }
+                    }
+
+                    #[test]
+                    fn iterate_boolean_array_as_shared_value_array(a: $name) {
+                        let mut iter = <$name as SharedValueArray<Boolean>>::iter(&a).enumerate();
+                        let mut cnt = $bits;
+                        while let Some((i, b)) = iter.next() {
+                            cnt -= 1;
+                            assert_eq!(bool::from(*b), a.0[i]);
+                            assert_eq!(cnt, $bits - 1 - i);
                         }
                     }
 

@@ -4,7 +4,10 @@ use futures::future::try_join;
 
 use crate::{
     error::Error,
-    ff::{curve_points::RP25519, ec_prime_field::Fp25519},
+    ff::{
+        curve_points::{batch_convert, RP25519},
+        ec_prime_field::Fp25519,
+    },
     protocol::{
         basics::{reveal, Reveal, SecureMul},
         context::{
@@ -114,6 +117,9 @@ where
     // compute (g^left, g^right).
     // Note that it does not get upgraded because this
     // value is revealed immediately without any multiplications
+    // Keep an eye on this - depending on `N` it may grow big and thrash the stack.
+    // With PRF vectorization factor = 16, this takes 2kb on the stack.
+    // If it becomes a problem, consider boxing it.
     let sh_gr = AdditiveShare::<RP25519, N>::from(r.clone());
 
     // upgrade r and compute y <- r*y
@@ -134,11 +140,7 @@ where
     .await?;
 
     //compute R^(1/z) to u64
-    Ok(zip(gr, z)
-        .map(|(gr, z)| u64::from(gr * z.invert()))
-        .collect::<Vec<_>>()
-        .try_into()
-        .expect("iteration over arrays"))
+    Ok(batch_convert(zip(gr, z).map(|(gr, z)| gr * z.invert())))
 }
 
 #[cfg(all(test, unit_test))]
