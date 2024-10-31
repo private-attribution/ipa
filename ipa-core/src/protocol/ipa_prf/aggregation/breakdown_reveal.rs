@@ -2,13 +2,14 @@ use std::{convert::Infallible, pin::pin};
 
 use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
+use tracing::{info_span, Instrument};
 
 use super::aggregate_values;
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA64},
+        boolean_array::{BooleanArray, BooleanArrayReader, BooleanArrayWriter, BA32},
         U128Conversions,
     },
     helpers::TotalRecords,
@@ -24,17 +25,73 @@ use crate::{
             },
             oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
-            shuffle::{shuffle_attribution_outputs, Shuffle},
+            shuffle::{Shuffle, Shuffleable},
             BreakdownKey,
         },
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        TransposeFrom, Vectorizable,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
 };
+
+impl<BK, TV> AttributionOutputs<Replicated<BK>, Replicated<TV>>
+where
+    BK: BooleanArray,
+    TV: BooleanArray,
+{
+    fn join_fields(breakdown_key: BK, trigger_value: TV) -> <Self as Shuffleable>::Share {
+        let mut share = <Self as Shuffleable>::Share::ZERO;
+
+        BooleanArrayWriter::new(&mut share)
+            .write(&breakdown_key)
+            .write(&trigger_value);
+
+        share
+    }
+
+    fn split_fields(share: &<Self as Shuffleable>::Share) -> (BK, TV) {
+        let bits = BooleanArrayReader::new(share);
+        let (breakdown_key, bits) = bits.read();
+        let (trigger_value, _bits) = bits.read();
+        (breakdown_key, trigger_value)
+    }
+}
+
+impl<BK, TV> Shuffleable for AttributionOutputs<Replicated<BK>, Replicated<TV>>
+where
+    BK: BooleanArray,
+    TV: BooleanArray,
+{
+    /// TODO: Use a smaller BA type to contain BK and TV
+    type Share = BA32;
+
+    fn left(&self) -> Self::Share {
+        Self::join_fields(
+            ReplicatedSecretSharing::left(&self.attributed_breakdown_key_bits),
+            ReplicatedSecretSharing::left(&self.capped_attributed_trigger_value),
+        )
+    }
+
+    fn right(&self) -> Self::Share {
+        Self::join_fields(
+            ReplicatedSecretSharing::right(&self.attributed_breakdown_key_bits),
+            ReplicatedSecretSharing::right(&self.capped_attributed_trigger_value),
+        )
+    }
+
+    fn new(l: Self::Share, r: Self::Share) -> Self {
+        let left = Self::split_fields(&l);
+        let right = Self::split_fields(&r);
+
+        Self {
+            attributed_breakdown_key_bits: ReplicatedSecretSharing::new(left.0, right.0),
+            capped_attributed_trigger_value: ReplicatedSecretSharing::new(left.1, right.1),
+        }
+    }
+}
 
 /// Improved Aggregation a.k.a Aggregation revealing breakdown.
 ///
@@ -89,7 +146,12 @@ where
         )
         .await?;
 
-    let attributions = shuffle_attributions::<_, BK, TV, B>(&ctx, attributed_values_padded).await?;
+    let attributions = ctx
+        .narrow(&Step::Shuffle)
+        .shuffle(attributed_values_padded)
+        .instrument(info_span!("shuffle_attribution_outputs"))
+        .await?;
+
     // Revealing the breakdowns doesn't do any multiplies, so won't make it as far as
     // doing a proof, but we need the validator to obtain an upgraded malicious context.
     let validator = ctx.clone().dzkp_validator(
@@ -141,24 +203,6 @@ where
         .into_iter()
         .next()
         .expect("aggregation input must not be empty"))
-}
-
-/// Shuffles attribution Breakdown key and Trigger Value secret shares. Input
-/// and output are the same type.
-///
-/// TODO: Use a smaller BA type to contain BK and TV
-/// TODO: Sharded shuffle
-async fn shuffle_attributions<C, BK, TV, const B: usize>(
-    parent_ctx: &C,
-    contribs: Vec<SecretSharedAttributionOutputs<BK, TV>>,
-) -> Result<Vec<SecretSharedAttributionOutputs<BK, TV>>, Error>
-where
-    C: Context + Shuffle,
-    BK: BreakdownKey<B>,
-    TV: BooleanArray + U128Conversions,
-{
-    let shuffle_ctx = parent_ctx.narrow(&Step::Shuffle);
-    shuffle_attribution_outputs::<_, BK, TV, BA64>(shuffle_ctx, contribs).await
 }
 
 /// Transforms the Breakdown key from a secret share into a revealed `usize`.
