@@ -88,18 +88,17 @@ impl AddressableTestServer {
 /// Either a single Ring on MPC connection or all of the shards in a Helper.
 pub struct TestNetwork<F: ConnectionFlavor> {
     pub network: NetworkConfig<F>, // Contains Clients config
-    pub servers: Vec<Option<AddressableTestServer>>,
+    pub servers: Vec<AddressableTestServer>,
 }
 
 impl<F: ConnectionFlavor> TestNetwork<F> {
     /// Helper function that creates [`PeerConfig`]
     fn create_peers(
-        servers: &[Option<AddressableTestServer>],
+        servers: &[AddressableTestServer],
         conf: &TestConfigBuilder,
     ) -> Vec<PeerConfig> {
         servers
             .iter()
-            .flatten()
             .map(|addr_server| {
                 let port = addr_server
                     .config
@@ -139,7 +138,7 @@ impl TestNetwork<Shard> {
             .zip(ports)
             .map(|(ix, p)| {
                 let sid = ShardedHelperIdentity::new(id, ix);
-                Some(AddressableTestServer::new(sid, p, conf))
+                AddressableTestServer::new(sid, p, conf)
             })
             .collect();
         let peers = Self::create_peers(servers.as_slice(), conf);
@@ -158,7 +157,7 @@ impl TestNetwork<Helper> {
             .zip(ports)
             .map(|(id, p)| {
                 let sid = ShardedHelperIdentity::new(id, ix);
-                Some(AddressableTestServer::new(sid, p, conf))
+                AddressableTestServer::new(sid, p, conf)
             })
             .collect();
         let peers = Self::create_peers(servers.as_slice(), conf);
@@ -323,18 +322,11 @@ impl TestConfig {
         zip(shards_in_rings, self.rings)
             .flat_map(|(shards_in_ring, ring_network)| {
                 zip(ring_network.servers, shards_in_ring).map(
-                    move |(
-                        mut option_mpc_server,
-                        (mut option_shard_server, shard_network_config),
-                    )| {
-                        let mpc_server = option_mpc_server.take().unwrap();
-                        let shard_server = option_shard_server.take().unwrap();
-                        TestApp {
-                            mpc_server,
-                            shard_server,
-                            mpc_network_config: ring_network.network.clone(),
-                            shard_network_config,
-                        }
+                    move |(mpc_server, (shard_server, shard_network_config))| TestApp {
+                        mpc_server,
+                        shard_server,
+                        mpc_network_config: ring_network.network.clone(),
+                        shard_network_config,
                     },
                 )
             })
@@ -550,7 +542,7 @@ impl TestServerBuilder {
             // TODO: add disble_matchkey here
             .build();
         let leaders_ring = test_config.rings.pop().unwrap();
-        let first_server = leaders_ring.servers.into_iter().next().unwrap().unwrap();
+        let first_server = leaders_ring.servers.into_iter().next().unwrap();
         let clients = IpaHttpClient::from_conf(
             &IpaRuntime::current(),
             &leaders_ring.network,
