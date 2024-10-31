@@ -10,6 +10,7 @@
 #![allow(clippy::missing_panics_doc)]
 use std::{
     collections::HashSet,
+    iter::zip,
     net::{SocketAddr, TcpListener},
     ops::Index,
 };
@@ -44,6 +45,38 @@ pub const DEFAULT_TEST_PORTS: Ports = Ports {
     ring: [3000, 3001, 3002],
     shards: [6000, 6001, 6002],
 };
+
+/// A network with 4 shards per helper.
+pub const TWO_SHARDS: [Ports; 2] = [
+    Ports {
+        ring: [3000, 3001, 3002],
+        shards: [6000, 6001, 6002],
+    },
+    Ports {
+        ring: [3010, 3011, 3012],
+        shards: [6010, 6011, 6012],
+    },
+];
+
+/// A network with 4 shards per helper.
+pub const FOUR_SHARDS: [Ports; 4] = [
+    Ports {
+        ring: [10000, 10001, 10002],
+        shards: [10005, 10006, 10007],
+    },
+    Ports {
+        ring: [10010, 10011, 10012],
+        shards: [10015, 10016, 10017],
+    },
+    Ports {
+        ring: [10020, 10021, 10022],
+        shards: [10025, 10026, 10027],
+    },
+    Ports {
+        ring: [10030, 10031, 10032],
+        shards: [10035, 10036, 10037],
+    },
+];
 
 /// Configuration of a server that can be reached via socket or port.
 pub struct AddressableTestServer {
@@ -87,17 +120,18 @@ impl AddressableTestServer {
 /// Either a single Ring on MPC connection or all of the shards in a Helper.
 pub struct TestNetwork<F: ConnectionFlavor> {
     pub network: NetworkConfig<F>, // Contains Clients config
-    pub servers: Vec<AddressableTestServer>,
+    pub servers: Vec<Option<AddressableTestServer>>,
 }
 
 impl<F: ConnectionFlavor> TestNetwork<F> {
     /// Helper function that creates [`PeerConfig`]
     fn create_peers(
-        servers: &[AddressableTestServer],
+        servers: &[Option<AddressableTestServer>],
         conf: &TestConfigBuilder,
     ) -> Vec<PeerConfig> {
         servers
             .iter()
+            .flatten()
             .map(|addr_server| {
                 let port = addr_server
                     .config
@@ -130,15 +164,21 @@ impl<F: ConnectionFlavor> TestNetwork<F> {
 }
 
 impl TestNetwork<Shard> {
-    #[must_use]
-    /// Gets a ref to the first shard in this network.
-    pub fn get_first_shard(&self) -> &AddressableTestServer {
-        self.servers.first().unwrap()
-    }
-
-    /// Gets a mut ref to the first shard in this network.
-    pub fn get_first_shard_mut(&mut self) -> &mut AddressableTestServer {
-        self.servers.get_mut(0).unwrap()
+    /// Creates all the shards for a helper and creates a network.
+    fn new_shards(id: HelperIdentity, ports: Vec<Option<u16>>, conf: &TestConfigBuilder) -> Self {
+        let servers: Vec<_> = (0..conf.shard_count)
+            .map(ShardIndex)
+            .zip(ports)
+            .map(|(ix, p)| {
+                let sid = ShardedHelperIdentity::new(id, ix);
+                Some(AddressableTestServer::new(sid, p, conf))
+            })
+            .collect();
+        let peers = Self::create_peers(servers.as_slice(), conf);
+        assert_eq!(servers.len(), peers.len());
+        let client_config = conf.create_client_config();
+        let network = NetworkConfig::<Shard>::new_shards(peers, client_config);
+        TestNetwork { network, servers }
     }
 }
 
@@ -150,30 +190,13 @@ impl TestNetwork<Helper> {
             .zip(ports)
             .map(|(id, p)| {
                 let sid = ShardedHelperIdentity::new(id, ix);
-                AddressableTestServer::new(sid, p, conf)
+                Some(AddressableTestServer::new(sid, p, conf))
             })
             .collect();
         let peers = Self::create_peers(servers.as_slice(), conf);
+        assert_eq!(servers.len(), peers.len());
         let client_config = conf.create_client_config();
         let network = NetworkConfig::<Helper>::new_mpc(peers, client_config);
-        TestNetwork { network, servers }
-    }
-}
-
-impl TestNetwork<Shard> {
-    /// Creates all the shards for a helper and creates a network.
-    fn new_shards(id: HelperIdentity, ports: Vec<Option<u16>>, conf: &TestConfigBuilder) -> Self {
-        let servers: Vec<_> = (0..conf.shard_count)
-            .map(ShardIndex)
-            .zip(ports)
-            .map(|(ix, p)| {
-                let sid = ShardedHelperIdentity::new(id, ix);
-                AddressableTestServer::new(sid, p, conf)
-            })
-            .collect();
-        let peers = Self::create_peers(servers.as_slice(), conf);
-        let client_config = conf.create_client_config();
-        let network = NetworkConfig::<Shard>::new_shards(peers, client_config);
         TestNetwork { network, servers }
     }
 }
@@ -217,12 +240,19 @@ fn server_config_https(
     }
 }
 
+pub struct TestApp {
+    pub mpc_server: AddressableTestServer,
+    pub shard_server: AddressableTestServer,
+    pub mpc_network_config: NetworkConfig<Helper>,
+    pub shard_network_config: NetworkConfig<Shard>,
+}
+
 /// Uber container for test configuration. Provides access to a vec of MPC rings and 3 sharding
 /// networks (one for each Helper)
 pub struct TestConfig {
     pub disable_https: bool,
     pub rings: Vec<TestNetwork<Helper>>,
-    pub shards: Vec<TestNetwork<Shard>>,
+    pub shards: [TestNetwork<Shard>; 3],
 }
 
 impl TestConfig {
@@ -239,11 +269,6 @@ impl TestConfig {
         self.shards.get(id.as_index()).unwrap()
     }
 
-    /// Gets a mut ref to the entire shard network for a specific helper.
-    pub fn get_shards_for_helper_mut(&mut self, id: HelperIdentity) -> &mut TestNetwork<Shard> {
-        self.shards.get_mut(id.as_index()).unwrap()
-    }
-
     /// Creates a new [`TestConfig`] using the provided configuration.
     fn new(conf: &TestConfigBuilder) -> Self {
         let rings = (0..conf.shard_count)
@@ -253,18 +278,46 @@ impl TestConfig {
                 TestNetwork::<Helper>::new_mpc(s, ports, conf)
             })
             .collect();
-        let shards = HelperIdentity::make_three()
-            .into_iter()
-            .map(|id| {
-                let ports = conf.get_ports_for_helper_identity(id);
-                TestNetwork::<Shard>::new_shards(id, ports, conf)
-            })
-            .collect();
+        let shards = HelperIdentity::make_three().map(|id| {
+            let ports = conf.get_ports_for_helper_identity(id);
+            TestNetwork::<Shard>::new_shards(id, ports, conf)
+        });
         Self {
             disable_https: conf.disable_https,
             rings,
             shards,
         }
+    }
+
+    #[must_use]
+    pub fn into_apps(self) -> Vec<TestApp> {
+        let mut list = vec![];
+        let [s0, s1, s2] = self.shards;
+        // Transposing shards networks from
+        let shards_in_rings: Vec<_> = zip(zip(s2.servers, s1.servers), s0.servers)
+            .map(|((ss2, ss1), ss0)| {
+                [
+                    (ss0, s0.network.clone()),
+                    (ss1, s1.network.clone()),
+                    (ss2, s2.network.clone()),
+                ]
+            })
+            .collect();
+        for (shards_in_ring, ring_network) in zip(shards_in_rings, self.rings.into_iter()) {
+            for (mut option_mpc_server, (mut option_shard_server, shard_network_config)) in
+                zip(ring_network.servers.into_iter(), shards_in_ring)
+            {
+                let mpc_server = option_mpc_server.take().unwrap();
+                let shard_server = option_shard_server.take().unwrap();
+                list.push(TestApp {
+                    mpc_server,
+                    shard_server,
+                    mpc_network_config: ring_network.network.clone(),
+                    shard_network_config,
+                });
+            }
+        }
+        list
     }
 }
 
@@ -341,6 +394,22 @@ impl TestConfigBuilder {
     }
 
     #[must_use]
+    pub fn four_shards(self) -> Self {
+        self.with_ports_by_ring(FOUR_SHARDS.to_vec())
+    }
+
+    #[must_use]
+    pub fn two_shards(self) -> Self {
+        self.with_ports_by_ring(TWO_SHARDS.to_vec())
+    }
+
+    #[must_use]
+    pub fn with_shard_count(mut self, value: u32) -> Self {
+        self.shard_count = value;
+        self
+    }
+
+    #[must_use]
     pub fn with_use_http1_option(mut self, value: bool) -> Self {
         self.use_http1 = value;
         self
@@ -395,7 +464,7 @@ pub struct TestServer {
     pub transport: MpcHttpTransport,
     pub server: IpaHttpServer<Helper>,
     pub client: IpaHttpClient<Helper>,
-    pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
+    pub request_handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
 }
 
 impl TestServer {
@@ -416,7 +485,7 @@ impl TestServer {
 
 #[derive(Default)]
 pub struct TestServerBuilder {
-    handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
+    handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
     use_http1: bool,
@@ -427,7 +496,7 @@ impl TestServerBuilder {
     #[must_use]
     pub fn with_request_handler(
         mut self,
-        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        handler: Arc<dyn RequestHandler<HelperIdentity>>,
     ) -> Self {
         self.handler = Some(handler);
         self
@@ -470,7 +539,7 @@ impl TestServerBuilder {
             // TODO: add disble_matchkey here
             .build();
         let leaders_ring = test_config.rings.pop().unwrap();
-        let first_server = leaders_ring.servers.into_iter().next().unwrap();
+        let first_server = leaders_ring.servers.into_iter().next().unwrap().unwrap();
         let clients = IpaHttpClient::from_conf(
             &IpaRuntime::current(),
             &leaders_ring.network,
@@ -482,7 +551,7 @@ impl TestServerBuilder {
             IpaRuntime::current(),
             HelperIdentity::ONE,
             first_server.config,
-            leaders_ring.network.clone(),
+            leaders_ring.network,
             &clients,
             handler,
         );
@@ -619,14 +688,14 @@ JMepVZwIWJrVhnxdcmzOuONoeLZPZraFpw==
 ",
     b"
 -----BEGIN CERTIFICATE-----
-MIIBZTCCAQugAwIBAgIIXTgB/bkN/aUwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ
-bG9jYWxob3N0MB4XDTI0MTAwNjIyMTIwM1oXDTI1MDEwNTIyMTIwM1owFDESMBAG
-A1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyzSofZIX
-XgLUKGumrN3SEXOMOAKXcl1VshTBzvyVwxxnD01WVLgS80/TELEltT8SMj1Cgu7I
-tkDx3EVPjq4pOKNHMEUwFAYDVR0RBA0wC4IJbG9jYWxob3N0MA4GA1UdDwEB/wQE
+MIIBZTCCAQugAwIBAgIITIDzw5k9qXIwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ
+bG9jYWxob3N0MB4XDTI0MTAwNjIyMTIxMVoXDTI1MDEwNTIyMTIxMVowFDESMBAG
+A1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/p17+uh9
+L3dqJlI2MFg2GxpCIhnOko83MokiFC5GnpVWL5xEAWHn4xi0ML8G4n5jK0PoX0FE
+/RTWxkUO/PKSvaNHMEUwFAYDVR0RBA0wC4IJbG9jYWxob3N0MA4GA1UdDwEB/wQE
 AwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZIzj0EAwID
-SAAwRQIhAN93g0zfB/4VyhNOaY1uCb4af4qMxcz1wp0yZ7HKAyWqAiBVPgv4X7aR
-JMepVZwIWJrVhnxdcmzOuONoeLZPZraFpw==
+SAAwRQIhAI2hchWc0AedR4FdqbI1mckihN9a1bNciT8i3pOZGHm/AiB4JA9M14xw
+xYxSeDvd5vt4ROlqgvLMcOOUjbFF7YAT6g==
 -----END CERTIFICATE-----
 ",
 ];
@@ -694,48 +763,52 @@ a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
 mod tests {
     use super::{get_test_certificate_and_key, TestConfigBuilder};
     use crate::{
+        config::NetworkConfig,
         helpers::HelperIdentity,
-        net::test::{Ports, TEST_CERTS, TEST_KEYS},
+        net::{
+            test::{Ports, FOUR_SHARDS, TEST_CERTS, TEST_KEYS},
+            ConnectionFlavor,
+        },
         sharding::{ShardIndex, ShardedHelperIdentity},
     };
+
+    fn assert_eq_configs<F: ConnectionFlavor>(nc1: &NetworkConfig<F>, nc2: &NetworkConfig<F>) {
+        let urls1: Vec<_> = nc1.vec_peers().into_iter().map(|p| p.url).collect();
+        let urls2: Vec<_> = nc2.vec_peers().into_iter().map(|p| p.url).collect();
+        assert_eq!(urls1, urls2);
+    }
 
     /// This simple test makes sure that testing networks are created properly.
     /// The network itself won't be excersized as that's tested elsewhere.
     #[test]
     fn create_4_shard_http_network() {
-        let ports: Vec<Ports> = vec![
-            Ports {
-                ring: [10000, 10001, 10002],
-                shards: [10005, 10006, 10007],
-            },
-            Ports {
-                ring: [10010, 10011, 10012],
-                shards: [10015, 10016, 10017],
-            },
-            Ports {
-                ring: [10020, 10021, 10022],
-                shards: [10025, 10026, 10027],
-            },
-            Ports {
-                ring: [10030, 10031, 10032],
-                shards: [10035, 10036, 10037],
-            },
-        ];
         // Providing ports and no https certs to keep this test fast
         let conf = TestConfigBuilder::default()
             .with_disable_https_option(true)
-            .with_ports_by_ring(ports)
+            .four_shards()
             .build();
 
         assert!(conf.disable_https);
         assert_eq!(conf.rings.len(), 4);
         assert_eq!(conf.shards.len(), 3);
-        let shards_2 = conf.get_shards_for_helper(HelperIdentity::TWO);
-        assert_eq!(shards_2.get_first_shard().config.port, Some(10006));
-        let second_helper_third_shard_configs = &shards_2.servers[2];
-        assert_eq!(second_helper_third_shard_configs.config.port, Some(10026));
-        let leader_ring_configs = &conf.leaders_ring().servers;
-        assert_eq!(leader_ring_configs[2].config.port, Some(10002));
+
+        let apps = conf.into_apps();
+        for (i, ports) in FOUR_SHARDS.iter().enumerate() {
+            for (j, port) in ports.ring.into_iter().enumerate() {
+                assert_eq!(apps[i * 3 + j].mpc_server.config.port, Some(port));
+                assert_eq_configs(
+                    &apps[i * 3].mpc_network_config,
+                    &apps[i * 3 + j].mpc_network_config,
+                );
+            }
+            for (j, port) in ports.shards.into_iter().enumerate() {
+                assert_eq!(apps[i * 3 + j].shard_server.config.port, Some(port));
+                assert_eq_configs(
+                    &apps[j].shard_network_config,
+                    &apps[i * 3 + j].shard_network_config,
+                );
+            }
+        }
     }
 
     #[test]
