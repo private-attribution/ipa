@@ -348,7 +348,7 @@ impl Transport for ShardHttpTransport {
 
 #[cfg(all(test, web_test, descriptive_gate))]
 mod tests {
-    use std::{iter::zip, task::Poll};
+    use std::task::Poll;
 
     use bytes::Bytes;
     use futures::stream::{poll_immediate, StreamExt};

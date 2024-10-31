@@ -250,6 +250,7 @@ pub struct TestApp {
 
 #[cfg(all(test, web_test, descriptive_gate))]
 impl TestApp {
+    /// Starts a new IPA app reading to be used in HTTP tests
     pub async fn start_app(mut self, disable_https: bool) -> crate::HelperApp {
         let (setup, mpc_handler) = crate::AppSetup::new(crate::AppConfig::default());
         let sid = self.mpc_server.id;
@@ -336,11 +337,11 @@ impl TestConfig {
         }
     }
 
+    /// Transforms this easy to modify configuration into an easy to run [`TestApp`].
     #[must_use]
     pub fn into_apps(self) -> Vec<TestApp> {
-        let mut list = vec![];
         let [s0, s1, s2] = self.shards;
-        // Transposing shards networks from
+        // Transposing shards networks to be per ring
         let shards_in_rings: Vec<_> = zip(zip(s2.servers, s1.servers), s0.servers)
             .map(|((ss2, ss1), ss0)| {
                 [
@@ -350,21 +351,26 @@ impl TestConfig {
                 ]
             })
             .collect();
-        for (shards_in_ring, ring_network) in zip(shards_in_rings, self.rings.into_iter()) {
-            for (mut option_mpc_server, (mut option_shard_server, shard_network_config)) in
-                zip(ring_network.servers.into_iter(), shards_in_ring)
-            {
-                let mpc_server = option_mpc_server.take().unwrap();
-                let shard_server = option_shard_server.take().unwrap();
-                list.push(TestApp {
-                    mpc_server,
-                    shard_server,
-                    mpc_network_config: ring_network.network.clone(),
-                    shard_network_config,
-                });
-            }
-        }
-        list
+
+        zip(shards_in_rings, self.rings)
+            .flat_map(|(shards_in_ring, ring_network)| {
+                zip(ring_network.servers, shards_in_ring).map(
+                    move |(
+                        mut option_mpc_server,
+                        (mut option_shard_server, shard_network_config),
+                    )| {
+                        let mpc_server = option_mpc_server.take().unwrap();
+                        let shard_server = option_shard_server.take().unwrap();
+                        TestApp {
+                            mpc_server,
+                            shard_server,
+                            mpc_network_config: ring_network.network.clone(),
+                            shard_network_config,
+                        }
+                    },
+                )
+            })
+            .collect()
     }
 }
 
