@@ -6,6 +6,8 @@ mod results;
 mod status;
 mod step;
 
+use std::marker::PhantomData;
+
 use axum::{
     response::{IntoResponse, Response},
     Router,
@@ -17,9 +19,9 @@ use futures_util::{
 use hyper::{Request, StatusCode};
 use tower::{layer::layer_fn, Service};
 
-use crate::{
-    helpers::HelperIdentity,
-    net::{server::ClientIdentity, transport::MpcHttpTransport},
+use crate::net::{
+    server::ClientIdentity, transport::MpcHttpTransport, ConnectionFlavor, Helper, Shard,
+    ShardHttpTransport,
 };
 
 /// Construct router for IPA query web service
@@ -45,9 +47,15 @@ pub fn query_router(transport: MpcHttpTransport) -> Router {
 // It might make sense to split the query and h2h handlers into two modules.
 pub fn h2h_router(transport: MpcHttpTransport) -> Router {
     Router::new()
-        .merge(prepare::router(transport.clone()))
-        .merge(step::router(transport))
-        .layer(layer_fn(HelperAuthentication::new))
+        .merge(step::router(transport.clone()))
+        .merge(prepare::router(transport.inner_transport))
+        .layer(layer_fn(HelperAuthentication::<_, Helper>::new))
+}
+
+pub fn s2s_router(transport: ShardHttpTransport) -> Router {
+    Router::new()
+        .merge(prepare::router(transport.inner_transport))
+        .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
 }
 
 /// Returns HTTP 401 Unauthorized if the request does not have valid authentication.
@@ -63,18 +71,24 @@ pub fn h2h_router(transport: MpcHttpTransport) -> Router {
 /// requests would not have this request extension, causing axum to fail the request with
 /// `ExtensionRejection::MissingExtension`, however, this would return a 500 error instead of 401.
 #[derive(Clone)]
-pub struct HelperAuthentication<S> {
+pub struct HelperAuthentication<S, F: ConnectionFlavor> {
     inner: S,
+    flavor: PhantomData<F>,
 }
 
-impl<S> HelperAuthentication<S> {
+impl<S, F: ConnectionFlavor> HelperAuthentication<S, F> {
     fn new(inner: S) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            flavor: PhantomData,
+        }
     }
 }
 
-impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
-    for HelperAuthentication<S>
+impl<B, S, F> Service<Request<B>> for HelperAuthentication<S, F>
+where
+    S: Service<Request<B>, Response = Response>,
+    F: ConnectionFlavor,
 {
     type Response = Response;
     type Error = S::Error;
@@ -88,7 +102,7 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
-        match req.extensions().get::<ClientIdentity<HelperIdentity>>() {
+        match req.extensions().get::<ClientIdentity<F::Identity>>() {
             Some(ClientIdentity(_)) => self.inner.call(req).left_future(),
             None => ready(Ok((
                 StatusCode::UNAUTHORIZED,
@@ -143,7 +157,7 @@ pub mod test_helpers {
 
     pub async fn assert_fails_with_handler(
         req: hyper::Request<Body>,
-        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        handler: Arc<dyn RequestHandler<HelperIdentity>>,
         expected_status: StatusCode,
     ) {
         let test_server = TestServer::builder()
@@ -156,7 +170,7 @@ pub mod test_helpers {
 
     pub async fn assert_success_with(
         req: hyper::Request<Body>,
-        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        handler: Arc<dyn RequestHandler<HelperIdentity>>,
     ) -> bytes::Bytes {
         let test_server = TestServer::builder()
             .with_request_handler(handler)

@@ -1,16 +1,18 @@
+use std::sync::Arc;
+
 use axum::{extract::Path, response::IntoResponse, routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::PrepareQuery, BodyStream, HelperIdentity},
+    helpers::{query::PrepareQuery, BodyStream},
     net::{
         http_serde::{
             self,
             query::{prepare::RequestBody, QueryConfigQueryParams},
         },
         server::ClientIdentity,
-        transport::MpcHttpTransport,
-        Error,
+        transport::HttpTransport,
+        ConnectionFlavor, Error,
     },
     protocol::QueryId,
     query::PrepareQueryError,
@@ -18,9 +20,9 @@ use crate::{
 
 /// Called by whichever peer helper is the leader for an individual query, to initiatialize
 /// processing of that query.
-async fn handler(
-    transport: Extension<MpcHttpTransport>,
-    _: Extension<ClientIdentity<HelperIdentity>>, // require that client is an authenticated helper
+async fn handler<F: ConnectionFlavor>(
+    transport: Extension<Arc<HttpTransport<F>>>,
+    _: Extension<ClientIdentity<F::Identity>>, // require that client is an authenticated helper
     Path(query_id): Path<QueryId>,
     QueryConfigQueryParams(config): QueryConfigQueryParams,
     Json(RequestBody { roles }): Json<RequestBody>,
@@ -30,7 +32,7 @@ async fn handler(
         config,
         roles,
     };
-    let _ = transport
+    let _ = Arc::clone(&transport)
         .dispatch(data, BodyStream::empty())
         .await
         .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -44,9 +46,9 @@ impl IntoResponse for PrepareQueryError {
     }
 }
 
-pub fn router(transport: MpcHttpTransport) -> Router {
+pub fn router<F: ConnectionFlavor>(transport: Arc<HttpTransport<F>>) -> Router {
     Router::new()
-        .route(http_serde::query::prepare::AXUM_PATH, post(handler))
+        .route(http_serde::query::prepare::AXUM_PATH, post(handler::<F>))
         .layer(Extension(transport))
 }
 
