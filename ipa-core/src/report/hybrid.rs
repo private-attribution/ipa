@@ -27,12 +27,7 @@
 //! all secret sharings (including the sharings of zero), making the collection of reports
 //! cryptographically indistinguishable.
 
-use std::{
-    collections::HashSet,
-    convert::Infallible,
-    marker::PhantomData,
-    ops::{Add, Deref},
-};
+use std::{collections::HashSet, convert::Infallible, marker::PhantomData, ops::Add};
 
 use bytes::{Buf, BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
@@ -50,7 +45,7 @@ use crate::{
     },
     report::{
         hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
-        EncryptedOprfReport, EventType, InvalidReportError, KeyIdentifier,
+        EncryptedOprfReport, EventType, KeyIdentifier,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
     sharding::ShardIndex,
@@ -380,10 +375,10 @@ where
     pub fn encrypted_len(&self) -> u16 {
         match self {
             HybridReport::Impression(impression_report) => {
-                impression_report.encrypted_len()
+                impression_report.encrypted_len() +1
             }
             HybridReport::Conversion(conversion_report) => {
-                conversion_report.encrypted_len()
+                conversion_report.encrypted_len() +1
             }
         }
     }
@@ -401,16 +396,18 @@ where
         match self {
             HybridReport::Impression(impression_report) => match info {
                 HybridInfo::Impression(impression_info) =>{
+                    out.put_u16_le(self.encrypted_len());
                     out.put_u8(1u8);
-                    impression_report.delimited_encrypt_to(key_id, key_registry, impression_info, rng, out)},
+                    impression_report.encrypt_to(key_id, key_registry, impression_info, rng, out)},
                 HybridInfo::Conversion(_) => {
                     Err(InvalidHybridReportError::WrongInfoType("Impression"))
                 }
             },
             HybridReport::Conversion(conversion_report) => match info {
                 HybridInfo::Conversion(conversion_info) =>{
+                    out.put_u16_le(self.encrypted_len());
                     out.put_u8(0u8);
-                    conversion_report.delimited_encrypt_to(key_id, key_registry, conversion_info, rng, out)},
+                    conversion_report.encrypt_to(key_id, key_registry, conversion_info, rng, out)},
                 HybridInfo::Impression(_) => {
                     Err(InvalidHybridReportError::WrongInfoType("Conversion"))
                 }
@@ -582,7 +579,6 @@ where
         })
     }
 }
-
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct EncryptedHybridConversionReport<V>
@@ -765,49 +761,8 @@ where
     }
 }
 
-/*impl<BK, V> From<HybridReport<BK, V>> for IndistinguishableHybridReport<BK, V>
-where
-    BK: SharedValue,
-    V: SharedValue,
-{
-    fn from(report: HybridReport<BK, V>) -> Self {
-        match report {
-            HybridReport::Impression(r) => r.into(),
-            HybridReport::Conversion(r) => r.into(),
-        }
-    }
-}*/
-
-/*impl<BK, V> From<HybridImpressionReport<BK>> for IndistinguishableHybridReport<BK, V>
-where
-    BK: SharedValue,
-    V: SharedValue,
-{
-    fn from(impression_report: HybridImpressionReport<BK>) -> Self {
-        Self {
-            match_key: impression_report.match_key,
-            value: Replicated::ZERO,
-            breakdown_key: impression_report.breakdown_key,
-        }
-    }
-}*/
-
-/*impl<BK, V> From<HybridConversionReport<V>> for IndistinguishableHybridReport<BK, V>
-where
-    BK: SharedValue,
-    V: SharedValue,
-{
-    fn from(conversion_report: HybridConversionReport<V>) -> Self {
-        Self {
-            match_key: conversion_report.match_key,
-            value: conversion_report.value,
-            breakdown_key: Replicated::ZERO,
-        }
-    }
-}*/
-
 #[derive(Clone, Eq, PartialEq)]
-pub enum EncryptedHybridGeneralReport<BK, V>
+pub enum EncryptedHybridReport<BK, V>
 where
     BK: SharedValue,
     V: SharedValue,
@@ -815,7 +770,7 @@ where
     Impression(EncryptedHybridImpressionReport<BK>),
     Conversion(EncryptedHybridConversionReport<V>),
 }
-impl<BK, V> EncryptedHybridGeneralReport<BK, V>
+impl<BK, V> EncryptedHybridReport<BK, V>
 where
     V: SharedValue,
     BK: SharedValue,
@@ -828,52 +783,48 @@ where
 {
     pub fn encap_key_mk(&self) -> &[u8] {
         match self {
-            EncryptedHybridGeneralReport::Impression(impression_report) => {
+            EncryptedHybridReport::Impression(impression_report) => {
                 impression_report.encap_key_mk()
             }
-            EncryptedHybridGeneralReport::Conversion(conversion_report) => {
+            EncryptedHybridReport::Conversion(conversion_report) => {
                 conversion_report.encap_key_mk()
             }
         }
     }
     pub fn mk_ciphertext(&self) -> &[u8] {
         match self {
-            EncryptedHybridGeneralReport::Impression(impression_report) => {
+            EncryptedHybridReport::Impression(impression_report) => {
                 impression_report.mk_ciphertext()
             }
-            EncryptedHybridGeneralReport::Conversion(conversion_report) => {
+            EncryptedHybridReport::Conversion(conversion_report) => {
                 conversion_report.mk_ciphertext()
             }
         }
     }
     pub fn encap_key_btt(&self) -> &[u8] {
         match self {
-            EncryptedHybridGeneralReport::Impression(impression_report) => {
+            EncryptedHybridReport::Impression(impression_report) => {
                 impression_report.encap_key_btt()
             }
-            EncryptedHybridGeneralReport::Conversion(conversion_report) => {
+            EncryptedHybridReport::Conversion(conversion_report) => {
                 conversion_report.encap_key_btt()
             }
         }
     }
     pub fn btt_ciphertext(&self) -> &[u8] {
         match self {
-            EncryptedHybridGeneralReport::Impression(impression_report) => {
+            EncryptedHybridReport::Impression(impression_report) => {
                 impression_report.btt_ciphertext()
             }
-            EncryptedHybridGeneralReport::Conversion(conversion_report) => {
+            EncryptedHybridReport::Conversion(conversion_report) => {
                 conversion_report.btt_ciphertext()
             }
         }
     }
     pub fn key_id(&self) -> u8 {
         match self {
-            EncryptedHybridGeneralReport::Impression(impression_report) => {
-                impression_report.key_id()
-            }
-            EncryptedHybridGeneralReport::Conversion(conversion_report) => {
-                conversion_report.key_id()
-            }
+            EncryptedHybridReport::Impression(impression_report) => impression_report.key_id(),
+            EncryptedHybridReport::Conversion(conversion_report) => conversion_report.key_id(),
         }
     }
     /// ## Errors
@@ -886,13 +837,13 @@ where
                 //let impression_report = EncryptedHybridImpressionReport::<BK, B>::from_bytes(&bytes[1..])?;
                 bytes.advance(1);
                 let impression_report = EncryptedHybridImpressionReport::<BK>::from_bytes(bytes)?;
-                Ok(EncryptedHybridGeneralReport::Impression(impression_report))
+                Ok(EncryptedHybridReport::Impression(impression_report))
             }
             0 => {
                 //let conversion_report = EncryptedHybridConversionReport::<V, B>::from_bytes(&bytes[1..])?;
                 bytes.advance(1);
                 let conversion_report = EncryptedHybridConversionReport::<V>::from_bytes(bytes)?;
-                Ok(EncryptedHybridGeneralReport::Conversion(conversion_report))
+                Ok(EncryptedHybridReport::Conversion(conversion_report))
             }
             _ => Err(InvalidHybridReportError::UnknownEventType(bytes[0])),
         }
@@ -955,7 +906,7 @@ where
         info: &HybridInfo,
     ) -> Result<HybridReport<BK, V>, InvalidHybridReportError> {
         match self {
-            EncryptedHybridGeneralReport::Impression(impression_report) => match info {
+            EncryptedHybridReport::Impression(impression_report) => match info {
                 HybridInfo::Impression(impression_info) => Ok(HybridReport::Impression(
                     impression_report.decrypt(key_registry, impression_info)?,
                 )),
@@ -963,7 +914,7 @@ where
                     Err(InvalidHybridReportError::WrongInfoType("Impression"))
                 }
             },
-            EncryptedHybridGeneralReport::Conversion(conversion_report) => match info {
+            EncryptedHybridReport::Conversion(conversion_report) => match info {
                 HybridInfo::Conversion(conversion_info) => Ok(HybridReport::Conversion(
                     conversion_report.decrypt(key_registry, conversion_info)?,
                 )),
@@ -975,7 +926,7 @@ where
     }
 }
 
-impl<BK, V> TryFrom<Bytes> for EncryptedHybridGeneralReport<BK, V>
+impl<BK, V> TryFrom<Bytes> for EncryptedHybridReport<BK, V>
 where
     V: SharedValue,
     BK: SharedValue,
@@ -990,76 +941,6 @@ where
 
     fn try_from(bytes: Bytes) -> Result<Self, InvalidHybridReportError> {
         Self::from_bytes(bytes)
-    }
-}
-
-#[derive(Clone)]
-pub struct EncryptedHybridReport {
-    bytes: Bytes,
-}
-
-impl EncryptedHybridReport {
-    /// ## Errors
-    /// If the report fails to decrypt
-    pub fn decrypt<P, BK, V, TS>(
-        &self,
-        key_registry: &P,
-    ) -> Result<HybridReport<BK, V>, InvalidReportError>
-    where
-        P: PrivateKeyRegistry,
-        BK: SharedValue,
-        V: SharedValue,
-        TS: SharedValue,
-        Replicated<BK>: Serializable,
-        Replicated<V>: Serializable,
-        Replicated<TS>: Serializable,
-        <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-            Add<<Replicated<TS> as Serializable>::Size>,
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-            <Replicated<TS> as Serializable>::Size,
-        >: Add<U16>,
-        Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U16,
-        >: ArrayLength,
-    {
-        let encrypted_oprf_report =
-            EncryptedOprfReport::<BK, V, TS, Bytes>::try_from(self.bytes.clone())?;
-        let oprf_report = encrypted_oprf_report.decrypt(key_registry)?;
-        match oprf_report.event_type {
-            EventType::Source => Ok(HybridReport::Impression(HybridImpressionReport {
-                match_key: oprf_report.match_key,
-                breakdown_key: oprf_report.breakdown_key,
-            })),
-            EventType::Trigger => Ok(HybridReport::Conversion(HybridConversionReport {
-                match_key: oprf_report.match_key,
-                value: oprf_report.trigger_value,
-            })),
-        }
-    }
-
-    /// TODO: update these when we produce a proper encapsulation of
-    /// `EncryptedHybridReport`, rather than pigggybacking on `EncryptedOprfReport`
-    pub fn mk_ciphertext(&self) -> &[u8] {
-        let encap_key_mk_offset: usize = 0;
-        let ciphertext_mk_offset: usize = encap_key_mk_offset + EncapsulationSize::USIZE;
-        let encap_key_btt_offset: usize =
-            ciphertext_mk_offset + TagSize::USIZE + <Replicated<BA64> as Serializable>::Size::USIZE;
-
-        &self.bytes[ciphertext_mk_offset..encap_key_btt_offset]
-    }
-}
-
-impl TryFrom<Bytes> for EncryptedHybridReport {
-    type Error = InvalidReportError;
-
-    fn try_from(bytes: Bytes) -> Result<Self, InvalidReportError> {
-        Ok(EncryptedHybridReport { bytes })
     }
 }
 
@@ -1080,7 +961,7 @@ impl UniqueBytes for UniqueTag {
     }
 }
 
-impl<BK, V> UniqueBytes for EncryptedHybridGeneralReport<BK, V>
+impl<BK, V> UniqueBytes for EncryptedHybridReport<BK, V>
 where
     V: SharedValue,
     BK: SharedValue,
@@ -1101,7 +982,7 @@ where
     }
 }
 
-impl UniqueBytes for EncryptedHybridReport {
+/*impl UniqueBytes for EncryptedHybridReport {
     /// We use the `TagSize` (the first 16 bytes of the ciphertext) for collision-detection
     /// See [analysis here for uniqueness](https://eprint.iacr.org/2019/624)
     fn unique_bytes(&self) -> [u8; TAG_SIZE] {
@@ -1110,7 +991,7 @@ impl UniqueBytes for EncryptedHybridReport {
         array.copy_from_slice(slice);
         array
     }
-}
+}*/
 
 impl UniqueTag {
     // Function to attempt to create a UniqueTag from a UniqueBytes implementor
@@ -1196,9 +1077,9 @@ mod test {
     use typenum::Unsigned;
 
     use super::{
-        EncryptedHybridGeneralReport, EncryptedHybridImpressionReport, GenericArray,
-        HybridConversionReport, HybridImpressionReport, HybridReport, UniqueTag,
-        UniqueTagValidator, HELPER_ORIGIN, IndistinguishableHybridReport
+        EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
+        HybridConversionReport, HybridImpressionReport, HybridReport,
+        IndistinguishableHybridReport, UniqueTag, UniqueTagValidator, HELPER_ORIGIN,
     };
     use crate::{
         error::Error,
@@ -1257,12 +1138,11 @@ mod test {
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
 
-        let hybrid_report2 =
-            EncryptedHybridGeneralReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<_, BA20>(
-                enc_report_bytes.into(),
-                &key_registry,
-            )
-            .unwrap();
+        let hybrid_report2 = EncryptedHybridReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<
+            _,
+            BA20,
+        >(enc_report_bytes.into(), &key_registry)
+        .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
     }
@@ -1285,12 +1165,11 @@ mod test {
         let enc_report_bytes = oprf_report
             .encrypt(key_id, &key_registry, &mut rng)
             .unwrap();
-        let hybrid_report2 =
-            EncryptedHybridGeneralReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<_, BA20>(
-                enc_report_bytes.into(),
-                &key_registry,
-            )
-            .unwrap();
+        let hybrid_report2 = EncryptedHybridReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<
+            _,
+            BA20,
+        >(enc_report_bytes.into(), &key_registry)
+        .unwrap();
 
         assert_eq!(hybrid_report, hybrid_report2);
     }
@@ -1582,12 +1461,12 @@ mod test {
         enc_report_bytes2.splice(0..0, [0]);
 
         let enc_report2 =
-            EncryptedHybridGeneralReport::<BA8, BA3>::from_bytes(enc_report_bytes2.into()).unwrap();
+            EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes2.into()).unwrap();
         let enc_report3 = enc_report2.clone();
         // Match first, then decrypt
         match enc_report2 {
-            EncryptedHybridGeneralReport::Impression(_) => panic!("Expected conversion report"),
-            EncryptedHybridGeneralReport::Conversion(enc_report_conv) => {
+            EncryptedHybridReport::Impression(_) => panic!("Expected conversion report"),
+            EncryptedHybridReport::Conversion(enc_report_conv) => {
                 let dec_report2: HybridConversionReport<BA3> =
                     enc_report_conv.decrypt(&key_registry, &info).unwrap();
                 assert_eq!(dec_report2, hybrid_conversion_report);
