@@ -164,56 +164,38 @@ mod tests {
         report::{hybrid::HybridReport, hybrid_info::HybridInfo, DEFAULT_KEY_ID},
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::{
-            flatten3v, ipa::TestRawDataRecord, Reconstruct, RoundRobinInputDistribution, TestWorld,
-            TestWorldConfig, WithShards,
+            flatten3v, hybrid::TestHybridRecord, Reconstruct, RoundRobinInputDistribution,
+            TestWorld, TestWorldConfig, WithShards,
         },
     };
 
     const EXPECTED: &[u128] = &[0, 8, 5];
 
-    fn build_records() -> Vec<TestRawDataRecord> {
+    fn build_records() -> Vec<TestHybridRecord> {
         vec![
-            TestRawDataRecord {
-                timestamp: 0,
-                user_id: 12345,
-                is_trigger_report: false,
+            TestHybridRecord::TestImpression {
+                match_key: 12345,
                 breakdown_key: 2,
-                trigger_value: 0,
             },
-            TestRawDataRecord {
-                timestamp: 4,
-                user_id: 68362,
-                is_trigger_report: false,
+            TestHybridRecord::TestImpression {
+                match_key: 68362,
                 breakdown_key: 1,
-                trigger_value: 0,
             },
-            TestRawDataRecord {
-                timestamp: 10,
-                user_id: 12345,
-                is_trigger_report: true,
-                breakdown_key: 0,
-                trigger_value: 5,
+            TestHybridRecord::TestConversion {
+                match_key: 12345,
+                value: 5,
             },
-            TestRawDataRecord {
-                timestamp: 12,
-                user_id: 68362,
-                is_trigger_report: true,
-                breakdown_key: 0,
-                trigger_value: 2,
+            TestHybridRecord::TestConversion {
+                match_key: 68362,
+                value: 2,
             },
-            TestRawDataRecord {
-                timestamp: 20,
-                user_id: 68362,
-                is_trigger_report: false,
+            TestHybridRecord::TestImpression {
+                match_key: 68362,
                 breakdown_key: 1,
-                trigger_value: 0,
             },
-            TestRawDataRecord {
-                timestamp: 30,
-                user_id: 68362,
-                is_trigger_report: true,
-                breakdown_key: 1,
-                trigger_value: 7,
+            TestHybridRecord::TestConversion {
+                match_key: 68362,
+                value: 7,
             },
         ]
     }
@@ -225,7 +207,7 @@ mod tests {
     }
 
     fn build_buffers_from_records(
-        records: &[TestRawDataRecord],
+        records: &[TestHybridRecord],
         s: usize,
         info: &HybridInfo,
     ) -> BufferAndKeyRegistry {
