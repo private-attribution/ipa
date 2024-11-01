@@ -3,17 +3,20 @@ use crate::report::{hybrid::NonAsciiStringError, KeyIdentifier};
 const DOMAIN: &str = "private-attribution";
 
 #[derive(Clone, Debug)]
-pub struct HybridImpressionInfo<'a> {
+pub struct HybridImpressionInfo {
     pub key_id: KeyIdentifier,
-    pub helper_origin: &'a str,
+    pub helper_origin: &'static str,
 }
 
-impl<'a> HybridImpressionInfo<'a> {
+impl HybridImpressionInfo {
     /// Creates a new instance.
     ///
     /// ## Errors
     /// if helper or site origin is not a valid ASCII string.
-    pub fn new(key_id: KeyIdentifier, helper_origin: &'a str) -> Result<Self, NonAsciiStringError> {
+    pub fn new(
+        key_id: KeyIdentifier,
+        helper_origin: &'static str,
+    ) -> Result<Self, NonAsciiStringError> {
         // If the types of errors returned from this function change, then the validation in
         // `EncryptedReport::from_bytes` may need to change as well.
         if !helper_origin.is_ascii() {
@@ -51,7 +54,7 @@ impl<'a> HybridImpressionInfo<'a> {
 #[derive(Clone, Debug)]
 pub struct HybridConversionInfo<'a> {
     pub key_id: KeyIdentifier,
-    pub helper_origin: &'a str,
+    pub helper_origin: &'static str,
     pub conversion_site_domain: &'a str,
     pub timestamp: u64,
     pub epsilon: f64,
@@ -65,7 +68,7 @@ impl<'a> HybridConversionInfo<'a> {
     /// if helper or site origin is not a valid ASCII string.
     pub fn new(
         key_id: KeyIdentifier,
-        helper_origin: &'a str,
+        helper_origin: &'static str,
         conversion_site_domain: &'a str,
         timestamp: u64,
         epsilon: f64,
@@ -124,6 +127,6 @@ impl<'a> HybridConversionInfo<'a> {
 
 #[derive(Clone, Debug)]
 pub enum HybridInfo<'a> {
-    Impression(HybridImpressionInfo<'a>),
+    Impression(HybridImpressionInfo),
     Conversion(HybridConversionInfo<'a>),
 }

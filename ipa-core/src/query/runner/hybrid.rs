@@ -176,8 +176,6 @@ mod tests {
     const EXPECTED: &[u128] = &[0, 8, 5];
 
     fn build_records() -> Vec<TestRawDataRecord> {
-        // TODO: When Encryption/Decryption exists for HybridReports
-        // update these to use that, rather than generating OprfReports
         vec![
             /*TestRawDataRecord {
                 timestamp: 0,

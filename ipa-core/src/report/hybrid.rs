@@ -27,7 +27,7 @@
 //! all secret sharings (including the sharings of zero), making the collection of reports
 //! cryptographically indistinguishable.
 
-use std::{collections::HashSet, convert::Infallible, marker::PhantomData, ops::Add};
+use std::{collections::HashSet, convert::Infallible, iter::once, marker::PhantomData, ops::Add};
 
 use bytes::{Buf, BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
@@ -45,7 +45,7 @@ use crate::{
     },
     report::{
         hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
-        EncryptedOprfReport, EventType, KeyIdentifier,
+        EncryptedOprfReport, EventType as OprfEventType, KeyIdentifier,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
     sharding::ShardIndex,
@@ -79,6 +79,29 @@ pub enum InvalidHybridReportError {
     UnknownEventType(u8),
     #[error("Incorrect hybrid info type: Expected {0}")]
     WrongInfoType(&'static str),
+}
+
+/// Event type as described [`ipa-issue`]
+/// Initially we will just support trigger vs source event types but could extend to others in
+/// the future.
+///
+/// ['ipa-issue']: https://github.com/patcg-individual-drafts/ipa/issues/38
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum HybridEventType {
+    Impression,
+    Conversion,
+}
+
+impl TryFrom<u8> for HybridEventType {
+    type Error = InvalidHybridReportError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Impression),
+            1 => Ok(Self::Conversion),
+            _ => Err(InvalidHybridReportError::UnknownEventType(value)),
+        }
+    }
 }
 
 /// Reports for impression events are represented here.
@@ -116,7 +139,6 @@ where
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let match_key =
             Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(&buf[..mk_sz]));
-            //.map_err(|e| InvalidHybridReportError::DeserializationError("match_key", e.into()))?;
         let breakdown_key =
             Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + bk_sz]))
             .map_err(|e| InvalidHybridReportError::DeserializationError("breakdown_key", e.into()))?;
@@ -393,25 +415,17 @@ where
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
-        match self {
-            HybridReport::Impression(impression_report) => match info {
-                HybridInfo::Impression(impression_info) =>{
-                    out.put_u16_le(self.encrypted_len());
-                    out.put_u8(1u8);
-                    impression_report.encrypt_to(key_id, key_registry, impression_info, rng, out)},
-                HybridInfo::Conversion(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Impression"))
-                }
-            },
-            HybridReport::Conversion(conversion_report) => match info {
-                HybridInfo::Conversion(conversion_info) =>{
-                    out.put_u16_le(self.encrypted_len());
-                    out.put_u8(0u8);
-                    conversion_report.encrypt_to(key_id, key_registry, conversion_info, rng, out)},
-                HybridInfo::Impression(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Conversion"))
-                }
-            },
+        match (self, info) {
+            (HybridReport::Impression(impression_report), HybridInfo::Impression(impression_info)) => {
+                out.put_u16_le(self.encrypted_len());
+                out.put_u8(HybridEventType::Impression as u8);
+                impression_report.encrypt_to(key_id, key_registry, impression_info, rng, out)},
+            (HybridReport::Conversion(conversion_report), HybridInfo::Conversion(conversion_info)) => {
+                out.put_u16_le(self.encrypted_len());
+                out.put_u8(HybridEventType::Conversion as u8);
+                conversion_report.encrypt_to(key_id, key_registry, conversion_info, rng, out)},
+            (HybridReport::Impression(_), _) => Err(InvalidHybridReportError::WrongInfoType("Impression")),
+            (HybridReport::Conversion(_), _) => Err(InvalidHybridReportError::WrongInfoType("Conversion")),
         }
     }
 
@@ -427,16 +441,14 @@ where
         match self {
             HybridReport::Impression(impression_report) => match info {
                 HybridInfo::Impression(impression_info) =>
-                    // Prepend a 1u8 byte to indicate this is an impression report
-                    impression_report.encrypt(key_id, key_registry, impression_info, rng).map(|v| vec![1u8].into_iter().chain(v).collect()),
+                    impression_report.encrypt(key_id, key_registry, impression_info, rng).map(|v| once(HybridEventType::Impression as u8).chain(v).collect()),
                 HybridInfo::Conversion(_) => {
                     Err(InvalidHybridReportError::WrongInfoType("Impression"))
                 }
             },
             HybridReport::Conversion(conversion_report) => match info {
                 HybridInfo::Conversion(conversion_info) =>
-                    // Prepend a 0u8 byte to indicate this is a conversion report
-                    conversion_report.encrypt(key_id, key_registry, conversion_info, rng).map(|v| vec![0u8].into_iter().chain(v).collect()),
+                    conversion_report.encrypt(key_id, key_registry, conversion_info, rng).map(|v| once(HybridEventType::Conversion as u8).chain(v).collect()),
                 HybridInfo::Impression(_) => {
                     Err(InvalidHybridReportError::WrongInfoType("Conversion"))
                 }
@@ -457,7 +469,7 @@ where
         match self {
             HybridReport::Impression(impression_report) => match info {
                 HybridInfo::Impression(impression_info) =>{
-                    out.put_u8(1u8);
+                    out.put_u8(HybridEventType::Impression as u8);
                     impression_report.encrypt_to(key_id, key_registry, impression_info, rng, out)},
                 HybridInfo::Conversion(_) => {
                     Err(InvalidHybridReportError::WrongInfoType("Impression"))
@@ -465,7 +477,7 @@ where
             },
             HybridReport::Conversion(conversion_report) => match info {
                 HybridInfo::Conversion(conversion_info) =>{
-                    out.put_u8(0u8);
+                    out.put_u8(HybridEventType::Conversion as u8);
                     conversion_report.encrypt_to(key_id, key_registry, conversion_info, rng, out)},
                 HybridInfo::Impression(_) => {
                     Err(InvalidHybridReportError::WrongInfoType("Conversion"))
@@ -496,16 +508,12 @@ where
 {
     const ENCAP_KEY_MK_OFFSET: usize = 0;
     const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
-    const ENCAP_KEY_BTT_OFFSET: usize = (Self::CIPHERTEXT_MK_OFFSET
-        + TagSize::USIZE
-        //+ <Replicated<BA64> as Serializable>::Size::USIZE);
-        + Replicated::<BA64>::size());
+    const ENCAP_KEY_BTT_OFFSET: usize =
+        (Self::CIPHERTEXT_MK_OFFSET + TagSize::USIZE + Replicated::<BA64>::size());
     const CIPHERTEXT_BTT_OFFSET: usize = Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize::USIZE;
 
-    const KEY_IDENTIFIER_OFFSET: usize = (Self::CIPHERTEXT_BTT_OFFSET
-        + TagSize::USIZE
-        //+ <Replicated<BK> as Serializable>::Size::USIZE);
-        + Replicated::<BK>::size());
+    const KEY_IDENTIFIER_OFFSET: usize =
+        (Self::CIPHERTEXT_BTT_OFFSET + TagSize::USIZE + Replicated::<BK>::size());
     const SITE_DOMAIN_OFFSET: usize = Self::KEY_IDENTIFIER_OFFSET + 1;
 
     pub fn encap_key_mk(&self) -> &[u8] {
@@ -654,8 +662,6 @@ where
     ) -> Result<HybridConversionReport<V>, InvalidHybridReportError> {
         type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
         type CTBTTLength<V> = <<Replicated<V> as Serializable>::Size as Add<TagSize>>::Output;
-
-        println!("data: {:?}", self.data);
 
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
@@ -830,22 +836,17 @@ where
     /// ## Errors
     /// If the report contents are invalid.
     pub fn from_bytes(mut bytes: Bytes) -> Result<Self, InvalidHybridReportError> {
-        //let first_byte = bytes.next().ok_or(InvalidHybridReportError::Length(0,1))?;
-        //let the_rest = bytes[1..];
-        match bytes[0] {
-            1 => {
-                //let impression_report = EncryptedHybridImpressionReport::<BK, B>::from_bytes(&bytes[1..])?;
+        match HybridEventType::try_from(bytes[0])? {
+            HybridEventType::Impression => {
                 bytes.advance(1);
                 let impression_report = EncryptedHybridImpressionReport::<BK>::from_bytes(bytes)?;
                 Ok(EncryptedHybridReport::Impression(impression_report))
             }
-            0 => {
-                //let conversion_report = EncryptedHybridConversionReport::<V, B>::from_bytes(&bytes[1..])?;
+            HybridEventType::Conversion => {
                 bytes.advance(1);
                 let conversion_report = EncryptedHybridConversionReport::<V>::from_bytes(bytes)?;
                 Ok(EncryptedHybridReport::Conversion(conversion_report))
             }
-            _ => Err(InvalidHybridReportError::UnknownEventType(bytes[0])),
         }
     }
     /// ## Errors
@@ -884,11 +885,11 @@ where
             )
         })?;
         match oprf_report.event_type {
-            EventType::Source => Ok(HybridReport::Impression(HybridImpressionReport {
+            OprfEventType::Source => Ok(HybridReport::Impression(HybridImpressionReport {
                 match_key: oprf_report.match_key,
                 breakdown_key: oprf_report.breakdown_key,
             })),
-            EventType::Trigger => Ok(HybridReport::Conversion(HybridConversionReport {
+            OprfEventType::Trigger => Ok(HybridReport::Conversion(HybridConversionReport {
                 match_key: oprf_report.match_key,
                 value: oprf_report.trigger_value,
             })),
@@ -1078,14 +1079,17 @@ mod test {
         },
         hpke::{KeyPair, KeyRegistry},
         report::{
-            hybrid::{EncryptedHybridConversionReport, NonAsciiStringError, BA64},
+            hybrid::{EncryptedHybridConversionReport, HybridEventType, NonAsciiStringError, BA64},
             hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
-            EventType, OprfReport,
+            EventType as OprfEventType, OprfReport,
         },
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
-    fn build_oprf_report(event_type: EventType, rng: &mut ThreadRng) -> OprfReport<BA8, BA3, BA20> {
+    fn build_oprf_report(
+        event_type: OprfEventType,
+        rng: &mut ThreadRng,
+    ) -> OprfReport<BA8, BA3, BA20> {
         OprfReport::<BA8, BA3, BA20> {
             match_key: AdditiveShare::new(rng.gen(), rng.gen()),
             timestamp: AdditiveShare::new(rng.gen(), rng.gen()),
@@ -1112,7 +1116,7 @@ mod test {
     fn convert_to_hybrid_impression_report() {
         let mut rng = thread_rng();
 
-        let b = EventType::Source;
+        let b = OprfEventType::Source;
 
         let oprf_report = build_oprf_report(b, &mut rng);
         let hybrid_report = HybridReport::Impression::<BA8, BA3>(HybridImpressionReport::<BA8> {
@@ -1140,7 +1144,7 @@ mod test {
     fn convert_to_hybrid_conversion_report() {
         let mut rng = thread_rng();
 
-        let b = EventType::Trigger;
+        let b = OprfEventType::Trigger;
 
         let oprf_report = build_oprf_report(b, &mut rng);
         let hybrid_report = HybridReport::Conversion::<BA8, BA3>(HybridConversionReport::<BA3> {
@@ -1248,7 +1252,7 @@ mod test {
     #[test]
     fn serialization_hybrid_impression() {
         let mut rng = thread_rng();
-        let b = EventType::Source;
+        let b = OprfEventType::Source;
         let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_impression_report = HybridImpressionReport::<BA8> {
@@ -1270,7 +1274,7 @@ mod test {
     #[test]
     fn serialization_hybrid_conversion() {
         let mut rng = thread_rng();
-        let b = EventType::Source;
+        let b = OprfEventType::Source;
         let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_conversion_report = HybridConversionReport::<BA3> {
@@ -1361,7 +1365,7 @@ mod test {
     #[test]
     fn enc_dec_roundtrip_hybrid_impression() {
         let mut rng = thread_rng();
-        let b = EventType::Source;
+        let b = OprfEventType::Source;
         let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_impression_report = HybridImpressionReport::<BA8> {
@@ -1389,7 +1393,7 @@ mod test {
     #[test]
     fn enc_dec_roundtrip_hybrid_conversion() {
         let mut rng = thread_rng();
-        let b = EventType::Trigger;
+        let b = OprfEventType::Trigger;
         let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_conversion_report = HybridConversionReport::<BA3> {
@@ -1419,7 +1423,7 @@ mod test {
     #[test]
     fn enc_report_serialization() {
         let mut rng = thread_rng();
-        let b = EventType::Trigger;
+        let b = OprfEventType::Trigger;
         let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_conversion_report = HybridConversionReport::<BA3> {
@@ -1446,8 +1450,8 @@ mod test {
             enc_report.decrypt(&key_registry, &info).unwrap();
         assert_eq!(dec_report, hybrid_conversion_report);
 
-        // Prepend a 0 byte to the ciphertext to mark it as a ConversionReport
-        enc_report_bytes2.splice(0..0, [0]);
+        // Prepend a byte to the ciphertext to mark it as a ConversionReport
+        enc_report_bytes2.splice(0..0, [HybridEventType::Conversion as u8]);
 
         let enc_report2 =
             EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes2.into()).unwrap();
