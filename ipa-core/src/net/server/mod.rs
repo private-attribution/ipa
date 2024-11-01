@@ -111,14 +111,15 @@ impl IpaHttpServer<Helper> {
 impl IpaHttpServer<Shard> {
     #[must_use]
     pub fn new_shards(
-        _transport: &ShardHttpTransport,
+        transport: &ShardHttpTransport,
         config: ServerConfig,
         network_config: NetworkConfig<Shard>,
     ) -> Self {
+        let router = handlers::shard_router(transport.clone());
         IpaHttpServer {
             config,
             network_config,
-            router: Router::new(),
+            router,
         }
     }
 }

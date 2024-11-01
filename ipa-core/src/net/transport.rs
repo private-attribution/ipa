@@ -38,13 +38,13 @@ pub struct HttpTransport<F: ConnectionFlavor> {
 /// HTTP transport for helper to helper traffic.
 #[derive(Clone)]
 pub struct MpcHttpTransport {
-    inner_transport: Arc<HttpTransport<Helper>>,
+    pub(super) inner_transport: Arc<HttpTransport<Helper>>,
 }
 
 /// A stub for HTTP transport implementation, suitable for serving shard-to-shard traffic
 #[derive(Clone)]
 pub struct ShardHttpTransport {
-    inner_transport: Arc<HttpTransport<Shard>>,
+    pub(super) inner_transport: Arc<HttpTransport<Shard>>,
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
