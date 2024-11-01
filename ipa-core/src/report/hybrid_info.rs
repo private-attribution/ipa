@@ -126,7 +126,35 @@ impl<'a> HybridConversionInfo<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub enum HybridInfo<'a> {
-    Impression(HybridImpressionInfo),
-    Conversion(HybridConversionInfo<'a>),
+pub struct HybridInfo<'a> {
+    pub impression: HybridImpressionInfo,
+    pub conversion: HybridConversionInfo<'a>,
+}
+
+impl HybridInfo<'_> {
+    /// Creates a new instance.
+    /// ## Errors
+    /// if helper or site origin is not a valid ASCII string.
+    pub fn new(
+        key_id: KeyIdentifier,
+        helper_origin: &'static str,
+        conversion_site_domain: &'static str,
+        timestamp: u64,
+        epsilon: f64,
+        sensitivity: f64,
+    ) -> Result<Self, NonAsciiStringError> {
+        let impression = HybridImpressionInfo::new(key_id, helper_origin)?;
+        let conversion = HybridConversionInfo::new(
+            key_id,
+            helper_origin,
+            conversion_site_domain,
+            timestamp,
+            epsilon,
+            sensitivity,
+        )?;
+        Ok(Self {
+            impression,
+            conversion,
+        })
+    }
 }

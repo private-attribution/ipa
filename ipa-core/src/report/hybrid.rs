@@ -415,17 +415,17 @@ where
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
-        match (self, info) {
-            (HybridReport::Impression(impression_report), HybridInfo::Impression(impression_info)) => {
+        match self {
+            HybridReport::Impression(impression_report) => {
                 out.put_u16_le(self.encrypted_len());
                 out.put_u8(HybridEventType::Impression as u8);
-                impression_report.encrypt_to(key_id, key_registry, impression_info, rng, out)},
-            (HybridReport::Conversion(conversion_report), HybridInfo::Conversion(conversion_info)) => {
+                impression_report.encrypt_to(key_id, key_registry, &info.impression, rng, out)
+            },
+            HybridReport::Conversion(conversion_report) => {
                 out.put_u16_le(self.encrypted_len());
                 out.put_u8(HybridEventType::Conversion as u8);
-                conversion_report.encrypt_to(key_id, key_registry, conversion_info, rng, out)},
-            (HybridReport::Impression(_), _) => Err(InvalidHybridReportError::WrongInfoType("Impression")),
-            (HybridReport::Conversion(_), _) => Err(InvalidHybridReportError::WrongInfoType("Conversion")),
+                conversion_report.encrypt_to(key_id, key_registry, &info.conversion, rng, out)
+            },
         }
     }
 
@@ -439,19 +439,11 @@ where
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidHybridReportError> {
         match self {
-            HybridReport::Impression(impression_report) => match info {
-                HybridInfo::Impression(impression_info) =>
-                    impression_report.encrypt(key_id, key_registry, impression_info, rng).map(|v| once(HybridEventType::Impression as u8).chain(v).collect()),
-                HybridInfo::Conversion(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Impression"))
-                }
+            HybridReport::Impression(impression_report) => {
+                    impression_report.encrypt(key_id, key_registry, &info.impression, rng).map(|v| once(HybridEventType::Impression as u8).chain(v).collect())
             },
-            HybridReport::Conversion(conversion_report) => match info {
-                HybridInfo::Conversion(conversion_info) =>
-                    conversion_report.encrypt(key_id, key_registry, conversion_info, rng).map(|v| once(HybridEventType::Conversion as u8).chain(v).collect()),
-                HybridInfo::Impression(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Conversion"))
-                }
+            HybridReport::Conversion(conversion_report) => {
+                    conversion_report.encrypt(key_id, key_registry, &info.conversion, rng).map(|v| once(HybridEventType::Conversion as u8).chain(v).collect())
             },
         }
     }
@@ -467,21 +459,13 @@ where
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
         match self {
-            HybridReport::Impression(impression_report) => match info {
-                HybridInfo::Impression(impression_info) =>{
+            HybridReport::Impression(impression_report) =>{
                     out.put_u8(HybridEventType::Impression as u8);
-                    impression_report.encrypt_to(key_id, key_registry, impression_info, rng, out)},
-                HybridInfo::Conversion(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Impression"))
-                }
+                    impression_report.encrypt_to(key_id, key_registry, &info.impression, rng, out)
             },
-            HybridReport::Conversion(conversion_report) => match info {
-                HybridInfo::Conversion(conversion_info) =>{
+            HybridReport::Conversion(conversion_report) => {
                     out.put_u8(HybridEventType::Conversion as u8);
-                    conversion_report.encrypt_to(key_id, key_registry, conversion_info, rng, out)},
-                HybridInfo::Impression(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Conversion"))
-                }
+                    conversion_report.encrypt_to(key_id, key_registry, &info.conversion, rng, out)
             },
         }
     }
@@ -907,22 +891,12 @@ where
         info: &HybridInfo,
     ) -> Result<HybridReport<BK, V>, InvalidHybridReportError> {
         match self {
-            EncryptedHybridReport::Impression(impression_report) => match info {
-                HybridInfo::Impression(impression_info) => Ok(HybridReport::Impression(
-                    impression_report.decrypt(key_registry, impression_info)?,
-                )),
-                HybridInfo::Conversion(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Impression"))
-                }
-            },
-            EncryptedHybridReport::Conversion(conversion_report) => match info {
-                HybridInfo::Conversion(conversion_info) => Ok(HybridReport::Conversion(
-                    conversion_report.decrypt(key_registry, conversion_info)?,
-                )),
-                HybridInfo::Impression(_) => {
-                    Err(InvalidHybridReportError::WrongInfoType("Conversion"))
-                }
-            },
+            EncryptedHybridReport::Impression(impression_report) => Ok(HybridReport::Impression(
+                impression_report.decrypt(key_registry, &info.impression)?,
+            )),
+            EncryptedHybridReport::Conversion(conversion_report) => Ok(HybridReport::Conversion(
+                conversion_report.decrypt(key_registry, &info.conversion)?,
+            )),
         }
     }
 }
@@ -1435,11 +1409,10 @@ mod test {
         let key_id = 0;
 
         let info =
-            HybridConversionInfo::new(key_id, HELPER_ORIGIN, "meta.com", 1_729_707_432, 5.0, 1.1)
-                .unwrap();
+            HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
 
         let enc_report_bytes = hybrid_conversion_report
-            .encrypt(key_id, &key_registry, &info, &mut rng)
+            .encrypt(key_id, &key_registry, &info.conversion, &mut rng)
             .unwrap();
 
         let mut enc_report_bytes2 = enc_report_bytes.clone();
@@ -1447,7 +1420,7 @@ mod test {
         let enc_report =
             EncryptedHybridConversionReport::<BA3>::from_bytes(enc_report_bytes.into()).unwrap();
         let dec_report: HybridConversionReport<BA3> =
-            enc_report.decrypt(&key_registry, &info).unwrap();
+            enc_report.decrypt(&key_registry, &info.conversion).unwrap();
         assert_eq!(dec_report, hybrid_conversion_report);
 
         // Prepend a byte to the ciphertext to mark it as a ConversionReport
@@ -1461,15 +1434,14 @@ mod test {
         match enc_report2 {
             EncryptedHybridReport::Impression(_) => panic!("Expected conversion report"),
             EncryptedHybridReport::Conversion(enc_report_conv) => {
-                let dec_report2: HybridConversionReport<BA3> =
-                    enc_report_conv.decrypt(&key_registry, &info).unwrap();
+                let dec_report2: HybridConversionReport<BA3> = enc_report_conv
+                    .decrypt(&key_registry, &info.conversion)
+                    .unwrap();
                 assert_eq!(dec_report2, hybrid_conversion_report);
             }
         }
         // Case 2: Decrypt directly
-        let dec_report3 = enc_report3
-            .decrypt(&key_registry, &HybridInfo::Conversion(info))
-            .unwrap();
+        let dec_report3 = enc_report3.decrypt(&key_registry, &info).unwrap();
         assert_eq!(
             dec_report3,
             HybridReport::Conversion(hybrid_conversion_report)

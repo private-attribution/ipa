@@ -161,11 +161,7 @@ mod tests {
         },
         hpke::{KeyPair, KeyRegistry},
         query::runner::hybrid::Query as HybridQuery,
-        report::{
-            hybrid::HybridReport,
-            hybrid_info::{HybridConversionInfo, HybridInfo},
-            DEFAULT_KEY_ID,
-        },
+        report::{hybrid::HybridReport, hybrid_info::HybridInfo, DEFAULT_KEY_ID},
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::{
             flatten3v, ipa::TestRawDataRecord, Reconstruct, RoundRobinInputDistribution, TestWorld,
@@ -177,7 +173,7 @@ mod tests {
 
     fn build_records() -> Vec<TestRawDataRecord> {
         vec![
-            /*TestRawDataRecord {
+            TestRawDataRecord {
                 timestamp: 0,
                 user_id: 12345,
                 is_trigger_report: false,
@@ -190,7 +186,7 @@ mod tests {
                 is_trigger_report: false,
                 breakdown_key: 1,
                 trigger_value: 0,
-            },*/
+            },
             TestRawDataRecord {
                 timestamp: 10,
                 user_id: 12345,
@@ -205,13 +201,13 @@ mod tests {
                 breakdown_key: 0,
                 trigger_value: 2,
             },
-            /*TestRawDataRecord {
+            TestRawDataRecord {
                 timestamp: 20,
                 user_id: 68362,
                 is_trigger_report: false,
                 breakdown_key: 1,
                 trigger_value: 0,
-            },*/
+            },
             TestRawDataRecord {
                 timestamp: 30,
                 user_id: 68362,
@@ -287,10 +283,8 @@ mod tests {
         const SHARDS: usize = 2;
         let records = build_records();
 
-        let hybrid_info = HybridInfo::Conversion(
-            HybridConversionInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1)
-                .unwrap(),
-        );
+        let hybrid_info =
+            HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
 
         let BufferAndKeyRegistry {
             buffers,
@@ -357,10 +351,8 @@ mod tests {
         const SHARDS: usize = 2;
         let records = build_records();
 
-        let hybrid_info = HybridInfo::Conversion(
-            HybridConversionInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1)
-                .unwrap(),
-        );
+        let hybrid_info =
+            HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
 
         let BufferAndKeyRegistry {
             mut buffers,
@@ -434,10 +426,8 @@ mod tests {
         const SHARDS: usize = 2;
         let records = build_records();
 
-        let hybrid_info = HybridInfo::Conversion(
-            HybridConversionInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1)
-                .unwrap(),
-        );
+        let hybrid_info =
+            HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
 
         let BufferAndKeyRegistry {
             buffers,
