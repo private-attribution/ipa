@@ -131,6 +131,13 @@ impl NetworkConfig<Shard> {
             identities,
         }
     }
+
+    /// # Panics
+    /// In the unlikely event a usize cannot be turned into a u32
+    #[must_use]
+    pub fn shard_count(&self) -> ShardIndex {
+        ShardIndex::from(u32::try_from(self.peers.len()).unwrap())
+    }
 }
 
 impl NetworkConfig<Helper> {

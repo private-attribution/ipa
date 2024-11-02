@@ -3,7 +3,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use crate::{error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId};
+use crate::{
+    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId, sharding::ShardIndex,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -130,6 +132,14 @@ impl From<axum::extract::rejection::PathRejection> for Error {
     fn from(err: axum::extract::rejection::PathRejection) -> Self {
         Self::BadPathString(err.into())
     }
+}
+
+/// Wrapper for net Errors used to distinghish them when they happen in a sharded transport.
+#[derive(thiserror::Error, Debug)]
+#[error("Error in shard {shard_index}: {source}")]
+pub struct ShardError {
+    pub shard_index: ShardIndex,
+    pub source: Error,
 }
 
 impl IntoResponse for Error {

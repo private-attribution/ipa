@@ -4,7 +4,7 @@ use futures::Stream;
 use crate::{
     helpers::{
         transport::routing::RouteId, MpcTransportImpl, NoResourceIdentifier, QueryIdBinding, Role,
-        RoleAssignment, RouteParams, StepBinding, Transport,
+        RoleAssignment, RouteParams, ShardedTransport, StepBinding, Transport,
     },
     protocol::{Gate, QueryId},
     sharding::ShardIndex,
@@ -25,7 +25,10 @@ pub struct RoleResolvingTransport {
 }
 
 /// Set of transports used inside [`super::Gateway`].
-pub(super) struct Transports<M: Transport<Identity = Role>, S: Transport<Identity = ShardIndex>> {
+pub(super) struct Transports<
+    M: Transport<Identity = Role>,
+    S: ShardedTransport<Identity = ShardIndex>,
+> {
     pub mpc: M,
     pub shard: S,
 }

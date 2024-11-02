@@ -8,11 +8,11 @@ use async_trait::async_trait;
 use futures::Stream;
 
 #[cfg(feature = "in-memory-infra")]
-use crate::{helpers::in_memory_config::InspectContext, sharding::ShardContext};
+use crate::helpers::in_memory_config::InspectContext;
 use crate::{
     helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
-    sharding::ShardIndex,
+    sharding::{ShardIndex, Sharded},
 };
 
 mod handler;
@@ -56,7 +56,7 @@ pub trait Identity:
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: ShardContext,
+        shard: Option<Sharded>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext;
@@ -82,13 +82,13 @@ impl Identity for ShardIndex {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: ShardContext,
+        shard: Option<Sharded>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext {
         InspectContext::ShardMessage {
             helper,
-            source: shard.unwrap(),
+            source: shard.unwrap().shard_id,
             dest: *self,
             gate,
         }
@@ -123,7 +123,7 @@ impl Identity for HelperIdentity {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: ShardContext,
+        shard: Option<Sharded>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext {
@@ -165,7 +165,7 @@ impl Identity for Role {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        _shard: ShardContext,
+        _shard: Option<Sharded>,
         _helper: HelperIdentity,
         _gate: Gate,
     ) -> InspectContext {
@@ -331,6 +331,10 @@ pub trait Transport: Clone + Send + Sync + 'static {
     fn clone_ref(&self) -> Self {
         <Self as Clone>::clone(self)
     }
+}
+
+pub trait ShardedTransport: Transport {
+    fn config(&self) -> Sharded;
 }
 
 #[cfg(all(test, unit_test))]

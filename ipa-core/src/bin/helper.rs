@@ -19,7 +19,7 @@ use ipa_core::{
     executor::IpaRuntime,
     helpers::HelperIdentity,
     net::{ClientIdentity, IpaHttpClient, MpcHttpTransport, ShardHttpTransport},
-    sharding::ShardIndex,
+    sharding::{ShardIndex, Sharded},
     AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tokio::runtime::Runtime;
@@ -143,7 +143,7 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
         .with_active_work(args.active_work)
         .with_runtime(IpaRuntime::from_tokio_runtime(&query_runtime));
 
-    let (setup, handler) = AppSetup::new(app_config);
+    let (setup, handler, shard_handler) = AppSetup::new(app_config);
 
     let server_config = ServerConfig {
         port: args.port,
@@ -185,11 +185,14 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
     let shard_network_config = NetworkConfig::new_shards(vec![], shard_clients_config);
     let (shard_transport, _shard_server) = ShardHttpTransport::new(
         IpaRuntime::from_tokio_runtime(&http_runtime),
-        ShardIndex::FIRST,
+        Sharded {
+            shard_id: ShardIndex::FIRST,
+            shard_count: ShardIndex::from(1),
+        },
         shard_server_config,
         shard_network_config,
         vec![],
-        None,
+        Some(shard_handler),
     );
     // ---
 

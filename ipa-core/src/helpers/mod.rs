@@ -59,7 +59,8 @@ pub use gateway::GatewayConfig;
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
 pub use gateway::{
-    MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportImpl,
+    MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportError,
+    ShardTransportImpl,
 };
 pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEnd};
 use ipa_metrics::LabelValue;
@@ -74,8 +75,8 @@ pub use transport::{
     make_owned_handler, query, routing, ApiError, BodyStream, BytesStream, HandlerBox, HandlerRef,
     HelperResponse, Identity as TransportIdentity, LengthDelimitedStream, LogErrors, NoQueryId,
     NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RecordsStream, RequestHandler,
-    RouteParams, SingleRecordStream, StepBinding, StreamCollection, StreamKey, Transport,
-    WrappedBoxBodyStream,
+    RouteParams, ShardedTransport, SingleRecordStream, StepBinding, StreamCollection, StreamKey,
+    Transport, WrappedBoxBodyStream,
 };
 use typenum::{Const, ToUInt, Unsigned, U8};
 use x25519_dalek::PublicKey;

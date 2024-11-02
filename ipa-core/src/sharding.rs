@@ -167,26 +167,22 @@ pub trait ShardConfiguration {
     }
 }
 
-/// This is a runtime version of `ShardBinding`. It is used by the stream interceptor to
-/// avoid type parameter proliferation. It should not be used by protocols.
-pub type ShardContext = Option<ShardIndex>;
-
 pub trait ShardBinding: Debug + Send + Sync + Clone + 'static {
-    fn context(&self) -> ShardContext;
+    fn shard_config(&self) -> Option<Sharded>;
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct NotSharded;
 
 impl ShardBinding for NotSharded {
-    fn context(&self) -> ShardContext {
+    fn shard_config(&self) -> Option<Sharded> {
         None
     }
 }
 
 impl ShardBinding for Sharded {
-    fn context(&self) -> ShardContext {
-        Some(self.shard_id)
+    fn shard_config(&self) -> Option<Sharded> {
+        Some(*self)
     }
 }
 

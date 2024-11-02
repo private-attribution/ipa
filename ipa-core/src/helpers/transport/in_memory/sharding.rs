@@ -2,9 +2,9 @@ use crate::{
     helpers::{
         in_memory_config::{passthrough, DynStreamInterceptor},
         transport::in_memory::transport::{InMemoryTransport, Setup, TransportConfigBuilder},
-        HelperIdentity,
+        HandlerBox, HelperIdentity, RequestHandler,
     },
-    sharding::ShardIndex,
+    sharding::{ShardIndex, Sharded},
     sync::{Arc, Weak},
 };
 
@@ -37,7 +37,15 @@ impl InMemoryShardNetwork {
 
             let mut shard_connections = shard_count
                 .iter()
-                .map(|i| Setup::with_config(i, config_builder.bind_to_shard(i)))
+                .map(|i| {
+                    Setup::with_config(
+                        i,
+                        config_builder.with_sharding(Some(Sharded {
+                            shard_id: i,
+                            shard_count,
+                        })),
+                    )
+                })
                 .collect::<Vec<_>>();
             for i in 0..shard_connections.len() {
                 let (lhs, rhs) = shard_connections.split_at_mut(i);
