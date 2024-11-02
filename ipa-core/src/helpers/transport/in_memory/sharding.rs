@@ -2,7 +2,7 @@ use crate::{
     helpers::{
         in_memory_config::{passthrough, DynStreamInterceptor},
         transport::in_memory::transport::{InMemoryTransport, Setup, TransportConfigBuilder},
-        HandlerBox, HelperIdentity, RequestHandler,
+        HelperIdentity,
     },
     sharding::{ShardIndex, Sharded},
     sync::{Arc, Weak},

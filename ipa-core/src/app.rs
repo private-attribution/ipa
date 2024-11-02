@@ -170,23 +170,10 @@ impl HelperApp {
 impl RequestHandler<ShardIndex> for Inner {
     async fn handle(
         &self,
-        req: Addr<ShardIndex>,
+        _req: Addr<ShardIndex>,
         _data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
-        let qp = &self.query_processor;
-
-        Ok(match req.route {
-            RouteId::PrepareQuery => {
-                let req = req.into::<PrepareQuery>()?;
-                HelperResponse::from(qp.prepare_shard(req)?)
-            }
-            r => {
-                return Err(ApiError::BadRequest(
-                    format!("{r:?} request must not be handled by shard query processing flow")
-                        .into(),
-                ))
-            }
-        })
+        Ok(HelperResponse::ok())
     }
 }
 
