@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, fmt::Debug, future::ready};
 use async_trait::async_trait;
 use bitvec::prelude::{BitArray, BitSlice, Lsb0};
 use futures::{stream, Future, FutureExt, Stream, StreamExt};
+use ipa_metrics::counter;
 use ipa_step::StepNarrow;
 
 use crate::{
@@ -28,6 +29,7 @@ use crate::{
     sharding::ShardBinding,
     sync::{Arc, Mutex},
 };
+use crate::protocol::context::BATCH_VALIDATE;
 
 pub type Array256Bit = BitArray<[u8; 32], Lsb0>;
 
@@ -616,6 +618,7 @@ impl Batch {
             return Ok(());
         }
 
+        tracing::info!("{batch_index} generate proofs");
         let (
             my_batch_left_shares,
             shares_of_batch_from_left_prover,
@@ -625,7 +628,9 @@ impl Batch {
             // generate BatchToVerify
             ProofBatch::generate(&proof_ctx, prss_record_ids, self.get_field_values_prover())
         };
+        counter!(BATCH_VALIDATE, 1);
 
+        tracing::info!("{batch_index} generate chunk batch");
         let chunk_batch = BatchToVerify::generate_batch_to_verify(
             proof_ctx,
             record_id,
@@ -637,6 +642,7 @@ impl Batch {
         .await;
 
         // generate challenges
+        tracing::info!("{batch_index} generate challenges");
         let (challenges_for_left_prover, challenges_for_right_prover) = chunk_batch
             .generate_challenges(ctx.narrow(&Step::Challenge), record_id)
             .await;
@@ -644,7 +650,7 @@ impl Batch {
         let (sum_of_uv, p_r_right_prover, q_r_left_prover) = {
             // get number of multiplications
             let m = self.get_number_of_multiplications();
-            tracing::info!("validating {m} multiplications");
+            tracing::info!("{batch_index} validating {m} multiplications");
             debug_assert_eq!(
                 m,
                 self.get_field_values_prover::<Fp61BitPrime>()

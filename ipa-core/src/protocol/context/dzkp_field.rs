@@ -153,18 +153,18 @@ impl DZKPBaseField for Fp61BitPrime {
                         .zip(ac.view_bits::<Lsb0>().iter())
                         .flat_map(|(((a, c), e), ac)| {
                             let one_minus_two_e = Fp61BitPrime::ONE
-                                + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*e);
+                                + Fp61BitPrime::MINUS_TWO.specialized_mul(Fp61BitPrime::from_bit(*e));
                             [
                                 // g1=-2ac(1-2e),
-                                Fp61BitPrime::MINUS_TWO
-                                    * Fp61BitPrime::from_bit(*ac)
-                                    * one_minus_two_e,
+                                Fp61BitPrime::MINUS_TWO.specialized_mul(
+                                    Fp61BitPrime::from_bit(*ac)).specialized_mul(
+                                    one_minus_two_e),
                                 // g2=c(1-2e),
-                                Fp61BitPrime::from_bit(*c) * one_minus_two_e,
+                                Fp61BitPrime::from_bit(*c).specialized_mul(one_minus_two_e),
                                 // g3=a(1-2e),
-                                Fp61BitPrime::from_bit(*a) * one_minus_two_e,
+                                Fp61BitPrime::from_bit(*a).specialized_mul(one_minus_two_e),
                                 // g4=-1/2(1-2e),
-                                Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e,
+                                Fp61BitPrime::MINUS_ONE_HALF.specialized_mul(one_minus_two_e),
                             ]
                         })
                         .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
@@ -176,14 +176,14 @@ impl DZKPBaseField for Fp61BitPrime {
                         .zip(bd.view_bits::<Lsb0>().iter())
                         .flat_map(|(((b, d), f), bd)| {
                             let one_minus_two_f = Fp61BitPrime::ONE
-                                + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*f);
+                                + Fp61BitPrime::MINUS_TWO.specialized_mul(Fp61BitPrime::from_bit(*f));
                             [
                                 // h1=bd(1-2f),
-                                Fp61BitPrime::from_bit(*bd) * one_minus_two_f,
+                                Fp61BitPrime::from_bit(*bd).specialized_mul(one_minus_two_f),
                                 // h2=d(1-2f),
-                                Fp61BitPrime::from_bit(*d) * one_minus_two_f,
+                                Fp61BitPrime::from_bit(*d).specialized_mul(one_minus_two_f),
                                 // h3=b(1-2f),
-                                Fp61BitPrime::from_bit(*b) * one_minus_two_f,
+                                Fp61BitPrime::from_bit(*b).specialized_mul(one_minus_two_f),
                                 // h4=1-2f,
                                 one_minus_two_f,
                             ]
@@ -236,16 +236,16 @@ impl DZKPBaseField for Fp61BitPrime {
                     .zip(ac.view_bits::<Lsb0>().iter())
                     .flat_map(|(((a, c), e), ac)| {
                         let one_minus_two_e = Fp61BitPrime::ONE
-                            + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*e);
+                            + Fp61BitPrime::MINUS_TWO.specialized_mul(Fp61BitPrime::from_bit(*e));
                         [
                             // g1=-2ac(1-2e),
-                            Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*ac) * one_minus_two_e,
+                            Fp61BitPrime::MINUS_TWO.specialized_mul(Fp61BitPrime::from_bit(*ac)).specialized_mul(one_minus_two_e),
                             // g2=c(1-2e),
-                            Fp61BitPrime::from_bit(*c) * one_minus_two_e,
+                            Fp61BitPrime::from_bit(*c).specialized_mul(one_minus_two_e),
                             // g3=a(1-2e),
-                            Fp61BitPrime::from_bit(*a) * one_minus_two_e,
+                            Fp61BitPrime::from_bit(*a).specialized_mul(one_minus_two_e),
                             // g4=-1/2(1-2e),
-                            Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e,
+                            Fp61BitPrime::MINUS_ONE_HALF.specialized_mul(one_minus_two_e),
                         ]
                     })
             })
@@ -288,14 +288,14 @@ impl DZKPBaseField for Fp61BitPrime {
                     .zip(bd.view_bits::<Lsb0>().iter())
                     .flat_map(|(((b, d), f), bd)| {
                         let one_minus_two_f = Fp61BitPrime::ONE
-                            + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*f);
+                            + Fp61BitPrime::MINUS_TWO.specialized_mul(Fp61BitPrime::from_bit(*f));
                         [
                             // h1=bd(1-2f),
-                            Fp61BitPrime::from_bit(*bd) * one_minus_two_f,
+                            Fp61BitPrime::from_bit(*bd).specialized_mul(one_minus_two_f),
                             // h2=d(1-2f),
-                            Fp61BitPrime::from_bit(*d) * one_minus_two_f,
+                            Fp61BitPrime::from_bit(*d).specialized_mul(one_minus_two_f),
                             // h3=b(1-2f),
-                            Fp61BitPrime::from_bit(*b) * one_minus_two_f,
+                            Fp61BitPrime::from_bit(*b).specialized_mul(one_minus_two_f),
                             // h4=1-2f,
                             one_minus_two_f,
                         ]

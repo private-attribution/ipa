@@ -57,6 +57,71 @@ pub trait PrimeField: Field + U128Conversions {
 #[error("Field value {0} provided is greater than prime: {1}")]
 pub struct GreaterThanPrimeError<V: Display>(V, u128);
 
+macro_rules! default_mul {
+    ( $field:ident, $store:ty, $store_multiply:ty, $bits:expr  ) => {
+        impl std::ops::Mul for $field {
+            type Output = Self;
+
+            fn mul(self, rhs: Self) -> Self::Output {
+
+                // if <$store_multiply>::BITS == 128 {
+                //     panic!("use optimized mul")
+                // }
+
+                debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
+                let c = <$store_multiply>::from;
+                // TODO(mt) - constant time?
+                // TODO(dm) - optimize arithmetics?
+                #[allow(clippy::cast_possible_truncation)]
+                Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
+            }
+        }
+    }
+}
+
+macro_rules! mersenne_mul {
+    ( $field:ident, $store:ty, $store_multiply:ty, $bits:expr ) => {
+        impl std::ops::Mul for $field {
+            type Output = Self;
+
+            fn mul(self, rhs: Self) -> Self::Output {
+                let c = <$store_multiply>::from;
+
+                let val = c(self.0) * c(rhs.0);
+                let prime = c(Self::PRIME);
+
+                // val % 2^p - 1
+                // let val = (val & prime) + (val >> $bits);
+                // let val = (val & prime) + (val >> $bits);
+
+                Self(mersenne_61_mod(val) as <Self as SharedValue>::Storage)
+
+                // Self(val as <Self as SharedValue>::Storage)
+
+                // if <$store_multiply>::BITS == 128 {
+                //     panic!("use optimized mul")
+                // }
+                //
+                // debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
+                // let c = <$store_multiply>::from;
+                // // TODO(mt) - constant time?
+                // // TODO(dm) - optimize arithmetics?
+                // #[allow(clippy::cast_possible_truncation)]
+                // Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
+            }
+        }
+    }
+}
+
+fn mersenne_61_mod(val: u128) -> u128 {
+    // val % 2_305_843_009_213_693_951
+    const M61: u128 = 2_305_843_009_213_693_951;
+    // // mersenne_mod(x, 61)
+    let val = (val & M61) + (val>>61);
+    let val = (val & M61) + (val>>61); //necessary if previous add led to a val > M61
+    val
+}
+
 macro_rules! field_impl {
     ( $field:ident, $store:ty, $store_multiply:ty, $bits:expr, $prime:expr ) => {
         use super::*;
@@ -165,18 +230,18 @@ macro_rules! field_impl {
             }
         }
 
-        impl std::ops::Mul for $field {
-            type Output = Self;
-
-            fn mul(self, rhs: Self) -> Self::Output {
-                debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
-                let c = <$store_multiply>::from;
-                // TODO(mt) - constant time?
-                // TODO(dm) - optimize arithmetics?
-                #[allow(clippy::cast_possible_truncation)]
-                Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
-            }
-        }
+        // impl std::ops::Mul for $field {
+        //     type Output = Self;
+        //
+        //     fn mul(self, rhs: Self) -> Self::Output {
+        //         debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
+        //         let c = <$store_multiply>::from;
+        //         // TODO(mt) - constant time?
+        //         // TODO(dm) - optimize arithmetics?
+        //         #[allow(clippy::cast_possible_truncation)]
+        //         Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
+        //     }
+        // }
 
         impl std::ops::MulAssign for $field {
             #[allow(clippy::assign_op_pattern)]
@@ -361,6 +426,7 @@ macro_rules! field_impl {
 #[cfg(any(test, feature = "weak-field"))]
 mod fp31 {
     field_impl! { Fp31, u8, u16, 8, 31 }
+    default_mul! { Fp31, u8, u16, 8 }
 
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
@@ -384,6 +450,7 @@ mod fp31 {
 
 mod fp32bit {
     field_impl! { Fp32BitPrime, u32, u64, 32, 4_294_967_291 }
+    default_mul! { Fp32BitPrime, u32, u64, 32 }
 
     impl Vectorizable<32> for Fp32BitPrime {
         type Array = StdArray<Fp32BitPrime, 32>;
@@ -441,6 +508,8 @@ mod fp32bit {
 
 mod fp61bit {
     field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951 }
+    mersenne_mul! { Fp61BitPrime, u64, u128, 61 }
+    // default_mul! { Fp61BitPrime, u64, u128, 61 }
 
     impl Fp61BitPrime {
         #[must_use]
@@ -453,6 +522,13 @@ mod fp61bit {
         #[must_use]
         pub fn from_bit(input: bool) -> Self {
             Self(input.into())
+        }
+
+        pub fn specialized_mul(&self, other: Self) -> Self {
+            let c = u128::from;
+            let v = c(self.0) * c(other.0);
+
+            Self(mersenne_61_mod(v) as u64)
         }
     }
 

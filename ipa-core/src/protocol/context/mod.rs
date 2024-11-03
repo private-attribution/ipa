@@ -29,6 +29,9 @@ pub type MaliciousContext<'a, B = NotSharded> = malicious::Context<'a, B>;
 pub type ShardedMaliciousContext<'a> = malicious::Context<'a, Sharded>;
 pub type UpgradedMaliciousContext<'a, F, B = NotSharded> = malicious::Upgraded<'a, F, B>;
 
+
+pub const BATCH_VALIDATE: &str = "batch.proof.validate";
+
 #[cfg(all(feature = "in-memory-infra", any(test, feature = "test-fixture")))]
 pub(crate) use malicious::TEST_DZKP_STEPS;
 
