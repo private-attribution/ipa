@@ -1,8 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::zip,
+};
 
 use crate::{
-    ff::{boolean_array::BooleanArray, U128Conversions},
-    report::hybrid::IndistinguishableHybridReport,
+    ff::{
+        boolean_array::{BooleanArray, BA64},
+        U128Conversions,
+    },
+    rand::Rng,
+    report::hybrid::{
+        HybridConversionReport, HybridImpressionReport, HybridReport, IndistinguishableHybridReport,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::sharing::Reconstruct,
 };
@@ -47,6 +56,54 @@ where
             match_key: match_key.try_into().unwrap(),
             breakdown_key: breakdown_key.try_into().unwrap(),
             value: value.try_into().unwrap(),
+        }
+    }
+}
+
+impl<BK, V> IntoShares<HybridReport<BK, V>> for TestHybridRecord
+where
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    V: BooleanArray + U128Conversions + IntoShares<Replicated<V>>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [HybridReport<BK, V>; 3] {
+        match self {
+            TestHybridRecord::TestImpression {
+                match_key,
+                breakdown_key,
+            } => {
+                let ba_match_key = BA64::try_from(u128::from(match_key))
+                    .unwrap()
+                    .share_with(rng);
+                let ba_breakdown_key = BK::try_from(u128::from(breakdown_key))
+                    .unwrap()
+                    .share_with(rng);
+                zip(ba_match_key, ba_breakdown_key)
+                    .map(|(match_key_share, breakdown_key_share)| {
+                        HybridReport::Impression::<BK, V>(HybridImpressionReport {
+                            match_key: match_key_share,
+                            breakdown_key: breakdown_key_share,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap()
+            }
+            TestHybridRecord::TestConversion { match_key, value } => {
+                let ba_match_key = BA64::try_from(u128::from(match_key))
+                    .unwrap()
+                    .share_with(rng);
+                let ba_value = V::try_from(u128::from(value)).unwrap().share_with(rng);
+                zip(ba_match_key, ba_value)
+                    .map(|(match_key_share, value_share)| {
+                        HybridReport::Conversion::<BK, V>(HybridConversionReport {
+                            match_key: match_key_share,
+                            value: value_share,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap()
+            }
         }
     }
 }
