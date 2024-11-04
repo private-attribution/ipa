@@ -100,8 +100,7 @@ where
             .map(|i| ctx.prss().generate(RecordId::from(i)))
             .collect::<Vec<AdditiveShare<Gf32Bit>>>();
 
-        for i in 1..u32::from(ctx.shard_count()) {
-            let shard = ShardIndex::from(i);
+        for shard in ctx.shard_count().iter().skip(1) {
             ctx.parallel_join(keys.iter().enumerate().map(|(i, key)| {
                 let key_dist_ctx = key_dist_ctx.clone();
                 async move {
