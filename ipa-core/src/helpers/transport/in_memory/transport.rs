@@ -274,7 +274,7 @@ impl Debug for InMemoryStream {
 }
 
 pub struct Setup<I> {
-    pub identity: I,
+    identity: I,
     tx: ConnectionTx<I>,
     rx: ConnectionRx<I>,
     connections: HashMap<I, ConnectionTx<I>>,

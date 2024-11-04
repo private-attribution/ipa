@@ -1097,7 +1097,6 @@ mod tests {
                 Role::H1,
                 config.role_assignment(),
                 |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
-                    assert!(ctx.shard.is_some());
                     if ctx.shard.unwrap().shard_id == TARGET_SHARD
                         && ctx.gate.as_ref().contains(STEP)
                     {
