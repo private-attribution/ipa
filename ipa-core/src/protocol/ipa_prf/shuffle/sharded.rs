@@ -280,7 +280,7 @@ pub trait MaliciousShuffleable: Shuffleable<Share = Self::MaliciousShare> {
 
     fn to_gf32bit(
         &self,
-    ) -> Result<impl Iterator<Item = AdditiveShare<Gf32Bit>>, crate::error::Error> {
+    ) -> Result<impl Iterator<Item = AdditiveShare<Gf32Bit>> + Send, crate::error::Error> {
         let left_shares: Vec<Gf32Bit> = self.left().try_into()?;
         let right_shares: Vec<Gf32Bit> = self.right().try_into()?;
         Ok(left_shares
