@@ -211,7 +211,9 @@ impl rand::distributions::Distribution<RP25519> for rand::distributions::Standar
 #[derive(Clone, Copy, Eq, Debug)]
 enum RistrettoRepr {
     /// In PRF code this path is never used as
-    /// we always construct Ristretto points from scalars
+    /// we always construct Ristretto points from scalars.
+    /// Constructing this value and attempting to use it
+    /// as Ristretto point will panic
     Zero,
     Point(RistrettoPoint),
 }
@@ -223,20 +225,27 @@ impl PartialEq for RistrettoRepr {
 }
 
 impl RistrettoRepr {
-    #[inline]
-    fn zero() -> &'static RistrettoPoint {
-        static INSTANCE: OnceLock<RistrettoPoint> = OnceLock::new();
-        INSTANCE.get_or_init(|| {
-            let zero = CompressedRistretto([0_u8; 32]);
-            // we could also cache the compressed Ristretto, if we end up
-            // sending a lot of zeroes
-            zero.decompress().unwrap()
-        })
-    }
-
     pub fn as_point(&self) -> &RistrettoPoint {
         match self {
-            Self::Zero => Self::zero(),
+            Self::Zero => {
+                if cfg!(test) {
+                    static INSTANCE: OnceLock<RistrettoPoint> = OnceLock::new();
+                    INSTANCE.get_or_init(|| {
+                        let zero = CompressedRistretto([0_u8; 32]);
+                        // we could also cache the compressed Ristretto, if we end up
+                        // sending a lot of zeroes
+                        zero.decompress().unwrap()
+                    })
+                } else {
+                    // We debated whether we should support it or no,
+                    // and decided not to. There is a valid concern about
+                    // keeping arithmetics on Ristretto point constant-time
+                    // and short-cutting Zero representation has obvious problems
+                    // and someone measuring the time it takes to multiply may
+                    // guess correctly that one of the arguments was zero.
+                    unimplemented!("Zero repr is not supported.")
+                }
+            }
             Self::Point(p) => p,
         }
     }
