@@ -162,7 +162,6 @@ impl Metrics {
             snapshot: details,
         }
     }
-
 }
 
 #[derive(Clone)]
