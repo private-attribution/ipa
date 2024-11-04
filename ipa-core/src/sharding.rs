@@ -131,6 +131,7 @@ pub struct Sharded {
 }
 
 impl Sharded {
+    #[must_use]
     pub fn new(id: u32, count: u32) -> Self {
         Self {
             shard_id: ShardIndex::from(id),
