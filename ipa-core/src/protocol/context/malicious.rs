@@ -9,7 +9,10 @@ use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
-    helpers::{Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
+    helpers::{
+        Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd, ShardReceivingEnd,
+        TotalRecords,
+    },
     protocol::{
         basics::mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
         context::{
@@ -19,7 +22,7 @@ use crate::{
             step::UpgradeStep,
             upgrade::Upgradable,
             validator::{self, BatchValidator},
-            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
+            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness, ShardedContext,
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::{Endpoint as PrssEndpoint, FromPrss},
@@ -30,7 +33,7 @@ use crate::{
         semi_honest::AdditiveShare as Replicated,
     },
     seq_join::SeqJoin,
-    sharding::{NotSharded, ShardBinding},
+    sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
     sync::Arc,
 };
 
@@ -51,6 +54,26 @@ pub(crate) const TEST_DZKP_STEPS: MaliciousProtocolSteps<
 #[derive(Clone)]
 pub struct Context<'a, B: ShardBinding> {
     inner: Base<'a, B>,
+}
+
+impl ShardConfiguration for Context<'_, Sharded> {
+    fn shard_id(&self) -> ShardIndex {
+        self.inner.shard_id()
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.inner.shard_count()
+    }
+}
+
+impl ShardedContext for Context<'_, Sharded> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.inner.shard_send_channel(dest_shard)
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.inner.shard_recv_channel(origin)
+    }
 }
 
 impl<'a> Context<'a, NotSharded> {

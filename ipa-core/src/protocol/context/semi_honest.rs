@@ -37,6 +37,7 @@ use crate::{
 pub struct Context<'a, B: ShardBinding> {
     inner: Base<'a, B>,
 }
+
 impl ShardConfiguration for Context<'_, Sharded> {
     fn shard_id(&self) -> ShardIndex {
         self.inner.shard_id()
