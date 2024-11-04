@@ -119,7 +119,7 @@ impl<F: ConnectionFlavor> NetworkConfig<F> {
 
 impl NetworkConfig<Shard> {
     /// # Panics
-    /// In the unlikely event a usize cannot be turned into a u32
+    /// In the unexpected case there are more than max usize shards.
     #[must_use]
     pub fn new_shards(peers: Vec<PeerConfig>, client: ClientConfig) -> Self {
         let identities = (0u32..peers.len().try_into().unwrap())
@@ -133,10 +133,10 @@ impl NetworkConfig<Shard> {
     }
 
     /// # Panics
-    /// In the unlikely event a usize cannot be turned into a u32
+    /// In the unexpected case there are more than max usize shards.
     #[must_use]
     pub fn shard_count(&self) -> ShardIndex {
-        ShardIndex::from(u32::try_from(self.peers.len()).unwrap())
+        ShardIndex::try_from(self.peers.len()).unwrap()
     }
 }
 

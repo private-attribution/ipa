@@ -185,10 +185,7 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
     let shard_network_config = NetworkConfig::new_shards(vec![], shard_clients_config);
     let (shard_transport, _shard_server) = ShardHttpTransport::new(
         IpaRuntime::from_tokio_runtime(&http_runtime),
-        Sharded {
-            shard_id: ShardIndex::FIRST,
-            shard_count: ShardIndex::from(1),
-        },
+        Sharded::new(0, 1),
         shard_server_config,
         shard_network_config,
         vec![],
