@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{Stream, TryFutureExt};
+use futures::{future::try_join_all, Stream, TryFutureExt};
 use pin_project::{pin_project, pinned_drop};
 
 use super::{client::resp_ok, error::ShardError, ConnectionFlavor, Helper, Shard};
@@ -22,7 +22,7 @@ use crate::{
     },
     net::{client::IpaHttpClient, error::Error, IpaHttpServer},
     protocol::{Gate, QueryId},
-    sharding::{ShardIndex, Sharded},
+    sharding::{ShardConfiguration, ShardIndex, Sharded},
     sync::Arc,
 };
 
@@ -354,9 +354,31 @@ impl Transport for ShardHttpTransport {
     }
 }
 
+#[async_trait]
 impl ShardedTransport for ShardHttpTransport {
-    fn config(&self) -> Sharded {
-        self.shard_config
+    type ShardError = ShardError;
+
+    fn peer_count(&self) -> ShardIndex {
+        self.shard_config.shard_count
+    }
+
+    #[allow(clippy::disallowed_methods)]
+    async fn broadcast<Q, S, R, D>(&self, route: R, data: D) -> Result<(), Self::ShardError>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S> + Clone,
+        D: Stream<Item = Vec<u8>> + Send + Clone + 'static,
+    {
+        try_join_all(
+            self.shard_config
+                .peer_shards()
+                .map(|shard_id| self.send(shard_id, route.clone(), data.clone())),
+        )
+        .await?;
+        Ok(())
     }
 }
 

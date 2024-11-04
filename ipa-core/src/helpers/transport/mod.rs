@@ -9,10 +9,12 @@ use futures::Stream;
 
 #[cfg(feature = "in-memory-infra")]
 use crate::helpers::in_memory_config::InspectContext;
+#[cfg(feature = "in-memory-infra")]
+use crate::sharding::Sharded;
 use crate::{
     helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
-    sharding::{ShardIndex, Sharded},
+    sharding::ShardIndex,
 };
 
 mod handler;
@@ -333,8 +335,25 @@ pub trait Transport: Clone + Send + Sync + 'static {
     }
 }
 
+#[async_trait]
 pub trait ShardedTransport: Transport {
-    fn config(&self) -> Sharded;
+    /// These errors are usually related to an underlying [`Transport::Error`]. This adds more
+    /// information or allows to describe sharding specific issues.
+    type ShardError: std::fmt::Debug;
+
+    fn peer_count(&self) -> ShardIndex;
+
+    /// Broadcasts a message to all peers, excluding this instance, collecting all failures and
+    /// successes. This method waits for all responses and returns only when all peers responded.
+    /// The routes and data will be cloned.
+    async fn broadcast<Q, S, R, D>(&self, route: R, data: D) -> Result<(), Self::ShardError>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S> + Clone,
+        D: Stream<Item = Vec<u8>> + Clone + Send + 'static;
 }
 
 #[cfg(all(test, unit_test))]

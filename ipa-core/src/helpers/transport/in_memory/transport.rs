@@ -12,7 +12,7 @@ use ::tokio::sync::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::{future::try_join_all, Stream, StreamExt, TryFutureExt};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_stream::wrappers::ReceiverStream;
@@ -21,15 +21,14 @@ use tracing::Instrument;
 use crate::{
     error::BoxError,
     helpers::{
-        in_memory_config,
-        in_memory_config::DynStreamInterceptor,
+        in_memory_config::{self, DynStreamInterceptor},
         transport::routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoResourceIdentifier,
         QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, ShardedTransport, StepBinding,
         StreamCollection, Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
-    sharding::{ShardIndex, Sharded},
+    sharding::{ShardConfiguration, ShardIndex, Sharded},
     sync::{Arc, Weak},
 };
 
@@ -59,6 +58,13 @@ pub enum Error<I> {
     DeserializationFailed {
         #[from]
         inner: serde_json::Error,
+    },
+
+    #[error("Broacast to shard {dest:?} failed: {inner:?}")]
+    Broadcast {
+        dest: ShardIndex,
+        #[source]
+        inner: BoxError,
     },
 }
 
@@ -230,9 +236,39 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
     }
 }
 
+#[async_trait]
 impl ShardedTransport for Weak<InMemoryTransport<ShardIndex>> {
-    fn config(&self) -> Sharded {
-        self.upgrade().unwrap().config.shard_config.unwrap()
+    type ShardError = Error<ShardIndex>;
+
+    fn peer_count(&self) -> ShardIndex {
+        self.upgrade()
+            .unwrap()
+            .config
+            .shard_config
+            .unwrap()
+            .shard_count
+    }
+
+    #[allow(clippy::disallowed_methods)]
+    async fn broadcast<Q, S, R, D>(&self, route: R, data: D) -> Result<(), Self::ShardError>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S> + Clone,
+        D: Stream<Item = Vec<u8>> + Send + Clone + 'static,
+    {
+        let shard_config = self.upgrade().unwrap().config.shard_config.unwrap();
+        try_join_all(shard_config.peer_shards().map(|shard_id| {
+            self.send(shard_id, route.clone(), data.clone())
+                .map_err(move |e| Error::Broadcast {
+                    dest: shard_id,
+                    inner: Box::new(e),
+                })
+        }))
+        .await?;
+        Ok(())
     }
 }
 

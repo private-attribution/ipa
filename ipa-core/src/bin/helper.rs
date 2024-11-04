@@ -19,7 +19,7 @@ use ipa_core::{
     executor::IpaRuntime,
     helpers::HelperIdentity,
     net::{ClientIdentity, IpaHttpClient, MpcHttpTransport, ShardHttpTransport},
-    sharding::{ShardIndex, Sharded},
+    sharding::Sharded,
     AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tokio::runtime::Runtime;
