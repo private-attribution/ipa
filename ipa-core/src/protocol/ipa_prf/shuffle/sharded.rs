@@ -23,7 +23,7 @@ use crate::{
     const_assert_eq,
     error::LengthError,
     ff::{
-        boolean_array::{BooleanArray, BA112, BA144, BA32, BA64, BA96},
+        boolean_array::{BA112, BA144, BA32, BA64, BA96},
         Gf32Bit, Serializable, U128Conversions,
     },
     helpers::{Direction, Error, Role, TotalRecords},
@@ -243,7 +243,11 @@ pub trait Shuffleable: Send + 'static {
 
 impl<V> Shuffleable for AdditiveShare<V>
 where
-    V: BooleanArray + FromRandom + for<'a> Add<&'a V, Output = V> + for<'a> AddAssign<&'a V>,
+    V: SharedValue
+        + Serializable
+        + FromRandom
+        + for<'a> Add<&'a V, Output = V>
+        + for<'a> AddAssign<&'a V>,
 {
     type Share = V;
 
@@ -270,10 +274,7 @@ pub trait MaliciousShuffleable: Shuffleable<Share = Self::MaliciousShare> {
     type MaliciousShare: ShuffleShare + MaliciousShuffleShare;
 
     /// A type that can hold `<Self as Shuffleable>::Share` along with a 32-bit MAC.
-    type ShareAndTag: BooleanArray
-        + FromRandom
-        + for<'a> Add<&'a Self::ShareAndTag, Output = Self::ShareAndTag>
-        + for<'a> AddAssign<&'a Self::ShareAndTag>;
+    type ShareAndTag: ShuffleShare + SharedValue;
 
     /// The offset to the MAC in `ShareAndTag`.
     const TAG_OFFSET: usize;
@@ -306,11 +307,7 @@ where
 /// which will check the size of the `ShareAndTag` type and compute `TAG_OFFSET`
 /// automatically.
 pub trait MaliciousShuffleShare: TryInto<Vec<Gf32Bit>, Error = LengthError> {
-    type ShareAndTag: BooleanArray
-        + FromRandom
-        + for<'a> Add<&'a Self::ShareAndTag, Output = Self::ShareAndTag>
-        + for<'a> AddAssign<&'a Self::ShareAndTag>;
-
+    type ShareAndTag: ShuffleShare + SharedValue;
     const TAG_OFFSET: usize;
 }
 
