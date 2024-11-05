@@ -570,10 +570,25 @@ mod fp61bit {
             }
 
             #[test]
+            fn sub(a: Fp61BitPrime, b: Fp61BitPrime) {
+                let c = a - b;
+                assert!(c.0 < Fp61BitPrime::PRIME);
+                assert_eq!(c.0, (Fp61BitPrime::PRIME + a.0 - b.0) % Fp61BitPrime::PRIME);
+            }
+
+            #[test]
             fn mul(a: Fp61BitPrime, b: Fp61BitPrime) {
                 let c = a * b;
                 assert!(c.0 < Fp61BitPrime::PRIME);
                 assert_eq!(c.0, u64::try_from((u128::from(a.0) * u128::from(b.0)) % u128::from(Fp61BitPrime::PRIME)).unwrap());
+            }
+
+            #[test]
+            fn neg(a: Fp61BitPrime) {
+                let c = -a;
+                assert!(c.0 < Fp61BitPrime::PRIME);
+                assert_eq!(0, c + a);
+                assert_eq!(Fp61BitPrime::PRIME, c.0 + a.0);
             }
 
             #[test]
