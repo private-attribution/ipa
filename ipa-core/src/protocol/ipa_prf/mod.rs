@@ -374,7 +374,7 @@ where
 
     let shuffled = ctx
         .narrow(&Step::Shuffle)
-        .shuffle(padded_input_rows)
+        .shuffle(&padded_input_rows)
         .instrument(info_span!("shuffle_inputs"))
         .await?;
     let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;

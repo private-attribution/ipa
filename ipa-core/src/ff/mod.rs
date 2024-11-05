@@ -149,8 +149,6 @@ pub trait ArrayAccess {
     }
 }
 
-pub trait Expand {
-    type Input;
-
-    fn expand(v: &Self::Input) -> Self;
+pub trait Expand<T> {
+    fn expand(v: &T) -> Self;
 }
