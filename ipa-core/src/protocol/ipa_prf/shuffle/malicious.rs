@@ -573,7 +573,6 @@ mod tests {
         },
         protocol::ipa_prf::shuffle::base::shuffle_protocol,
         secret_sharing::SharedValue,
-        sharding::ShardContext,
         test_executor::{run, run_random},
         test_fixture::{
             RandomInputDistribution, Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards,
@@ -861,14 +860,14 @@ mod tests {
     #[allow(clippy::ptr_arg)] // to match StreamInterceptor trait
     fn interceptor_h1_to_h2(
         ctx: &MaliciousHelperContext,
-        target_shard: ShardContext,
+        target_shard: Option<ShardIndex>,
         data: &mut Vec<u8>,
     ) {
         // H1 runs an additive attack against H2 by
         // changing x2
         if ctx.gate.as_ref().contains("transfer_x_y")
             && ctx.dest == Role::H2
-            && ctx.shard == target_shard
+            && ctx.shard.map(|s| s.shard_id) == target_shard
         {
             data[0] ^= 1u8;
         }
@@ -877,14 +876,14 @@ mod tests {
     #[allow(clippy::ptr_arg)] // to match StreamInterceptor trait
     fn interceptor_h2_to_h3(
         ctx: &MaliciousHelperContext,
-        target_shard: ShardContext,
+        target_shard: Option<ShardIndex>,
         data: &mut Vec<u8>,
     ) {
         // H2 runs an additive attack against H3 by
         // changing y1
         if ctx.gate.as_ref().contains("transfer_x_y")
             && ctx.dest == Role::H3
-            && ctx.shard == target_shard
+            && ctx.shard.map(|s| s.shard_id) == target_shard
         {
             data[0] ^= 1u8;
         }
@@ -893,14 +892,14 @@ mod tests {
     #[allow(clippy::ptr_arg)] // to match StreamInterceptor trait
     fn interceptor_h3_to_h2(
         ctx: &MaliciousHelperContext,
-        target_shard: ShardContext,
+        target_shard: Option<ShardIndex>,
         data: &mut Vec<u8>,
     ) {
         // H3 runs an additive attack against H2 by
         // changing c_hat_2
         if ctx.gate.as_ref().contains("transfer_c")
             && ctx.dest == Role::H2
-            && ctx.shard == target_shard
+            && ctx.shard.map(|s| s.shard_id) == target_shard
         {
             data[0] ^= 1u8;
         }
