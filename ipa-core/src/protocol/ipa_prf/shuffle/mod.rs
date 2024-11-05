@@ -18,7 +18,7 @@ use crate::{
     protocol::{
         context::{Context, MaliciousContext, SemiHonestContext},
         ipa_prf::{
-            shuffle::{base::shuffle_protocol, malicious::malicious_shuffle},
+            shuffle::sharded::{MaliciousShuffleable, ShuffleContext},
             OPRFIPAInputRow,
         },
     },
@@ -26,14 +26,17 @@ use crate::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
     },
-    sharding::ShardBinding,
+    sharding::{ShardBinding, Sharded},
 };
 
-pub mod base;
-pub mod malicious;
-#[cfg(descriptive_gate)]
+mod base;
+mod malicious;
 mod sharded;
-pub(crate) mod step;
+pub(crate) mod step; // must be pub(crate) for compact gate gen
+
+use base::shuffle_protocol as base_shuffle;
+use malicious::{malicious_sharded_shuffle, malicious_shuffle};
+use sharded::shuffle as sharded_shuffle;
 
 /// This struct stores some intermediate messages during the shuffle.
 /// In a maliciously secure shuffle,
@@ -68,8 +71,8 @@ impl<S: SharedValue> IntermediateShuffleMessages<S> {
     }
 }
 
-/// Trait used by protocols to invoke either semi-honest or malicious shuffle, depending
-/// on the type of context being used.
+/// Trait used by protocols to invoke either semi-honest or malicious non-sharded
+/// shuffle, depending on the type of context being used.
 pub trait Shuffle: Context {
     fn shuffle<S, B, I>(
         self,
@@ -99,12 +102,12 @@ impl<'b, T: ShardBinding> Shuffle for SemiHonestContext<'b, T> {
         for<'a> &'a B: Add<B, Output = B> + Add<&'a B, Output = B>,
         Standard: Distribution<S> + Distribution<B>,
     {
-        let fut = shuffle_protocol::<_, I, S>(self, shares);
+        let fut = base_shuffle::<_, I, S>(self, shares);
         fut.map(|res| res.map(|(output, _intermediates)| output))
     }
 }
 
-impl<'b> Shuffle for MaliciousContext<'b> {
+impl<'b, T: ShardBinding> Shuffle for MaliciousContext<'b, T> {
     fn shuffle<S, B, I>(
         self,
         shares: I,
@@ -119,6 +122,47 @@ impl<'b> Shuffle for MaliciousContext<'b> {
         Standard: Distribution<S> + Distribution<B>,
     {
         malicious_shuffle::<_, S, B, I>(self, shares)
+    }
+}
+
+/// Trait used by protocols to invoke either semi-honest or malicious sharded shuffle,
+/// depending on the type of context being used.
+#[allow(dead_code)]
+pub trait ShardedShuffle: ShuffleContext {
+    fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    where
+        S: MaliciousShuffleable,
+        I: IntoIterator<Item = AdditiveShare<S::Share>> + Send,
+        I::IntoIter: ExactSizeIterator + Send,
+        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
+        Standard: Distribution<S>;
+}
+
+impl<'b> ShardedShuffle for SemiHonestContext<'b, Sharded> {
+    fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    where
+        S: MaliciousShuffleable,
+        I: IntoIterator<Item = AdditiveShare<S::Share>> + Send,
+        I::IntoIter: ExactSizeIterator + Send,
+        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
+        Standard: Distribution<S>,
+    {
+        let fut = sharded_shuffle::<_, S, _>(self, shares.into_iter().map(S::from));
+        fut.map(|res| res.map(|(output, _intermediates)| output))
+    }
+}
+
+impl<'b> ShardedShuffle for MaliciousContext<'b, Sharded> {
+    fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    where
+        S: MaliciousShuffleable,
+        I: IntoIterator<Item = AdditiveShare<S::Share>> + Send,
+        I::IntoIter: ExactSizeIterator + Send,
+        for<'a> &'a S: Add<S, Output = S> + Add<&'a S, Output = S>,
+        Standard: Distribution<S>,
+    {
+        let fut = malicious_sharded_shuffle::<_, S::Share, S::ShareAndTag, _>(self, shares);
+        fut.map(|res| res.map(|vec| vec.into_iter().map(S::from).collect()))
     }
 }
 
@@ -183,7 +227,7 @@ where
     TV: BooleanArray,
     TS: BooleanArray,
 {
-    let mut y = AdditiveShare::new(YS::ZERO, YS::ZERO);
+    let mut y = ReplicatedSecretSharing::new(YS::ZERO, YS::ZERO);
     expand_shared_array_in_place(&mut y, &input.match_key, 0);
 
     let mut offset = BA64::BITS as usize;
@@ -217,7 +261,7 @@ where
 
     let mut offset = BA64::BITS as usize;
 
-    let is_trigger = AdditiveShare::<Boolean>::new(
+    let is_trigger = ReplicatedSecretSharing::new(
         input.left().get(offset).unwrap_or(Boolean::ZERO),
         input.right().get(offset).unwrap_or(Boolean::ZERO),
     );
@@ -250,7 +294,7 @@ where
     BK: BooleanArray,
     TV: BooleanArray,
 {
-    let mut y = AdditiveShare::new(YS::ZERO, YS::ZERO);
+    let mut y = ReplicatedSecretSharing::new(YS::ZERO, YS::ZERO);
     expand_shared_array_in_place(&mut y, &input.attributed_breakdown_key_bits, 0);
     expand_shared_array_in_place(
         &mut y,

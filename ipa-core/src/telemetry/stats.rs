@@ -3,7 +3,7 @@ use std::{
         hash_map::{Entry, Iter},
         HashMap,
     },
-    fmt::Debug,
+    fmt::Display,
 };
 
 use ipa_metrics::{MetricPartition, MetricsStore};
@@ -74,6 +74,35 @@ impl<'a> IntoIterator for &'a CounterDetails {
     }
 }
 
+impl Display for Metrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        if self.counters.is_empty() {
+            return Ok(());
+        }
+
+        let mut metrics_table = comfy_table::Table::new();
+        metrics_table.set_header(vec!["metric", "value", "dimensions"]);
+
+        for (key_name, counter_stats) in &self.counters {
+            let mut dim_cell_content = String::new();
+            for (dim, values) in counter_stats {
+                dim_cell_content += format!("{dim}\n").as_str();
+                for (dim_value, &counter_val) in values {
+                    dim_cell_content += format!("{dim_value} = {counter_val}\n").as_str();
+                }
+            }
+
+            metrics_table.add_row(vec![
+                key_name,
+                counter_stats.total_value.to_string().as_str(),
+                dim_cell_content.as_str(),
+            ]);
+        }
+
+        metrics_table.fmt(f)
+    }
+}
+
 impl Metrics {
     /// Builds a new metric snapshot for the specified partition.
     ///
@@ -132,37 +161,6 @@ impl Metrics {
             name,
             snapshot: details,
         }
-    }
-
-    /// Dumps the stats to the provided Write interface.
-    ///
-    /// ## Errors
-    /// returns an IO error if it fails to write to the provided writer.
-    pub fn print(&self, w: &mut impl std::io::Write) -> Result<(), std::io::Error> {
-        let mut metrics_table = comfy_table::Table::new();
-        metrics_table.set_header(vec!["metric", "value", "dimensions"]);
-
-        for (key_name, counter_stats) in &self.counters {
-            let mut dim_cell_content = String::new();
-            for (dim, values) in counter_stats {
-                dim_cell_content += format!("{dim}\n").as_str();
-                for (dim_value, &counter_val) in values {
-                    dim_cell_content += format!("{dim_value} = {counter_val}\n").as_str();
-                }
-            }
-
-            metrics_table.add_row(vec![
-                key_name,
-                counter_stats.total_value.to_string().as_str(),
-                dim_cell_content.as_str(),
-            ]);
-        }
-
-        if metrics_table.row_iter().len() > 0 {
-            writeln!(w, "{metrics_table}")?;
-        }
-
-        Ok(())
     }
 }
 

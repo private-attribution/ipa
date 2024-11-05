@@ -39,6 +39,8 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
     Multiplication,
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::ShardedShuffleStep)]
+    ShardedShuffle,
 }
 
 /// Provides a unique per-iteration context in tests.
