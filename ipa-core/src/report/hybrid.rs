@@ -43,10 +43,7 @@ use crate::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
     },
-    report::{
-        hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
-        EncryptedOprfReport, EventType as OprfEventType, KeyIdentifier,
-    },
+    report::hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
     sharding::ShardIndex,
 };
@@ -54,6 +51,9 @@ use crate::{
 // TODO(679): This needs to come from configuration.
 #[allow(dead_code)]
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
+
+pub type KeyIdentifier = u8;
+pub const DEFAULT_KEY_ID: KeyIdentifier = 0;
 
 #[derive(Debug, thiserror::Error)]
 #[error("string contains non-ascii symbols: {0}")]
@@ -834,52 +834,6 @@ where
         }
     }
     /// ## Errors
-    /// If decryption of the provided oprf report fails.
-    pub fn decrypt_from_oprf_report_bytes<P, TS>(
-        bytes: Bytes,
-        key_registry: &P,
-    ) -> Result<HybridReport<BK, V>, InvalidHybridReportError>
-    where
-        P: PrivateKeyRegistry,
-        TS: SharedValue,
-        Replicated<TS>: Serializable,
-        <Replicated<BK> as Serializable>::Size: Add<<Replicated<V> as Serializable>::Size>,
-        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>:
-            Add<<Replicated<TS> as Serializable>::Size>,
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-            <Replicated<TS> as Serializable>::Size,
-        >: Add<U16>,
-        Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, <Replicated<V> as Serializable>::Size>,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U16,
-        >: ArrayLength,
-    {
-        let encrypted_oprf_report = EncryptedOprfReport::<BK, V, TS, Bytes>::try_from(bytes)
-            .map_err(|e| {
-                InvalidHybridReportError::DeserializationError("EncryptedOprfReport", e.into())
-            })?;
-        let oprf_report = encrypted_oprf_report.decrypt(key_registry).map_err(|e| {
-            InvalidHybridReportError::DeserializationError(
-                "EncryptedOprfReport Decryption Failure",
-                e.into(),
-            )
-        })?;
-        match oprf_report.event_type {
-            OprfEventType::Source => Ok(HybridReport::Impression(HybridImpressionReport {
-                match_key: oprf_report.match_key,
-                breakdown_key: oprf_report.breakdown_key,
-            })),
-            OprfEventType::Trigger => Ok(HybridReport::Conversion(HybridConversionReport {
-                match_key: oprf_report.match_key,
-                value: oprf_report.trigger_value,
-            })),
-        }
-    }
-    /// ## Errors
     /// If the match key shares in the report cannot be decrypted (e.g. due to a
     /// failure of the authenticated encryption).
     /// ## Panics
@@ -1037,7 +991,7 @@ impl UniqueTagValidator {
 #[cfg(test)]
 mod test {
 
-    use rand::{distributions::Alphanumeric, rngs::ThreadRng, thread_rng, Rng};
+    use rand::{rngs::ThreadRng, thread_rng, Rng};
     use typenum::Unsigned;
 
     use super::{
@@ -1048,34 +1002,34 @@ mod test {
     use crate::{
         error::Error,
         ff::{
-            boolean_array::{BA20, BA3, BA8},
+            boolean_array::{BA3, BA8},
             Serializable,
         },
         hpke::{KeyPair, KeyRegistry},
         report::{
             hybrid::{EncryptedHybridConversionReport, HybridEventType, NonAsciiStringError, BA64},
             hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
-            EventType as OprfEventType, OprfReport,
         },
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
-    fn build_oprf_report(
-        event_type: OprfEventType,
+    fn build_hybrid_report(
+        event_type: HybridEventType,
         rng: &mut ThreadRng,
-    ) -> OprfReport<BA8, BA3, BA20> {
-        OprfReport::<BA8, BA3, BA20> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            timestamp: AdditiveShare::new(rng.gen(), rng.gen()),
-            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            trigger_value: AdditiveShare::new(rng.gen(), rng.gen()),
-            event_type,
-            epoch: rng.gen(),
-            site_domain: (rng)
-                .sample_iter(Alphanumeric)
-                .map(char::from)
-                .take(10)
-                .collect(),
+    ) -> HybridReport<BA8, BA3> {
+        match event_type {
+            HybridEventType::Impression => {
+                HybridReport::Impression(HybridImpressionReport::<BA8> {
+                    match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                    breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                })
+            }
+            HybridEventType::Conversion => {
+                HybridReport::Conversion(HybridConversionReport::<BA3> {
+                    match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                    value: AdditiveShare::new(rng.gen(), rng.gen()),
+                })
+            }
         }
     }
 
@@ -1084,61 +1038,6 @@ mod test {
         let mut bytes = [0u8; 16];
         rng.fill(&mut bytes[..]);
         UniqueTag { bytes }
-    }
-
-    #[test]
-    fn convert_to_hybrid_impression_report() {
-        let mut rng = thread_rng();
-
-        let b = OprfEventType::Source;
-
-        let oprf_report = build_oprf_report(b, &mut rng);
-        let hybrid_report = HybridReport::Impression::<BA8, BA3>(HybridImpressionReport::<BA8> {
-            match_key: oprf_report.match_key.clone(),
-            breakdown_key: oprf_report.breakdown_key.clone(),
-        });
-
-        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
-        let key_id = 0;
-
-        let enc_report_bytes = oprf_report
-            .encrypt(key_id, &key_registry, &mut rng)
-            .unwrap();
-
-        let hybrid_report2 = EncryptedHybridReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<
-            _,
-            BA20,
-        >(enc_report_bytes.into(), &key_registry)
-        .unwrap();
-
-        assert_eq!(hybrid_report, hybrid_report2);
-    }
-
-    #[test]
-    fn convert_to_hybrid_conversion_report() {
-        let mut rng = thread_rng();
-
-        let b = OprfEventType::Trigger;
-
-        let oprf_report = build_oprf_report(b, &mut rng);
-        let hybrid_report = HybridReport::Conversion::<BA8, BA3>(HybridConversionReport::<BA3> {
-            match_key: oprf_report.match_key.clone(),
-            value: oprf_report.trigger_value.clone(),
-        });
-
-        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
-        let key_id = 0;
-
-        let enc_report_bytes = oprf_report
-            .encrypt(key_id, &key_registry, &mut rng)
-            .unwrap();
-        let hybrid_report2 = EncryptedHybridReport::<BA8, BA3>::decrypt_from_oprf_report_bytes::<
-            _,
-            BA20,
-        >(enc_report_bytes.into(), &key_registry)
-        .unwrap();
-
-        assert_eq!(hybrid_report, hybrid_report2);
     }
 
     /// We create a random `HybridConversionReport`, convert it into an
@@ -1226,12 +1125,10 @@ mod test {
     #[test]
     fn serialization_hybrid_impression() {
         let mut rng = thread_rng();
-        let b = OprfEventType::Source;
-        let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_impression_report = HybridImpressionReport::<BA8> {
-            match_key: oprf_report.match_key.clone(),
-            breakdown_key: oprf_report.breakdown_key.clone(),
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
         };
         let mut hybrid_impression_report_bytes =
             [0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
@@ -1248,12 +1145,10 @@ mod test {
     #[test]
     fn serialization_hybrid_conversion() {
         let mut rng = thread_rng();
-        let b = OprfEventType::Source;
-        let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_conversion_report = HybridConversionReport::<BA3> {
-            match_key: oprf_report.match_key.clone(),
-            value: oprf_report.trigger_value.clone(),
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            value: AdditiveShare::new(rng.gen(), rng.gen()),
         };
         let mut hybrid_conversion_report_bytes =
             [0u8; <HybridConversionReport<BA3> as Serializable>::Size::USIZE];
@@ -1339,12 +1234,10 @@ mod test {
     #[test]
     fn enc_dec_roundtrip_hybrid_impression() {
         let mut rng = thread_rng();
-        let b = OprfEventType::Source;
-        let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_impression_report = HybridImpressionReport::<BA8> {
-            match_key: oprf_report.match_key.clone(),
-            breakdown_key: oprf_report.breakdown_key.clone(),
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
         };
 
         let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
@@ -1367,12 +1260,10 @@ mod test {
     #[test]
     fn enc_dec_roundtrip_hybrid_conversion() {
         let mut rng = thread_rng();
-        let b = OprfEventType::Trigger;
-        let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_conversion_report = HybridConversionReport::<BA3> {
-            match_key: oprf_report.match_key.clone(),
-            value: oprf_report.trigger_value.clone(),
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            value: AdditiveShare::new(rng.gen(), rng.gen()),
         };
 
         let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
@@ -1395,14 +1286,35 @@ mod test {
     }
 
     #[test]
+    fn enc_dec_roundtrip_hybrid() {
+        let mut rng = thread_rng();
+        let b = HybridEventType::Impression;
+        let hybrid_report = build_hybrid_report(b, &mut rng);
+
+        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
+        let key_id = 0;
+
+        let info =
+            HybridInfo::new(key_id, HELPER_ORIGIN, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
+
+        let enc_report_bytes = hybrid_report
+            .encrypt(key_id, &key_registry, &info, &mut rng)
+            .unwrap();
+
+        let enc_report =
+            EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes.into()).unwrap();
+        let dec_report: HybridReport<BA8, BA3> = enc_report.decrypt(&key_registry, &info).unwrap();
+
+        assert_eq!(dec_report, hybrid_report);
+    }
+
+    #[test]
     fn enc_report_serialization() {
         let mut rng = thread_rng();
-        let b = OprfEventType::Trigger;
-        let oprf_report = build_oprf_report(b, &mut rng);
 
         let hybrid_conversion_report = HybridConversionReport::<BA3> {
-            match_key: oprf_report.match_key.clone(),
-            value: oprf_report.trigger_value.clone(),
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            value: AdditiveShare::new(rng.gen(), rng.gen()),
         };
 
         let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
