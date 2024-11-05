@@ -466,7 +466,7 @@ mod tests {
     struct TestComponentsArgs {
         id: Option<HelperIdentity>,
         ix: Option<ShardIndex>,
-        mpc_handlers: [Arc<dyn RequestHandler<HelperIdentity>>; 3],
+        mpc_handlers: [Option<Arc<dyn RequestHandler<HelperIdentity>>>; 3],
         shard_count: u32,
     }
 
@@ -476,7 +476,9 @@ mod tests {
                 id: None,
                 ix: None,
                 mpc_handlers: array::from_fn(|_| {
-                    prepare_helper_query_handler(|_| async { Ok(HelperResponse::ok()) })
+                    Some(prepare_helper_query_handler(|_| async {
+                        Ok(HelperResponse::ok())
+                    }))
                 }),
                 shard_count: 2,
             }
@@ -485,14 +487,13 @@ mod tests {
 
     #[allow(dead_code)]
     struct TestComponents {
-        id: HelperIdentity,
-        ix: ShardIndex,
         processor: Processor,
         mpc_network: InMemoryMpcNetwork,
         shard_network: InMemoryShardNetwork,
         query_config: QueryConfig,
-        mpc_handlers: [Arc<dyn RequestHandler<HelperIdentity>>; 3],
-        helper_transports: [InMemoryTransport<HelperIdentity>; 3],
+        mpc_handlers: [Option<Arc<dyn RequestHandler<HelperIdentity>>>; 3],
+        first_transport: InMemoryTransport<HelperIdentity>,
+        helper_transports: [InMemoryTransport<HelperIdentity>; 2],
         shard_handlers: Vec<Arc<dyn RequestHandler<ShardIndex>>>,
         shard_transport: InMemoryTransport<ShardIndex>,
     }
@@ -506,22 +507,20 @@ mod tests {
             let mpc_network = InMemoryMpcNetwork::new(
                 args.mpc_handlers
                     .each_ref()
-                    .map(HandlerBox::owning_ref)
-                    .map(Some),
+                    .map(|opt_h| opt_h.as_ref().map(HandlerBox::owning_ref)),
             );
             let processor = Processor::default();
             let query_config = test_multiply_config();
-            let helper_transports = mpc_network.transports();
+            let [t0, t1, t2] = mpc_network.transports();
             let shard_transport = shard_network.transport(id, ix);
             TestComponents {
-                id,
-                ix,
                 processor,
                 mpc_network,
                 shard_network,
                 query_config,
                 mpc_handlers: args.mpc_handlers,
-                helper_transports,
+                first_transport: t0,
+                helper_transports: [t1, t2],
                 shard_handlers,
                 shard_transport,
             }
@@ -530,6 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn new_query() {
+        let mut args = TestComponentsArgs::default();
         let barrier = Arc::new(Barrier::new(3));
         let h2_barrier = Arc::clone(&barrier);
         let h3_barrier = Arc::clone(&barrier);
@@ -547,27 +547,20 @@ mod tests {
                 Ok(HelperResponse::ok())
             }
         });
-        let (shard_network, _s_handlers) =
-            InMemoryShardNetwork::with_shards_and_handlers(2, shard_respond_ok);
-        let id = HelperIdentity::ONE;
-        let si0 = ShardIndex::FIRST;
-        let s0 = shard_network.transport(id, si0);
-        let network = InMemoryMpcNetwork::new([
-            None,
-            Some(HandlerBox::owning_ref(&h2)),
-            Some(HandlerBox::owning_ref(&h3)),
-        ]);
-        let [t0, _, _] = network.transports();
-        let p0 = Processor::default();
-        let request = test_multiply_config();
-
-        let qc_future = p0.new_query(t0, s0, request);
+        args.mpc_handlers = [None, Some(h2), Some(h3)];
+        let t = TestComponents::new(args);
+        let qc_future = t
+            .processor
+            .new_query(t.first_transport, t.shard_transport, t.query_config);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
         let _qc = poll_immediate(&mut qc_future).await;
 
-        assert_eq!(QueryStatus::Preparing, p0.query_status(QueryId).unwrap());
+        assert_eq!(
+            QueryStatus::Preparing,
+            t.processor.query_status(QueryId).unwrap()
+        );
         // unblock sends
         barrier.wait().await;
 
@@ -577,64 +570,54 @@ mod tests {
         assert_eq!(
             PrepareQuery {
                 query_id: QueryId,
-                config: request,
+                config: t.query_config,
                 roles: expected_assignment,
             },
             qc
         );
         assert_eq!(
             QueryStatus::AwaitingInputs,
-            p0.query_status(QueryId).unwrap()
+            t.processor.query_status(QueryId).unwrap()
         );
     }
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
         let t = TestComponents::new(TestComponentsArgs::default());
-        let [mt, _, _] = t.helper_transports;
         let st = t.shard_transport;
         let _ = t
             .processor
             .new_query(
-                Transport::clone_ref(&mt),
+                Transport::clone_ref(&t.first_transport),
                 Transport::clone_ref(&st),
                 t.query_config,
             )
             .await
             .unwrap();
         assert!(matches!(
-            t.processor.new_query(mt, st, t.query_config).await,
+            t.processor
+                .new_query(t.first_transport, st, t.query_config)
+                .await,
             Err(NewQueryError::State(StateError::AlreadyRunning)),
         ));
     }
 
     #[tokio::test]
     async fn prepare_error() {
+        let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
         let h3 = prepare_helper_query_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
         });
-        let network = InMemoryMpcNetwork::new([
-            None,
-            Some(HandlerBox::owning_ref(&h2)),
-            Some(HandlerBox::owning_ref(&h3)),
-        ]);
-        let [t0, _, _] = network.transports();
-        let p0 = Processor::default();
-        let request = test_multiply_config();
-        println!("creating shard network");
-        let (shard_network, _s_handlers) =
-            InMemoryShardNetwork::with_shards_and_handlers(2, shard_respond_ok);
-        let id = HelperIdentity::ONE;
-        let si0 = ShardIndex::FIRST;
-        let s0 = shard_network.transport(id, si0);
-
-        println!("calling new_query");
+        args.mpc_handlers = [None, Some(h2), Some(h3)];
+        let t = TestComponents::new(args);
         assert!(matches!(
-            p0.new_query(t0, s0, request).await.unwrap_err(),
+            t.processor
+                .new_query(t.first_transport, t.shard_transport, t.query_config)
+                .await
+                .unwrap_err(),
             NewQueryError::MpcTransport(_)
         ));
-        println!("ending");
     }
 
     #[tokio::test]
