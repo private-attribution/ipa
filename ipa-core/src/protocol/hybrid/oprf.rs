@@ -175,8 +175,8 @@ mod test {
         report::hybrid::{HybridReport, IndistinguishableHybridReport},
         secret_sharing::IntoShares,
         test_fixture::{
-            flatten3v, hybrid::TestHybridRecord, RoundRobinInputDistribution, TestWorld,
-            TestWorldConfig, WithShards,
+            hybrid::TestHybridRecord, RoundRobinInputDistribution, TestWorld, TestWorldConfig,
+            WithShards,
         },
     };
 
@@ -215,6 +215,7 @@ mod test {
                 value: 7,
             },
         ];
+        let indices_to_compare = [(0, 2), (1, 3), (1, 4), (1, 5)];
 
         let shares: [Vec<HybridReport<BA8, BA3>>; 3] = records.iter().cloned().share();
 
@@ -229,7 +230,7 @@ mod test {
             indistinguishable_reports
                 .iter()
                 .map(|vec| {
-                    let mid = vec.len() / 2;
+                    let mid = vec.len() / SHARDS;
                     vec.chunks(mid)
                         .map(|chunk| chunk.to_vec())
                         .collect::<Vec<_>>()
@@ -263,9 +264,31 @@ mod test {
 
         #[allow(clippy::large_futures)]
         let results = futures::future::try_join_all(results).await.unwrap();
-        for result in results {
-            println!("{:?}", result);
+
+        let results = results
+            .chunks(SHARDS)
+            .map(|chunk| chunk.into_iter().flatten().collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+
+        let prfs = results
+            .iter()
+            .map(|helper_results| {
+                helper_results
+                    .into_iter()
+                    .map(|r| r.prf_of_match_key)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        // remove before merging
+        println!("{:?}", prfs);
+
+        // check to make sure each helper has the same PRF values
+        assert!(prfs.iter().all(|x| *x == prfs[0]));
+
+        // check to make sure the reports with the same match keys have the same prf values
+        for (i, j) in indices_to_compare {
+            assert_eq!(prfs[0][i], prfs[0][j]);
         }
-        panic!()
     }
 }
