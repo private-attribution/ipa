@@ -66,7 +66,6 @@ pub enum Error<I> {
 /// incoming messages.
 pub struct InMemoryTransport<I> {
     identity: I,
-    all_identities: Vec<I>,
     connections: HashMap<I, ConnectionTx<I>>,
     record_streams: StreamCollection<I, InMemoryStream>,
     config: TransportConfig,
@@ -76,13 +75,11 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
     #[must_use]
     fn with_config(
         identity: I,
-        all_identities: Vec<I>,
         connections: HashMap<I, ConnectionTx<I>>,
         config: TransportConfig,
     ) -> Self {
         Self {
             identity,
-            all_identities,
             connections,
             record_streams: StreamCollection::default(),
             config,
@@ -164,8 +161,16 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         self.upgrade().unwrap().identity
     }
 
-    fn all_identities(&self) -> impl Iterator<Item = I> {
-        self.upgrade().unwrap().all_identities.clone().into_iter()
+    fn peers(&self) -> impl Iterator<Item = I> {
+        let this = self.identity();
+        let all: Vec<I> = self
+            .upgrade()
+            .unwrap()
+            .connections
+            .keys()
+            .copied()
+            .collect();
+        all.into_iter().filter(move |&id| id != this)
     }
 
     async fn send<
@@ -275,7 +280,6 @@ impl Debug for InMemoryStream {
 
 pub struct Setup<I> {
     identity: I,
-    all_identities: Vec<I>,
     tx: ConnectionTx<I>,
     rx: ConnectionRx<I>,
     connections: HashMap<I, ConnectionTx<I>>,
@@ -288,7 +292,6 @@ impl Setup<HelperIdentity> {
     pub fn new(identity: HelperIdentity) -> Self {
         Self::with_config(
             identity,
-            HelperIdentity::make_three().to_vec(),
             TransportConfigBuilder::for_helper(identity).not_sharded(),
         )
     }
@@ -296,11 +299,10 @@ impl Setup<HelperIdentity> {
 
 impl<I: TransportIdentity> Setup<I> {
     #[must_use]
-    pub fn with_config(identity: I, all_identities: Vec<I>, config: TransportConfig) -> Self {
+    pub fn with_config(identity: I, config: TransportConfig) -> Self {
         let (tx, rx) = channel(16);
         Self {
             identity,
-            all_identities,
             tx,
             rx,
             connections: HashMap::default(),
@@ -333,7 +335,6 @@ impl<I: TransportIdentity> Setup<I> {
     ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>) {
         let transport = Arc::new(InMemoryTransport::with_config(
             self.identity,
-            self.all_identities,
             self.connections,
             self.config,
         ));

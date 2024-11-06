@@ -56,11 +56,7 @@ impl InMemoryMpcNetwork {
             let mut config_builder = TransportConfigBuilder::for_helper(i);
             config_builder.with_interceptor(interceptor);
 
-            Setup::with_config(
-                i,
-                HelperIdentity::make_three().to_vec(),
-                config_builder.with_sharding(shard_context),
-            )
+            Setup::with_config(i, config_builder.with_sharding(shard_context))
         });
 
         first.connect(&mut second);

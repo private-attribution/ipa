@@ -259,8 +259,11 @@ impl Transport for MpcHttpTransport {
         self.inner_transport.identity
     }
 
-    fn all_identities(&self) -> impl Iterator<Item = Self::Identity> {
-        HelperIdentity::make_three().into_iter()
+    fn peers(&self) -> impl Iterator<Item = Self::Identity> {
+        let this = self.identity();
+        HelperIdentity::make_three()
+            .into_iter()
+            .filter(move |&id| id != this)
     }
 
     async fn send<
@@ -326,8 +329,12 @@ impl Transport for ShardHttpTransport {
         self.inner_transport.identity
     }
 
-    fn all_identities(&self) -> impl Iterator<Item = Self::Identity> {
-        self.shard_config.shard_count.iter()
+    fn peers(&self) -> impl Iterator<Item = Self::Identity> {
+        let this = self.identity();
+        self.shard_config
+            .shard_count
+            .iter()
+            .filter(move |&v| v != this)
     }
 
     async fn send<D, Q, S, R>(

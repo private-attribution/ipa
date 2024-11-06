@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{future::try_join_all, Stream, TryFutureExt};
+use futures::{stream::FuturesUnordered, Stream, StreamExt, TryFutureExt};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::helpers::in_memory_config::InspectContext;
@@ -307,14 +307,8 @@ pub trait Transport: Clone + Send + Sync + 'static {
     /// Return my identity in the network (MPC or Sharded)
     fn identity(&self) -> Self::Identity;
 
-    /// Returns all the identities in this network (MPC or Sharded), myself included.
-    fn all_identities(&self) -> impl Iterator<Item = Self::Identity>;
-
     /// Returns all the other identities, besides me, in this network.
-    fn peers(&self) -> impl Iterator<Item = Self::Identity> {
-        let this = self.identity();
-        self.all_identities().filter(move |&i| i != this)
-    }
+    fn peers(&self) -> impl Iterator<Item = Self::Identity>;
 
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
@@ -344,7 +338,6 @@ pub trait Transport: Clone + Send + Sync + 'static {
     /// Broadcasts a message to all peers, excluding this instance, collecting all failures and
     /// successes. This method waits for all responses and returns only when all peers responded.
     /// The routes and data will be cloned.
-    #[allow(clippy::disallowed_methods)]
     async fn broadcast<Q, S, R, D>(
         &self,
         route: R,
@@ -358,11 +351,19 @@ pub trait Transport: Clone + Send + Sync + 'static {
         R: RouteParams<RouteId, Q, S> + Clone,
         D: Stream<Item = Vec<u8>> + Clone + Send + 'static,
     {
-        try_join_all(self.peers().map(|peer| {
-            self.send(peer, route.clone(), data.clone())
-                .map_err(move |source| BroadcastError { peer, source })
-        }))
-        .await?;
+        let results = self
+            .peers()
+            .map(|peer| {
+                self.send(peer, route.clone(), data.clone())
+                    .map_err(move |source| BroadcastError { peer, source })
+            })
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<Result<(), BroadcastError<_, _>>>>()
+            .await;
+        // Following I collect any error and buble if any
+        results
+            .into_iter()
+            .collect::<Result<(), BroadcastError<_, _>>>()?;
         Ok(())
     }
 
