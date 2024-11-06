@@ -239,24 +239,33 @@ mod test {
                 .expect("Expected exactly 3 elements");
 
         // #[allow(clippy::large_futures)]
-        // let results = flatten3v(chunked_reports.into_iter().zip(contexts).map(
-        //     |(reports_by_helper, helper_ctxs)| {
+        // let results = chunked_reports
+        //     .into_iter()
+        //     .zip(contexts)
+        //     .map(|(reports_by_helper, helper_ctxs)| {
         //         reports_by_helper
         //             .into_iter()
         //             .zip(helper_ctxs)
-        //             .map(|(reports, ctx)| compute_prf_for_inputs(ctx, &reports))
-        //     },
-        // ))
-        // .await;
+        //             .map(|(reports, ctx)| async move {
+        //                 compute_prf_for_inputs(ctx, &reports).await.unwrap()
+        //             })
+        //             .collect::<Vec<_>>()
+        //     })
+        //     .collect::<Vec<_>>();
+
         let mut results = Vec::new();
         for (reports_by_helper, helper_ctxs) in chunked_reports.into_iter().zip(contexts) {
             for (reports, ctx) in reports_by_helper.into_iter().zip(helper_ctxs) {
-                let result = compute_prf_for_inputs(ctx, &reports).await.unwrap();
+                let result = async move { compute_prf_for_inputs(ctx, &reports).await };
                 results.push(result);
             }
         }
 
-        println!("{:?}", results);
+        #[allow(clippy::large_futures)]
+        let results = futures::future::try_join_all(results).await.unwrap();
+        for result in results {
+            println!("{:?}", result);
+        }
         panic!()
     }
 }
