@@ -48,7 +48,7 @@ struct Args {
     #[arg(short = 'c', long, default_value = "8")]
     per_user_cap: u32,
     /// The number of breakdown keys.
-    #[arg(short = 'b', long, default_value = "16")]
+    #[arg(short = 'b', long, default_value = "32")]
     breakdown_keys: u32,
     /// The maximum trigger value.
     #[arg(short = 't', long, default_value = "5")]
@@ -75,7 +75,7 @@ struct Args {
     active_work: Option<NonZeroUsize>,
     /// Desired security model for IPA protocol
     #[arg(short = 'm', long, value_enum, default_value_t=IpaSecurityModel::Malicious)]
-    mode: IpaSecurityModel,
+    security_model: IpaSecurityModel,
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
@@ -150,10 +150,17 @@ async fn run(args: Args) -> Result<(), Error> {
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
     let _protocol_time = Instant::now();
-    test_oprf_ipa::<BenchField>(&world, raw_data, &expected_results, args.config()).await;
+    test_oprf_ipa::<BenchField>(
+        &world,
+        raw_data,
+        &expected_results,
+        args.config(),
+        args.security_model,
+    )
+    .await;
     tracing::info!(
         "{m:?} IPA for {q} records took {t:?}",
-        m = args.mode,
+        m = args.security_model,
         q = args.query_size,
         t = _protocol_time.elapsed()
     );
