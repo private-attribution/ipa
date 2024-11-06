@@ -12,7 +12,7 @@ use ::tokio::sync::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{future::try_join_all, Stream, StreamExt, TryFutureExt};
+use futures::{Stream, StreamExt};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_stream::wrappers::ReceiverStream;
@@ -24,11 +24,11 @@ use crate::{
         in_memory_config::{self, DynStreamInterceptor},
         transport::routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoResourceIdentifier,
-        QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, ShardedTransport, StepBinding,
-        StreamCollection, Transport, TransportIdentity,
+        QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection,
+        Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
-    sharding::{ShardConfiguration, ShardIndex, Sharded},
+    sharding::{ShardIndex, Sharded},
     sync::{Arc, Weak},
 };
 
@@ -73,6 +73,7 @@ pub enum Error<I> {
 /// incoming messages.
 pub struct InMemoryTransport<I> {
     identity: I,
+    all_identities: Vec<I>,
     connections: HashMap<I, ConnectionTx<I>>,
     record_streams: StreamCollection<I, InMemoryStream>,
     config: TransportConfig,
@@ -82,11 +83,13 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
     #[must_use]
     fn with_config(
         identity: I,
+        all_identities: Vec<I>,
         connections: HashMap<I, ConnectionTx<I>>,
         config: TransportConfig,
     ) -> Self {
         Self {
             identity,
+            all_identities,
             connections,
             record_streams: StreamCollection::default(),
             config,
@@ -168,6 +171,10 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         self.upgrade().unwrap().identity
     }
 
+    fn all_identities(&self) -> impl Iterator<Item = I> {
+        self.upgrade().unwrap().all_identities.clone().into_iter()
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
@@ -236,42 +243,6 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
     }
 }
 
-#[async_trait]
-impl ShardedTransport for Weak<InMemoryTransport<ShardIndex>> {
-    type ShardError = Error<ShardIndex>;
-
-    fn peer_count(&self) -> ShardIndex {
-        self.upgrade()
-            .unwrap()
-            .config
-            .shard_config
-            .unwrap()
-            .shard_count
-    }
-
-    #[allow(clippy::disallowed_methods)]
-    async fn broadcast<Q, S, R, D>(&self, route: R, data: D) -> Result<(), Self::ShardError>
-    where
-        Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
-        Q: QueryIdBinding,
-        S: StepBinding,
-        R: RouteParams<RouteId, Q, S> + Clone,
-        D: Stream<Item = Vec<u8>> + Send + Clone + 'static,
-    {
-        let shard_config = self.upgrade().unwrap().config.shard_config.unwrap();
-        try_join_all(shard_config.peer_shards().map(|shard_id| {
-            self.send(shard_id, route.clone(), data.clone())
-                .map_err(move |e| Error::Broadcast {
-                    dest: shard_id,
-                    inner: Box::new(e),
-                })
-        }))
-        .await?;
-        Ok(())
-    }
-}
-
 /// Convenience struct to support heterogeneous in-memory streams
 pub struct InMemoryStream {
     /// There is only one reason for this to have dynamic dispatch: tests that use `from_iter` method.
@@ -311,6 +282,7 @@ impl Debug for InMemoryStream {
 
 pub struct Setup<I> {
     identity: I,
+    all_identities: Vec<I>,
     tx: ConnectionTx<I>,
     rx: ConnectionRx<I>,
     connections: HashMap<I, ConnectionTx<I>>,
@@ -323,6 +295,7 @@ impl Setup<HelperIdentity> {
     pub fn new(identity: HelperIdentity) -> Self {
         Self::with_config(
             identity,
+            HelperIdentity::make_three().to_vec(),
             TransportConfigBuilder::for_helper(identity).not_sharded(),
         )
     }
@@ -330,10 +303,11 @@ impl Setup<HelperIdentity> {
 
 impl<I: TransportIdentity> Setup<I> {
     #[must_use]
-    pub fn with_config(identity: I, config: TransportConfig) -> Self {
+    pub fn with_config(identity: I, all_identities: Vec<I>, config: TransportConfig) -> Self {
         let (tx, rx) = channel(16);
         Self {
             identity,
+            all_identities,
             tx,
             rx,
             connections: HashMap::default(),
@@ -366,6 +340,7 @@ impl<I: TransportIdentity> Setup<I> {
     ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>) {
         let transport = Arc::new(InMemoryTransport::with_config(
             self.identity,
+            self.all_identities,
             self.connections,
             self.config,
         ));

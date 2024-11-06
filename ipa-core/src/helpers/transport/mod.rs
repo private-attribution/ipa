@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{future::try_join_all, Stream, TryFutureExt};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::helpers::in_memory_config::InspectContext;
@@ -289,14 +289,32 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
     }
 }
 
+/// These errors are usually related to an underlying [`Transport::Error`] while broadcasting.
+#[derive(thiserror::Error, Debug)]
+#[error("Error in communicating with peer {peer}: {source}")]
+pub struct BroadcastError<I, E> {
+    pub peer: I,
+    pub source: E,
+}
+
 /// Transport that supports per-query,per-step channels
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
     type RecordsStream: BytesStream;
-    type Error: std::fmt::Debug;
+    type Error: std::fmt::Debug + Send;
 
+    /// Return my identity in the network (MPC or Sharded)
     fn identity(&self) -> Self::Identity;
+
+    /// Returns all the identities in this network (MPC or Sharded), myself included.
+    fn all_identities(&self) -> impl Iterator<Item = Self::Identity>;
+
+    /// Returns all the other identities, besides me, in this network.
+    fn peers(&self) -> impl Iterator<Item = Self::Identity> {
+        let this = self.identity();
+        self.all_identities().filter(move |&i| i != this)
+    }
 
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
@@ -323,6 +341,31 @@ pub trait Transport: Clone + Send + Sync + 'static {
         route: R,
     ) -> Self::RecordsStream;
 
+    /// Broadcasts a message to all peers, excluding this instance, collecting all failures and
+    /// successes. This method waits for all responses and returns only when all peers responded.
+    /// The routes and data will be cloned.
+    #[allow(clippy::disallowed_methods)]
+    async fn broadcast<Q, S, R, D>(
+        &self,
+        route: R,
+        data: D,
+    ) -> Result<(), BroadcastError<Self::Identity, Self::Error>>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S> + Clone,
+        D: Stream<Item = Vec<u8>> + Clone + Send + 'static,
+    {
+        try_join_all(self.peers().map(|peer| {
+            self.send(peer, route.clone(), data.clone())
+                .map_err(move |source| BroadcastError { peer, source })
+        }))
+        .await?;
+        Ok(())
+    }
+
     /// Alias for `Clone::clone`.
     ///
     /// `Transport` is implemented for `Weak<InMemoryTranport>` and `Arc<HttpTransport>`. Clippy won't
@@ -333,27 +376,6 @@ pub trait Transport: Clone + Send + Sync + 'static {
     fn clone_ref(&self) -> Self {
         <Self as Clone>::clone(self)
     }
-}
-
-#[async_trait]
-pub trait ShardedTransport: Transport {
-    /// These errors are usually related to an underlying [`Transport::Error`]. This adds more
-    /// information or allows to describe sharding specific issues.
-    type ShardError: std::fmt::Debug;
-
-    fn peer_count(&self) -> ShardIndex;
-
-    /// Broadcasts a message to all peers, excluding this instance, collecting all failures and
-    /// successes. This method waits for all responses and returns only when all peers responded.
-    /// The routes and data will be cloned.
-    async fn broadcast<Q, S, R, D>(&self, route: R, data: D) -> Result<(), Self::ShardError>
-    where
-        Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
-        Q: QueryIdBinding,
-        S: StepBinding,
-        R: RouteParams<RouteId, Q, S> + Clone,
-        D: Stream<Item = Vec<u8>> + Clone + Send + 'static;
 }
 
 #[cfg(all(test, unit_test))]

@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{future::try_join_all, Stream, TryFutureExt};
+use futures::{Stream, TryFutureExt};
 use pin_project::{pin_project, pinned_drop};
 
 use super::{client::resp_ok, error::ShardError, ConnectionFlavor, Helper, Shard};
@@ -18,11 +18,11 @@ use crate::{
         routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoQueryId,
         NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
-        ShardedTransport, StepBinding, StreamCollection, Transport, TransportIdentity,
+        StepBinding, StreamCollection, Transport, TransportIdentity,
     },
     net::{client::IpaHttpClient, error::Error, IpaHttpServer},
     protocol::{Gate, QueryId},
-    sharding::{ShardConfiguration, ShardIndex, Sharded},
+    sharding::{ShardIndex, Sharded},
     sync::Arc,
 };
 
@@ -259,6 +259,10 @@ impl Transport for MpcHttpTransport {
         self.inner_transport.identity
     }
 
+    fn all_identities(&self) -> impl Iterator<Item = Self::Identity> {
+        HelperIdentity::make_three().into_iter()
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
@@ -322,6 +326,10 @@ impl Transport for ShardHttpTransport {
         self.inner_transport.identity
     }
 
+    fn all_identities(&self) -> impl Iterator<Item = Self::Identity> {
+        self.shard_config.shard_count.iter()
+    }
+
     async fn send<D, Q, S, R>(
         &self,
         dest: Self::Identity,
@@ -351,34 +359,6 @@ impl Transport for ShardHttpTransport {
         route: R,
     ) -> Self::RecordsStream {
         self.inner_transport.receive(from, &route)
-    }
-}
-
-#[async_trait]
-impl ShardedTransport for ShardHttpTransport {
-    type ShardError = ShardError;
-
-    fn peer_count(&self) -> ShardIndex {
-        self.shard_config.shard_count
-    }
-
-    #[allow(clippy::disallowed_methods)]
-    async fn broadcast<Q, S, R, D>(&self, route: R, data: D) -> Result<(), Self::ShardError>
-    where
-        Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
-        Q: QueryIdBinding,
-        S: StepBinding,
-        R: RouteParams<RouteId, Q, S> + Clone,
-        D: Stream<Item = Vec<u8>> + Send + Clone + 'static,
-    {
-        try_join_all(
-            self.shard_config
-                .peer_shards()
-                .map(|shard_id| self.send(shard_id, route.clone(), data.clone())),
-        )
-        .await?;
-        Ok(())
     }
 }
 
