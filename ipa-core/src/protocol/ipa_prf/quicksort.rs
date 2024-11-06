@@ -15,7 +15,9 @@ use crate::{
         basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
         context::{
-            dzkp_validator::{validated_seq_join, DZKPValidator, TARGET_PROOF_SIZE},
+            dzkp_validator::{
+                prev_power_of_two, validated_seq_join, DZKPValidator, TARGET_PROOF_SIZE,
+            },
             Context, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
@@ -97,8 +99,8 @@ where
     }
 }
 
-fn quicksort_proof_chunk(key_bits: usize) -> usize {
-    (TARGET_PROOF_SIZE / key_bits / SORT_CHUNK).next_power_of_two()
+const fn quicksort_proof_chunk(key_bits: usize) -> usize {
+    prev_power_of_two(TARGET_PROOF_SIZE / key_bits / SORT_CHUNK)
 }
 
 /// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.

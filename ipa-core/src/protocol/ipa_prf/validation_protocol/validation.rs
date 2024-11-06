@@ -20,7 +20,7 @@ use crate::{
         },
         ipa_prf::{
             malicious_security::{
-                prover::{LargeProofGenerator, SmallProofGenerator},
+                prover::{FirstProofGenerator, SmallProofGenerator},
                 verifier::{compute_g_differences, recursively_compute_final_check},
             },
             validation_protocol::proof_generation::ProofBatch,
@@ -44,8 +44,8 @@ use crate::{
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
-    first_proof_from_left_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
-    first_proof_from_right_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
+    first_proof_from_left_prover: [Fp61BitPrime; FirstProofGenerator::PROOF_LENGTH],
+    first_proof_from_right_prover: [Fp61BitPrime; FirstProofGenerator::PROOF_LENGTH],
     proofs_from_left_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
     p_mask_from_right_prover: Fp61BitPrime,
@@ -104,7 +104,7 @@ impl BatchToVerify {
     where
         C: Context,
     {
-        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const LRF: usize = FirstProofGenerator::RECURSION_FACTOR;
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
 
         // exclude for first proof
@@ -174,7 +174,7 @@ impl BatchToVerify {
         U: Iterator<Item = Fp61BitPrime> + Send,
         V: Iterator<Item = Fp61BitPrime> + Send,
     {
-        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const LRF: usize = FirstProofGenerator::RECURSION_FACTOR;
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
 
         // compute p_r
@@ -241,10 +241,10 @@ impl BatchToVerify {
     where
         C: Context,
     {
-        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
+        const LRF: usize = FirstProofGenerator::RECURSION_FACTOR;
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
 
-        const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
+        const LPL: usize = FirstProofGenerator::PROOF_LENGTH;
         const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
 
         let p_times_q_right = Self::compute_p_times_q(
@@ -456,7 +456,7 @@ pub mod test {
             ipa_prf::{
                 malicious_security::{
                     lagrange::CanonicalLagrangeDenominator,
-                    prover::{LargeProofGenerator, SmallProofGenerator},
+                    prover::{FirstProofGenerator, LargeProofGenerator, SmallProofGenerator},
                     verifier::{compute_sum_share, interpolate_at_r},
                 },
                 validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
@@ -481,7 +481,7 @@ pub mod test {
         // first proof has correct length
         assert_eq!(
             left_verifier.first_proof_from_left_prover.len(),
-            LargeProofGenerator::PROOF_LENGTH
+            FirstProofGenerator::PROOF_LENGTH
         );
         assert_eq!(
             left_verifier.first_proof_from_left_prover.len(),
@@ -510,29 +510,29 @@ pub mod test {
         // check first proof,
         // compute simple proof without lagrange interpolated points
         let simple_proof = {
-            let block_to_polynomial = BLOCK_SIZE / LargeProofGenerator::RECURSION_FACTOR;
+            let block_to_polynomial = BLOCK_SIZE / FirstProofGenerator::RECURSION_FACTOR;
             let simple_proof_uv = (0usize..100 * block_to_polynomial)
                 .map(|i| {
                     (
-                        (LargeProofGenerator::RECURSION_FACTOR * i
-                            ..LargeProofGenerator::RECURSION_FACTOR * (i + 1))
+                        (FirstProofGenerator::RECURSION_FACTOR * i
+                            ..FirstProofGenerator::RECURSION_FACTOR * (i + 1))
                             .map(|j| Fp61BitPrime::truncate_from(u128::try_from(j).unwrap()) * h)
-                            .collect::<[Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR]>(),
-                        (LargeProofGenerator::RECURSION_FACTOR * i
-                            ..LargeProofGenerator::RECURSION_FACTOR * (i + 1))
+                            .collect::<[Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR]>(),
+                        (FirstProofGenerator::RECURSION_FACTOR * i
+                            ..FirstProofGenerator::RECURSION_FACTOR * (i + 1))
                             .map(|j| Fp61BitPrime::truncate_from(u128::try_from(j).unwrap()) * h)
-                            .collect::<[Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR]>(),
+                            .collect::<[Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR]>(),
                     )
                 })
                 .collect::<Vec<(
-                    [Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR],
-                    [Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR],
+                    [Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR],
+                    [Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR],
                 )>>();
 
             simple_proof_uv.iter().fold(
-                [Fp61BitPrime::ZERO; LargeProofGenerator::RECURSION_FACTOR],
+                [Fp61BitPrime::ZERO; FirstProofGenerator::RECURSION_FACTOR],
                 |mut acc, (left, right)| {
-                    for i in 0..LargeProofGenerator::RECURSION_FACTOR {
+                    for i in 0..FirstProofGenerator::RECURSION_FACTOR {
                         acc[i] += left[i] * right[i];
                     }
                     acc
@@ -555,7 +555,7 @@ pub mod test {
             (h.as_u128(), simple_proof.to_vec()),
             (
                 h.as_u128(),
-                proof_computed[0..LargeProofGenerator::RECURSION_FACTOR].to_vec()
+                proof_computed[0..FirstProofGenerator::RECURSION_FACTOR].to_vec()
             )
         );
     }
@@ -776,7 +776,7 @@ pub mod test {
     fn assert_batch(left: &BatchToVerify, right: &BatchToVerify, challenges: &[Fp61BitPrime]) {
         const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
         const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
-        const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
+        const LPL: usize = FirstProofGenerator::PROOF_LENGTH;
 
         let first = recombine(
             &left.first_proof_from_left_prover,

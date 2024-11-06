@@ -115,6 +115,8 @@ pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
 pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
 pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
+pub type FirstProofGenerator = SmallProofGenerator;
+
 impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerator<F, L, P, M> {
     // define constants such that they can be used externally
     // when using the pub types defined above

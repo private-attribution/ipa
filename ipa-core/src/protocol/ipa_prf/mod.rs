@@ -1,4 +1,4 @@
-use std::{convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
+use std::{cmp::max, convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
 
 use futures::{stream, StreamExt, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
@@ -24,8 +24,8 @@ use crate::{
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, Reveal},
         context::{
-            dzkp_validator::DZKPValidator, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps,
-            UpgradableContext,
+            dzkp_validator::{prev_power_of_two, DZKPValidator, TARGET_PROOF_SIZE},
+            DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -409,13 +409,17 @@ where
     Ok(noisy_output_histogram)
 }
 
-// We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
-// is CONV_CHUNK. Let `len` equal the number of converted shares. The total amount of
-// multiplications is CONV_CHUNK*512*len. We want CONV_CHUNK*512*len ≈ 50M, or len ≈ 381, for a
-// reasonably-sized proof. There is also a constraint on proof chunks to be powers of two, so
-// we pick the closest power of two close to 381 but less than that value. 256 gives us around 33M
-// multiplications per batch
-const CONV_PROOF_CHUNK: usize = 256;
+/// Returns a suitable proof chunk size (in records) for use with `convert_to_fp25519`.
+///
+/// We expect 2*256 = 512 gates in total for two additions per conversion. The
+/// vectorization factor is `CONV_CHUNK`. Let `len` equal the number of converted
+/// shares. The total amount of multiplications is `CONV_CHUNK`*512*len. We want
+/// `CONV_CHUNK`*512*len ≈ 50M for a reasonably-sized proof. There is also a constraint
+/// on proof chunks to be powers of two, and we don't want to compute a proof chunk
+/// of zero when `TARGET_PROOF_SIZE` is smaller for tests.
+fn conv_proof_chunk() -> usize {
+    prev_power_of_two(max(2, TARGET_PROOF_SIZE / CONV_CHUNK / 512))
+}
 
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS>(
@@ -443,7 +447,7 @@ where
             protocol: &Step::ConvertFp25519,
             validate: &Step::ConvertFp25519Validate,
         },
-        CONV_PROOF_CHUNK,
+        conv_proof_chunk(),
     );
     let m_ctx = validator.context();
 
