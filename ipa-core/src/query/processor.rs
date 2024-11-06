@@ -3,7 +3,7 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use futures::{future::try_join, stream};
+use futures::{future::try_join, stream, TryFutureExt};
 use serde::Serialize;
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
-        ShardTransportError, ShardTransportImpl, ShardedTransport, Transport,
+        ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -185,6 +185,7 @@ impl Processor {
 
         shard_transport
             .broadcast(prepare_request.clone(), stream::empty())
+            .map_err(|e| NewQueryError::ShardTransport(e.source))
             .await?;
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
@@ -222,6 +223,7 @@ impl Processor {
 
         shard_transport
             .broadcast(req.clone(), stream::empty())
+            .map_err(|e| PrepareQueryError::ShardTransport(e.source))
             .await?;
 
         handle.set_state(QueryState::AwaitingInputs(
