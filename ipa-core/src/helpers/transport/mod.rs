@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{stream::FuturesUnordered, Stream, StreamExt, TryFutureExt};
+use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::helpers::in_memory_config::InspectContext;
@@ -289,12 +289,16 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
     }
 }
 
-/// These errors are usually related to an underlying [`Transport::Error`] while broadcasting.
 #[derive(thiserror::Error, Debug)]
-#[error("Error in communicating with peer {peer}: {source}")]
-pub struct BroadcastError<I, E> {
-    pub peer: I,
-    pub source: E,
+#[error("One or more peers rejected the request: {failures:?}")]
+pub struct BroadcastError<I: TransportIdentity, E: Debug> {
+    failures: Vec<(I, E)>,
+}
+
+impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> {
+    fn from(value: Vec<(I, E)>) -> Self {
+        Self { failures: value }
+    }
 }
 
 /// Transport that supports per-query,per-step channels
@@ -341,7 +345,6 @@ pub trait Transport: Clone + Send + Sync + 'static {
     async fn broadcast<Q, S, R, D>(
         &self,
         route: R,
-        data: D,
     ) -> Result<(), BroadcastError<Self::Identity, Self::Error>>
     where
         Option<QueryId>: From<Q>,
@@ -349,22 +352,27 @@ pub trait Transport: Clone + Send + Sync + 'static {
         Q: QueryIdBinding,
         S: StepBinding,
         R: RouteParams<RouteId, Q, S> + Clone,
-        D: Stream<Item = Vec<u8>> + Clone + Send + 'static,
     {
-        let results = self
-            .peers()
-            .map(|peer| {
-                self.send(peer, route.clone(), data.clone())
-                    .map_err(move |source| BroadcastError { peer, source })
-            })
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<Result<(), BroadcastError<_, _>>>>()
-            .await;
-        // Following I collect any error and buble if any
-        results
-            .into_iter()
-            .collect::<Result<(), BroadcastError<_, _>>>()?;
-        Ok(())
+        let mut futs = FuturesUnordered::new();
+        for peer_identity in self.peers() {
+            futs.push(
+                Self::send(self, peer_identity, route.clone(), futures::stream::empty())
+                    .map(move |v| (peer_identity, v)),
+            );
+        }
+
+        let mut errs = Vec::new();
+        while let Some(r) = futs.next().await {
+            if let Err(e) = r.1 {
+                errs.push((r.0, e));
+            }
+        }
+
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs.into())
+        }
     }
 
     /// Alias for `Clone::clone`.

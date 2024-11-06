@@ -162,15 +162,13 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
     }
 
     fn peers(&self) -> impl Iterator<Item = I> {
-        let this = self.identity();
-        let all: Vec<I> = self
-            .upgrade()
+        self.upgrade()
             .unwrap()
             .connections
             .keys()
             .copied()
-            .collect();
-        all.into_iter().filter(move |&id| id != this)
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     async fn send<
