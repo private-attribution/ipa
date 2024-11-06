@@ -84,7 +84,6 @@ impl InMemoryShardNetwork {
                 .map(|i| {
                     Setup::with_config(
                         i,
-                        shard_count.iter().collect(),
                         config_builder.with_sharding(Some(Sharded {
                             shard_id: i,
                             shard_count,
