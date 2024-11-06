@@ -5,7 +5,10 @@ use futures::{stream::iter, StreamExt, TryStreamExt};
 use crate::{
     error::Error,
     ff::{
+        boolean::Boolean,
         boolean_array::{BooleanArray, BA3, BA8},
+        curve_points::RP25519,
+        ec_prime_field::Fp25519,
         U128Conversions,
     },
     helpers::{
@@ -14,9 +17,15 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        context::{ShardedContext, UpgradableContext},
-        hybrid::{hybrid_protocol, step::HybridStep},
-        ipa_prf::{oprf_padding::PaddingParameters, shuffle::Shuffle},
+        basics::{BooleanProtocols, Reveal},
+        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        hybrid::{
+            hybrid_protocol,
+            oprf::{CONV_CHUNK, PRF_CHUNK},
+            step::HybridStep,
+        },
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
+        prss::FromPrss,
         step::ProtocolStep::Hybrid,
     },
     query::runner::reshard_tag::reshard_aad,
@@ -26,7 +35,7 @@ use crate::{
         },
         hybrid_info::HybridInfo,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
 };
 
 #[allow(dead_code)]
@@ -58,6 +67,11 @@ where
     C: UpgradableContext + Shuffle + ShardedContext,
     HV: BooleanArray + U128Conversions,
     R: PrivateKeyRegistry,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+    Replicated<RP25519, PRF_CHUNK>:
+        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
@@ -274,8 +288,7 @@ mod tests {
             query_sizes,
         } = build_buffers_from_records(&records, SHARDS, &hybrid_info);
 
-        let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
-            TestWorld::with_shards(TestWorldConfig::default());
+        let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
         let contexts = world.contexts();
 
         #[allow(clippy::large_futures)]

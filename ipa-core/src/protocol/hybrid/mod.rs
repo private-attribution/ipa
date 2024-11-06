@@ -1,43 +1,30 @@
+pub(crate) mod oprf;
 pub(crate) mod step;
-
-use step::HybridStep as Step;
 
 use crate::{
     error::Error,
     ff::{
-        boolean_array::{BooleanArray, BA5, BA8},
-        U128Conversions,
+        boolean::Boolean, boolean_array::BooleanArray, curve_points::RP25519,
+        ec_prime_field::Fp25519, U128Conversions,
     },
     helpers::query::DpMechanism,
     protocol::{
-        context::{ShardedContext, UpgradableContext},
+        basics::{BooleanProtocols, Reveal},
+        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        hybrid::{
+            oprf::{compute_prf_for_inputs, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
+            step::HybridStep as Step,
+        },
         ipa_prf::{
             oprf_padding::{apply_dp_padding, PaddingParameters},
+            prf_eval::PrfSharing,
             shuffle::Shuffle,
         },
+        prss::FromPrss,
     },
     report::hybrid::IndistinguishableHybridReport,
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
 };
-// In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
-// ≤ 2^|bk|, with all three values distinct, but at present, there is no runtime configuration and
-// the latter two must be equal. The implementation of `move_single_value_to_bucket` does support a
-// runtime-specified count via the `breakdown_count` parameter, and implements a runtime check of
-// its value.
-//
-// It would usually be more appropriate to make `MAX_BREAKDOWNS` an associated constant rather than
-// a const parameter. However, we want to use it to enforce a correct pairing of the `BK` type
-// parameter and the `B` const parameter, and specifying a constraint like
-// `BreakdownKey<MAX_BREAKDOWNS = B>` on an associated constant is not currently supported. (Nor is
-// supplying an associated constant `<BK as BreakdownKey>::MAX_BREAKDOWNS` as the value of a const
-// parameter.) Structured the way we have it, it probably doesn't make sense to use the
-// `BreakdownKey` trait in places where the `B` const parameter is not already available.
-//
-// These could be imported from src/protocl/ipa_prf/mod.rs
-// however we've copy/pasted them here with the intention of deleting that file [TODO]
-pub trait BreakdownKey<const MAX_BREAKDOWNS: usize>: BooleanArray + U128Conversions {}
-impl BreakdownKey<32> for BA5 {}
-impl BreakdownKey<256> for BA8 {}
 
 /// The Hybrid Protocol
 ///
@@ -75,18 +62,28 @@ where
     BK: BreakdownKey<B>,
     V: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+    Replicated<RP25519, PRF_CHUNK>:
+        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
     }
 
     // Apply DP padding for OPRF
-    let _padded_input_rows = apply_dp_padding::<_, IndistinguishableHybridReport<BK, V>, B>(
+    let padded_input_rows = apply_dp_padding::<_, IndistinguishableHybridReport<BK, V>, B>(
         ctx.narrow(&Step::PaddingDp),
         input_rows,
         &dp_padding_params,
     )
     .await?;
+
+    // TODO shuffle input rows
+    let shuffled_input_rows = padded_input_rows;
+
+    let _prf_input_rows = compute_prf_for_inputs(ctx.clone(), &shuffled_input_rows).await?;
 
     unimplemented!("protocol::hybrid::hybrid_protocol is not fully implemented")
 }
