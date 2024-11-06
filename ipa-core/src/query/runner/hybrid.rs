@@ -5,7 +5,10 @@ use futures::{stream::iter, StreamExt, TryStreamExt};
 use crate::{
     error::Error,
     ff::{
+        boolean::Boolean,
         boolean_array::{BooleanArray, BA3, BA8},
+        curve_points::RP25519,
+        ec_prime_field::Fp25519,
         U128Conversions,
     },
     helpers::{
@@ -14,9 +17,15 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        context::{ShardedContext, UpgradableContext},
-        hybrid::{hybrid_protocol, step::HybridStep},
-        ipa_prf::{oprf_padding::PaddingParameters, shuffle::Shuffle},
+        basics::{BooleanProtocols, Reveal},
+        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        hybrid::{
+            hybrid_protocol,
+            oprf::{CONV_CHUNK, PRF_CHUNK},
+            step::HybridStep,
+        },
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
+        prss::FromPrss,
         step::ProtocolStep::Hybrid,
     },
     query::runner::reshard_tag::reshard_aad,
@@ -26,7 +35,7 @@ use crate::{
         },
         hybrid_info::HybridInfo,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
 };
 
 #[allow(dead_code)]
@@ -58,6 +67,11 @@ where
     C: UpgradableContext + Shuffle + ShardedContext,
     HV: BooleanArray + U128Conversions,
     R: PrivateKeyRegistry,
+    Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>:
+        PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
+    Replicated<RP25519, PRF_CHUNK>:
+        Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
@@ -143,7 +157,7 @@ where
     }
 }
 
-#[cfg(all(test, unit_test))]
+#[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod tests {
     use std::{iter::zip, sync::Arc};
 
@@ -163,6 +177,7 @@ mod tests {
         query::runner::hybrid::Query as HybridQuery,
         report::{hybrid::HybridReport, hybrid_info::HybridInfo, DEFAULT_KEY_ID},
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        test_executor::run,
         test_fixture::{
             flatten3v, hybrid::TestHybridRecord, Reconstruct, RoundRobinInputDistribution,
             TestWorld, TestWorldConfig, WithShards,
@@ -252,78 +267,78 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test]
     // placeholder until the protocol is complete. can be updated to make sure we
     // get to the unimplemented() call
     #[should_panic(
         expected = "not implemented: protocol::hybrid::hybrid_protocol is not fully implemented"
     )]
-    async fn encrypted_hybrid_reports() {
+    fn encrypted_hybrid_reports() {
         // While this test currently checks for an unimplemented panic it is
         // designed to test for a correct result for a complete implementation.
+        run(|| async {
+            const SHARDS: usize = 2;
+            let records = build_records();
 
-        const SHARDS: usize = 2;
-        let records = build_records();
+            let hybrid_info =
+                HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
 
-        let hybrid_info =
-            HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
+            let BufferAndKeyRegistry {
+                buffers,
+                key_registry,
+                query_sizes,
+            } = build_buffers_from_records(&records, SHARDS, &hybrid_info);
 
-        let BufferAndKeyRegistry {
-            buffers,
-            key_registry,
-            query_sizes,
-        } = build_buffers_from_records(&records, SHARDS, &hybrid_info);
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
+            let contexts = world.contexts();
 
-        let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
-            TestWorld::with_shards(TestWorldConfig::default());
-        let contexts = world.contexts();
+            #[allow(clippy::large_futures)]
+            let results = flatten3v(buffers.into_iter().zip(contexts).map(
+                |(helper_buffers, helper_ctxs)| {
+                    helper_buffers
+                        .into_iter()
+                        .zip(helper_ctxs)
+                        .zip(query_sizes.clone())
+                        .map(|((buffer, ctx), query_size)| {
+                            let query_params = HybridQueryParams {
+                                per_user_credit_cap: 8,
+                                max_breakdown_key: 3,
+                                with_dp: 0,
+                                epsilon: 5.0,
+                                plaintext_match_keys: false,
+                            };
+                            let input = BodyStream::from(buffer);
 
-        #[allow(clippy::large_futures)]
-        let results = flatten3v(buffers.into_iter().zip(contexts).map(
-            |(helper_buffers, helper_ctxs)| {
-                helper_buffers
-                    .into_iter()
-                    .zip(helper_ctxs)
-                    .zip(query_sizes.clone())
-                    .map(|((buffer, ctx), query_size)| {
-                        let query_params = HybridQueryParams {
-                            per_user_credit_cap: 8,
-                            max_breakdown_key: 3,
-                            with_dp: 0,
-                            epsilon: 5.0,
-                            plaintext_match_keys: false,
-                        };
-                        let input = BodyStream::from(buffer);
+                            HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                                query_params,
+                                Arc::clone(&key_registry),
+                                hybrid_info.clone(),
+                            )
+                            .execute(ctx, query_size, input)
+                        })
+                },
+            ))
+            .await;
 
-                        HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
-                            query_params,
-                            Arc::clone(&key_registry),
-                            hybrid_info.clone(),
-                        )
-                        .execute(ctx, query_size, input)
-                    })
-            },
-        ))
-        .await;
+            let results: Vec<[Vec<AdditiveShare<BA16>>; 3]> = results
+                .chunks(3)
+                .map(|chunk| {
+                    [
+                        chunk[0].as_ref().unwrap().clone(),
+                        chunk[1].as_ref().unwrap().clone(),
+                        chunk[2].as_ref().unwrap().clone(),
+                    ]
+                })
+                .collect();
 
-        let results: Vec<[Vec<AdditiveShare<BA16>>; 3]> = results
-            .chunks(3)
-            .map(|chunk| {
-                [
-                    chunk[0].as_ref().unwrap().clone(),
-                    chunk[1].as_ref().unwrap().clone(),
-                    chunk[2].as_ref().unwrap().clone(),
-                ]
-            })
-            .collect();
-
-        assert_eq!(
-            results.into_iter().next().unwrap().reconstruct()[0..3]
-                .iter()
-                .map(U128Conversions::as_u128)
-                .collect::<Vec<u128>>(),
-            EXPECTED
-        );
+            assert_eq!(
+                results.into_iter().next().unwrap().reconstruct()[0..3]
+                    .iter()
+                    .map(U128Conversions::as_u128)
+                    .collect::<Vec<u128>>(),
+                EXPECTED
+            );
+        });
     }
 
     // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
