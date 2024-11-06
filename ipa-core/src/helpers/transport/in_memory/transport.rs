@@ -28,7 +28,7 @@ use crate::{
         Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
-    sharding::{ShardIndex, Sharded},
+    sharding::Sharded,
     sync::{Arc, Weak},
 };
 
@@ -58,13 +58,6 @@ pub enum Error<I> {
     DeserializationFailed {
         #[from]
         inner: serde_json::Error,
-    },
-
-    #[error("Broacast to shard {dest:?} failed: {inner:?}")]
-    Broadcast {
-        dest: ShardIndex,
-        #[source]
-        inner: BoxError,
     },
 }
 
