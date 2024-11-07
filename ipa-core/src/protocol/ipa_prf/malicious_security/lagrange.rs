@@ -101,14 +101,8 @@ where
     /// that were used to generate this table.
     /// It is assumed that the `y_coordinates` provided to this function correspond the values of the _input_ "x coordinates"
     /// that were used to generate this table.
-    pub fn eval<I>(&self, y_coordinates: I) -> [F; M]
-    where
-        I: IntoIterator + Copy,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: Borrow<F>,
+    pub fn eval(&self, y_coordinates: &[F; N]) -> [F; M]
     {
-        debug_assert_eq!(y_coordinates.into_iter().len(), N);
-
         self.table
             .iter()
             .map(|table_row| {
