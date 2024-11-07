@@ -189,7 +189,7 @@ where
         .collect())
 }
 
-#[cfg(all(test, feature = "in-memory-infra"))]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod test {
 
     use crate::{
@@ -197,117 +197,121 @@ mod test {
         protocol::hybrid::oprf::compute_prf_for_inputs,
         report::hybrid::{HybridReport, IndistinguishableHybridReport},
         secret_sharing::IntoShares,
+        test_executor::run,
         test_fixture::{
             hybrid::TestHybridRecord, RoundRobinInputDistribution, TestWorld, TestWorldConfig,
             WithShards,
         },
     };
 
-    #[tokio::test]
-    async fn hybrid_oprf() {
-        const SHARDS: usize = 2;
-        let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
-            TestWorld::with_shards(TestWorldConfig::default());
+    #[test]
+    fn hybrid_oprf() {
+        run(|| async {
+            const SHARDS: usize = 2;
+            let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
+                TestWorld::with_shards(TestWorldConfig::default());
 
-        let contexts = world.contexts();
+            let contexts = world.contexts();
 
-        let records = [
-            TestHybridRecord::TestImpression {
-                match_key: 12345,
-                breakdown_key: 2,
-            },
-            TestHybridRecord::TestImpression {
-                match_key: 68362,
-                breakdown_key: 1,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 12345,
-                value: 5,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 68362,
-                value: 2,
-            },
-            TestHybridRecord::TestImpression {
-                match_key: 68362,
-                breakdown_key: 1,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 68362,
-                value: 7,
-            },
-        ];
-        let indices_to_compare = [(0, 2), (1, 3), (1, 4), (1, 5)];
+            let records = [
+                TestHybridRecord::TestImpression {
+                    match_key: 12345,
+                    breakdown_key: 2,
+                },
+                TestHybridRecord::TestImpression {
+                    match_key: 68362,
+                    breakdown_key: 1,
+                },
+                TestHybridRecord::TestConversion {
+                    match_key: 12345,
+                    value: 5,
+                },
+                TestHybridRecord::TestConversion {
+                    match_key: 68362,
+                    value: 2,
+                },
+                TestHybridRecord::TestImpression {
+                    match_key: 68362,
+                    breakdown_key: 1,
+                },
+                TestHybridRecord::TestConversion {
+                    match_key: 68362,
+                    value: 7,
+                },
+            ];
+            let indices_to_compare = [(0, 2), (1, 3), (1, 4), (1, 5)];
 
-        let shares: [Vec<HybridReport<BA8, BA3>>; 3] = records.iter().cloned().share();
+            let shares: [Vec<HybridReport<BA8, BA3>>; 3] = records.iter().cloned().share();
 
-        let indistinguishable_reports: [Vec<IndistinguishableHybridReport<BA8, BA3>>; 3] = shares
-            .iter()
-            .map(|s| s.iter().map(|r| r.clone().into()).collect::<Vec<_>>())
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("Expected exactly 3 elements");
+            let indistinguishable_reports: [Vec<IndistinguishableHybridReport<BA8, BA3>>; 3] =
+                shares
+                    .iter()
+                    .map(|s| s.iter().map(|r| r.clone().into()).collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .expect("Expected exactly 3 elements");
 
-        let chunked_reports: [Vec<Vec<IndistinguishableHybridReport<BA8, BA3>>>; 3] =
-            indistinguishable_reports
+            let chunked_reports: [Vec<Vec<IndistinguishableHybridReport<BA8, BA3>>>; 3] =
+                indistinguishable_reports
+                    .iter()
+                    .map(|vec| {
+                        let mid = vec.len() / SHARDS;
+                        vec.chunks(mid)
+                            .map(<[IndistinguishableHybridReport<BA8, BA3>]>::to_vec)
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .expect("Expected exactly 3 elements");
+
+            // #[allow(clippy::large_futures)]
+            // let results = chunked_reports
+            //     .into_iter()
+            //     .zip(contexts)
+            //     .map(|(reports_by_helper, helper_ctxs)| {
+            //         reports_by_helper
+            //             .into_iter()
+            //             .zip(helper_ctxs)
+            //             .map(|(reports, ctx)| async move {
+            //                 compute_prf_for_inputs(ctx, &reports).await.unwrap()
+            //             })
+            //             .collect::<Vec<_>>()
+            //     })
+            //     .collect::<Vec<_>>();
+
+            let mut results = Vec::new();
+            for (reports_by_helper, helper_ctxs) in chunked_reports.into_iter().zip(contexts) {
+                for (reports, ctx) in reports_by_helper.into_iter().zip(helper_ctxs) {
+                    let result = async move { compute_prf_for_inputs(ctx, &reports).await };
+                    results.push(result);
+                }
+            }
+
+            #[allow(clippy::large_futures)]
+            let results = futures::future::try_join_all(results).await.unwrap();
+
+            let results = results
+                .chunks(SHARDS)
+                .map(|chunk| chunk.iter().flatten().collect::<Vec<_>>())
+                .collect::<Vec<_>>();
+
+            let prfs = results
                 .iter()
-                .map(|vec| {
-                    let mid = vec.len() / SHARDS;
-                    vec.chunks(mid)
-                        .map(<[IndistinguishableHybridReport<BA8, BA3>]>::to_vec)
+                .map(|helper_results| {
+                    helper_results
+                        .iter()
+                        .map(|r| r.prf_of_match_key)
                         .collect::<Vec<_>>()
                 })
-                .collect::<Vec<_>>()
-                .try_into()
-                .expect("Expected exactly 3 elements");
+                .collect::<Vec<_>>();
 
-        // #[allow(clippy::large_futures)]
-        // let results = chunked_reports
-        //     .into_iter()
-        //     .zip(contexts)
-        //     .map(|(reports_by_helper, helper_ctxs)| {
-        //         reports_by_helper
-        //             .into_iter()
-        //             .zip(helper_ctxs)
-        //             .map(|(reports, ctx)| async move {
-        //                 compute_prf_for_inputs(ctx, &reports).await.unwrap()
-        //             })
-        //             .collect::<Vec<_>>()
-        //     })
-        //     .collect::<Vec<_>>();
+            // check to make sure each helper has the same PRF values
+            assert!(prfs.iter().all(|x| *x == prfs[0]));
 
-        let mut results = Vec::new();
-        for (reports_by_helper, helper_ctxs) in chunked_reports.into_iter().zip(contexts) {
-            for (reports, ctx) in reports_by_helper.into_iter().zip(helper_ctxs) {
-                let result = async move { compute_prf_for_inputs(ctx, &reports).await };
-                results.push(result);
+            // check to make sure the reports with the same match keys have the same prf values
+            for (i, j) in indices_to_compare {
+                assert_eq!(prfs[0][i], prfs[0][j]);
             }
-        }
-
-        #[allow(clippy::large_futures)]
-        let results = futures::future::try_join_all(results).await.unwrap();
-
-        let results = results
-            .chunks(SHARDS)
-            .map(|chunk| chunk.iter().flatten().collect::<Vec<_>>())
-            .collect::<Vec<_>>();
-
-        let prfs = results
-            .iter()
-            .map(|helper_results| {
-                helper_results
-                    .iter()
-                    .map(|r| r.prf_of_match_key)
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-
-        // check to make sure each helper has the same PRF values
-        assert!(prfs.iter().all(|x| *x == prfs[0]));
-
-        // check to make sure the reports with the same match keys have the same prf values
-        for (i, j) in indices_to_compare {
-            assert_eq!(prfs[0][i], prfs[0][j]);
-        }
+        });
     }
 }
