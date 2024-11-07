@@ -191,10 +191,11 @@ where
 
 #[cfg(all(test, feature = "in-memory-infra", not(feature = "shuttle")))]
 mod test {
+    use ipa_step::StepNarrow;
 
     use crate::{
         ff::boolean_array::{BA3, BA8},
-        protocol::hybrid::oprf::compute_prf_for_inputs,
+        protocol::{hybrid::oprf::compute_prf_for_inputs, step::ProtocolStep, Gate},
         report::hybrid::{HybridReport, IndistinguishableHybridReport},
         secret_sharing::IntoShares,
         test_executor::run,
@@ -209,7 +210,10 @@ mod test {
         run(|| async {
             const SHARDS: usize = 2;
             let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
-                TestWorld::with_shards(TestWorldConfig::default());
+                TestWorld::with_shards(TestWorldConfig {
+                    initial_gate: Some(Gate::default().narrow(&ProtocolStep::Hybrid)),
+                    ..Default::default()
+                });
 
             let contexts = world.contexts();
 
