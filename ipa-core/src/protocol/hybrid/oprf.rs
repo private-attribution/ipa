@@ -189,7 +189,7 @@ where
         .collect())
 }
 
-#[cfg(all(test, feature = "in-memory-infra", not(feature = "shuttle")))]
+#[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod test {
     use ipa_step::StepNarrow;
 
