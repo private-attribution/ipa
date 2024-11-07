@@ -28,7 +28,7 @@ use crate::{
         Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
-    sharding::Sharded,
+    sharding::ShardIndex,
     sync::{Arc, Weak},
 };
 
@@ -192,8 +192,8 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         let gate = addr.gate.clone();
 
         let (ack_tx, ack_rx) = oneshot::channel();
-        let context = gate
-            .map(|gate| dest.inspect_context(this.config.shard_config, this.config.identity, gate));
+        let context =
+            gate.map(|gate| dest.inspect_context(this.config.shard, this.config.identity, gate));
 
         channel
             .send((
@@ -628,7 +628,7 @@ mod tests {
 }
 
 pub struct TransportConfig {
-    pub shard_config: Option<Sharded>,
+    pub shard: Option<ShardIndex>,
     pub identity: HelperIdentity,
     pub stream_interceptor: DynStreamInterceptor,
 }
@@ -652,9 +652,9 @@ impl TransportConfigBuilder {
         self
     }
 
-    pub fn with_sharding(&self, shard_config: Option<Sharded>) -> TransportConfig {
+    pub fn with_sharding(&self, shard: Option<ShardIndex>) -> TransportConfig {
         TransportConfig {
-            shard_config,
+            shard,
             identity: self.identity,
             stream_interceptor: Arc::clone(&self.stream_interceptor),
         }
@@ -662,7 +662,7 @@ impl TransportConfigBuilder {
 
     pub fn not_sharded(&self) -> TransportConfig {
         TransportConfig {
-            shard_config: None,
+            shard: None,
             identity: self.identity,
             stream_interceptor: Arc::clone(&self.stream_interceptor),
         }

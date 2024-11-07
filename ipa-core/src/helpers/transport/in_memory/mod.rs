@@ -11,7 +11,7 @@ use crate::{
         in_memory_config::DynStreamInterceptor, transport::in_memory::config::passthrough,
         HandlerRef, HelperIdentity,
     },
-    sharding::Sharded,
+    sharding::ShardIndex,
     sync::{Arc, Weak},
 };
 
@@ -50,13 +50,13 @@ impl InMemoryMpcNetwork {
     pub fn with_stream_interceptor(
         handlers: [Option<HandlerRef>; 3],
         interceptor: &DynStreamInterceptor,
-        shard_context: Option<Sharded>,
+        shard: Option<ShardIndex>,
     ) -> Self {
         let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three().map(|i| {
             let mut config_builder = TransportConfigBuilder::for_helper(i);
             config_builder.with_interceptor(interceptor);
 
-            Setup::with_config(i, config_builder.with_sharding(shard_context))
+            Setup::with_config(i, config_builder.with_sharding(shard))
         });
 
         first.connect(&mut second);
