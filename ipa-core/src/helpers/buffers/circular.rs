@@ -301,12 +301,12 @@ impl BufWriteable for [u8] {
 #[cfg(all(test, unit_test))]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-
+    #[cfg(debug_assertions)]
+    use std::panic;
     use std::{
         convert::Infallible,
         fmt::{Debug, Formatter},
         marker::PhantomData,
-        panic,
     };
 
     use generic_array::GenericArray;
@@ -324,6 +324,7 @@ mod test {
         CircularBuf::new(capacity, write_size, read_size)
     }
 
+    #[cfg(debug_assertions)]
     fn unwind_panic_to_str<F: FnOnce() -> CircularBuf>(f: F) -> String {
         let err = panic::catch_unwind(panic::AssertUnwindSafe(f))
             .err()
@@ -546,6 +547,7 @@ mod test {
         fill_take(&mut buf);
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn panic_on_zero() {
         fn check_panic(capacity: usize, write_size: usize, read_size: usize) {
@@ -562,6 +564,7 @@ mod test {
         check_panic(2, 2, 0);
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn panic_on_bad_write_size() {
         let capacity = 3;
@@ -574,6 +577,7 @@ mod test {
         );
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn panic_on_bad_read_size() {
         let capacity = 6;
@@ -608,6 +612,7 @@ mod test {
         assert_eq!(vec![4], CircularBuf::read_once(&mut buf));
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "Already closed")]
     fn close_twice() {
@@ -616,6 +621,7 @@ mod test {
         buf.close();
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "Writing to a closed buffer")]
     fn no_writes_after_close() {
@@ -680,6 +686,7 @@ mod test {
         test_one::<One<OneByte>>();
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(
         expected = "Not enough space for the next write: only 0 bytes available, but at least 2 is required"
