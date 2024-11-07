@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::{
     helpers::{Role, ZeroRecordsError},
     protocol::RecordId,
-    report::InvalidReportError,
+    report::{hybrid::InvalidHybridReportError, InvalidReportError},
     sharding::ShardIndex,
     task::JoinError,
 };
@@ -67,6 +67,8 @@ pub enum Error {
     InvalidQueryParameter(BoxError),
     #[error("invalid report: {0}")]
     InvalidReport(#[from] InvalidReportError),
+    #[error("invalid hybrid report: {0}")]
+    InvalidHybridReport(#[from] InvalidHybridReportError),
     #[error("unsupported: {0}")]
     Unsupported(String),
     #[error("Decompressing invalid elliptic curve point: {0}")]

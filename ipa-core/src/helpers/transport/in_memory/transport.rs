@@ -21,15 +21,14 @@ use tracing::Instrument;
 use crate::{
     error::BoxError,
     helpers::{
-        in_memory_config,
-        in_memory_config::DynStreamInterceptor,
+        in_memory_config::{self, DynStreamInterceptor},
         transport::routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoResourceIdentifier,
         QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection,
         Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
-    sharding::ShardIndex,
+    sharding::Sharded,
     sync::{Arc, Weak},
 };
 
@@ -162,6 +161,16 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         self.upgrade().unwrap().identity
     }
 
+    fn peers(&self) -> impl Iterator<Item = I> {
+        self.upgrade()
+            .unwrap()
+            .connections
+            .keys()
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
@@ -184,7 +193,7 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
 
         let (ack_tx, ack_rx) = oneshot::channel();
         let context = gate
-            .map(|gate| dest.inspect_context(this.config.shard_index, this.config.identity, gate));
+            .map(|gate| dest.inspect_context(this.config.shard_config, this.config.identity, gate));
 
         channel
             .send((
@@ -619,7 +628,7 @@ mod tests {
 }
 
 pub struct TransportConfig {
-    pub shard_index: Option<ShardIndex>,
+    pub shard_config: Option<Sharded>,
     pub identity: HelperIdentity,
     pub stream_interceptor: DynStreamInterceptor,
 }
@@ -643,17 +652,9 @@ impl TransportConfigBuilder {
         self
     }
 
-    pub fn with_sharding(&self, sharding: Option<ShardIndex>) -> TransportConfig {
+    pub fn with_sharding(&self, shard_config: Option<Sharded>) -> TransportConfig {
         TransportConfig {
-            shard_index: sharding,
-            identity: self.identity,
-            stream_interceptor: Arc::clone(&self.stream_interceptor),
-        }
-    }
-
-    pub fn bind_to_shard(&self, shard_index: ShardIndex) -> TransportConfig {
-        TransportConfig {
-            shard_index: Some(shard_index),
+            shard_config,
             identity: self.identity,
             stream_interceptor: Arc::clone(&self.stream_interceptor),
         }
@@ -661,7 +662,7 @@ impl TransportConfigBuilder {
 
     pub fn not_sharded(&self) -> TransportConfig {
         TransportConfig {
-            shard_index: None,
+            shard_config: None,
             identity: self.identity,
             stream_interceptor: Arc::clone(&self.stream_interceptor),
         }

@@ -55,14 +55,14 @@ pub struct TestApp {
     shard_network: InMemoryShardNetwork,
 }
 
-fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
+fn unzip_tuple_array<T, U, V>(input: [(T, U, V); 3]) -> ([T; 3], [U; 3], [V; 3]) {
     let [v0, v1, v2] = input;
-    ([v0.0, v1.0, v2.0], [v0.1, v1.1, v2.1])
+    ([v0.0, v1.0, v2.0], [v0.1, v1.1, v2.1], [v0.2, v1.2, v2.2])
 }
 
 impl Default for TestApp {
     fn default() -> Self {
-        let (setup, handlers) =
+        let (setup, handlers, _shard_handlers) =
             unzip_tuple_array(array::from_fn(|_| AppSetup::new(AppConfig::default())));
 
         let mpc_network = InMemoryMpcNetwork::new(handlers.map(Some));
