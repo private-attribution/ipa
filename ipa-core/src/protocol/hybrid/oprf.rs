@@ -189,7 +189,7 @@ where
         .collect())
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, feature = "in-memory-infra", not(feature = "shuttle")))]
 mod test {
 
     use crate::{
