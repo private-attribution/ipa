@@ -12,6 +12,7 @@ pub fn mpc_router(transport: MpcHttpTransport) -> Router {
             .merge(query::query_router(transport.clone()))
             .merge(query::h2h_router(transport)),
     )
+    .merge(query::metric_router())
 }
 
 pub fn shard_router(transport: ShardHttpTransport) -> Router {
