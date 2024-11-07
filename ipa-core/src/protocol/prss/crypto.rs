@@ -340,7 +340,7 @@ impl UsedSet {
     pub fn new(key: Vec<u8>) -> Self {
         use std::collections::HashSet;
 
-        use crate::sync::{Arc, Mutex};
+        use crate::sync::Mutex;
 
         Self {
             key: String::from_utf8(key).unwrap_or_else(|e| {
@@ -371,6 +371,7 @@ mod tests {
     )]
     fn rejects_the_same_index() {
         use rand::thread_rng;
+
         use crate::protocol::prss::KeyExchange;
         let other_gen = KeyExchange::new(&mut thread_rng());
         let gen = KeyExchange::new(&mut thread_rng())
