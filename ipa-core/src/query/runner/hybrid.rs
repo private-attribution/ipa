@@ -157,7 +157,7 @@ where
     }
 }
 
-#[cfg(all(test, unit_test))]
+#[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod tests {
     use std::{iter::zip, sync::Arc};
 
