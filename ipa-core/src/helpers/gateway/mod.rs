@@ -50,6 +50,7 @@ pub type MpcTransportImpl = crate::net::MpcHttpTransport;
 pub type ShardTransportImpl = crate::net::ShardHttpTransport;
 
 pub type MpcTransportError = <MpcTransportImpl as Transport>::Error;
+pub type ShardTransportError = <ShardTransportImpl as Transport>::Error;
 
 /// Gateway into IPA Network infrastructure. It allows helpers send and receive messages.
 pub struct Gateway {

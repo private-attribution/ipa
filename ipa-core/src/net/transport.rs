@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use futures::{Stream, TryFutureExt};
 use pin_project::{pin_project, pinned_drop};
 
-use super::{client::resp_ok, ConnectionFlavor, Helper, Shard};
+use super::{client::resp_ok, error::ShardError, ConnectionFlavor, Helper, Shard};
 use crate::{
     config::{NetworkConfig, ServerConfig},
     executor::IpaRuntime,
@@ -22,7 +22,7 @@ use crate::{
     },
     net::{client::IpaHttpClient, error::Error, IpaHttpServer},
     protocol::{Gate, QueryId},
-    sharding::ShardIndex,
+    sharding::{ShardIndex, Sharded},
     sync::Arc,
 };
 
@@ -45,6 +45,7 @@ pub struct MpcHttpTransport {
 #[derive(Clone)]
 pub struct ShardHttpTransport {
     pub(super) inner_transport: Arc<HttpTransport<Shard>>,
+    pub(super) shard_config: Sharded,
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
@@ -258,6 +259,13 @@ impl Transport for MpcHttpTransport {
         self.inner_transport.identity
     }
 
+    fn peers(&self) -> impl Iterator<Item = Self::Identity> {
+        let this = self.identity();
+        HelperIdentity::make_three()
+            .into_iter()
+            .filter(move |&id| id != this)
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
@@ -289,7 +297,7 @@ impl ShardHttpTransport {
     #[must_use]
     pub fn new(
         http_runtime: IpaRuntime,
-        identity: ShardIndex,
+        shard_config: Sharded,
         server_config: ServerConfig,
         network_config: NetworkConfig<Shard>,
         clients: Vec<IpaHttpClient<Shard>>,
@@ -298,11 +306,12 @@ impl ShardHttpTransport {
         let transport = Self {
             inner_transport: Arc::new(HttpTransport {
                 http_runtime,
-                identity,
+                identity: shard_config.shard_id,
                 clients,
                 handler,
                 record_streams: StreamCollection::default(),
             }),
+            shard_config,
         };
 
         let server = IpaHttpServer::new_shards(&transport, server_config, network_config);
@@ -314,10 +323,18 @@ impl ShardHttpTransport {
 impl Transport for ShardHttpTransport {
     type Identity = ShardIndex;
     type RecordsStream = ReceiveRecords<ShardIndex, BodyStream>;
-    type Error = Error;
+    type Error = ShardError;
 
     fn identity(&self) -> Self::Identity {
         self.inner_transport.identity
+    }
+
+    fn peers(&self) -> impl Iterator<Item = Self::Identity> {
+        let this = self.identity();
+        self.shard_config
+            .shard_count
+            .iter()
+            .filter(move |&v| v != this)
     }
 
     async fn send<D, Q, S, R>(
@@ -334,7 +351,13 @@ impl Transport for ShardHttpTransport {
         R: RouteParams<RouteId, Q, S>,
         D: Stream<Item = Vec<u8>> + Send + 'static,
     {
-        self.inner_transport.send(dest, route, data).await
+        self.inner_transport
+            .send(dest, route, data)
+            .map_err(|source| ShardError {
+                shard_index: self.identity(),
+                source,
+            })
+            .await
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(

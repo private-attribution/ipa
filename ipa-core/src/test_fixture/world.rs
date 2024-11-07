@@ -328,12 +328,12 @@ impl<S: ShardingScheme> TestWorld<S> {
 
         let shards = shard_count
             .iter()
-            .map(|shard| {
+            .map(|shard_id| {
                 ShardWorld::new(
-                    S::bind_shard(shard),
+                    S::bind_shard(shard_id),
                     config,
                     &mut rng,
-                    shard_network.shard_transports(shard),
+                    shard_network.shard_transports(shard_id),
                 )
             })
             .collect::<Vec<_>>()
@@ -795,10 +795,11 @@ impl<B: ShardBinding> ShardWorld<B> {
         transports: [InMemoryTransport<ShardIndex>; 3],
     ) -> Self {
         let participants = make_participants(rng);
+
         let network = InMemoryMpcNetwork::with_stream_interceptor(
             InMemoryMpcNetwork::noop_handlers(),
             &config.stream_interceptor,
-            shard_info.context(),
+            shard_info.shard_config(),
         );
 
         let mut gateways = zip3_ref(&network.transports(), &transports).map(|(mpc, shard)| {
@@ -1096,8 +1097,9 @@ mod tests {
                 Role::H1,
                 config.role_assignment(),
                 |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
-                    assert!(ctx.shard.is_some());
-                    if ctx.shard == Some(TARGET_SHARD) && ctx.gate.as_ref().contains(STEP) {
+                    if ctx.shard.unwrap().shard_id == TARGET_SHARD
+                        && ctx.gate.as_ref().contains(STEP)
+                    {
                         corrupt_byte(&mut data[0]);
                     }
                 },

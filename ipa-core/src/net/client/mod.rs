@@ -577,7 +577,7 @@ pub(crate) mod tests {
         ClientOut: Eq + Debug,
         ClientFut: Future<Output = ClientOut>,
         ClientF: Fn(IpaHttpClient<Helper>) -> ClientFut,
-        HandlerF: Fn() -> Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        HandlerF: Fn() -> Arc<dyn RequestHandler<HelperIdentity>>,
     {
         let mut results = Vec::with_capacity(4);
         for (use_https, use_http1) in zip([true, false], [true, false]) {

@@ -219,7 +219,7 @@ pub struct TestApp {
 impl TestApp {
     /// Starts a new IPA app reading to be used in HTTP tests
     pub async fn start_app(mut self, disable_https: bool) -> crate::HelperApp {
-        let (setup, mpc_handler) = crate::AppSetup::new(crate::AppConfig::default());
+        let (setup, mpc_handler, shard_handler) = crate::AppSetup::new(crate::AppConfig::default());
         let sid = self.mpc_server.id;
         let identities = ClientIdentities::new(disable_https, sid);
 
@@ -246,11 +246,14 @@ impl TestApp {
         );
         let (shard_transport, shard_server) = super::ShardHttpTransport::new(
             IpaRuntime::current(),
-            sid.shard_index,
+            crate::sharding::Sharded {
+                shard_id: sid.shard_index,
+                shard_count: self.shard_network_config.shard_count(),
+            },
             self.shard_server.config,
             self.shard_network_config,
             shard_clients,
-            None,
+            Some(shard_handler),
         );
 
         futures::future::join(
@@ -467,7 +470,7 @@ pub struct TestServer {
     pub transport: MpcHttpTransport,
     pub server: IpaHttpServer<Helper>,
     pub client: IpaHttpClient<Helper>,
-    pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
+    pub request_handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
 }
 
 impl TestServer {
@@ -488,7 +491,7 @@ impl TestServer {
 
 #[derive(Default)]
 pub struct TestServerBuilder {
-    handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
+    handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
     use_http1: bool,
@@ -499,7 +502,7 @@ impl TestServerBuilder {
     #[must_use]
     pub fn with_request_handler(
         mut self,
-        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+        handler: Arc<dyn RequestHandler<HelperIdentity>>,
     ) -> Self {
         self.handler = Some(handler);
         self
