@@ -417,6 +417,7 @@ mod tests {
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
             ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
             InMemoryShardNetwork, InMemoryTransport, RequestHandler, RoleAssignment, Transport,
+            TransportIdentity,
         },
         protocol::QueryId,
         query::{
@@ -425,7 +426,7 @@ mod tests {
         sharding::ShardIndex,
     };
 
-    fn prepare_helper_query_handler<F, Fut>(cb: F) -> Arc<dyn RequestHandler<HelperIdentity>>
+    fn prepare_query_handler<F, Fut, I: TransportIdentity>(cb: F) -> Arc<dyn RequestHandler<I>>
     where
         F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
@@ -437,22 +438,11 @@ mod tests {
     }
 
     fn helper_respond_ok() -> Arc<dyn RequestHandler<HelperIdentity>> {
-        prepare_helper_query_handler(|_| async { Ok(HelperResponse::ok()) })
-    }
-
-    fn prepare_shard_query_handler<F, Fut>(cb: F) -> Arc<dyn RequestHandler<ShardIndex>>
-    where
-        F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
-    {
-        make_owned_handler(move |req, _| {
-            let prepare_query = req.into().unwrap();
-            cb(prepare_query)
-        })
+        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
     }
 
     fn shard_respond_ok(_si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-        prepare_shard_query_handler(|_| async { Ok(HelperResponse::ok()) })
+        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
     }
 
     fn test_multiply_config() -> QueryConfig {
@@ -460,8 +450,11 @@ mod tests {
     }
 
     struct TestComponentsArgs {
-        id: Option<HelperIdentity>,
-        ix: Option<ShardIndex>,
+        #[allow(clippy::type_complexity)]
+        opt_shards: Option<(
+            InMemoryShardNetwork,
+            Vec<Arc<dyn RequestHandler<ShardIndex>>>,
+        )>,
         mpc_handlers: [Option<Arc<dyn RequestHandler<HelperIdentity>>>; 3],
         shard_count: u32,
     }
@@ -469,10 +462,33 @@ mod tests {
     impl TestComponentsArgs {
         fn new(mpc_handler: &Arc<dyn RequestHandler<HelperIdentity>>) -> Self {
             Self {
-                id: None,
-                ix: None,
+                opt_shards: None,
                 mpc_handlers: array::from_fn(|_| Some(Arc::clone(mpc_handler))),
                 shard_count: 2,
+            }
+        }
+
+        #[allow(dead_code)]
+        fn set_shard_handler<F>(&mut self, handler: F)
+        where
+            F: Fn(ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>>,
+        {
+            self.opt_shards = Some(InMemoryShardNetwork::with_shards_and_handlers(
+                self.shard_count,
+                handler,
+            ));
+        }
+
+        fn take_shards(
+            &mut self,
+        ) -> (
+            InMemoryShardNetwork,
+            Vec<Arc<dyn RequestHandler<ShardIndex>>>,
+        ) {
+            if let Some(shards) = self.opt_shards.take() {
+                shards
+            } else {
+                InMemoryShardNetwork::with_shards_and_handlers(self.shard_count, shard_respond_ok)
             }
         }
     }
@@ -486,41 +502,40 @@ mod tests {
     #[allow(dead_code)]
     struct TestComponents {
         processor: Processor,
-        mpc_network: InMemoryMpcNetwork,
-        shard_network: InMemoryShardNetwork,
         query_config: QueryConfig,
-        mpc_handlers: [Option<Arc<dyn RequestHandler<HelperIdentity>>>; 3],
+
+        mpc_network: InMemoryMpcNetwork,
         first_transport: InMemoryTransport<HelperIdentity>,
         second_transport: InMemoryTransport<HelperIdentity>,
         third_transport: InMemoryTransport<HelperIdentity>,
+        mpc_handlers: [Option<Arc<dyn RequestHandler<HelperIdentity>>>; 3],
+
+        shard_network: InMemoryShardNetwork,
         shard_handlers: Vec<Arc<dyn RequestHandler<ShardIndex>>>,
         shard_transport: InMemoryTransport<ShardIndex>,
     }
 
     impl TestComponents {
-        fn new(args: TestComponentsArgs) -> Self {
-            let (shard_network, shard_handlers) =
-                InMemoryShardNetwork::with_shards_and_handlers(args.shard_count, shard_respond_ok);
-            let id = args.id.unwrap_or(HelperIdentity::ONE);
-            let ix = args.ix.unwrap_or(ShardIndex::FIRST);
+        fn new(mut args: TestComponentsArgs) -> Self {
             let mpc_network = InMemoryMpcNetwork::new(
                 args.mpc_handlers
                     .each_ref()
                     .map(|opt_h| opt_h.as_ref().map(HandlerBox::owning_ref)),
             );
+            let (shard_network, shard_handlers) = args.take_shards();
             let processor = Processor::default();
             let query_config = test_multiply_config();
             let [t0, t1, t2] = mpc_network.transports();
-            let shard_transport = shard_network.transport(id, ix);
+            let shard_transport = shard_network.transport(HelperIdentity::ONE, ShardIndex::FIRST);
             TestComponents {
                 processor,
-                mpc_network,
-                shard_network,
                 query_config,
-                mpc_handlers: args.mpc_handlers,
+                mpc_network,
                 first_transport: t0,
                 second_transport: t1,
                 third_transport: t2,
+                mpc_handlers: args.mpc_handlers,
+                shard_network,
                 shard_handlers,
                 shard_transport,
             }
@@ -533,14 +548,14 @@ mod tests {
         let barrier = Arc::new(Barrier::new(3));
         let h2_barrier = Arc::clone(&barrier);
         let h3_barrier = Arc::clone(&barrier);
-        let h2 = prepare_helper_query_handler(move |_| {
+        let h2 = prepare_query_handler(move |_| {
             let barrier = Arc::clone(&h2_barrier);
             async move {
                 barrier.wait().await;
                 Ok(HelperResponse::ok())
             }
         });
-        let h3 = prepare_helper_query_handler(move |_| {
+        let h3 = prepare_query_handler(move |_| {
             let barrier = Arc::clone(&h3_barrier);
             async move {
                 barrier.wait().await;
@@ -606,7 +621,7 @@ mod tests {
     async fn prepare_error() {
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
-        let h3 = prepare_helper_query_handler(|_| async move {
+        let h3 = prepare_query_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
         });
         args.mpc_handlers = [None, Some(h2), Some(h3)];
@@ -621,10 +636,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shard_prepare_error() {
+        fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
+            prepare_query_handler(move |_| async move {
+                if si == ShardIndex(2) {
+                    Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
+                } else {
+                    Ok(HelperResponse::ok())
+                }
+            })
+        }
+        let mut args = TestComponentsArgs {
+            shard_count: 4,
+            ..Default::default()
+        };
+        args.set_shard_handler(shard_handle);
+        let t = TestComponents::new(args);
+        let r = t
+            .processor
+            .new_query(t.first_transport, t.shard_transport, t.query_config)
+            .await;
+        // The following makes sure the error is a broadcast error from shard 2
+        assert!(r.is_err());
+        if let Err(e) = r {
+            if let NewQueryError::ShardBroadcastError(be) = e {
+                assert_eq!(be.failures[0].0, ShardIndex(2));
+            } else {
+                panic!("Unexpected error type");
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn can_recover_from_prepare_error() {
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
-        let h3 = prepare_helper_query_handler(|_| async move {
+        let h3 = prepare_query_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
         });
         args.mpc_handlers = [None, Some(h2), Some(h3)];
@@ -690,6 +737,23 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn rejects_if_not_shard_leader() {
+            let req = prepare_query();
+            let t = TestComponents::new(TestComponentsArgs::default());
+            assert!(matches!(
+                t.processor
+                    .prepare_helper(
+                        t.second_transport,
+                        t.shard_network
+                            .transport(HelperIdentity::TWO, ShardIndex::from(1)),
+                        req
+                    )
+                    .await,
+                Err(PrepareQueryError::WrongTarget)
+            ));
+        }
+
+        #[tokio::test]
         async fn rejects_if_query_exists() {
             let req = prepare_query();
             let t = TestComponents::new(TestComponentsArgs::default());
@@ -701,10 +765,16 @@ mod tests {
                 )
                 .await
                 .unwrap();
+
+            // both helper and shard APIs should fail
             assert!(matches!(
                 t.processor
-                    .prepare_helper(t.second_transport, t.shard_transport, req)
+                    .prepare_helper(t.second_transport, t.shard_transport, req.clone())
                     .await,
+                Err(PrepareQueryError::AlreadyRunning)
+            ));
+            assert!(matches!(
+                t.processor.prepare_shard(req),
                 Err(PrepareQueryError::AlreadyRunning)
             ));
         }

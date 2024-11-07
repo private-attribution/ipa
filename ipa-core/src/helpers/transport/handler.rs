@@ -201,12 +201,6 @@ where
         }
     }
 
-    impl<I, F> Drop for Handler<I, F> {
-        fn drop(&mut self) {
-            println!("droping handler");
-        }
-    }
-
     Arc::new(Handler {
         inner: handler,
         phantom: PhantomData,

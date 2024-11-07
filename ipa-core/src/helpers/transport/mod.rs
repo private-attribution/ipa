@@ -292,7 +292,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
 #[derive(thiserror::Error, Debug)]
 #[error("One or more peers rejected the request: {failures:?}")]
 pub struct BroadcastError<I: TransportIdentity, E: Debug> {
-    failures: Vec<(I, E)>,
+    pub failures: Vec<(I, E)>,
 }
 
 impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> {
