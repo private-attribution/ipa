@@ -30,8 +30,24 @@ impl InMemoryShardNetwork {
         shard_count: I,
         interceptor: &DynStreamInterceptor,
     ) -> Self {
+        let shard_network = Self::create_shard_connections(shard_count, interceptor).map(
+            |(shard_connections, h)| {
+                shard_connections
+                    .into_iter()
+                    .map(|s| tracing::info_span!("", ?h).in_scope(|| s.start(None)))
+                    .collect::<Vec<_>>()
+                    .into()
+            },
+        );
+        Self { shard_network }
+    }
+
+    pub fn create_shard_connections<I: Into<ShardIndex>>(
+        shard_count: I,
+        interceptor: &DynStreamInterceptor,
+    ) -> [(Vec<Setup<ShardIndex>>, HelperIdentity); 3] {
         let shard_count = shard_count.into();
-        let shard_network: [_; 3] = HelperIdentity::make_three().map(|h| {
+        HelperIdentity::make_three().map(|h| {
             let mut config_builder = TransportConfigBuilder::for_helper(h);
             config_builder.with_interceptor(interceptor);
 
@@ -56,50 +72,22 @@ impl InMemoryShardNetwork {
                 }
             }
 
-            shard_connections
-                .into_iter()
-                .map(|s| tracing::info_span!("", ?h).in_scope(|| s.start(None)))
-                .collect::<Vec<_>>()
-                .into()
-        });
-
-        Self { shard_network }
+            (shard_connections, h)
+        })
     }
 
-    // TODO: refactor the shared stuff
-    pub fn with_shards_and_handlers<
-        I: Into<ShardIndex>,
-        F: Fn(ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>>,
-    >(
+    pub fn with_shards_and_handlers<I, F>(
         shard_count: I,
         handler_fn: F,
-    ) -> (Self, Vec<Arc<dyn RequestHandler<ShardIndex>>>) {
-        let shard_count = shard_count.into();
-        let mut handlers = Vec::with_capacity(3 * usize::from(shard_count));
-        let shard_network: [_; 3] = HelperIdentity::make_three().map(|h| {
-            let config_builder = TransportConfigBuilder::for_helper(h);
-
-            let mut shard_connections = shard_count
-                .iter()
-                .map(|i| {
-                    Setup::with_config(
-                        i,
-                        config_builder.with_sharding(Some(Sharded {
-                            shard_id: i,
-                            shard_count,
-                        })),
-                    )
-                })
-                .collect::<Vec<_>>();
-            for i in 0..shard_connections.len() {
-                let (lhs, rhs) = shard_connections.split_at_mut(i);
-                if let Some((a, _)) = lhs.split_last_mut() {
-                    for b in rhs {
-                        Setup::connect(a, b);
-                    }
-                }
-            }
-
+    ) -> (Self, Vec<Arc<dyn RequestHandler<ShardIndex>>>)
+    where
+        I: Into<ShardIndex>,
+        F: Fn(ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>>,
+    {
+        let connections = Self::create_shard_connections(shard_count, &passthrough());
+        let shard_count = connections[0].0.len();
+        let mut handlers = Vec::with_capacity(3 * shard_count);
+        let shard_network = connections.map(|(shard_connections, h)| {
             shard_connections
                 .into_iter()
                 .map(|s| {
@@ -112,7 +100,6 @@ impl InMemoryShardNetwork {
                 .collect::<Vec<_>>()
                 .into()
         });
-
         (Self { shard_network }, handlers)
     }
 
