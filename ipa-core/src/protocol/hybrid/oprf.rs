@@ -189,7 +189,7 @@ where
         .collect())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "in-memory-infra"))]
 mod test {
 
     use crate::{
