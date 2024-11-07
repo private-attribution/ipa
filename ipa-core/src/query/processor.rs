@@ -3,7 +3,7 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use futures::{future::try_join, stream, TryFutureExt};
+use futures::{future::try_join, stream};
 use serde::Serialize;
 
 use crate::{
@@ -11,8 +11,8 @@ use crate::{
     executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
-        ShardTransportError, ShardTransportImpl, Transport,
+        BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
+        RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -68,7 +68,7 @@ pub enum NewQueryError {
     #[error(transparent)]
     MpcTransport(#[from] MpcTransportError),
     #[error(transparent)]
-    ShardTransport(#[from] ShardTransportError),
+    ShardBroadcastError(#[from] BroadcastError<ShardIndex, ShardTransportError>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -83,7 +83,7 @@ pub enum PrepareQueryError {
         source: StateError,
     },
     #[error(transparent)]
-    ShardTransport(#[from] ShardTransportError),
+    ShardBroadcastError(#[from] BroadcastError<ShardIndex, ShardTransportError>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -183,10 +183,7 @@ impl Processor {
         .await
         .map_err(NewQueryError::MpcTransport)?;
 
-        shard_transport
-            .broadcast(prepare_request.clone(), stream::empty())
-            .map_err(|e| NewQueryError::ShardTransport(e.source))
-            .await?;
+        shard_transport.broadcast(prepare_request.clone()).await?;
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
@@ -221,10 +218,7 @@ impl Processor {
             return Err(PrepareQueryError::AlreadyRunning);
         }
 
-        shard_transport
-            .broadcast(req.clone(), stream::empty())
-            .map_err(|e| PrepareQueryError::ShardTransport(e.source))
-            .await?;
+        shard_transport.broadcast(req.clone()).await?;
 
         handle.set_state(QueryState::AwaitingInputs(
             req.query_id,

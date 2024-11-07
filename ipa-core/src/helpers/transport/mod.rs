@@ -341,8 +341,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
 
     /// Broadcasts a message to all peers, excluding this instance, collecting all failures and
     /// successes. This method waits for all responses and returns only when all peers responded.
-    /// The routes and data will be cloned.
-    async fn broadcast<Q, S, R, D>(
+    async fn broadcast<Q, S, R>(
         &self,
         route: R,
     ) -> Result<(), BroadcastError<Self::Identity, Self::Error>>
