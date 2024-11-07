@@ -20,7 +20,7 @@ use crate::{
         basics::{BooleanProtocols, Reveal},
         context::{
             dzkp_validator::DZKPValidator, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps,
-            UpgradableContext, Validator,
+            ShardedContext, UpgradableContext, Validator,
         },
         hybrid::step::HybridStep,
         ipa_prf::{
@@ -36,6 +36,7 @@ use crate::{
         TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
+    sharding::ShardIndex,
 };
 
 // In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
@@ -89,7 +90,7 @@ pub async fn compute_prf_for_inputs<C, BK, V>(
     input_rows: &[IndistinguishableHybridReport<BK, V>],
 ) -> Result<Vec<PRFIndistinguishableHybridReport<BK, V>>, Error>
 where
-    C: UpgradableContext,
+    C: UpgradableContext + ShardedContext,
     BK: BooleanArray,
     V: BooleanArray,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
@@ -129,7 +130,29 @@ where
     .try_collect::<Vec<_>>()
     .await?;
 
-    let prf_key = gen_prf_key(&ctx.narrow(&HybridStep::PrfKeyGen));
+    // In order to compute the same PRF value for the same match key
+    // all shards must have the same prf_key. This has the leader
+    // generate a key, and give it to all the followers.
+    let prf_key_ctx = ctx.set_total_records(TotalRecords::ONE);
+    let prf_key = if ctx.shard_id() == ShardIndex::FIRST {
+        let leader_prf_key = gen_prf_key(&ctx.narrow(&HybridStep::PrfKeyGen));
+
+        for shard in ctx.shard_count().iter().skip(1) {
+            prf_key_ctx
+                .clone()
+                .shard_send_channel::<Replicated<Fp25519>>(shard)
+                .send(RecordId::FIRST, leader_prf_key.clone())
+                .await?;
+        }
+        Ok(leader_prf_key)
+    } else {
+        let mut receiver = prf_key_ctx
+            .shard_recv_channel::<Replicated<Fp25519>>(ShardIndex::FIRST)
+            .take(1);
+        receiver.next().await.unwrap()
+    }
+    .unwrap();
+
     let validator = ctx
         .narrow(&HybridStep::EvalPrf)
         .set_total_records(eval_records)
@@ -182,14 +205,13 @@ mod test {
 
     #[tokio::test]
     async fn hybrid_oprf() {
+        const SHARDS: usize = 2;
         let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
             TestWorld::with_shards(TestWorldConfig::default());
 
         let contexts = world.contexts();
 
-        const SHARDS: usize = 2;
-
-        let records = vec![
+        let records = [
             TestHybridRecord::TestImpression {
                 match_key: 12345,
                 breakdown_key: 2,
@@ -221,7 +243,7 @@ mod test {
 
         let indistinguishable_reports: [Vec<IndistinguishableHybridReport<BA8, BA3>>; 3] = shares
             .iter()
-            .map(|s| s.into_iter().map(|r| r.clone().into()).collect::<Vec<_>>())
+            .map(|s| s.iter().map(|r| r.clone().into()).collect::<Vec<_>>())
             .collect::<Vec<_>>()
             .try_into()
             .expect("Expected exactly 3 elements");
@@ -232,7 +254,7 @@ mod test {
                 .map(|vec| {
                     let mid = vec.len() / SHARDS;
                     vec.chunks(mid)
-                        .map(|chunk| chunk.to_vec())
+                        .map(<[IndistinguishableHybridReport<BA8, BA3>]>::to_vec)
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>()
@@ -267,21 +289,18 @@ mod test {
 
         let results = results
             .chunks(SHARDS)
-            .map(|chunk| chunk.into_iter().flatten().collect::<Vec<_>>())
+            .map(|chunk| chunk.iter().flatten().collect::<Vec<_>>())
             .collect::<Vec<_>>();
 
         let prfs = results
             .iter()
             .map(|helper_results| {
                 helper_results
-                    .into_iter()
+                    .iter()
                     .map(|r| r.prf_of_match_key)
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-
-        // remove before merging
-        println!("{:?}", prfs);
 
         // check to make sure each helper has the same PRF values
         assert!(prfs.iter().all(|x| *x == prfs[0]));
