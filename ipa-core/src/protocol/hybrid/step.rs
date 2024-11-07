@@ -12,4 +12,5 @@ pub(crate) enum HybridStep {
     PrfKeyGen,
     #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
     EvalPrf,
+    ReshardByPrf,
 }

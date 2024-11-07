@@ -90,6 +90,14 @@ impl TryFrom<usize> for ShardIndex {
     }
 }
 
+impl TryFrom<u64> for ShardIndex {
+    type Error = TryFromIntError;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        u32::try_from(value).map(Self)
+    }
+}
+
 impl TryFrom<u128> for ShardIndex {
     type Error = TryFromIntError;
 
