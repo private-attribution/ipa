@@ -12,7 +12,8 @@ use crate::{
 
 /// This trait serves the purpose of setting up shard contexts. Each shard shares some
 /// global state with others (cross-shard PRSS) and also owns its own state (per-shard PRSS).
-/// This construction allows [`ShardWorld`] to
+/// This construction allows [`ShardWorld`] to be agnostic to shard vs non-shard configuration
+/// setup.
 pub trait ShardConfigurator<B: ShardBinding> {
     fn shard_id(&self) -> Option<ShardIndex>;
     fn bind(&self, role: Role) -> B;
