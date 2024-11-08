@@ -17,6 +17,8 @@ pub mod ipa;
 pub mod logging;
 pub mod metrics;
 #[cfg(feature = "in-memory-infra")]
+mod shard_configurator;
+#[cfg(feature = "in-memory-infra")]
 mod test_gate;
 
 use std::{fmt::Debug, future::Future};

@@ -1,3 +1,4 @@
+pub(crate) mod oprf;
 pub(crate) mod step;
 
 use step::HybridStep as Step;

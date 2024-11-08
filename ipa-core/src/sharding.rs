@@ -2,11 +2,15 @@ use std::{
     fmt::{Debug, Display, Formatter},
     num::TryFromIntError,
     ops::{Index, IndexMut},
+    sync::Arc,
 };
 
 use ipa_metrics::LabelValue;
 
-use crate::helpers::{HelperIdentity, TransportIdentity};
+use crate::{
+    helpers::{HelperIdentity, TransportIdentity},
+    protocol::prss,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ShardedHelperIdentity {
@@ -124,19 +128,19 @@ impl LabelValue for ShardIndex {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Clone)]
 pub struct Sharded {
     pub shard_id: ShardIndex,
     pub shard_count: ShardIndex,
+    pub prss: Arc<prss::Endpoint>,
 }
 
-impl Sharded {
-    #[must_use]
-    pub fn new(id: u32, count: u32) -> Self {
-        Self {
-            shard_id: ShardIndex::from(id),
-            shard_count: ShardIndex::from(count),
-        }
+impl Debug for Sharded {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sharded")
+            .field("shard_id", &self.shard_id)
+            .field("shard_count", &self.shard_count)
+            .finish_non_exhaustive()
     }
 }
 
@@ -178,24 +182,34 @@ pub trait ShardConfiguration {
 }
 
 pub trait ShardBinding: Debug + Send + Sync + Clone + 'static {
-    /// Returns the runtime sharding configuration if this is a [`Sharded`] or [`None`] otherwise.
-    /// It is used by the stream interceptor to avoid type parameter proliferation. It should not
-    /// be used by protocols.
-    fn shard_config(&self) -> Option<Sharded>;
+    type Randomness;
+    fn shard_id(&self) -> Option<ShardIndex>;
+
+    fn cross_shard_prss(&self) -> Self::Randomness;
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct NotSharded;
 
 impl ShardBinding for NotSharded {
-    fn shard_config(&self) -> Option<Sharded> {
+    type Randomness = ();
+
+    fn shard_id(&self) -> Option<ShardIndex> {
         None
     }
+
+    fn cross_shard_prss(&self) -> Self::Randomness {}
 }
 
 impl ShardBinding for Sharded {
-    fn shard_config(&self) -> Option<Sharded> {
-        Some(*self)
+    type Randomness = Arc<prss::Endpoint>;
+
+    fn shard_id(&self) -> Option<ShardIndex> {
+        Some(self.shard_id)
+    }
+
+    fn cross_shard_prss(&self) -> Self::Randomness {
+        Arc::clone(&self.prss)
     }
 }
 

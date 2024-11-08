@@ -364,15 +364,15 @@ impl UsedSet {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use rand::thread_rng;
-
-    use crate::protocol::prss::KeyExchange;
-
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(
         expected = "Generated randomness for index '0:0' twice using the same key 'foo'"
     )]
     fn rejects_the_same_index() {
+        use rand::thread_rng;
+
+        use crate::protocol::prss::KeyExchange;
         let other_gen = KeyExchange::new(&mut thread_rng());
         let gen = KeyExchange::new(&mut thread_rng())
             .key_exchange(&other_gen.public_key())

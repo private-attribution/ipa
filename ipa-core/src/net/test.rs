@@ -246,10 +246,8 @@ impl TestApp {
         );
         let (shard_transport, shard_server) = super::ShardHttpTransport::new(
             IpaRuntime::current(),
-            crate::sharding::Sharded {
-                shard_id: sid.shard_index,
-                shard_count: self.shard_network_config.shard_count(),
-            },
+            sid.shard_index,
+            self.shard_network_config.shard_count(),
             self.shard_server.config,
             self.shard_network_config,
             shard_clients,
