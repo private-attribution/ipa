@@ -163,12 +163,11 @@ where
 /// Computes the dot product of two arrays of the same size.
 /// It is isolated from Lagrange because there could be potential SIMD optimizations used
 fn dot_product<F: PrimeField, const N: usize>(a: &[F; N], b: &[F; N]) -> F {
-    // Staying in integers allows rustc to optimize this code properly
-    // with any reasonable N, we won't run into overflow with dot product.
-    // (N can be as large as 2^32 and still no chance of overflow for 61 bit prime fields)
+    // Staying in integers allows rustc to optimize this code properly, but puts a restriction
+    // on how large the prime field can be
     debug_assert!(
-        F::PRIME.into() < (1 << 64),
-        "The prime {} is too large for this dot product implementation",
+        2 * F::BITS + N.next_power_of_two().ilog2() <= 128,
+        "The prime field {} is too large for this dot product implementation",
         F::PRIME.into()
     );
 
