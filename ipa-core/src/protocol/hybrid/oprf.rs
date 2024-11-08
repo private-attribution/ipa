@@ -25,9 +25,9 @@ use crate::{
         hybrid::step::HybridStep,
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
-            prf_eval::{eval_dy_prf, gen_prf_key, PrfSharing},
+            prf_eval::{eval_dy_prf, PrfSharing},
         },
-        prss::FromPrss,
+        prss::{FromPrss, SharedRandomness},
         RecordId,
     },
     report::hybrid::IndistinguishableHybridReport,
@@ -36,7 +36,6 @@ use crate::{
         TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
-    sharding::ShardIndex,
 };
 
 // In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
@@ -131,28 +130,7 @@ where
     .try_collect::<Vec<_>>()
     .await?;
 
-    // In order to compute the same PRF value for the same match key
-    // all shards must have the same prf_key. This has the leader
-    // generate a key, and give it to all the followers.
-    let prf_key_ctx = ctx.set_total_records(TotalRecords::ONE);
-    let prf_key = if ctx.shard_id() == ShardIndex::FIRST {
-        let leader_prf_key = gen_prf_key(&ctx.narrow(&HybridStep::PrfKeyGen));
-
-        for shard in ctx.shard_count().iter().skip(1) {
-            prf_key_ctx
-                .clone()
-                .shard_send_channel::<Replicated<Fp25519>>(shard)
-                .send(RecordId::FIRST, leader_prf_key.clone())
-                .await?;
-        }
-        Ok(leader_prf_key)
-    } else {
-        let mut receiver = prf_key_ctx
-            .shard_recv_channel::<Replicated<Fp25519>>(ShardIndex::FIRST)
-            .take(1);
-        receiver.next().await.unwrap()
-    }
-    .unwrap();
+    let prf_key = gen_prf_key(&ctx.narrow(&HybridStep::PrfKeyGen));
 
     let validator = ctx
         .narrow(&HybridStep::EvalPrf)
@@ -188,6 +166,17 @@ where
             }
         })
         .collect())
+}
+
+/// generates PRF key k as secret sharing over Fp25519
+pub fn gen_prf_key<C, const N: usize>(ctx: &C) -> Replicated<Fp25519, N>
+where
+    C: UpgradableContext + ShardedContext,
+    Fp25519: Vectorizable<N>,
+{
+    let v: Replicated<Fp25519, 1> = ctx.cross_shard_prss().generate(RecordId::FIRST);
+
+    v.expand()
 }
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
