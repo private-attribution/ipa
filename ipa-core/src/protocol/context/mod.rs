@@ -321,16 +321,9 @@ pub trait ShardedContext: Context + ShardConfiguration {
     /// Picks a shard according to the value obtained from sampling PRSS.
     /// The `direction` argument indicates if the `left` or `right` PRSS is utilized.
     fn pick_shard(&self, record_id: RecordId, direction: Direction) -> ShardIndex {
-        // FIXME(1029): update PRSS trait to compute only left or right part
-        let (l, r): (u128, u128) = self.prss().generate(record_id);
-        let shard_index = u32::try_from(
-            match direction {
-                Direction::Left => l,
-                Direction::Right => r,
-            } % u128::from(self.shard_count()),
-        )
-        .expect("Number of shards should not exceed u32 capacity");
-
+        let index: u128 = self.prss().generate_one_side(record_id, direction);
+        let shard_index = u32::try_from(index % u128::from(self.shard_count()))
+            .expect("Number of shards should not exceed u32 capacity");
         ShardIndex::from(shard_index)
     }
 
