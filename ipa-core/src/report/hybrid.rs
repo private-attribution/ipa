@@ -673,7 +673,7 @@ where
 /// and `HybridImpressionReport`s so that they can be made indistingushable.
 /// Note: these need to be shuffled (and secret shares need to be rerandomized)
 /// to provide any formal indistinguishability.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct IndistinguishableHybridReport<BK, V>
 where
     BK: SharedValue,
