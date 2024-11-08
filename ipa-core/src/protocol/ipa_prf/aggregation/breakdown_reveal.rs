@@ -83,6 +83,12 @@ where
     }
 
     fn new(l: Self::Share, r: Self::Share) -> Self {
+        debug_assert!(
+            BK::BITS + TV::BITS <= Self::Share::BITS,
+            "share type {} is too small",
+            std::any::type_name::<Self::Share>(),
+        );
+
         let left = Self::split_fields(&l);
         let right = Self::split_fields(&r);
 
