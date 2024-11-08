@@ -154,7 +154,7 @@ where
 
     let attributions = ctx
         .narrow(&Step::Shuffle)
-        .shuffle(&attributed_values_padded)
+        .shuffle(attributed_values_padded)
         .instrument(info_span!("shuffle_attribution_outputs"))
         .await?;
 

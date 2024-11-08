@@ -50,7 +50,7 @@ use crate::{
 ///
 /// ## Panics
 /// Panics when `S::Bits + 32 != B::Bits` or type conversions fail.
-pub(super) async fn malicious_shuffle<C, S>(ctx: C, shares: &[S]) -> Result<Vec<S>, Error>
+pub(super) async fn malicious_shuffle<C, S>(ctx: C, shares: Vec<S>) -> Result<Vec<S>, Error>
 where
     C: Context,
     S: MaliciousShuffleable,
@@ -129,7 +129,7 @@ where
 #[allow(dead_code)]
 pub async fn malicious_sharded_shuffle<C, S>(
     ctx: C,
-    shares: &[S],
+    shares: Vec<S>,
 ) -> Result<Vec<S>, crate::error::Error>
 where
     C: ShardedContext,
@@ -469,7 +469,7 @@ const TAG_CHUNK: usize = 32;
 async fn compute_and_add_tags<C, S>(
     ctx: C,
     keys: &[AdditiveShare<Gf32Bit>],
-    rows: &[S],
+    rows: Vec<S>,
 ) -> Result<Vec<AdditiveShare<S::ShareAndTag>>, Error>
 where
     C: Context,
@@ -493,7 +493,7 @@ where
 
     seq_join(
         tag_ctx[0].active_work(),
-        process_slice_by_chunks::<_, _, _, _, TAG_CHUNK>(rows, |i, chunk| async move {
+        process_slice_by_chunks::<_, _, _, _, TAG_CHUNK>(&rows, |i, chunk| async move {
             // Make TAG_CHUNK copies of each key
             let expanded_keys = keys
                 .iter()
@@ -597,7 +597,7 @@ mod tests {
                     let shares_and_tags: Vec<AdditiveShare<BA144>> = compute_and_add_tags(
                         ctx.narrow(&OPRFShuffleStep::GenerateTags),
                         &keys,
-                        &[record],
+                        vec![record],
                     )
                     .await
                     .unwrap();
@@ -641,7 +641,7 @@ mod tests {
 
             let mut result = world
                 .semi_honest(records.clone().into_iter(), |ctx, records| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA112>>(ctx, &records)
+                    malicious_shuffle::<_, AdditiveShare<BA112>>(ctx, records)
                         .await
                         .unwrap()
                 })
@@ -661,7 +661,7 @@ mod tests {
             assert_eq!(
                 TestWorld::default()
                     .semi_honest(iter::empty::<BA32>(), |ctx, records| async move {
-                        malicious_shuffle(ctx, &records).await.unwrap()
+                        malicious_shuffle(ctx, records).await.unwrap()
                     })
                     .await
                     .reconstruct(),
@@ -809,7 +809,7 @@ mod tests {
                         compute_and_add_tags(
                             ctx.narrow(&OPRFShuffleStep::GenerateTags),
                             &mac_key,
-                            &row_shares,
+                            row_shares,
                         )
                         .await
                         .unwrap()
@@ -911,7 +911,7 @@ mod tests {
             let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
             let [_, h2, _] = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, &shares).await
+                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
                 })
                 .await;
 
@@ -940,7 +940,7 @@ mod tests {
             let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
             let [h1, _, _] = world
                 .malicious(records.into_iter(), |ctx, shares| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, &shares).await
+                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
                 })
                 .await;
             let _ = h1.unwrap();
@@ -969,7 +969,7 @@ mod tests {
             let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
             let [h1, h2, _] = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, &shares).await
+                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
                 })
                 .await;
 
@@ -994,7 +994,7 @@ mod tests {
             let mut records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
             let sharded_result = world
                 .semi_honest(records.clone().into_iter(), |ctx, input| async move {
-                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, &input)
+                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, input)
                         .await
                         .unwrap()
                 })
@@ -1029,7 +1029,7 @@ mod tests {
 
             let sharded_result = world
                 .semi_honest(records.clone().into_iter(), |ctx, input| async move {
-                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, &input)
+                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, input)
                         .await
                         .unwrap()
                 })
@@ -1073,7 +1073,7 @@ mod tests {
             let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
             let sharded_results = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, &shares).await
+                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
                 })
                 .await;
 
@@ -1105,7 +1105,7 @@ mod tests {
             let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
             let sharded_results = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, &shares).await
+                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
                 })
                 .await;
 
@@ -1138,7 +1138,7 @@ mod tests {
             let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
             let sharded_results = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, &shares).await
+                    malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
                 })
                 .await;
 
