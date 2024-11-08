@@ -834,7 +834,7 @@ mod tests {
         // changing x2
         if ctx.gate.as_ref().contains("transfer_x_y")
             && ctx.dest == Role::H2
-            && ctx.shard.map(|s| s.shard_id) == target_shard
+            && ctx.shard == target_shard
         {
             data[0] ^= 1u8;
         }
@@ -850,7 +850,7 @@ mod tests {
         // changing y1
         if ctx.gate.as_ref().contains("transfer_x_y")
             && ctx.dest == Role::H3
-            && ctx.shard.map(|s| s.shard_id) == target_shard
+            && ctx.shard == target_shard
         {
             data[0] ^= 1u8;
         }
@@ -866,7 +866,7 @@ mod tests {
         // changing c_hat_2
         if ctx.gate.as_ref().contains("transfer_c")
             && ctx.dest == Role::H2
-            && ctx.shard.map(|s| s.shard_id) == target_shard
+            && ctx.shard == target_shard
         {
             data[0] ^= 1u8;
         }

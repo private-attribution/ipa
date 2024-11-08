@@ -48,6 +48,7 @@ use crate::{
     test_fixture::{
         logging, make_participants,
         metrics::MetricsHandle,
+        shard_configurator::{Configurator, ShardConfigurator},
         sharing::ValidateMalicious,
         test_gate::{gate_vendor, TestGateVendor},
         Reconstruct,
@@ -55,8 +56,9 @@ use crate::{
     utils::array::zip3_ref,
 };
 
-pub trait ShardingScheme {
+pub trait ShardingScheme: Sized {
     type Container<A>;
+    type Configurator: ShardConfigurator<Self::ShardBinding>;
     /// This type reflects how this scheme binds to [`ShardBinding`] interface used in [`Context`].
     /// Single shard systems do not use sharding capabilities, so the point of shard index is moot
     /// Multi-shard system must inform MPC circuits about shard they operate on and total number
@@ -67,8 +69,8 @@ pub trait ShardingScheme {
     /// Number of shards used inside the test world.
     const SHARDS: usize;
 
-    /// Creates a binding for the given shard id. For non-sharded systems, this is a no-op.
-    fn bind_shard(shard_id: ShardIndex) -> Self::ShardBinding;
+    /// This sets up a new shard, creating its configurator.
+    fn new_shard(shard_index: ShardIndex, cs_prss_seed: u64) -> Self::Configurator;
 }
 
 /// Helper trait to parametrize [`Runner`] trait based on the sharding scheme chosen. The whole
@@ -99,14 +101,13 @@ pub struct WithShards<const SHARDS: usize, D: Distribute = RoundRobin> {
 ///
 /// To construct a sharded environment, use [`TestWorld::<WithShards>::with_shards`] method.
 pub struct TestWorld<S: ShardingScheme = NotSharded> {
-    shards: Box<[ShardWorld<S::ShardBinding>]>,
+    shards: Box<[ShardWorld<S>]>,
     metrics_handle: MetricsHandle,
     // Using a mutex here is not as unfortunate as it might initially appear, because we
     // only use this RNG as a source of seeds for other RNGs. See `fn rng`.
     rng: Mutex<StdRng>,
     gate_vendor: Box<dyn TestGateVendor>,
     _shard_network: InMemoryShardNetwork,
-    _phantom: PhantomData<S>,
 }
 
 #[derive(Clone)]
@@ -160,17 +161,12 @@ impl ShardingScheme for NotSharded {
     /// For single-sharded worlds, there is no need to have the ability to distribute data across
     /// shards. Any MPC circuit can take even a single share as input and produce meaningful outcome.
     type Container<A> = A;
+    type Configurator = Configurator<Self>;
     type ShardBinding = Self;
     const SHARDS: usize = 1;
 
-    fn bind_shard(shard_id: ShardIndex) -> Self::ShardBinding {
-        assert_eq!(
-            ShardIndex::FIRST,
-            shard_id,
-            "Only one shard is allowed for non-sharded MPC"
-        );
-
-        Self
+    fn new_shard(_shard_index: ShardIndex, _cs_prss_seed: u64) -> Self::Configurator {
+        Self::Configurator::default()
     }
 }
 
@@ -178,20 +174,12 @@ impl<const N: usize, D: Distribute> ShardingScheme for WithShards<N, D> {
     /// The easiest way to distribute data across shards is to take a collection with a known size
     /// as input.
     type Container<A> = Vec<A>;
+    type Configurator = Configurator<Self>;
     type ShardBinding = Sharded;
     const SHARDS: usize = N;
 
-    fn bind_shard(shard_id: ShardIndex) -> Self::ShardBinding {
-        let shard_count = ShardIndex::try_from(N).unwrap();
-        assert!(
-            shard_id < shard_count,
-            "Maximum {N} shards is allowed, {shard_id} is greater than this number"
-        );
-
-        Self::ShardBinding {
-            shard_id,
-            shard_count,
-        }
+    fn new_shard(shard_index: ShardIndex, cs_prss_seed: u64) -> Self::Configurator {
+        Self::Configurator::new(shard_index, cs_prss_seed)
     }
 }
 
@@ -210,7 +198,7 @@ impl<const SHARDS: usize, D: Distribute> TestWorld<WithShards<SHARDS, D>> {
         Self::with_config(config.borrow())
     }
 
-    fn shards(&self) -> [&ShardWorld<Sharded>; SHARDS] {
+    fn shards(&self) -> [&ShardWorld<WithShards<SHARDS, D>>; SHARDS] {
         self.shards
             .iter()
             .collect::<Vec<_>>()
@@ -322,6 +310,10 @@ impl<S: ShardingScheme> TestWorld<S> {
         println!("TestWorld random seed {seed}", seed = config.seed);
         let mut rng = StdRng::seed_from_u64(config.seed);
 
+        // Create global PRSS seed. Each participant tracks the usage of it,
+        // so we need to vend unique instance per shard
+        let global_prss_rng_seed = rng.next_u64();
+
         let shard_count = ShardIndex::try_from(S::SHARDS).unwrap();
         let shard_network =
             InMemoryShardNetwork::with_stream_interceptor(shard_count, &config.stream_interceptor);
@@ -330,7 +322,7 @@ impl<S: ShardingScheme> TestWorld<S> {
             .iter()
             .map(|shard_id| {
                 ShardWorld::new(
-                    S::bind_shard(shard_id),
+                    S::new_shard(shard_id, global_prss_rng_seed),
                     config,
                     &mut rng,
                     shard_network.shard_transports(shard_id),
@@ -345,7 +337,6 @@ impl<S: ShardingScheme> TestWorld<S> {
             rng: Mutex::new(rng),
             gate_vendor: gate_vendor(config.initial_gate.clone()),
             _shard_network: shard_network,
-            _phantom: PhantomData,
         }
     }
 
@@ -534,7 +525,7 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         let shard_fn = |ctx, input| helper_fn(ctx, input);
         zip(shards.into_iter(), zip(zip(h1, h2), h3))
             .map(|(shard, ((h1, h2), h3))| {
-                ShardWorld::<Sharded>::run_either(
+                ShardWorld::<WithShards<SHARDS, D>>::run_either(
                     shard.contexts(&gate),
                     self.metrics_handle.span(),
                     [h1, h2, h3],
@@ -563,14 +554,13 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         let mut rng = self.rng();
         let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share_with(&mut rng).map(D::distribute);
         let gate = self.next_gate();
-        // todo!()
 
         // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
         #[allow(clippy::redundant_closure)]
         let shard_fn = |ctx, input| helper_fn(ctx, input);
         zip(shards.into_iter(), zip(zip(h1, h2), h3))
             .map(|(shard, ((h1, h2), h3))| {
-                ShardWorld::<Sharded>::run_either(
+                ShardWorld::<WithShards<SHARDS, D>>::run_either(
                     shard.malicious_contexts(&gate),
                     self.metrics_handle.span(),
                     [h1, h2, h3],
@@ -777,19 +767,20 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
     }
 }
 
-struct ShardWorld<B: ShardBinding> {
-    shard_info: B,
+struct ShardWorld<S: ShardingScheme> {
+    shard_constructor: S::Configurator,
     gateways: [Gateway; 3],
-    participants: [PrssEndpoint; 3],
+    // Per-shard shared randomness. Two different shards on the same helper
+    // will have unique shard participants and use them as PRSS for MPC protocols
+    shard_participants: [PrssEndpoint; 3],
     // It will be used once Gateway knows how to route shard traffic
     _shard_connections: [InMemoryTransport<ShardIndex>; 3],
     _mpc_network: InMemoryMpcNetwork,
-    _phantom: PhantomData<B>,
 }
 
-impl<B: ShardBinding> ShardWorld<B> {
+impl<S: ShardingScheme> ShardWorld<S> {
     pub fn new(
-        shard_info: B,
+        shard_constructor: S::Configurator,
         config: &TestWorldConfig,
         rng: &mut StdRng,
         transports: [InMemoryTransport<ShardIndex>; 3],
@@ -799,7 +790,7 @@ impl<B: ShardBinding> ShardWorld<B> {
         let network = InMemoryMpcNetwork::with_stream_interceptor(
             InMemoryMpcNetwork::noop_handlers(),
             &config.stream_interceptor,
-            shard_info.shard_config(),
+            shard_constructor.shard_id(),
         );
 
         let mut gateways = zip3_ref(&network.transports(), &transports).map(|(mpc, shard)| {
@@ -817,12 +808,11 @@ impl<B: ShardBinding> ShardWorld<B> {
         gateways.sort_by_key(|g| g.role());
 
         ShardWorld {
-            shard_info,
+            shard_constructor,
             gateways,
-            participants,
+            shard_participants: participants,
             _shard_connections: transports,
             _mpc_network: network,
-            _phantom: PhantomData,
         }
     }
 
@@ -855,12 +845,12 @@ impl<B: ShardBinding> ShardWorld<B> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn contexts(&self, gate: &Gate) -> [SemiHonestContext<'_, B>; 3] {
-        zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
+    pub fn contexts(&self, gate: &Gate) -> [SemiHonestContext<'_, S::ShardBinding>; 3] {
+        zip3_ref(&self.shard_participants, &self.gateways).map(|(participant, gateway)| {
             SemiHonestContext::new_with_gate(
                 participant,
                 gateway,
-                self.shard_info.clone(),
+                self.shard_constructor.bind(gateway.role()),
                 gate.clone(),
             )
         })
@@ -871,13 +861,13 @@ impl<B: ShardBinding> ShardWorld<B> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn malicious_contexts(&self, gate: &Gate) -> [MaliciousContext<'_, B>; 3] {
-        zip3_ref(&self.participants, &self.gateways).map(|(participant, gateway)| {
+    pub fn malicious_contexts(&self, gate: &Gate) -> [MaliciousContext<'_, S::ShardBinding>; 3] {
+        zip3_ref(&self.shard_participants, &self.gateways).map(|(participant, gateway)| {
             MaliciousContext::new_with_gate(
                 participant,
                 gateway,
                 gate.clone(),
-                self.shard_info.clone(),
+                self.shard_constructor.bind(gateway.role()),
             )
         })
     }
@@ -927,7 +917,7 @@ mod tests {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA3, BA8},
+            boolean_array::{BA3, BA64, BA8},
             ArrayAccess, Field, Fp31, U128Conversions,
         },
         helpers::{
@@ -939,7 +929,7 @@ mod tests {
             boolean::step::EightBitStep,
             context::{
                 dzkp_validator::DZKPValidator, upgrade::Upgradable, Context, DZKPContext,
-                UpgradableContext, UpgradedContext, Validator, TEST_DZKP_STEPS,
+                ShardedContext, UpgradableContext, UpgradedContext, Validator, TEST_DZKP_STEPS,
             },
             ipa_prf::boolean_ops::addition_sequential::integer_add,
             prss::SharedRandomness,
@@ -1097,9 +1087,7 @@ mod tests {
                 Role::H1,
                 config.role_assignment(),
                 |ctx: &MaliciousHelperContext, data: &mut Vec<u8>| {
-                    if ctx.shard.unwrap().shard_id == TARGET_SHARD
-                        && ctx.gate.as_ref().contains(STEP)
-                    {
+                    if ctx.shard.unwrap() == TARGET_SHARD && ctx.gate.as_ref().contains(STEP) {
                         corrupt_byte(&mut data[0]);
                     }
                 },
@@ -1327,6 +1315,47 @@ mod tests {
             let second_result = test(seed).await;
 
             assert_eq!(first_result, second_result);
+        });
+    }
+
+    #[test]
+    fn cross_shard_prss() {
+        run(|| async {
+            let world: TestWorld<WithShards<3>> =
+                TestWorld::with_shards(TestWorldConfig::default());
+            let input = vec![(), (), ()];
+            let duplicates = Arc::new(Mutex::new(HashMap::new()));
+            let _ = world
+                .semi_honest(input.into_iter(), |ctx, _| {
+                    let duplicates = Arc::clone(&duplicates);
+                    async move {
+                        let (l, r): (BA64, BA64) = ctx.narrow("step1").cross_shard_prss().generate(RecordId::FIRST);
+                        {
+                            println!("shard {} on {} generated ({l:?}, {r:?})", ctx.shard_id(), ctx.role());
+                            let mut duplicates = duplicates.lock().unwrap();
+                            let e = duplicates.entry(ctx.role()).or_insert_with(HashSet::new);
+                            e.insert(l.as_u128());
+                            e.insert(r.as_u128());
+                            assert_eq!(2, e.len(), "Cross shard PRSS is broken: {e:?} is expected to contain exactly 2 entries");
+
+                            let (l, r): (BA64, BA64) = ctx.narrow("step2").cross_shard_prss().generate(RecordId::FIRST);
+                            assert!(!e.contains(&l.as_u128()) && !e.contains(&r.as_u128()), "Cross shard PRSS generated duplicates: {l:?} or {r:?} is in {e:?}");
+                        }
+
+                        let ctx = ctx.narrow("exchange").set_total_records(TotalRecords::ONE);
+
+                        // ensure it is still PRSS, i.e. other MPC helpers have the same value
+                        ctx.send_channel(ctx.role().peer(Direction::Left)).send(RecordId::FIRST, l).await.unwrap();
+                        ctx.send_channel(ctx.role().peer(Direction::Right)).send(RecordId::FIRST, r).await.unwrap();
+
+                        let from_left = ctx.recv_channel::<BA64>(ctx.role().peer(Direction::Left)).receive(RecordId::FIRST).await.unwrap();
+                        let from_right = ctx.recv_channel::<BA64>(ctx.role().peer(Direction::Right)).receive(RecordId::FIRST).await.unwrap();
+
+                        assert_eq!(l, from_left);
+                        assert_eq!(r, from_right);
+                    }
+                })
+                .await;
         });
     }
 }

@@ -74,6 +74,10 @@ impl ShardedContext for Context<'_, Sharded> {
     fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
         self.inner.shard_recv_channel(origin)
     }
+
+    fn cross_shard_prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
+        self.inner.cross_shard_prss()
+    }
 }
 
 impl<'a> Context<'a, NotSharded> {

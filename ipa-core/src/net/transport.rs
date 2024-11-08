@@ -22,7 +22,7 @@ use crate::{
     },
     net::{client::IpaHttpClient, error::Error, IpaHttpServer},
     protocol::{Gate, QueryId},
-    sharding::{ShardIndex, Sharded},
+    sharding::ShardIndex,
     sync::Arc,
 };
 
@@ -45,7 +45,7 @@ pub struct MpcHttpTransport {
 #[derive(Clone)]
 pub struct ShardHttpTransport {
     pub(super) inner_transport: Arc<HttpTransport<Shard>>,
-    pub(super) shard_config: Sharded,
+    pub(super) shard_count: ShardIndex,
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
@@ -297,7 +297,9 @@ impl ShardHttpTransport {
     #[must_use]
     pub fn new(
         http_runtime: IpaRuntime,
-        shard_config: Sharded,
+        // todo: maybe a wrapper struct for it
+        shard_id: ShardIndex,
+        shard_count: ShardIndex,
         server_config: ServerConfig,
         network_config: NetworkConfig<Shard>,
         clients: Vec<IpaHttpClient<Shard>>,
@@ -306,12 +308,12 @@ impl ShardHttpTransport {
         let transport = Self {
             inner_transport: Arc::new(HttpTransport {
                 http_runtime,
-                identity: shard_config.shard_id,
+                identity: shard_id,
                 clients,
                 handler,
                 record_streams: StreamCollection::default(),
             }),
-            shard_config,
+            shard_count,
         };
 
         let server = IpaHttpServer::new_shards(&transport, server_config, network_config);
@@ -331,10 +333,7 @@ impl Transport for ShardHttpTransport {
 
     fn peers(&self) -> impl Iterator<Item = Self::Identity> {
         let this = self.identity();
-        self.shard_config
-            .shard_count
-            .iter()
-            .filter(move |&v| v != this)
+        self.shard_count.iter().filter(move |&v| v != this)
     }
 
     async fn send<D, Q, S, R>(

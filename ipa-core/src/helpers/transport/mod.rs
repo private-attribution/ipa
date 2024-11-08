@@ -9,8 +9,6 @@ use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::helpers::in_memory_config::InspectContext;
-#[cfg(feature = "in-memory-infra")]
-use crate::sharding::Sharded;
 use crate::{
     helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
@@ -58,7 +56,7 @@ pub trait Identity:
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: Option<Sharded>,
+        shard: Option<ShardIndex>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext;
@@ -84,13 +82,13 @@ impl Identity for ShardIndex {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: Option<Sharded>,
+        shard: Option<ShardIndex>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext {
         InspectContext::ShardMessage {
             helper,
-            source: shard.unwrap().shard_id,
+            source: shard.unwrap(),
             dest: *self,
             gate,
         }
@@ -125,7 +123,7 @@ impl Identity for HelperIdentity {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: Option<Sharded>,
+        shard: Option<ShardIndex>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext {
@@ -167,7 +165,7 @@ impl Identity for Role {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        _shard: Option<Sharded>,
+        _shard: Option<ShardIndex>,
         _helper: HelperIdentity,
         _gate: Gate,
     ) -> InspectContext {
