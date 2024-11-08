@@ -37,10 +37,10 @@ where
         let timestamp: [Replicated<TS>; 3] = TS::try_from(u128::from(self.timestamp))
             .unwrap()
             .share_with(rng);
-        let breakdown_key = BK::try_from(self.breakdown_key.into())
+        let breakdown_key = BK::try_from(u128::from(self.breakdown_key))
             .unwrap()
             .share_with(rng);
-        let trigger_value = TV::try_from(self.trigger_value.into())
+        let trigger_value = TV::try_from(u128::from(self.trigger_value))
             .unwrap()
             .share_with(rng);
         let event_type = if self.is_trigger_report {
