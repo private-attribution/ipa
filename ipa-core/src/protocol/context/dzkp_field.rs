@@ -98,22 +98,28 @@ impl<const P: usize> FromIterator<Fp61BitPrime> for Vec<[Fp61BitPrime; P]> {
 /// `secret_sharing::vector::transpose`, which are based on a technique in chapter 7
 /// of "Hacker's Delight" (2nd ed.).
 ///
-/// Output word `j` contains the table indices for input positions `i` having (i%4) == j.
+/// Output word `j` contains the table indices for input positions `i` having
+/// (i%4) == j. The "0s", "1s", "2s", "3s" comments trace the movement from
+/// input to output.
 #[must_use]
 fn convert_values_table_indices(b0: u128, b1: u128, b2: u128) -> [u128; 4] {
-    let const_55 = u128::from_le_bytes([0x55; 16]);
-    let const_aa = u128::from_le_bytes([0xaa; 16]);
+    // 0x55 is 0b0101_0101. This mask selects bits having (i%2) == 0.
+    const CONST_55: u128 = u128::from_le_bytes([0x55; 16]);
+    // 0xaa is 0b1010_1010. This mask selects bits having (i%2) == 1.
+    const CONST_AA: u128 = u128::from_le_bytes([0xaa; 16]);
 
-    let const_33 = u128::from_le_bytes([0x33; 16]);
-    let const_cc = u128::from_le_bytes([0xcc; 16]);
+    // 0x33 is 0b0011_0011. This mask selects bits having (i%4) ∈ {0,1}.
+    const CONST_33: u128 = u128::from_le_bytes([0x33; 16]);
+    // 0xcc is 0b1100_1100. This mask selects bits having (i%4) ∈ {2,3}.
+    const CONST_CC: u128 = u128::from_le_bytes([0xcc; 16]);
 
     // `k` = keep, `s` = swap
-    let b0k = b0 & const_55;
-    let b0s = b0 & const_aa;
-    let b1s = b1 & const_55;
-    let b1k = b1 & const_aa;
-    let b2k = b2 & const_55;
-    let b2s = b2 & const_aa;
+    let b0k = b0 & CONST_55;
+    let b0s = b0 & CONST_AA;
+    let b1s = b1 & CONST_55;
+    let b1k = b1 & CONST_AA;
+    let b2k = b2 & CONST_55;
+    let b2s = b2 & CONST_AA;
 
     // Swap the bits having (i%2) == 1 in b0/b2 with the bits having (i%2) == 0 in
     // b1/b3, so that `c0` and `c1` have the lower halves of each index, and `c2` and
@@ -123,14 +129,14 @@ fn convert_values_table_indices(b0: u128, b1: u128, b2: u128) -> [u128; 4] {
     let c2 = b2k;
     let c3 = b2s >> 1;
 
-    let c0k = c0 & const_33; // 0s
-    let c0s = c0 & const_cc; // 2s
-    let c1k = c1 & const_33; // 1s
-    let c1s = c1 & const_cc; // 3s
-    let c2s = c2 & const_33;
-    let c2k = c2 & const_cc;
-    let c3s = c3 & const_33;
-    let c3k = c3 & const_cc;
+    let c0k = c0 & CONST_33; // 0s
+    let c0s = c0 & CONST_CC; // 2s
+    let c1k = c1 & CONST_33; // 1s
+    let c1s = c1 & CONST_CC; // 3s
+    let c2s = c2 & CONST_33;
+    let c2k = c2 & CONST_CC;
+    let c3s = c3 & CONST_33;
+    let c3k = c3 & CONST_CC;
 
     // Swap the bits having (i%4) ∈ {2,3} in c0/c1 with the bits having (i%4) ∈ {0,1} in
     // c2/c3.
@@ -142,6 +148,9 @@ fn convert_values_table_indices(b0: u128, b1: u128, b2: u128) -> [u128; 4] {
     [y0, y1, y2, y3]
 }
 
+// Table used for `convert_prover` and `convert_value_from_right_prover`.
+//
+// The conversion to "g" and "h" values is from https://eprint.iacr.org/2023/909.pdf.
 static TABLE_RIGHT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
     let mut result = Vec::with_capacity(8);
     for e in [false, true] {
@@ -166,6 +175,9 @@ static TABLE_RIGHT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
     result.try_into().unwrap()
 });
 
+// Table used for `convert_prover` and `convert_value_from_left_prover`.
+//
+// The conversion to "g" and "h" values is from https://eprint.iacr.org/2023/909.pdf.
 static TABLE_LEFT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
     let mut result = Vec::with_capacity(8);
     for f in [false, true] {
@@ -190,12 +202,31 @@ static TABLE_LEFT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
     result.try_into().unwrap()
 });
 
+/// Lookup-table-based conversion logic used by `convert_prover`,
+/// `convert_value_from_left_prover`, and `convert_value_from_left_prover`.
+///
+/// Inputs `i0`, `i1`, and `i2` each contain the value of one of the "a" through "f"
+/// intermediates for each of 256 multiplies. `table` is the lookup table to use,
+/// which should be either `TABLE_LEFT` or `TABLE_RIGHT`.
+///
+/// We want to interpret the 3-tuple of intermediates at each bit position in `i0`, `i1`
+/// and `i2` as an integer index in the range 0..8 into the table. The
+/// `convert_values_table_indices` helper does this in bulk more efficiently than using
+/// bit-manipulation to handle them one-by-one.
+///
+/// Preserving the order from inputs to outputs is not necessary for correctness as long
+/// as the same order is used on all three helpers. We preserve the order anyways
+/// to simplify the end-to-end dataflow, even though it makes this routine slightly
+/// more complicated.
 fn convert_values(
     i0: &Array256Bit,
     i1: &Array256Bit,
     i2: &Array256Bit,
     table: &[[Fp61BitPrime; 4]; 8],
 ) -> Vec<Fp61BitPrime> {
+    // Split inputs to two `u128`s. We do this because `u128` is the largest integer
+    // type rust supports. It is possible that using SIMD types here would improve
+    // code generation for AVX-256/512.
     let i00 = i0[..128].load_le::<u128>();
     let i01 = i0[128..].load_le::<u128>();
 
@@ -205,11 +236,14 @@ fn convert_values(
     let i20 = i2[..128].load_le::<u128>();
     let i21 = i2[128..].load_le::<u128>();
 
+    // Output word `j` in each set contains the table indices for input positions `i`
+    // having (i%4) == j.
     let [mut z00, mut z01, mut z02, mut z03] = convert_values_table_indices(i00, i10, i20);
     let [mut z10, mut z11, mut z12, mut z13] = convert_values_table_indices(i01, i11, i21);
 
     let mut result = Vec::with_capacity(1024);
     for _ in 0..32 {
+        // Take one index in turn from each `z` to preserve the output order.
         for z in [&mut z00, &mut z01, &mut z02, &mut z03] {
             result.extend(table[(*z as usize) & 0x7]);
             *z >>= 4;

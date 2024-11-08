@@ -99,6 +99,9 @@ pub trait TransposeFrom<T> {
 /// 8x8 bit matrix transpose.
 //
 // From Hacker's Delight (2nd edition), Figure 7-6.
+//
+// There are comments on `dzkp_field::convert_values_table_indices`, which implements a
+// similar transformation, that may help to understand how this works.
 #[inline]
 pub fn transpose_8x8<B: Borrow<[u8; 8]>>(x: B) -> [u8; 8] {
     let mut x = u64::from_le_bytes(*x.borrow());
@@ -121,6 +124,9 @@ pub fn transpose_8x8<B: Borrow<[u8; 8]>>(x: B) -> [u8; 8] {
 /// 16x16 bit matrix transpose.
 //
 // Loosely based on Hacker's Delight (2nd edition), Figure 7-6.
+//
+// There are comments on `dzkp_field::convert_values_table_indices`, which implements a
+// similar transformation, that may help to understand how this works.
 #[inline]
 pub fn transpose_16x16(src: &[u8; 32]) -> [u8; 32] {
     let x: [u64; 4] =
