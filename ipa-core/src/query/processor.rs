@@ -10,7 +10,7 @@ use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
+        query::{PrepareQuery, QueryConfig, QueryInput, QueryStatusRequest},
         BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
         RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
@@ -110,6 +110,8 @@ pub enum QueryInputError {
 pub enum QueryStatusError {
     #[error("The query with id {0:?} does not exist")]
     NoSuchQuery(QueryId),
+    #[error(transparent)]
+    ShardBroadcastError(#[from] BroadcastError<ShardIndex, ShardTransportError>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -349,14 +351,37 @@ impl Processor {
         Some(status)
     }
 
-    /// Returns the query status.
+    /// Returns the query status in this helper, by querying all shards.
     ///
     /// ## Errors
     /// If query is not registered on this helper.
     ///
     /// ## Panics
     /// If the query collection mutex is poisoned.
-    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
+    pub async fn query_status(
+        &self,
+        shard_transport: ShardTransportImpl,
+        query_id: QueryId,
+    ) -> Result<QueryStatus, QueryStatusError> {
+        let status = self
+            .get_status(query_id)
+            .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
+
+        let shard_query_status_req = QueryStatusRequest { query_id };
+
+        shard_transport.broadcast(shard_query_status_req).await?;
+
+        Ok(status)
+    }
+
+    /// Returns the staus of this single shard.
+    ///
+    /// ## Errors
+    /// If query is not registered on this helper.
+    ///
+    /// ## Panics
+    /// If the query collection mutex is poisoned.
+    pub fn shard_ready(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
         let status = self
             .get_status(query_id)
             .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
@@ -608,9 +633,11 @@ mod tests {
         });
         args.mpc_handlers = [None, Some(h2), Some(h3)];
         let t = TestComponents::new(args);
-        let qc_future = t
-            .processor
-            .new_query(t.first_transport, t.shard_transport, t.query_config);
+        let qc_future = t.processor.new_query(
+            t.first_transport,
+            t.shard_transport.clone_ref(),
+            t.query_config,
+        );
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
@@ -618,7 +645,10 @@ mod tests {
 
         assert_eq!(
             QueryStatus::Preparing,
-            t.processor.query_status(QueryId).unwrap()
+            t.processor
+                .query_status(t.shard_transport.clone_ref(), QueryId)
+                .await
+                .unwrap()
         );
         // unblock sends
         barrier.wait().await;
@@ -636,7 +666,10 @@ mod tests {
         );
         assert_eq!(
             QueryStatus::AwaitingInputs,
-            t.processor.query_status(QueryId).unwrap()
+            t.processor
+                .query_status(t.shard_transport.clone_ref(), QueryId)
+                .await
+                .unwrap()
         );
     }
 
@@ -772,16 +805,22 @@ mod tests {
             let req = prepare_query();
             let t = TestComponents::new(TestComponentsArgs::default());
             assert!(matches!(
-                t.processor.query_status(QueryId).unwrap_err(),
+                t.processor
+                    .query_status(t.shard_transport.clone_ref(), QueryId)
+                    .await
+                    .unwrap_err(),
                 QueryStatusError::NoSuchQuery(_)
             ));
             t.processor
-                .prepare_helper(t.second_transport, t.shard_transport, req)
+                .prepare_helper(t.second_transport, t.shard_transport.clone_ref(), req)
                 .await
                 .unwrap();
             assert_eq!(
                 QueryStatus::AwaitingInputs,
-                t.processor.query_status(QueryId).unwrap()
+                t.processor
+                    .query_status(t.shard_transport, QueryId)
+                    .await
+                    .unwrap()
             );
         }
 
@@ -1012,7 +1051,8 @@ mod tests {
                 .await?;
 
             while !app
-                .query_status(query_id)?
+                .query_status(query_id)
+                .await?
                 .into_iter()
                 .all(|s| s == QueryStatus::Completed)
             {

@@ -1,5 +1,6 @@
 use std::{array, iter::zip};
 
+use futures::future::join_all;
 use generic_array::GenericArray;
 use typenum::Unsigned;
 
@@ -118,12 +119,13 @@ impl TestApp {
     /// Propagates errors retrieving the query status.
     /// ## Panics
     /// Never.
-    pub fn query_status(&self, query_id: QueryId) -> Result<[QueryStatus; 3], ApiError> {
-        Ok((0..3)
-            .map(|i| self.drivers[i].query_status(query_id))
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .unwrap())
+    #[allow(clippy::disallowed_methods)]
+    pub async fn query_status(&self, query_id: QueryId) -> Result<[QueryStatus; 3], ApiError> {
+        join_all((0..3).map(|i| self.drivers[i].query_status(query_id)))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map(|vec| vec.try_into().unwrap())
     }
 
     /// ## Errors

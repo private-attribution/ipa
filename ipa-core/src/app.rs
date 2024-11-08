@@ -149,8 +149,13 @@ impl HelperApp {
     ///
     /// ## Errors
     /// Propagates errors from the helper.
-    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, ApiError> {
-        Ok(self.inner.query_processor.query_status(query_id)?)
+    pub async fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, ApiError> {
+        let shard_transport = self.inner.shard_transport.clone_ref();
+        Ok(self
+            .inner
+            .query_processor
+            .query_status(shard_transport, query_id)
+            .await?)
     }
 
     /// Waits for a query to complete and returns the result.
@@ -186,12 +191,23 @@ impl RequestHandler<ShardIndex> for Inner {
                 let req = req.into::<PrepareQuery>()?;
                 HelperResponse::from(qp.prepare_shard(&self.shard_transport, req)?)
             }
+            RouteId::QueryStatus => {
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.shard_ready(query_id)?)
+            }
             r => {
                 return Err(ApiError::BadRequest(
                     format!("{r:?} request must not be handled by shard query processing flow")
                         .into(),
                 ))
-            }
+            } /*RouteId::CompleteQuery => {
+                  let query_id = ext_query_id(&req)?;
+                  HelperResponse::from(qp.complete(query_id).await?)
+              }
+              RouteId::KillQuery => {
+                  let query_id = ext_query_id(&req)?;
+                  HelperResponse::from(qp.kill(query_id)?)
+              }*/
         })
     }
 }
@@ -247,7 +263,9 @@ impl RequestHandler<HelperIdentity> for Inner {
             }
             RouteId::QueryStatus => {
                 let query_id = ext_query_id(&req)?;
-                HelperResponse::from(qp.query_status(query_id)?)
+                let shard_transport = Transport::clone_ref(&self.shard_transport);
+                let query_status = qp.query_status(shard_transport, query_id).await?;
+                HelperResponse::from(query_status)
             }
             RouteId::CompleteQuery => {
                 let query_id = ext_query_id(&req)?;
