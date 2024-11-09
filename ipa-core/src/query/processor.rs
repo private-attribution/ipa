@@ -26,7 +26,7 @@ use crate::{
     utils::NonZeroU32PowerOfTwo,
 };
 
-/// `Processor` accepts and tracks requests to initiate new queries on this helper party
+/// [`Processor`] accepts and tracks requests to initiate new queries on this helper party
 /// network. It makes sure queries are coordinated and each party starts processing it when
 /// it has all the information required.
 ///
@@ -41,6 +41,11 @@ use crate::{
 ///     IPA protocol.
 /// - When helper party is done, it holds onto the results of the computation until the external party
 ///     that initiated this request asks for them.
+///
+/// This struct is decoupled from the [`Transport`]s used to communicate with other [`Processor`]
+/// running in other shards or helpers. Many functions require transport as part of their arguments
+/// to communicate with its peers. The transports also identify this [`Processor`] in the network so
+/// it's important to remain consistent on the transports given as parameters.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
 pub struct Processor {
@@ -75,6 +80,10 @@ pub enum NewQueryError {
 pub enum PrepareQueryError {
     #[error("This helper is the query coordinator, cannot respond to Prepare requests")]
     WrongTarget,
+    #[error("This shard {0:?} isn't the leader (shard 0)")]
+    NotLeader(ShardIndex),
+    #[error("This is the leader shard")]
+    Leader,
     #[error("Query is already running")]
     AlreadyRunning,
     #[error(transparent)]
@@ -191,7 +200,7 @@ impl Processor {
         Ok(prepare_request)
     }
 
-    /// On prepare, each follower:
+    /// On prepare, each leader:
     /// * ensures that it is not the leader helper on this query
     /// * query is not registered yet
     /// * registers query
@@ -211,7 +220,7 @@ impl Processor {
             return Err(PrepareQueryError::WrongTarget);
         }
         if shard_index != ShardIndex::FIRST {
-            return Err(PrepareQueryError::WrongTarget);
+            return Err(PrepareQueryError::NotLeader(shard_index));
         }
         let handle = self.queries.handle(req.query_id);
         if handle.status().is_some() {
@@ -236,7 +245,16 @@ impl Processor {
     ///
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
-    pub fn prepare_shard(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
+    pub fn prepare_shard(
+        &self,
+        shard_transport: &ShardTransportImpl,
+        req: PrepareQuery,
+    ) -> Result<(), PrepareQueryError> {
+        let shard_index = shard_transport.identity();
+        if shard_index == ShardIndex::FIRST {
+            return Err(PrepareQueryError::Leader);
+        }
+
         let handle = self.queries.handle(req.query_id);
         if handle.status().is_some() {
             return Err(PrepareQueryError::AlreadyRunning);
@@ -422,6 +440,7 @@ mod tests {
         protocol::QueryId,
         query::{
             processor::Processor, state::StateError, NewQueryError, PrepareQueryError, QueryStatus,
+            QueryStatusError,
         },
         sharding::ShardIndex,
     };
@@ -488,6 +507,7 @@ mod tests {
             if let Some(shards) = self.opt_shards.take() {
                 shards
             } else {
+                // This method creates a network for 3 helpers but we will only use one.
                 InMemoryShardNetwork::with_shards_and_handlers(self.shard_count, shard_respond_ok)
             }
         }
@@ -499,6 +519,19 @@ mod tests {
         }
     }
 
+    /// This struct aims to streamline unit tests that use a single [`Processor`] and mock the
+    /// responses coming from the other's. Note only one [`Processor`] is ever created, not an
+    /// entire MPC network. This means that if you want to test a workflow that involves multiple
+    /// steps involving [`Processor`] function calls, in different helpers or shards, you will need
+    /// to create multiple instances of this helper.
+    ///
+    /// Following is a minimal example on how to setup a single [`Processor`] for which all
+    /// transport calls to either shards or helpers with simply return Ok.
+    ///
+    /// ```
+    /// let t = TestComponents::new(TestComponentsArgs::default());
+    /// t.processor.query_status(QueryId)
+    /// ```
     #[allow(dead_code)]
     struct TestComponents {
         processor: Processor,
@@ -635,12 +668,18 @@ mod tests {
         ));
     }
 
+    /// Context:
+    /// * From the standpoint of the leader shard in Helper 1
+    /// * When submitting a new query
+    ///
+    /// This test makes sure that if there's an error in shard 2, in this case a query is (still)
+    /// being run, that error gets reported back.
     #[tokio::test]
     async fn shard_prepare_error() {
         fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
             prepare_query_handler(move |_| async move {
                 if si == ShardIndex(2) {
-                    Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
+                    Err(ApiError::QueryPrepare(PrepareQueryError::AlreadyRunning))
                 } else {
                     Ok(HelperResponse::ok())
                 }
@@ -665,6 +704,10 @@ mod tests {
                 panic!("Unexpected error type");
             }
         }
+        assert!(matches!(
+            t.processor.query_status(QueryId).unwrap_err(),
+            QueryStatusError::NoSuchQuery(_)
+        ));
     }
 
     #[tokio::test]
@@ -736,6 +779,11 @@ mod tests {
             ));
         }
 
+        /// Context:
+        /// * From the standpoint of the second shard in Helper 2
+        ///
+        /// This test makes sure that an error is returned if I get a [`Processor::prepare_helper`]
+        /// call. Only the shard leader (shard 0) should handle those calls.
         #[tokio::test]
         async fn rejects_if_not_shard_leader() {
             let req = prepare_query();
@@ -753,10 +801,35 @@ mod tests {
             ));
         }
 
+        /// Context:
+        /// * From the standpoint of the leader shard in Helper 2
+        ///
+        /// This test makes sure that an error is returned if I get a [`Processor::prepare_shard`]
+        /// call. Only non-leaders (1,2,3...) should handle those calls.
+        #[tokio::test]
+        async fn shard_not_leader() {
+            let req = prepare_query();
+            let t = TestComponents::new(TestComponentsArgs::default());
+            assert!(matches!(
+                t.processor
+                    .prepare_shard(
+                        &t.shard_network
+                            .transport(HelperIdentity::TWO, ShardIndex::FIRST),
+                        req
+                    )
+                    .unwrap_err(),
+                PrepareQueryError::Leader
+            ));
+        }
+
+        /// This tests that both [`Processor::prepare_helper`] and [`Processor::prepare_shard`]
+        /// return an [`PrepareQueryError::AlreadyRunning`] error if the internal processor state
+        /// already has a running query.
         #[tokio::test]
         async fn rejects_if_query_exists() {
             let req = prepare_query();
             let t = TestComponents::new(TestComponentsArgs::default());
+            // We set the processor to run a query so that subsequent calls fail.
             t.processor
                 .prepare_helper(
                     t.second_transport.clone_ref(),
@@ -769,12 +842,16 @@ mod tests {
             // both helper and shard APIs should fail
             assert!(matches!(
                 t.processor
-                    .prepare_helper(t.second_transport, t.shard_transport, req.clone())
+                    .prepare_helper(
+                        t.second_transport,
+                        t.shard_transport.clone_ref(),
+                        req.clone()
+                    )
                     .await,
                 Err(PrepareQueryError::AlreadyRunning)
             ));
             assert!(matches!(
-                t.processor.prepare_shard(req),
+                t.processor.prepare_shard(&t.shard_transport, req),
                 Err(PrepareQueryError::AlreadyRunning)
             ));
         }

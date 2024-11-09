@@ -8,7 +8,7 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerBox, HandlerRef, HelperIdentity, HelperResponse,
-        MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport,
+        MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport, TransportIdentity,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -167,14 +167,32 @@ impl HelperApp {
     }
 }
 
+fn ext_query_id<I: TransportIdentity>(req: &Addr<I>) -> Result<QueryId, ApiError> {
+    req.query_id
+        .ok_or_else(|| ApiError::BadRequest("Query input is missing query_id argument".into()))
+}
+
 #[async_trait]
 impl RequestHandler<ShardIndex> for Inner {
     async fn handle(
         &self,
-        _req: Addr<ShardIndex>,
+        req: Addr<ShardIndex>,
         _data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
-        Ok(HelperResponse::ok())
+        let qp = &self.query_processor;
+
+        Ok(match req.route {
+            RouteId::PrepareQuery => {
+                let req = req.into::<PrepareQuery>()?;
+                HelperResponse::from(qp.prepare_shard(&self.shard_transport, req)?)
+            }
+            r => {
+                return Err(ApiError::BadRequest(
+                    format!("{r:?} request must not be handled by shard query processing flow")
+                        .into(),
+                ))
+            }
+        })
     }
 }
 
@@ -185,12 +203,6 @@ impl RequestHandler<HelperIdentity> for Inner {
         req: Addr<HelperIdentity>,
         data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
-        fn ext_query_id(req: &Addr<HelperIdentity>) -> Result<QueryId, ApiError> {
-            req.query_id.ok_or_else(|| {
-                ApiError::BadRequest("Query input is missing query_id argument".into())
-            })
-        }
-
         let qp = &self.query_processor;
 
         Ok(match req.route {
