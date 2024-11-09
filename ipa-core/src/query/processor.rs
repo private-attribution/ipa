@@ -328,18 +328,11 @@ impl Processor {
         }
     }
 
-    /// Returns the query status.
-    ///
-    /// ## Errors
-    /// If query is not registered on this helper.
-    ///
-    /// ## Panics
-    /// If the query collection mutex is poisoned.
-    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
+    /// Returns the status of the running query or [`None`].
+    /// If the query was completed it updates the state to reflect that.
+    fn get_status(&self, query_id: QueryId) -> Option<QueryStatus> {
         let mut queries = self.queries.inner.lock().unwrap();
-        let Some(mut state) = queries.remove(&query_id) else {
-            return Err(QueryStatusError::NoSuchQuery(query_id));
-        };
+        let mut state = queries.remove(&query_id)?;
 
         if let QueryState::Running(ref mut running) = state {
             if let Some(result) = running.try_complete() {
@@ -349,6 +342,20 @@ impl Processor {
 
         let status = QueryStatus::from(&state);
         queries.insert(query_id, state);
+        Some(status)
+    }
+
+    /// Returns the query status.
+    ///
+    /// ## Errors
+    /// If query is not registered on this helper.
+    ///
+    /// ## Panics
+    /// If the query collection mutex is poisoned.
+    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
+        let status = self
+            .get_status(query_id)
+            .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
         Ok(status)
     }
 
@@ -670,7 +677,7 @@ mod tests {
 
     /// Context:
     /// * From the standpoint of the leader shard in Helper 1
-    /// * When submitting a new query
+    /// * When receiving a new query
     ///
     /// This test makes sure that if there's an error in shard 2, in this case a query is (still)
     /// being run, that error gets reported back.
@@ -710,8 +717,48 @@ mod tests {
         ));
     }
 
+    /// Context:
+    /// * From the standpoint of the leader shard in Helper 1
+    /// * When receiving a new query
+    ///
+    /// This test makes sure that if there's an error reported from other helpers, the state is set
+    /// back to ready to accept queries.
     #[tokio::test]
-    async fn can_recover_from_prepare_error() {
+    async fn can_recover_from_prepare_helper_error() {
+        // First we setup MPC handlers that will return some error
+        let mut args = TestComponentsArgs::default();
+        let h2 = helper_respond_ok();
+        let h3 = prepare_query_handler(|_| async move {
+            Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
+        });
+        args.mpc_handlers = [None, Some(h2), Some(h3)];
+        let t = TestComponents::new(args);
+
+        // We should see that error surface on new_query
+        assert!(matches!(
+            t.processor
+                .new_query(
+                    t.first_transport.clone_ref(),
+                    t.shard_transport.clone_ref(),
+                    t.query_config
+                )
+                .await
+                .unwrap_err(),
+            NewQueryError::MpcTransport(_)
+        ));
+
+        // We check the internal state of the processor
+        assert!(t.processor.get_status(QueryId).is_none());
+    }
+
+    /// Context:
+    /// * From the standpoint of the leader shard in Helper 1
+    /// * When receiving a new query
+    ///
+    /// This test makes sure that if there's an error reported from other shards, the state is set
+    /// back to ready to accept queries.
+    #[tokio::test]
+    async fn can_recover_from_prepare_shard_error() {
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
         let h3 = prepare_query_handler(|_| async move {
@@ -797,7 +844,7 @@ mod tests {
                         req
                     )
                     .await,
-                Err(PrepareQueryError::WrongTarget)
+                Err(PrepareQueryError::NotLeader(_))
             ));
         }
 
@@ -851,7 +898,11 @@ mod tests {
                 Err(PrepareQueryError::AlreadyRunning)
             ));
             assert!(matches!(
-                t.processor.prepare_shard(&t.shard_transport, req),
+                t.processor.prepare_shard(
+                    &t.shard_network
+                        .transport(HelperIdentity::ONE, ShardIndex::from(1)),
+                    req
+                ),
                 Err(PrepareQueryError::AlreadyRunning)
             ));
         }
