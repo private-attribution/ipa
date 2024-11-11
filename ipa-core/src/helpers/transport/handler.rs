@@ -44,7 +44,7 @@ pub struct HandlerBox<I = HelperIdentity> {
     ///
     /// To break this cycle, transport holds a weak reference to the handler and handler
     /// uses strong references to transport.
-    inner: Mutex<Option<Weak<dyn RequestHandler<Identity = I>>>>,
+    inner: Mutex<Option<Weak<dyn RequestHandler<I>>>>,
 }
 
 impl<I> Default for HandlerBox<I> {
@@ -63,7 +63,7 @@ impl<I: TransportIdentity> HandlerBox<I> {
         }
     }
 
-    pub fn owning_ref(handler: &Arc<dyn RequestHandler<Identity = I>>) -> HandlerRef<I> {
+    pub fn owning_ref(handler: &Arc<dyn RequestHandler<I>>) -> HandlerRef<I> {
         HandlerRef {
             inner: Arc::new(Self {
                 inner: Mutex::new(Some(Arc::downgrade(handler))),
@@ -71,13 +71,13 @@ impl<I: TransportIdentity> HandlerBox<I> {
         }
     }
 
-    fn set_handler(&self, handler: Weak<dyn RequestHandler<Identity = I>>) {
+    fn set_handler(&self, handler: Weak<dyn RequestHandler<I>>) {
         let mut guard = self.inner.lock().unwrap();
         assert!(guard.is_none(), "Handler can be set only once");
         *guard = Some(handler);
     }
 
-    fn handler(&self) -> Arc<dyn RequestHandler<Identity = I>> {
+    fn handler(&self) -> Arc<dyn RequestHandler<I>> {
         self.inner
             .lock()
             .unwrap()
@@ -173,18 +173,13 @@ pub enum Error {
 /// Trait for custom-handling different request types made against MPC helper parties.
 /// There is a limitation for RPITIT that traits can't be made object-safe, hence the use of async_trait
 #[async_trait]
-pub trait RequestHandler: Send + Sync {
-    type Identity: TransportIdentity;
+pub trait RequestHandler<I: TransportIdentity>: Send + Sync {
     /// Handle the incoming request with metadata/headers specified in [`Addr`] and body encoded as
     /// [`BodyStream`].
-    async fn handle(
-        &self,
-        req: Addr<Self::Identity>,
-        data: BodyStream,
-    ) -> Result<HelperResponse, Error>;
+    async fn handle(&self, req: Addr<I>, data: BodyStream) -> Result<HelperResponse, Error>;
 }
 
-pub fn make_owned_handler<'a, I, F, Fut>(handler: F) -> Arc<dyn RequestHandler<Identity = I> + 'a>
+pub fn make_owned_handler<'a, I, F, Fut>(handler: F) -> Arc<dyn RequestHandler<I> + 'a>
 where
     I: TransportIdentity,
     F: Fn(Addr<I>, BodyStream) -> Fut + Send + Sync + 'a,
@@ -195,19 +190,13 @@ where
         phantom: PhantomData<I>,
     }
     #[async_trait]
-    impl<I, F, Fut> RequestHandler for Handler<I, F>
+    impl<I, F, Fut> RequestHandler<I> for Handler<I, F>
     where
         I: TransportIdentity,
         F: Fn(Addr<I>, BodyStream) -> Fut + Send + Sync,
         Fut: Future<Output = Result<HelperResponse, Error>> + Send,
     {
-        type Identity = I;
-
-        async fn handle(
-            &self,
-            req: Addr<Self::Identity>,
-            data: BodyStream,
-        ) -> Result<HelperResponse, Error> {
+        async fn handle(&self, req: Addr<I>, data: BodyStream) -> Result<HelperResponse, Error> {
             (self.inner)(req, data).await
         }
     }
@@ -219,20 +208,14 @@ where
 }
 
 impl<I: TransportIdentity> HandlerRef<I> {
-    pub fn set_handler(&self, handler: Weak<dyn RequestHandler<Identity = I>>) {
+    pub fn set_handler(&self, handler: Weak<dyn RequestHandler<I>>) {
         self.inner.set_handler(handler);
     }
 }
 
 #[async_trait]
-impl<I: TransportIdentity> RequestHandler for HandlerRef<I> {
-    type Identity = I;
-
-    async fn handle(
-        &self,
-        req: Addr<Self::Identity>,
-        data: BodyStream,
-    ) -> Result<HelperResponse, Error> {
+impl<I: TransportIdentity> RequestHandler<I> for HandlerRef<I> {
+    async fn handle(&self, req: Addr<I>, data: BodyStream) -> Result<HelperResponse, Error> {
         self.inner.handler().handle(req, data).await
     }
 }

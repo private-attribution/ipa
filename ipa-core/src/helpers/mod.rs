@@ -59,7 +59,8 @@ pub use gateway::GatewayConfig;
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
 pub use gateway::{
-    MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportImpl,
+    MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportError,
+    ShardTransportImpl,
 };
 pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEnd};
 use ipa_metrics::LabelValue;

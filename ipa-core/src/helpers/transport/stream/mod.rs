@@ -179,6 +179,7 @@ mod tests {
         });
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "Chunk size 1048577 is greater than maximum allowed 1048576 bytes")]
     fn rejects_large_chunks() {

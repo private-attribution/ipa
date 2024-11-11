@@ -2,14 +2,17 @@ use std::{convert::Infallible, iter::zip, num::NonZeroU32, ops::Add};
 
 use futures::{stream, StreamExt, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
+use tracing::{info_span, Instrument};
 use typenum::{Const, Unsigned, U18};
 
-use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
+use self::quicksort::quicksort_ranges_by_key_insecure;
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA5, BA64, BA8},
+        boolean_array::{
+            BooleanArray, BooleanArrayReader, BooleanArrayWriter, BA112, BA5, BA64, BA8,
+        },
         curve_points::RP25519,
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
@@ -37,8 +40,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        SharedValue, TransposeFrom, Vectorizable,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
 };
@@ -202,6 +205,98 @@ where
     }
 }
 
+impl<BK, TV, TS> OPRFIPAInputRow<BK, TV, TS>
+where
+    BK: BooleanArray,
+    TV: BooleanArray,
+    TS: BooleanArray,
+{
+    fn join_fields(
+        match_key: MatchKey,
+        is_trigger: Boolean,
+        breakdown_key: BK,
+        trigger_value: TV,
+        timestamp: TS,
+    ) -> <Self as shuffle::Shuffleable>::Share {
+        let mut share = <Self as shuffle::Shuffleable>::Share::ZERO;
+
+        BooleanArrayWriter::new(&mut share)
+            .write(&match_key)
+            .write_boolean(is_trigger)
+            .write(&breakdown_key)
+            .write(&trigger_value)
+            .write(&timestamp);
+
+        share
+    }
+
+    fn split_fields(
+        share: &<Self as shuffle::Shuffleable>::Share,
+    ) -> (MatchKey, Boolean, BK, TV, TS) {
+        let bits = BooleanArrayReader::new(share);
+        let (match_key, bits) = bits.read();
+        let (is_trigger, bits) = bits.read_boolean();
+        let (breakdown_key, bits) = bits.read();
+        let (trigger_value, bits) = bits.read();
+        let (timestamp, _) = bits.read();
+        (
+            match_key,
+            is_trigger,
+            breakdown_key,
+            trigger_value,
+            timestamp,
+        )
+    }
+}
+
+impl<BK, TV, TS> shuffle::Shuffleable for OPRFIPAInputRow<BK, TV, TS>
+where
+    BK: BooleanArray,
+    TV: BooleanArray,
+    TS: BooleanArray,
+{
+    type Share = BA112;
+
+    fn left(&self) -> Self::Share {
+        Self::join_fields(
+            ReplicatedSecretSharing::left(&self.match_key),
+            self.is_trigger.left(),
+            self.breakdown_key.left(),
+            self.trigger_value.left(),
+            self.timestamp.left(),
+        )
+    }
+
+    fn right(&self) -> Self::Share {
+        Self::join_fields(
+            ReplicatedSecretSharing::right(&self.match_key),
+            self.is_trigger.right(),
+            self.breakdown_key.right(),
+            self.trigger_value.right(),
+            self.timestamp.right(),
+        )
+    }
+
+    fn new(l: Self::Share, r: Self::Share) -> Self {
+        debug_assert!(
+            MatchKey::BITS + 1 + BK::BITS + TV::BITS + TS::BITS <= Self::Share::BITS,
+            "share type {} is too small",
+            std::any::type_name::<Self::Share>(),
+        );
+
+        let left = Self::split_fields(&l);
+        let right = Self::split_fields(&r);
+
+        Self {
+            match_key: ReplicatedSecretSharing::new(left.0, right.0),
+            is_trigger: ReplicatedSecretSharing::new(left.1, right.1),
+            breakdown_key: ReplicatedSecretSharing::new(left.2, right.2),
+            trigger_value: ReplicatedSecretSharing::new(left.3, right.3),
+            timestamp: ReplicatedSecretSharing::new(left.4, right.4),
+        }
+    }
+}
+
 /// IPA OPRF Protocol
 ///
 /// The output of this function is a vector of secret-shared totals, one per breakdown key
@@ -277,7 +372,11 @@ where
     )
     .await?;
 
-    let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), padded_input_rows).await?;
+    let shuffled = ctx
+        .narrow(&Step::Shuffle)
+        .shuffle(padded_input_rows)
+        .instrument(info_span!("shuffle_inputs"))
+        .await?;
     let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), &shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));

@@ -41,6 +41,11 @@ impl Transport for RoleResolvingTransport {
         self.roles.role(helper_identity)
     }
 
+    fn peers(&self) -> impl Iterator<Item = Role> {
+        let this = self.identity();
+        Role::all().iter().filter(move |&v| v != &this).copied()
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,

@@ -20,7 +20,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum IpaSecurityModel {
     SemiHonest,
@@ -186,6 +186,7 @@ pub async fn test_oprf_ipa<F>(
     records: Vec<TestRawDataRecord>,
     expected_results: &[u32],
     config: IpaQueryConfig,
+    security_model: IpaSecurityModel,
 ) where
     F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
     rand::distributions::Standard: rand::distributions::Distribution<F>,
@@ -209,46 +210,106 @@ pub async fn test_oprf_ipa<F>(
         },
     };
     let padding_params = PaddingParameters::default();
-    let result: Vec<_> = if config.per_user_credit_cap == 256 {
-        // Note that many parameters are different in this case, not just the credit cap.
-        // This config is needed for collect_steps coverage.
+
+    let result: Vec<_> = if security_model == IpaSecurityModel::SemiHonest
+        && matches!(
+            config,
+            IpaQueryConfig {
+                per_user_credit_cap: 8,
+                max_breakdown_key: 32,
+                ..
+            }
+        ) {
         world.semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA8, BA20>>| async move {
-                oprf_ipa::<_, BA5, BA8, BA32, BA20, 8, 32>(ctx, input_rows, aws, dp_params, padding_params)
-                    .await
-                    .unwrap()
+            |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA3, BA20>>| async move {
+                oprf_ipa::<_, BA5, BA3, BA32, BA20, 3, 32>(
+                    ctx,
+                    input_rows,
+                    aws,
+                    dp_params,
+                    padding_params,
+                )
+                .await
+                .unwrap()
             },
         )
-    } else {
-        // In these configurations, the credit cap is the only parameter that changes.
+    } else if security_model == IpaSecurityModel::SemiHonest
+        && matches!(
+            config,
+            IpaQueryConfig {
+                per_user_credit_cap: 8,
+                max_breakdown_key: 256,
+                ..
+            }
+        )
+    {
         world.semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
-
-                match config.per_user_credit_cap {
-                    8 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 3, 256>(ctx, input_rows, aws, dp_params, padding_params)
-                    .await
-                    .unwrap(),
-                    16 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 4, 256>(ctx, input_rows, aws, dp_params, padding_params)
-                    .await
-                    .unwrap(),
-                    32 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 5, 256>(ctx, input_rows, aws, dp_params, padding_params)
-                    .await
-                    .unwrap(),
-                    64 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 6, 256>(ctx, input_rows, aws, dp_params, padding_params)
-                    .await
-                    .unwrap(),
-                    128 => oprf_ipa::<_, BA8, BA3, BA32, BA20, 7, 256>(ctx, input_rows, aws, dp_params, padding_params)
-                    .await
-                    .unwrap(),
-                    _ =>
-                    panic!(
-                        "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
-                        config.per_user_credit_cap
-                    ),
-                }
+                oprf_ipa::<_, BA8, BA3, BA32, BA20, 3, 256>(
+                    ctx,
+                    input_rows,
+                    aws,
+                    dp_params,
+                    padding_params,
+                )
+                .await
+                .unwrap()
             },
+        )
+    } else if security_model == IpaSecurityModel::Malicious
+        && matches!(
+            config,
+            IpaQueryConfig {
+                per_user_credit_cap: 8,
+                max_breakdown_key: 32,
+                ..
+            }
+        )
+    {
+        world.malicious(
+            records.into_iter(),
+            |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA3, BA20>>| async move {
+                oprf_ipa::<_, BA5, BA3, BA32, BA20, 3, 32>(
+                    ctx,
+                    input_rows,
+                    aws,
+                    dp_params,
+                    padding_params,
+                )
+                .await
+                .unwrap()
+            },
+        )
+    } else if security_model == IpaSecurityModel::Malicious
+        && matches!(
+            config,
+            IpaQueryConfig {
+                per_user_credit_cap: 8,
+                max_breakdown_key: 256,
+                ..
+            }
+        )
+    {
+        world.malicious(
+            records.into_iter(),
+            |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
+                oprf_ipa::<_, BA8, BA3, BA32, BA20, 3, 256>(
+                    ctx,
+                    input_rows,
+                    aws,
+                    dp_params,
+                    padding_params,
+                )
+                .await
+                .unwrap()
+            },
+        )
+    } else {
+        panic!(
+            "Unsupported configuration: per_user_credit_cap = {:?}, max_breakdown_key = {:?}.",
+            config.per_user_credit_cap, config.max_breakdown_key,
         )
     }
     .await

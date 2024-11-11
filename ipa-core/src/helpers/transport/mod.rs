@@ -5,10 +5,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
 
 #[cfg(feature = "in-memory-infra")]
-use crate::{helpers::in_memory_config::InspectContext, sharding::ShardContext};
+use crate::helpers::in_memory_config::InspectContext;
 use crate::{
     helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
@@ -56,7 +56,7 @@ pub trait Identity:
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: ShardContext,
+        shard: Option<ShardIndex>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext;
@@ -82,7 +82,7 @@ impl Identity for ShardIndex {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: ShardContext,
+        shard: Option<ShardIndex>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext {
@@ -123,7 +123,7 @@ impl Identity for HelperIdentity {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        shard: ShardContext,
+        shard: Option<ShardIndex>,
         helper: HelperIdentity,
         gate: Gate,
     ) -> InspectContext {
@@ -165,7 +165,7 @@ impl Identity for Role {
     #[cfg(feature = "in-memory-infra")]
     fn inspect_context(
         &self,
-        _shard: ShardContext,
+        _shard: Option<ShardIndex>,
         _helper: HelperIdentity,
         _gate: Gate,
     ) -> InspectContext {
@@ -287,14 +287,30 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("One or more peers rejected the request: {failures:?}")]
+pub struct BroadcastError<I: TransportIdentity, E: Debug> {
+    failures: Vec<(I, E)>,
+}
+
+impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> {
+    fn from(value: Vec<(I, E)>) -> Self {
+        Self { failures: value }
+    }
+}
+
 /// Transport that supports per-query,per-step channels
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
     type RecordsStream: BytesStream;
-    type Error: std::fmt::Debug;
+    type Error: std::fmt::Debug + Send;
 
+    /// Return my identity in the network (MPC or Sharded)
     fn identity(&self) -> Self::Identity;
+
+    /// Returns all the other identities, besides me, in this network.
+    fn peers(&self) -> impl Iterator<Item = Self::Identity>;
 
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
@@ -320,6 +336,42 @@ pub trait Transport: Clone + Send + Sync + 'static {
         from: Self::Identity,
         route: R,
     ) -> Self::RecordsStream;
+
+    /// Broadcasts a message to all peers, excluding this instance, collecting all failures and
+    /// successes. This method waits for all responses and returns only when all peers responded.
+    /// The routes and data will be cloned.
+    async fn broadcast<Q, S, R, D>(
+        &self,
+        route: R,
+    ) -> Result<(), BroadcastError<Self::Identity, Self::Error>>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S> + Clone,
+    {
+        let mut futs = FuturesUnordered::new();
+        for peer_identity in self.peers() {
+            futs.push(
+                Self::send(self, peer_identity, route.clone(), futures::stream::empty())
+                    .map(move |v| (peer_identity, v)),
+            );
+        }
+
+        let mut errs = Vec::new();
+        while let Some(r) = futs.next().await {
+            if let Err(e) = r.1 {
+                errs.push((r.0, e));
+            }
+        }
+
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs.into())
+        }
+    }
 
     /// Alias for `Clone::clone`.
     ///

@@ -11,6 +11,7 @@ use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use crate::{
+    error::LengthError,
     ff::{boolean_array::NonZeroPadding, Field, Serializable, U128Conversions},
     impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
@@ -200,8 +201,7 @@ macro_rules! bit_array_impl {
             /// ## Panics
             /// Panics when `u32` to `usize` conversion fails
             impl TryFrom<&[u8]> for $name {
-
-                type Error = crate::error::Error;
+                type Error = LengthError;
 
                 fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
                     if value.len()<=usize::try_from(Self::BITS/8).unwrap() {
@@ -209,11 +209,10 @@ macro_rules! bit_array_impl {
                         bitarray[0..value.len()].copy_from_slice(value);
                         Ok($name(BitArray::<[u8;{($bits+7)/8}],Lsb0>::new(bitarray)))
                     } else {
-                        Err(crate::error::Error::FieldConversion(format!(
-                            "Element bit size {} is too small to hold {} bytes.",
-                            Self::BITS,
-                            value.len()
-                        )))
+                        Err(LengthError {
+                            expected: usize::try_from(Self::BITS).unwrap(),
+                            actual: value.len(),
+                        })
                     }
                 }
             }
@@ -620,10 +619,13 @@ macro_rules! bit_array_impl {
                     let mut rng = thread_rng();
                     let vec = (0..{(<$name>::BITS+7)/8+1}).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
                     let element = <$name>::try_from(vec.as_slice());
-                    assert!(matches!(
-                        element,
-                        Err(crate::error::Error::FieldConversion(_))
-                    ));
+                    assert_eq!(
+                        element.unwrap_err(),
+                        LengthError {
+                            expected: <$name>::BITS as usize,
+                            actual: ((<$name>::BITS + 7) / 8 + 1) as usize,
+                        },
+                    );
                 }
             }
 

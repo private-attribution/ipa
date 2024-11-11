@@ -1,7 +1,7 @@
 use crate::{
     helpers::{HelperIdentity, Role, RoleAssignment},
     protocol::Gate,
-    sharding::{ShardContext, ShardIndex},
+    sharding::ShardIndex,
     sync::Arc,
 };
 
@@ -90,7 +90,7 @@ pub enum InspectContext {
     MpcMessage {
         /// The shard of this instance.
         /// This is `None` for non-sharded helpers.
-        shard: ShardContext,
+        shard: Option<ShardIndex>,
         /// Helper sending this stream.
         source: HelperIdentity,
         /// Helper that will receive this stream.
@@ -161,7 +161,7 @@ impl<F: Fn(&MaliciousHelperContext, &mut Vec<u8>) + Send + Sync> MaliciousHelper
 pub struct MaliciousHelperContext {
     /// The shard of this instance.
     /// This is `None` for non-sharded helpers.
-    pub shard: ShardContext,
+    pub shard: Option<ShardIndex>,
     /// Helper that will receive this stream.
     pub dest: Role,
     /// Circuit gate this stream is tied to.

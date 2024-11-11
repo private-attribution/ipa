@@ -2,11 +2,15 @@ use std::{
     fmt::{Debug, Display, Formatter},
     num::TryFromIntError,
     ops::{Index, IndexMut},
+    sync::Arc,
 };
 
 use ipa_metrics::LabelValue;
 
-use crate::helpers::{HelperIdentity, TransportIdentity};
+use crate::{
+    helpers::{HelperIdentity, TransportIdentity},
+    protocol::prss,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ShardedHelperIdentity {
@@ -86,6 +90,14 @@ impl TryFrom<usize> for ShardIndex {
     }
 }
 
+impl TryFrom<u64> for ShardIndex {
+    type Error = TryFromIntError;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        u32::try_from(value).map(Self)
+    }
+}
+
 impl TryFrom<u128> for ShardIndex {
     type Error = TryFromIntError;
 
@@ -124,10 +136,20 @@ impl LabelValue for ShardIndex {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Clone)]
 pub struct Sharded {
     pub shard_id: ShardIndex,
     pub shard_count: ShardIndex,
+    pub prss: Arc<prss::Endpoint>,
+}
+
+impl Debug for Sharded {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sharded")
+            .field("shard_id", &self.shard_id)
+            .field("shard_count", &self.shard_count)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ShardConfiguration for Sharded {
@@ -167,26 +189,35 @@ pub trait ShardConfiguration {
     }
 }
 
-/// This is a runtime version of `ShardBinding`. It is used by the stream interceptor to
-/// avoid type parameter proliferation. It should not be used by protocols.
-pub type ShardContext = Option<ShardIndex>;
-
 pub trait ShardBinding: Debug + Send + Sync + Clone + 'static {
-    fn context(&self) -> ShardContext;
+    type Randomness;
+    fn shard_id(&self) -> Option<ShardIndex>;
+
+    fn cross_shard_prss(&self) -> Self::Randomness;
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct NotSharded;
 
 impl ShardBinding for NotSharded {
-    fn context(&self) -> ShardContext {
+    type Randomness = ();
+
+    fn shard_id(&self) -> Option<ShardIndex> {
         None
     }
+
+    fn cross_shard_prss(&self) -> Self::Randomness {}
 }
 
 impl ShardBinding for Sharded {
-    fn context(&self) -> ShardContext {
+    type Randomness = Arc<prss::Endpoint>;
+
+    fn shard_id(&self) -> Option<ShardIndex> {
         Some(self.shard_id)
+    }
+
+    fn cross_shard_prss(&self) -> Self::Randomness {
+        Arc::clone(&self.prss)
     }
 }
 

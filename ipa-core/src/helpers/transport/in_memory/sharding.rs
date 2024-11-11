@@ -37,7 +37,7 @@ impl InMemoryShardNetwork {
 
             let mut shard_connections = shard_count
                 .iter()
-                .map(|i| Setup::with_config(i, config_builder.bind_to_shard(i)))
+                .map(|i| Setup::with_config(i, config_builder.with_sharding(Some(i))))
                 .collect::<Vec<_>>();
             for i in 0..shard_connections.len() {
                 let (lhs, rhs) = shard_connections.split_at_mut(i);

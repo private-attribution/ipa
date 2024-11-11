@@ -8,13 +8,10 @@ use generic_array::GenericArray;
 use typenum::{U12, U14, U18, U2, U32, U8};
 
 use crate::{
-    error::{Error, LengthError},
+    error::LengthError,
     ff::{boolean::Boolean, ArrayAccess, Expand, Field, Gf32Bit, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        Block, SharedValue, StdArray, Vectorizable,
-    },
+    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -39,32 +36,14 @@ pub trait BooleanArray:
     + ArrayAccess<Output = Boolean>
     + Expand<Input = Boolean>
     + FromIterator<Boolean>
-    + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
+    + TryInto<Vec<Gf32Bit>, Error = LengthError>
+    + for<'a> TryFrom<&'a BitSlice<u8, Lsb0>, Error = LengthError>
 {
-}
+    #[must_use]
+    fn as_bitslice(&self) -> &BitSlice<u8, Lsb0>;
 
-impl<A> BooleanArray for A where
-    A: SharedValue
-        + ArrayAccess<Output = Boolean>
-        + Expand<Input = Boolean>
-        + FromIterator<Boolean>
-        + TryInto<Vec<Gf32Bit>, Error = crate::error::Error>
-{
-}
-
-impl<A> AdditiveShare<A>
-where
-    A: BooleanArray,
-    AdditiveShare<A>: Sized,
-{
-    pub(crate) fn to_gf32bit(&self) -> Result<impl Iterator<Item = AdditiveShare<Gf32Bit>>, Error> {
-        let left_shares: Vec<Gf32Bit> = self.left().try_into()?;
-        let right_shares: Vec<Gf32Bit> = self.right().try_into()?;
-        Ok(left_shares
-            .into_iter()
-            .zip(right_shares)
-            .map(|(left, right)| AdditiveShare::new(left, right)))
-    }
+    #[must_use]
+    fn as_mut_bitslice(&mut self) -> &mut BitSlice<u8, Lsb0>;
 }
 
 /// Iterator returned by `.iter()` on Boolean arrays
@@ -113,6 +92,66 @@ where
 {
     fn len(&self) -> usize {
         self.iterator.len()
+    }
+}
+
+/// Utility for writing multiple values into a `BooleanArray`.
+pub struct BooleanArrayWriter<'a>(&'a mut BitSlice<u8, Lsb0>);
+
+impl<'a> BooleanArrayWriter<'a> {
+    pub fn new<T: BooleanArray>(inner: &'a mut T) -> Self {
+        Self(inner.as_mut_bitslice())
+    }
+
+    /// Append a single Boolean to our `BooleanArray`.
+    ///
+    /// ## Panics
+    /// If the write goes past the end of the `BooleanArray`.
+    #[allow(clippy::return_self_not_must_use, clippy::must_use_candidate)]
+    pub fn write_boolean(self, bit: Boolean) -> Self {
+        self.0.set(0, bit.into());
+        Self(&mut self.0[1..])
+    }
+
+    /// Append a `BooleanArray` to our `BooleanArray`.
+    ///
+    /// ## Panics
+    /// If the write goes past the end of the `BooleanArray`.
+    #[allow(clippy::return_self_not_must_use)]
+    pub fn write<T: BooleanArray>(self, data: &T) -> Self {
+        let len = usize::try_from(T::BITS).unwrap();
+        self.0[..len].copy_from_bitslice(data.as_bitslice());
+        Self(&mut self.0[len..])
+    }
+}
+
+/// Utility for reading multiple values from a `BooleanArray`.
+pub struct BooleanArrayReader<'a>(&'a BitSlice<u8, Lsb0>);
+
+impl<'a> BooleanArrayReader<'a> {
+    pub fn new<T: BooleanArray>(inner: &'a T) -> Self {
+        Self(inner.as_bitslice())
+    }
+
+    /// Read a single Boolean from our `BooleanArray`.
+    ///
+    /// ## Panics
+    /// If the read goes past the end of the `BooleanArray`.
+    #[must_use]
+    pub fn read_boolean(self) -> (Boolean, Self) {
+        let result = self.0[0].into();
+        (result, Self(self.0.get(1..).unwrap()))
+    }
+
+    /// Read a `BooleanArray` from our `BooleanArray`.
+    ///
+    /// ## Panics
+    /// If the read goes past the end of the `BooleanArray`.
+    #[must_use]
+    pub fn read<T: BooleanArray>(self) -> (T, Self) {
+        let len = usize::try_from(T::BITS).unwrap();
+        let result = T::try_from(&self.0[..len]).unwrap();
+        (result, Self(self.0.get(len..).unwrap()))
     }
 }
 
@@ -297,11 +336,21 @@ macro_rules! boolean_array_impl {
                 },
             };
 
-    type Store = BitArr!(for $bits, in u8, Lsb0);
+            type Store = BitArr!(for $bits, in u8, Lsb0);
 
             /// A Boolean array with $bits bits.
             #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name(pub(super) Store);
+
+            impl BooleanArray for $name {
+                fn as_bitslice(&self) -> &BitSlice<u8, Lsb0> {
+                    Self::as_bitslice(self)
+                }
+
+                fn as_mut_bitslice(&mut self) -> &mut BitSlice<u8, Lsb0> {
+                    Self::as_mut_bitslice(self)
+                }
+            }
 
             impl Default for $name {
                 fn default() -> Self {
@@ -336,6 +385,12 @@ macro_rules! boolean_array_impl {
                 #[must_use]
                 pub fn as_bitslice(&self) -> &BitSlice<u8, Lsb0> {
                     self.0.as_bitslice().get(0..$bits).unwrap()
+                }
+
+                #[inline]
+                #[must_use]
+                pub fn as_mut_bitslice(&mut self) -> &mut BitSlice<u8, Lsb0> {
+                    self.0.as_mut_bitslice().get_mut(0..$bits).unwrap()
                 }
             }
 
@@ -494,6 +549,22 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl TryFrom<&BitSlice<u8, Lsb0>> for $name {
+                type Error = LengthError;
+
+                fn try_from(value: &BitSlice<u8, Lsb0>) -> Result<Self, Self::Error> {
+                    if value.len() != usize::try_from(Self::BITS).unwrap() {
+                        return Err(LengthError {
+                            expected: $bits,
+                            actual: value.len(),
+                        });
+                    }
+                    let mut result = Self::ZERO;
+                    result.as_mut_bitslice().copy_from_bitslice(value);
+                    Ok(result)
+                }
+            }
+
             impl Expand for $name {
                 type Input = Boolean;
 
@@ -525,7 +596,7 @@ macro_rules! boolean_array_impl {
             /// ##Errors
             /// Outputs an error when conversion from raw slice to Galois field element fails.
             impl TryFrom<$name> for Vec<Gf32Bit> {
-                type Error = crate::error::Error;
+                type Error = LengthError;
 
                 fn try_from(value: $name) -> Result<Self, Self::Error> {
                     // len() returns bits, so divide by 8
@@ -825,6 +896,20 @@ macro_rules! boolean_array_impl {
                     slice_random.iter().enumerate().for_each(|(i,bit)| {
                         assert_eq!(bit,bool::from(random.get(i).unwrap()));
                     });
+                }
+
+                #[test]
+                #[should_panic(expected = "out of bounds")]
+                fn bitslice_out_of_range() {
+                    let zero = $name::ZERO;
+                    zero.as_bitslice()[$bits];
+                }
+
+                #[test]
+                #[should_panic(expected = "out of range")]
+                fn bitslice_out_of_range_mut() {
+                    let mut zero = $name::ZERO;
+                    zero.as_mut_bitslice().set($bits, true);
                 }
             }
         }
