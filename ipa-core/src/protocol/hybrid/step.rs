@@ -13,4 +13,7 @@ pub(crate) enum HybridStep {
     #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
     EvalPrf,
     ReshardByPrf,
+    GroupBySum,
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    GroupBySumValidate,
 }
