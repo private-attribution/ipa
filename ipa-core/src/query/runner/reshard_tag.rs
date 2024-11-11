@@ -100,7 +100,7 @@ mod tests {
             let world: TestWorld<WithShards<2>> =
                 TestWorld::with_shards(TestWorldConfig::default());
             world
-                .semi_honest(
+                .malicious(
                     vec![BA8::truncate_from(1u128), BA8::truncate_from(2u128)].into_iter(),
                     |ctx, input| async move {
                         let shard_id = ctx.shard_id();
@@ -130,7 +130,7 @@ mod tests {
             let world: TestWorld<WithShards<2>> =
                 TestWorld::with_shards(TestWorldConfig::default());
             world
-                .semi_honest(
+                .malicious(
                     vec![BA8::truncate_from(1u128), BA8::truncate_from(2u128)].into_iter(),
                     |ctx, input| async move {
                         reshard_aad(

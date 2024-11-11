@@ -37,7 +37,7 @@ use crate::{
         boolean::step::TwoHundredFiftySixBitOpStep,
         context::{
             Context, DZKPContext, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext,
+            ShardedUpgradedMaliciousContext, UpgradedMaliciousContext, UpgradedSemiHonestContext,
         },
         RecordId,
     },
@@ -325,6 +325,50 @@ where
     ) -> Result<Option<<F as Vectorizable<N>>::Array>, Error>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
+    {
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
+        let x_share = self.x().access_without_downgrade();
+        malicious_reveal(ctx, record_id, excluded, x_share).await
+    }
+}
+
+impl<'a, V, const N: usize, CtxF> Reveal<ShardedUpgradedMaliciousContext<'a, CtxF>>
+    for Replicated<V, N>
+where
+    CtxF: ExtendableField,
+    V: SharedValue + Vectorizable<N>,
+{
+    type Output = <V as Vectorizable<N>>::Array;
+
+    async fn generic_reveal<'fut>(
+        &'fut self,
+        ctx: ShardedUpgradedMaliciousContext<'a, CtxF>,
+        record_id: RecordId,
+        excluded: Option<Role>,
+    ) -> Result<Option<<V as Vectorizable<N>>::Array>, Error>
+    where
+        ShardedUpgradedMaliciousContext<'a, CtxF>: 'fut,
+    {
+        malicious_reveal(ctx, record_id, excluded, self).await
+    }
+}
+
+impl<'a, F, const N: usize> Reveal<ShardedUpgradedMaliciousContext<'a, F>>
+    for MaliciousReplicated<F, N>
+where
+    F: ExtendableFieldSimd<N>,
+{
+    type Output = <F as Vectorizable<N>>::Array;
+
+    async fn generic_reveal<'fut>(
+        &'fut self,
+        ctx: ShardedUpgradedMaliciousContext<'a, F>,
+        record_id: RecordId,
+        excluded: Option<Role>,
+    ) -> Result<Option<<F as Vectorizable<N>>::Array>, Error>
+    where
+        ShardedUpgradedMaliciousContext<'a, F>: 'fut,
     {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
