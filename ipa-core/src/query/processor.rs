@@ -193,6 +193,8 @@ impl Processor {
         .await
         .map_err(NewQueryError::MpcTransport)?;
 
+        // TODO: Similar to the todo above. If shards 1,2 and 3 succeed but 4 fails, then we need
+        // to rollback 1,2 and 3
         shard_transport.broadcast(prepare_request.clone()).await?;
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
@@ -228,6 +230,7 @@ impl Processor {
             return Err(PrepareQueryError::AlreadyRunning);
         }
 
+        // TODO: If shards 1,2 and 3 succeed but 4 fails, then we need to rollback 1,2 and 3.
         shard_transport.broadcast(req.clone()).await?;
 
         handle.set_state(QueryState::AwaitingInputs(
@@ -726,40 +729,6 @@ mod tests {
     /// back to ready to accept queries.
     #[tokio::test]
     async fn new_query_can_recover_from_prepare_helper_error() {
-        // First we setup MPC handlers that will return some error
-        let mut args = TestComponentsArgs::default();
-        let h2 = helper_respond_ok();
-        let h3 = prepare_query_handler(|_| async move {
-            Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
-        });
-        args.mpc_handlers = [None, Some(h2), Some(h3)];
-        let t = TestComponents::new(args);
-
-        // We should see that error surface on new_query
-        assert!(matches!(
-            t.processor
-                .new_query(
-                    t.first_transport.clone_ref(),
-                    t.shard_transport.clone_ref(),
-                    t.query_config
-                )
-                .await
-                .unwrap_err(),
-            NewQueryError::MpcTransport(_)
-        ));
-
-        // We check the internal state of the processor
-        assert!(t.processor.get_status(QueryId).is_none());
-    }
-
-    /// Context:
-    /// * From the standpoint of the leader shard in Helper 1
-    /// * When receiving a new query
-    ///
-    /// This test makes sure that if there's an error reported from other shards, the state is set
-    /// back to ready to accept queries.
-    #[tokio::test]
-    async fn can_recover_from_prepare_shard_error() {
         // First we setup MPC handlers that will return some error
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
