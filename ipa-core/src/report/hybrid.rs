@@ -114,14 +114,32 @@ where
     pub breakdown_key: Replicated<BK>,
 }
 
+macro_rules! with_bounds_for {(
+    $T:ident, $($rules:tt)*
+) => (
+    macro_rules! __emit__ { $($rules)* }
+    __emit__! {
+        $T: SharedValue,
+        Replicated<$T>: Serializable,
+        <Replicated<$T> as Serializable>::Size: Add<U16>,
+        <<Replicated<$T> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
+    }
+)}
+
+macro_rules! gen_size {
+    (
+    $T:ident
+) => (
+    <<Replicated<$T> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output
+)}
+
+with_bounds_for! { BK, ( $($bounds:tt)* ) => (
 impl<BK: SharedValue> Serializable for HybridImpressionReport<BK>
 where
-    BK: SharedValue,
-    Replicated<BK>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U16>,
-    <<Replicated<BK> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
+    // Additional bounds could go here
+    $($bounds)*
 {
-    type Size = <<Replicated<BK> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output;
+    type Size = gen_size!(BK);
     type DeserializationError = InvalidHybridReportError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
@@ -145,6 +163,7 @@ where
         Ok(Self { match_key, breakdown_key })
     }
 }
+)}
 
 impl<BK> HybridImpressionReport<BK>
 where
