@@ -58,19 +58,15 @@ impl<S> IntermediateShuffleMessages<S> {
 /// Trait used by protocols to invoke either semi-honest or malicious non-sharded
 /// shuffle, depending on the type of context being used.
 pub trait Shuffle: Context {
-    fn shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    fn shuffle<S>(self, shares: Vec<S>) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
-        S: MaliciousShuffleable,
-        I: IntoIterator<Item = S> + Send,
-        I::IntoIter: ExactSizeIterator + Send;
+        S: MaliciousShuffleable;
 }
 
 impl<T: ShardBinding> Shuffle for SemiHonestContext<'_, T> {
-    fn shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    fn shuffle<S>(self, shares: Vec<S>) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
-        I: IntoIterator<Item = S> + Send,
-        I::IntoIter: ExactSizeIterator + Send,
     {
         let fut = base_shuffle::<_, S, _>(self, shares);
         fut.map(|res| res.map(|(output, _intermediates)| output))
@@ -78,13 +74,11 @@ impl<T: ShardBinding> Shuffle for SemiHonestContext<'_, T> {
 }
 
 impl<T: ShardBinding> Shuffle for MaliciousContext<'_, T> {
-    fn shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    fn shuffle<S>(self, shares: Vec<S>) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
-        I: IntoIterator<Item = S> + Send,
-        I::IntoIter: ExactSizeIterator + Send,
     {
-        malicious_shuffle::<_, S, _>(self, shares)
+        malicious_shuffle::<_, S>(self, shares)
     }
 }
 
@@ -92,19 +86,21 @@ impl<T: ShardBinding> Shuffle for MaliciousContext<'_, T> {
 /// depending on the type of context being used.
 #[allow(dead_code)]
 pub trait ShardedShuffle: ShuffleContext {
-    fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    fn sharded_shuffle<S>(
+        self,
+        shares: Vec<S>,
+    ) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
-        S: MaliciousShuffleable,
-        I: IntoIterator<Item = S> + Send,
-        I::IntoIter: ExactSizeIterator + Send;
+        S: MaliciousShuffleable;
 }
 
 impl ShardedShuffle for SemiHonestContext<'_, Sharded> {
-    fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    fn sharded_shuffle<S>(
+        self,
+        shares: Vec<S>,
+    ) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
-        I: IntoIterator<Item = S> + Send,
-        I::IntoIter: ExactSizeIterator + Send,
     {
         let fut = sharded_shuffle::<_, S, _>(self, shares);
         fut.map(|res| res.map(|(output, _intermediates)| output))
@@ -112,12 +108,13 @@ impl ShardedShuffle for SemiHonestContext<'_, Sharded> {
 }
 
 impl ShardedShuffle for MaliciousContext<'_, Sharded> {
-    fn sharded_shuffle<S, I>(self, shares: I) -> impl Future<Output = Result<Vec<S>, Error>> + Send
+    fn sharded_shuffle<S>(
+        self,
+        shares: Vec<S>,
+    ) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
-        I: IntoIterator<Item = S> + Send,
-        I::IntoIter: ExactSizeIterator + Send,
     {
-        malicious_sharded_shuffle::<_, S, _>(self, shares)
+        malicious_sharded_shuffle::<_, S>(self, shares)
     }
 }

@@ -34,7 +34,7 @@ macro_rules! store_impl {
 pub trait BooleanArray:
     SharedValue
     + ArrayAccess<Output = Boolean>
-    + Expand<Input = Boolean>
+    + Expand<Boolean>
     + FromIterator<Boolean>
     + TryInto<Vec<Gf32Bit>, Error = LengthError>
     + for<'a> TryFrom<&'a BitSlice<u8, Lsb0>, Error = LengthError>
@@ -565,9 +565,7 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl Expand for $name {
-                type Input = Boolean;
-
+            impl Expand<Boolean> for $name {
                 fn expand(v: &Boolean) -> Self {
                     let mut result = <$name as SharedValue>::ZERO;
                     for i in 0..usize::try_from(<$name>::BITS).unwrap() {

@@ -15,7 +15,7 @@ use crate::{
     ff::{boolean_array::NonZeroPadding, Field, Serializable, U128Conversions},
     impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
-    secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
 /// Trait for data types storing arbitrary number of bits.
@@ -657,6 +657,14 @@ bit_array_impl!(
     0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128,
     infallible,
 );
+
+impl Vectorizable<32> for Gf32Bit {
+    type Array = StdArray<Self, 32>;
+}
+
+impl FieldVectorizable<32> for Gf32Bit {
+    type ArrayAlias = StdArray<Self, 32>;
+}
 
 bit_array_impl!(
     bit_array_20,

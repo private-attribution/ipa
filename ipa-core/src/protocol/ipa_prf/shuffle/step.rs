@@ -13,6 +13,7 @@ pub(crate) enum OPRFShuffleStep {
     GenerateZ,
     TransferXY, // Transfer of X2 and Y1
     TransferC,  // Exchange of `C_1` and `C_2`
+    #[step(child = crate::protocol::boolean::step::EightBitStep)]
     GenerateTags,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::VerifyShuffleStep)]
     VerifyShuffle,

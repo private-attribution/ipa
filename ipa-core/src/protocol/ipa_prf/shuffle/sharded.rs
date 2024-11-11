@@ -232,7 +232,7 @@ where
 }
 
 /// Trait for shuffle inputs that consists of two values (left and right).
-pub trait Shuffleable: Send + 'static {
+pub trait Shuffleable: Send + Sync + 'static {
     type Share: ShuffleShare;
 
     fn left(&self) -> Self::Share;
@@ -269,14 +269,22 @@ where
 /// Do not implement this trait directly. Implement `Shuffleable` and add an invocation
 /// of `impl_malicious_shuffle_share` for your `<T as Shuffleable>::Share` type, if it
 /// does not already exist.
-pub trait MaliciousShuffleable: Shuffleable<Share = Self::MaliciousShare> {
+pub trait MaliciousShuffleable:
+    Shuffleable<Share = Self::MaliciousShare> + Clone + Default
+{
     /// The `Shuffleable::Share` type, with additional bounds for malicious shuffle.
     type MaliciousShare: ShuffleShare + MaliciousShuffleShare;
 
-    /// A type that can hold `<Self as Shuffleable>::Share` along with a 32-bit MAC.
+    /// Same as `Self::MaliciousShare::ShareAndTag`.
+    ///
+    /// Having an alias here makes it easier to reference in the code, because the
+    /// shuffle routines have an `S: MaliciousShuffleable` type parameter.
     type ShareAndTag: ShuffleShare + SharedValue;
 
-    /// The offset to the MAC in `ShareAndTag`.
+    /// Same as `Self::MaliciousShare::TAG_OFFSET`.
+    ///
+    /// Having an alias here makes it easier to reference in the code, because the
+    /// shuffle routines have an `S: MaliciousShuffleable` type parameter.
     const TAG_OFFSET: usize;
 
     fn to_gf32bit(
@@ -293,7 +301,7 @@ pub trait MaliciousShuffleable: Shuffleable<Share = Self::MaliciousShare> {
 
 impl<T> MaliciousShuffleable for T
 where
-    T: Shuffleable,
+    T: Shuffleable + Clone + Default,
     T::Share: MaliciousShuffleShare,
 {
     type MaliciousShare = T::Share;
@@ -307,7 +315,14 @@ where
 /// which will check the size of the `ShareAndTag` type and compute `TAG_OFFSET`
 /// automatically.
 pub trait MaliciousShuffleShare: TryInto<Vec<Gf32Bit>, Error = LengthError> {
+    /// A type that can hold `<Self as Shuffleable>::Share` along with a 32-bit MAC.
+    ///
+    /// The `SharedValue` bound is required because some of the malicious shuffle
+    /// routines use `AdditiveShare<ShareAndTag>`. It might be possible to refactor
+    /// those routines to avoid the `SharedValue` bound.
     type ShareAndTag: ShuffleShare + SharedValue;
+
+    /// The offset to the MAC in `ShareAndTag`.
     const TAG_OFFSET: usize;
 }
 
