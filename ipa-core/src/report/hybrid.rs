@@ -1036,10 +1036,9 @@ impl UniqueTagValidator {
     }
 }
 
-#[cfg(all(test, unit_test))]
+#[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod test {
-
-    use rand::{rngs::ThreadRng, thread_rng, Rng};
+    use rand::Rng;
     use typenum::Unsigned;
 
     use super::{
@@ -1067,10 +1066,10 @@ mod test {
         test_fixture::TestWorld,
     };
 
-    fn build_hybrid_report(
-        event_type: HybridEventType,
-        rng: &mut ThreadRng,
-    ) -> HybridReport<BA8, BA3> {
+    fn build_hybrid_report<R>(event_type: HybridEventType, rng: &mut R) -> HybridReport<BA8, BA3>
+    where
+        R: Rng,
+    {
         match event_type {
             HybridEventType::Impression => {
                 HybridReport::Impression(HybridImpressionReport::<BA8> {
@@ -1087,8 +1086,10 @@ mod test {
         }
     }
 
-    fn generate_random_tag() -> UniqueTag {
-        let mut rng = thread_rng();
+    fn generate_random_tag<R>(rng: &mut R) -> UniqueTag
+    where
+        R: Rng,
+    {
         let mut bytes = [0u8; 16];
         rng.fill(&mut bytes[..]);
         UniqueTag { bytes }
@@ -1102,25 +1103,28 @@ mod test {
     /// as the previous `IndistingushableHybridReport`.
     #[test]
     fn convert_hybrid_conversion_report_to_indistinguishable_report() {
-        let mut rng = thread_rng();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let conversion_report = HybridConversionReport::<BA3> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            value: AdditiveShare::new(rng.gen(), rng.gen()),
-        };
-        let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
-            conversion_report.clone().into();
-        assert_eq!(
-            conversion_report.match_key,
-            indistinguishable_report.match_key
-        );
-        assert_eq!(conversion_report.value, indistinguishable_report.value);
-        assert_eq!(AdditiveShare::ZERO, indistinguishable_report.breakdown_key);
+            let conversion_report = HybridConversionReport::<BA3> {
+                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                value: AdditiveShare::new(rng.gen(), rng.gen()),
+            };
+            let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
+                conversion_report.clone().into();
+            assert_eq!(
+                conversion_report.match_key,
+                indistinguishable_report.match_key
+            );
+            assert_eq!(conversion_report.value, indistinguishable_report.value);
+            assert_eq!(AdditiveShare::ZERO, indistinguishable_report.breakdown_key);
 
-        let hybrid_report = HybridReport::Conversion::<BA8, BA3>(conversion_report.clone());
-        let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
-            hybrid_report.clone().into();
-        assert_eq!(indistinguishable_report, indistinguishable_report2);
+            let hybrid_report = HybridReport::Conversion::<BA8, BA3>(conversion_report.clone());
+            let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
+                hybrid_report.clone().into();
+            assert_eq!(indistinguishable_report, indistinguishable_report2);
+        });
     }
 
     /// We create a random `HybridImpressionReport`, convert it into an
@@ -1131,89 +1135,103 @@ mod test {
     /// as the previous `IndistingushableHybridReport`.
     #[test]
     fn convert_hybrid_impression_report_to_indistinguishable_report() {
-        let mut rng = thread_rng();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let impression_report = HybridImpressionReport::<BA8> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-        };
-        let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
-            impression_report.clone().into();
-        assert_eq!(
-            impression_report.match_key,
-            indistinguishable_report.match_key
-        );
-        assert_eq!(AdditiveShare::ZERO, indistinguishable_report.value);
-        assert_eq!(
-            impression_report.breakdown_key,
-            indistinguishable_report.breakdown_key
-        );
+            let impression_report = HybridImpressionReport::<BA8> {
+                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            };
+            let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
+                impression_report.clone().into();
+            assert_eq!(
+                impression_report.match_key,
+                indistinguishable_report.match_key
+            );
+            assert_eq!(AdditiveShare::ZERO, indistinguishable_report.value);
+            assert_eq!(
+                impression_report.breakdown_key,
+                indistinguishable_report.breakdown_key
+            );
 
-        let hybrid_report = HybridReport::Impression::<BA8, BA3>(impression_report.clone());
-        let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
-            hybrid_report.clone().into();
-        assert_eq!(indistinguishable_report, indistinguishable_report2);
+            let hybrid_report = HybridReport::Impression::<BA8, BA3>(impression_report.clone());
+            let indistinguishable_report2: IndistinguishableHybridReport<BA8, BA3> =
+                hybrid_report.clone().into();
+            assert_eq!(indistinguishable_report, indistinguishable_report2);
+        });
     }
 
     #[test]
     fn unique_encrypted_hybrid_reports() {
-        let tag1 = generate_random_tag();
-        let tag2 = generate_random_tag();
-        let tag3 = generate_random_tag();
-        let tag4 = generate_random_tag();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let mut unique_bytes = UniqueTagValidator::new(4);
+            let tag1 = generate_random_tag(&mut rng);
+            let tag2 = generate_random_tag(&mut rng);
+            let tag3 = generate_random_tag(&mut rng);
+            let tag4 = generate_random_tag(&mut rng);
 
-        unique_bytes.check_duplicate(&tag1).unwrap();
+            let mut unique_bytes = UniqueTagValidator::new(4);
 
-        unique_bytes
-            .check_duplicates(&[tag2.clone(), tag3.clone()])
-            .unwrap();
-        let expected_err = unique_bytes.check_duplicate(&tag2);
-        assert!(matches!(expected_err, Err(Error::DuplicateBytes(4))));
+            unique_bytes.check_duplicate(&tag1).unwrap();
 
-        let expected_err = unique_bytes.check_duplicates(&[tag4, tag3]);
-        assert!(matches!(expected_err, Err(Error::DuplicateBytes(6))));
+            unique_bytes
+                .check_duplicates(&[tag2.clone(), tag3.clone()])
+                .unwrap();
+            let expected_err = unique_bytes.check_duplicate(&tag2);
+            assert!(matches!(expected_err, Err(Error::DuplicateBytes(4))));
+
+            let expected_err = unique_bytes.check_duplicates(&[tag4, tag3]);
+            assert!(matches!(expected_err, Err(Error::DuplicateBytes(6))));
+        });
     }
 
     #[test]
     fn serialization_hybrid_impression() {
-        let mut rng = thread_rng();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let hybrid_impression_report = HybridImpressionReport::<BA8> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-        };
-        let mut hybrid_impression_report_bytes =
-            [0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
-        hybrid_impression_report.serialize(GenericArray::from_mut_slice(
-            &mut hybrid_impression_report_bytes[..],
-        ));
-        let hybrid_impression_report2 = HybridImpressionReport::<BA8>::deserialize(
-            GenericArray::from_mut_slice(&mut hybrid_impression_report_bytes[..]),
-        )
-        .unwrap();
-        assert_eq!(hybrid_impression_report, hybrid_impression_report2);
+            let hybrid_impression_report = HybridImpressionReport::<BA8> {
+                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            };
+            let mut hybrid_impression_report_bytes =
+                [0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
+            hybrid_impression_report.serialize(GenericArray::from_mut_slice(
+                &mut hybrid_impression_report_bytes[..],
+            ));
+            let hybrid_impression_report2 = HybridImpressionReport::<BA8>::deserialize(
+                GenericArray::from_mut_slice(&mut hybrid_impression_report_bytes[..]),
+            )
+            .unwrap();
+            assert_eq!(hybrid_impression_report, hybrid_impression_report2);
+        });
     }
 
     #[test]
     fn serialization_hybrid_conversion() {
-        let mut rng = thread_rng();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let hybrid_conversion_report = HybridConversionReport::<BA3> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            value: AdditiveShare::new(rng.gen(), rng.gen()),
-        };
-        let mut hybrid_conversion_report_bytes =
-            [0u8; <HybridConversionReport<BA3> as Serializable>::Size::USIZE];
-        hybrid_conversion_report.serialize(GenericArray::from_mut_slice(
-            &mut hybrid_conversion_report_bytes[..],
-        ));
-        let hybrid_conversion_report2 = HybridConversionReport::<BA3>::deserialize(
-            GenericArray::from_mut_slice(&mut hybrid_conversion_report_bytes[..]),
-        )
-        .unwrap();
-        assert_eq!(hybrid_conversion_report, hybrid_conversion_report2);
+            let hybrid_conversion_report = HybridConversionReport::<BA3> {
+                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                value: AdditiveShare::new(rng.gen(), rng.gen()),
+            };
+            let mut hybrid_conversion_report_bytes =
+                [0u8; <HybridConversionReport<BA3> as Serializable>::Size::USIZE];
+            hybrid_conversion_report.serialize(GenericArray::from_mut_slice(
+                &mut hybrid_conversion_report_bytes[..],
+            ));
+            let hybrid_conversion_report2 = HybridConversionReport::<BA3>::deserialize(
+                GenericArray::from_mut_slice(&mut hybrid_conversion_report_bytes[..]),
+            )
+            .unwrap();
+            assert_eq!(hybrid_conversion_report, hybrid_conversion_report2);
+        });
     }
 
     #[test]
@@ -1287,131 +1305,154 @@ mod test {
 
     #[test]
     fn enc_dec_roundtrip_hybrid_impression() {
-        let mut rng = thread_rng();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let hybrid_impression_report = HybridImpressionReport::<BA8> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-        };
+            let hybrid_impression_report = HybridImpressionReport::<BA8> {
+                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            };
 
-        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
-        let key_id = 0;
+            let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
+            let key_id = 0;
 
-        let info = HybridImpressionInfo::new(key_id, HELPER_ORIGIN).unwrap();
+            let info = HybridImpressionInfo::new(key_id, HELPER_ORIGIN).unwrap();
 
-        let enc_report_bytes = hybrid_impression_report
-            .encrypt(key_id, &key_registry, &info, &mut rng)
-            .unwrap();
+            let enc_report_bytes = hybrid_impression_report
+                .encrypt(key_id, &key_registry, &info, &mut rng)
+                .unwrap();
 
-        let enc_report =
-            EncryptedHybridImpressionReport::<BA8>::from_bytes(enc_report_bytes.into()).unwrap();
-        let dec_report: HybridImpressionReport<BA8> =
-            enc_report.decrypt(&key_registry, &info).unwrap();
+            let enc_report =
+                EncryptedHybridImpressionReport::<BA8>::from_bytes(enc_report_bytes.into())
+                    .unwrap();
+            let dec_report: HybridImpressionReport<BA8> =
+                enc_report.decrypt(&key_registry, &info).unwrap();
 
-        assert_eq!(dec_report, hybrid_impression_report);
+            assert_eq!(dec_report, hybrid_impression_report);
+        });
     }
 
     #[test]
     fn enc_dec_roundtrip_hybrid_conversion() {
-        let mut rng = thread_rng();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let hybrid_conversion_report = HybridConversionReport::<BA3> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            value: AdditiveShare::new(rng.gen(), rng.gen()),
-        };
+            let hybrid_conversion_report = HybridConversionReport::<BA3> {
+                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                value: AdditiveShare::new(rng.gen(), rng.gen()),
+            };
 
-        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
-        let key_id = 0;
+            let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
+            let key_id = 0;
 
-        let info =
-            HybridConversionInfo::new(key_id, HELPER_ORIGIN, "meta.com", 1_729_707_432, 5.0, 1.1)
-                .unwrap();
-
-        let enc_report_bytes = hybrid_conversion_report
-            .encrypt(key_id, &key_registry, &info, &mut rng)
+            let info = HybridConversionInfo::new(
+                key_id,
+                HELPER_ORIGIN,
+                "meta.com",
+                1_729_707_432,
+                5.0,
+                1.1,
+            )
             .unwrap();
 
-        let enc_report =
-            EncryptedHybridConversionReport::<BA3>::from_bytes(enc_report_bytes.into()).unwrap();
-        let dec_report: HybridConversionReport<BA3> =
-            enc_report.decrypt(&key_registry, &info).unwrap();
+            let enc_report_bytes = hybrid_conversion_report
+                .encrypt(key_id, &key_registry, &info, &mut rng)
+                .unwrap();
 
-        assert_eq!(dec_report, hybrid_conversion_report);
+            let enc_report =
+                EncryptedHybridConversionReport::<BA3>::from_bytes(enc_report_bytes.into())
+                    .unwrap();
+            let dec_report: HybridConversionReport<BA3> =
+                enc_report.decrypt(&key_registry, &info).unwrap();
+
+            assert_eq!(dec_report, hybrid_conversion_report);
+        });
     }
 
     #[test]
     fn enc_dec_roundtrip_hybrid() {
-        let mut rng = thread_rng();
-        let b = HybridEventType::Impression;
-        let hybrid_report = build_hybrid_report(b, &mut rng);
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
-        let key_id = 0;
+            let b = HybridEventType::Impression;
+            let hybrid_report = build_hybrid_report(b, &mut rng);
 
-        let info =
-            HybridInfo::new(key_id, HELPER_ORIGIN, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
+            let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
+            let key_id = 0;
 
-        let enc_report_bytes = hybrid_report
-            .encrypt(key_id, &key_registry, &info, &mut rng)
-            .unwrap();
+            let info = HybridInfo::new(key_id, HELPER_ORIGIN, "meta.com", 1_729_707_432, 5.0, 1.1)
+                .unwrap();
 
-        let enc_report =
-            EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes.into()).unwrap();
-        let dec_report: HybridReport<BA8, BA3> = enc_report.decrypt(&key_registry, &info).unwrap();
+            let enc_report_bytes = hybrid_report
+                .encrypt(key_id, &key_registry, &info, &mut rng)
+                .unwrap();
 
-        assert_eq!(dec_report, hybrid_report);
+            let enc_report =
+                EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes.into()).unwrap();
+            let dec_report: HybridReport<BA8, BA3> =
+                enc_report.decrypt(&key_registry, &info).unwrap();
+
+            assert_eq!(dec_report, hybrid_report);
+        });
     }
 
     #[test]
     fn enc_report_serialization() {
-        let mut rng = thread_rng();
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
 
-        let hybrid_conversion_report = HybridConversionReport::<BA3> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            value: AdditiveShare::new(rng.gen(), rng.gen()),
-        };
+            let hybrid_conversion_report = HybridConversionReport::<BA3> {
+                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                value: AdditiveShare::new(rng.gen(), rng.gen()),
+            };
 
-        let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
-        let key_id = 0;
+            let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
+            let key_id = 0;
 
-        let info =
-            HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
+            let info =
+                HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
 
-        let enc_report_bytes = hybrid_conversion_report
-            .encrypt(key_id, &key_registry, &info.conversion, &mut rng)
-            .unwrap();
+            let enc_report_bytes = hybrid_conversion_report
+                .encrypt(key_id, &key_registry, &info.conversion, &mut rng)
+                .unwrap();
 
-        let mut enc_report_bytes2 = enc_report_bytes.clone();
+            let mut enc_report_bytes2 = enc_report_bytes.clone();
 
-        let enc_report =
-            EncryptedHybridConversionReport::<BA3>::from_bytes(enc_report_bytes.into()).unwrap();
-        let dec_report: HybridConversionReport<BA3> =
-            enc_report.decrypt(&key_registry, &info.conversion).unwrap();
-        assert_eq!(dec_report, hybrid_conversion_report);
-
-        // Prepend a byte to the ciphertext to mark it as a ConversionReport
-        enc_report_bytes2.splice(0..0, [HybridEventType::Conversion as u8]);
-
-        let enc_report2 =
-            EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes2.into()).unwrap();
-        let enc_report3 = enc_report2.clone();
-
-        // Case 1: Match first, then decrypt
-        match enc_report2 {
-            EncryptedHybridReport::Impression(_) => panic!("Expected conversion report"),
-            EncryptedHybridReport::Conversion(enc_report_conv) => {
-                let dec_report2: HybridConversionReport<BA3> = enc_report_conv
-                    .decrypt(&key_registry, &info.conversion)
+            let enc_report =
+                EncryptedHybridConversionReport::<BA3>::from_bytes(enc_report_bytes.into())
                     .unwrap();
-                assert_eq!(dec_report2, hybrid_conversion_report);
+            let dec_report: HybridConversionReport<BA3> =
+                enc_report.decrypt(&key_registry, &info.conversion).unwrap();
+            assert_eq!(dec_report, hybrid_conversion_report);
+
+            // Prepend a byte to the ciphertext to mark it as a ConversionReport
+            enc_report_bytes2.splice(0..0, [HybridEventType::Conversion as u8]);
+
+            let enc_report2 =
+                EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes2.into()).unwrap();
+            let enc_report3 = enc_report2.clone();
+
+            // Case 1: Match first, then decrypt
+            match enc_report2 {
+                EncryptedHybridReport::Impression(_) => panic!("Expected conversion report"),
+                EncryptedHybridReport::Conversion(enc_report_conv) => {
+                    let dec_report2: HybridConversionReport<BA3> = enc_report_conv
+                        .decrypt(&key_registry, &info.conversion)
+                        .unwrap();
+                    assert_eq!(dec_report2, hybrid_conversion_report);
+                }
             }
-        }
-        // Case 2: Decrypt directly
-        let dec_report3 = enc_report3.decrypt(&key_registry, &info).unwrap();
-        assert_eq!(
-            dec_report3,
-            HybridReport::Conversion(hybrid_conversion_report)
-        );
+            // Case 2: Decrypt directly
+            let dec_report3 = enc_report3.decrypt(&key_registry, &info).unwrap();
+            assert_eq!(
+                dec_report3,
+                HybridReport::Conversion(hybrid_conversion_report)
+            );
+        });
     }
 
     #[test]
