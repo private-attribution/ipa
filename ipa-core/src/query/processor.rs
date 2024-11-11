@@ -469,6 +469,7 @@ mod tests {
         helpers::{
             make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            routing::Addr,
             ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
             InMemoryShardNetwork, InMemoryTransport, RequestHandler, RoleAssignment, Transport,
             TransportIdentity,
@@ -483,13 +484,10 @@ mod tests {
 
     fn prepare_query_handler<F, Fut, I: TransportIdentity>(cb: F) -> Arc<dyn RequestHandler<I>>
     where
-        F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
+        F: Fn(Addr<I>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
     {
-        make_owned_handler(move |req, _| {
-            let prepare_query = req.into().unwrap();
-            cb(prepare_query)
-        })
+        make_owned_handler(move |req, _| cb(req))
     }
 
     fn helper_respond_ok() -> Arc<dyn RequestHandler<HelperIdentity>> {
