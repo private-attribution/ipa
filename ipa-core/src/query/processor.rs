@@ -185,6 +185,7 @@ impl Processor {
             roles: roles.clone(),
         };
         // Inform other helpers about new query. If any of them rejects it, this join will fail
+        // TODO: If H2 succeeds and H3 fails, we need to rollback H2.
         try_join(
             transport.send(left, prepare_request.clone(), stream::empty()),
             transport.send(right, prepare_request.clone(), stream::empty()),
@@ -724,7 +725,7 @@ mod tests {
     /// This test makes sure that if there's an error reported from other helpers, the state is set
     /// back to ready to accept queries.
     #[tokio::test]
-    async fn can_recover_from_prepare_helper_error() {
+    async fn new_query_can_recover_from_prepare_helper_error() {
         // First we setup MPC handlers that will return some error
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
@@ -759,6 +760,7 @@ mod tests {
     /// back to ready to accept queries.
     #[tokio::test]
     async fn can_recover_from_prepare_shard_error() {
+        // First we setup MPC handlers that will return some error
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
         let h3 = prepare_query_handler(|_| async move {
@@ -766,22 +768,22 @@ mod tests {
         });
         args.mpc_handlers = [None, Some(h2), Some(h3)];
         let t = TestComponents::new(args);
-        t.processor
-            .new_query(
-                t.first_transport.clone_ref(),
-                t.shard_transport.clone_ref(),
-                t.query_config,
-            )
-            .await
-            .unwrap_err();
 
+        // We should see that error surface on new_query
         assert!(matches!(
             t.processor
-                .new_query(t.first_transport, t.shard_transport, t.query_config)
+                .new_query(
+                    t.first_transport.clone_ref(),
+                    t.shard_transport.clone_ref(),
+                    t.query_config
+                )
                 .await
                 .unwrap_err(),
             NewQueryError::MpcTransport(_)
         ));
+
+        // We check the internal state of the processor
+        assert!(t.processor.get_status(QueryId).is_none());
     }
 
     mod prepare {
