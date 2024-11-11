@@ -458,7 +458,7 @@ pub enum QueryKillStatus {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{array, future::Future, marker::PhantomData, sync::Arc};
+    use std::{array, future::Future, sync::Arc};
 
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
@@ -467,7 +467,11 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            make_owned_handler, query::{PrepareQuery, QueryConfig, QueryStatusRequest, QueryType::TestMultiply}, routing::RouteId, ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport, RequestHandler, RoleAssignment, Transport, TransportIdentity
+            make_owned_handler,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
+            InMemoryShardNetwork, InMemoryTransport, RequestHandler, RoleAssignment, Transport,
+            TransportIdentity,
         },
         protocol::QueryId,
         query::{
@@ -477,7 +481,7 @@ mod tests {
         sharding::ShardIndex,
     };
 
-    /*fn prepare_query_handler<F, Fut, I: TransportIdentity>(cb: F) -> Arc<dyn RequestHandler<I>>
+    fn prepare_query_handler<F, Fut, I: TransportIdentity>(cb: F) -> Arc<dyn RequestHandler<I>>
     where
         F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
@@ -486,65 +490,14 @@ mod tests {
             let prepare_query = req.into().unwrap();
             cb(prepare_query)
         })
-    }*/
-
-    fn create_handler<FPQ, FQS, Fut, I>(prepare_handler: FPQ, status_hanler: FQS) -> Arc<dyn RequestHandler<I>>
-    where
-        FPQ: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
-        FQS: Fn(QueryStatusRequest) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
-        I: TransportIdentity,
-    {
-        make_owned_handler(move |req, _| {
-            match req.route {
-                RouteId::PrepareQuery => prepare_handler(req.into().unwrap()),
-                RouteId::QueryStatus => status_hanler(req.into().unwrap()),
-                _ => panic!("unexpected route {:?}", req.route)
-            }
-        })
-    }
-
-    async fn respond_ok<T>(_: T) -> Result<HelperResponse, ApiError> {
-        Ok(HelperResponse::ok())
-    }
-
-    struct TestHandler<I: TransportIdentity> {
-        phantom: PhantomData<I>,
-        prepare_handle: Option<ApiError>,
-        status_handle: Option<ApiError>,
-    }
-
-    impl<I: TransportIdentity> TestHandler<I> {
-        fn create_response(opterror: &mut Option<ApiError>) -> Result<HelperResponse, ApiError> {
-            if let Some(error) = opterror.take() {
-                Err(error)
-            } else {
-                Ok(HelperResponse::ok())
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl<I: TransportIdentity> RequestHandler<I> for TestHandler<I> {
-        async fn handle(
-            &self,
-            req: crate::helpers::routing::Addr<I>,
-            _data: crate::helpers::BodyStream,
-        ) -> Result<HelperResponse, ApiError> {
-            match req.route {
-                //RouteId::PrepareQuery => Self::create_response(&mut self.prepare_error),
-                //RouteId::QueryStatus => Self::create_response(&mut self.status_error),
-                _ => panic!("unexpected route {:?}", req.route)
-            }
-        }
     }
 
     fn helper_respond_ok() -> Arc<dyn RequestHandler<HelperIdentity>> {
-        create_handler(respond_ok, respond_ok)
+        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
     }
 
     fn shard_respond_ok(_si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-        create_handler(respond_ok::<PrepareQuery>, respond_ok::<QueryStatusRequest>)
+        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
     }
 
     fn test_multiply_config() -> QueryConfig {
@@ -664,13 +617,13 @@ mod tests {
         let barrier = Arc::new(Barrier::new(3));
         let h2_barrier = Arc::clone(&barrier);
         let h3_barrier = Arc::clone(&barrier);
-        let h2 = create_handler(move |_| {
+        let h2 = prepare_query_handler(move |_| {
             let barrier = Arc::clone(&h2_barrier);
-            async move |_| {
+            async move {
                 barrier.wait().await;
                 Ok(HelperResponse::ok())
             }
-        }, respond_ok);
+        });
         let h3 = prepare_query_handler(move |_| {
             let barrier = Arc::clone(&h3_barrier);
             async move {
@@ -784,7 +737,11 @@ mod tests {
         let t = TestComponents::new(args);
         let r = t
             .processor
-            .new_query(t.first_transport, t.shard_transport, t.query_config)
+            .new_query(
+                t.first_transport,
+                t.shard_transport.clone_ref(),
+                t.query_config,
+            )
             .await;
         // The following makes sure the error is a broadcast error from shard 2
         assert!(r.is_err());
@@ -796,7 +753,10 @@ mod tests {
             }
         }
         assert!(matches!(
-            t.processor.query_status(QueryId).unwrap_err(),
+            t.processor
+                .query_status(t.shard_transport, QueryId)
+                .await
+                .unwrap_err(),
             QueryStatusError::NoSuchQuery(_)
         ));
     }
