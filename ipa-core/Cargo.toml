@@ -248,6 +248,11 @@ name = "transpose"
 harness = false
 required-features = ["enable-benches"]
 
+[[bench]]
+name = "dzkp_convert_prover"
+harness = false
+required-features = ["enable-benches"]
+
 [[test]]
 name = "helper_networks"
 required-features = [
