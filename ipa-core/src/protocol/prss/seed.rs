@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::Infallible, sync::Mutex};
+use std::{collections::HashMap, convert::Infallible};
 
 use generic_array::GenericArray;
 use typenum::{Unsigned, U2, U32, U64};
@@ -9,6 +9,7 @@ use crate::{
         Endpoint, EndpointInner, FromPrss, FromRandom, GeneratorFactory, PrssIndex,
         SharedRandomness,
     },
+    sync::Mutex,
 };
 
 /// Constructing a seed is only allowed through PRSS.
@@ -129,7 +130,7 @@ impl SeededEndpointSetup {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use rand::{rngs::StdRng, thread_rng};
     use rand_core::{CryptoRngCore, SeedableRng};
