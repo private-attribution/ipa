@@ -1036,7 +1036,7 @@ impl UniqueTagValidator {
     }
 }
 
-#[cfg(all(test, unit_test, feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod test {
     use rand::Rng;
     use typenum::Unsigned;
@@ -1062,8 +1062,7 @@ mod test {
             semi_honest::{AdditiveShare as Replicated, AdditiveShare},
             ReplicatedSecretSharing,
         },
-        test_executor::run,
-        test_fixture::TestWorld,
+        test_executor::run_random,
     };
 
     fn build_hybrid_report<R>(event_type: HybridEventType, rng: &mut R) -> HybridReport<BA8, BA3>
@@ -1103,10 +1102,7 @@ mod test {
     /// as the previous `IndistingushableHybridReport`.
     #[test]
     fn convert_hybrid_conversion_report_to_indistinguishable_report() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
@@ -1135,10 +1131,7 @@ mod test {
     /// as the previous `IndistingushableHybridReport`.
     #[test]
     fn convert_hybrid_impression_report_to_indistinguishable_report() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
@@ -1164,10 +1157,7 @@ mod test {
 
     #[test]
     fn unique_encrypted_hybrid_reports() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let tag1 = generate_random_tag(&mut rng);
             let tag2 = generate_random_tag(&mut rng);
             let tag3 = generate_random_tag(&mut rng);
@@ -1190,10 +1180,7 @@ mod test {
 
     #[test]
     fn serialization_hybrid_impression() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
@@ -1213,10 +1200,7 @@ mod test {
 
     #[test]
     fn serialization_hybrid_conversion() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
@@ -1305,10 +1289,7 @@ mod test {
 
     #[test]
     fn enc_dec_roundtrip_hybrid_impression() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
@@ -1335,10 +1316,7 @@ mod test {
 
     #[test]
     fn enc_dec_roundtrip_hybrid_conversion() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
@@ -1373,10 +1351,7 @@ mod test {
 
     #[test]
     fn enc_dec_roundtrip_hybrid() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let b = HybridEventType::Impression;
             let hybrid_report = build_hybrid_report(b, &mut rng);
 
@@ -1401,10 +1376,7 @@ mod test {
 
     #[test]
     fn enc_report_serialization() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-
+        run_random(|mut rng| async move {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
