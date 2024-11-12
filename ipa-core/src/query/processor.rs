@@ -374,14 +374,14 @@ impl Processor {
         Ok(status)
     }
 
-    /// Returns the staus of this single shard.
+    /// Compares this shard status against the given type. Returns an error if different.
     ///
     /// ## Errors
     /// If query is not registered on this helper.
     ///
     /// ## Panics
     /// If the query collection mutex is poisoned.
-    pub fn shard_ready(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
+    pub fn shard_status(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
         let status = self
             .get_status(query_id)
             .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
@@ -482,7 +482,7 @@ mod tests {
         sharding::ShardIndex,
     };
 
-    fn prepare_query_handler<F, Fut, I: TransportIdentity>(cb: F) -> Arc<dyn RequestHandler<I>>
+    fn create_handler<F, Fut, I: TransportIdentity>(cb: F) -> Arc<dyn RequestHandler<I>>
     where
         F: Fn(Addr<I>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
@@ -491,11 +491,11 @@ mod tests {
     }
 
     fn helper_respond_ok() -> Arc<dyn RequestHandler<HelperIdentity>> {
-        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
+        create_handler(|_| async { Ok(HelperResponse::ok()) })
     }
 
     fn shard_respond_ok(_si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
+        create_handler(|_| async { Ok(HelperResponse::ok()) })
     }
 
     fn test_multiply_config() -> QueryConfig {
@@ -615,14 +615,14 @@ mod tests {
         let barrier = Arc::new(Barrier::new(3));
         let h2_barrier = Arc::clone(&barrier);
         let h3_barrier = Arc::clone(&barrier);
-        let h2 = prepare_query_handler(move |_| {
+        let h2 = create_handler(move |_| {
             let barrier = Arc::clone(&h2_barrier);
             async move {
                 barrier.wait().await;
                 Ok(HelperResponse::ok())
             }
         });
-        let h3 = prepare_query_handler(move |_| {
+        let h3 = create_handler(move |_| {
             let barrier = Arc::clone(&h3_barrier);
             async move {
                 barrier.wait().await;
@@ -696,7 +696,7 @@ mod tests {
     async fn prepare_error() {
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
-        let h3 = prepare_query_handler(|_| async move {
+        let h3 = create_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
         });
         args.mpc_handlers = [None, Some(h2), Some(h3)];
@@ -719,7 +719,7 @@ mod tests {
     #[tokio::test]
     async fn shard_prepare_error() {
         fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-            prepare_query_handler(move |_| async move {
+            create_handler(move |_| async move {
                 if si == ShardIndex(2) {
                     Err(ApiError::QueryPrepare(PrepareQueryError::AlreadyRunning))
                 } else {
@@ -770,7 +770,7 @@ mod tests {
         // First we setup MPC handlers that will return some error
         let mut args = TestComponentsArgs::default();
         let h2 = helper_respond_ok();
-        let h3 = prepare_query_handler(|_| async move {
+        let h3 = create_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
         });
         args.mpc_handlers = [None, Some(h2), Some(h3)];
@@ -920,6 +920,49 @@ mod tests {
                 ),
                 Err(PrepareQueryError::AlreadyRunning)
             ));
+        }
+    }
+
+    mod query_status {
+        use crate::protocol::QueryId;
+
+        use super::*;
+
+        /// * From the standpoint of leader shard in Helper 1
+        /// * On query_status
+        /// 
+        /// If one of my shards isn't ready
+        #[tokio::test]
+        async fn combined_status_response() {
+            fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
+                create_handler(move |_| async move {
+                    match si {
+                        ShardIndex(1) => Ok(HelperResponse::from(QueryStatus::AwaitingInputs)),
+                        ShardIndex(2) => Ok(HelperResponse::from(QueryStatus::Running)),
+                        ShardIndex(3) => Ok(HelperResponse::from(QueryStatus::Completed)),
+                        _ => Ok(HelperResponse::from(QueryStatus::Running))
+                    }
+                })
+            }
+            let mut args = TestComponentsArgs {
+                shard_count: 4,
+                ..Default::default()
+            };
+            args.set_shard_handler(shard_handle);
+            let t = TestComponents::new(args);
+            let _ = t.processor
+                .new_query(
+                    Transport::clone_ref(&t.first_transport),
+                    Transport::clone_ref(&t.shard_transport),
+                    t.query_config,
+                )
+                .await
+                .unwrap();
+            assert_eq!(t.processor
+                .query_status(t.shard_transport.clone_ref(),QueryId)
+                .await
+                .unwrap(), 
+                QueryStatus::MixedStatus);
         }
     }
 
