@@ -8,7 +8,7 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerBox, HandlerRef, HelperIdentity, HelperResponse,
-        MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport,
+        MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport, TransportIdentity,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -124,7 +124,8 @@ impl HelperApp {
             .inner
             .query_processor
             .new_query(
-                Transport::clone_ref(&self.inner.mpc_transport),
+                self.inner.mpc_transport.clone_ref(),
+                self.inner.shard_transport.clone_ref(),
                 query_config,
             )
             .await?
@@ -136,8 +137,8 @@ impl HelperApp {
     /// ## Errors
     /// Propagates errors from the helper.
     pub fn execute_query(&self, input: QueryInput) -> Result<(), ApiError> {
-        let mpc_transport = Transport::clone_ref(&self.inner.mpc_transport);
-        let shard_transport = Transport::clone_ref(&self.inner.shard_transport);
+        let mpc_transport = self.inner.mpc_transport.clone_ref();
+        let shard_transport = self.inner.shard_transport.clone_ref();
         self.inner
             .query_processor
             .receive_inputs(mpc_transport, shard_transport, input)?;
@@ -166,14 +167,32 @@ impl HelperApp {
     }
 }
 
+fn ext_query_id<I: TransportIdentity>(req: &Addr<I>) -> Result<QueryId, ApiError> {
+    req.query_id
+        .ok_or_else(|| ApiError::BadRequest("Query input is missing query_id argument".into()))
+}
+
 #[async_trait]
 impl RequestHandler<ShardIndex> for Inner {
     async fn handle(
         &self,
-        _req: Addr<ShardIndex>,
+        req: Addr<ShardIndex>,
         _data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
-        Ok(HelperResponse::ok())
+        let qp = &self.query_processor;
+
+        Ok(match req.route {
+            RouteId::PrepareQuery => {
+                let req = req.into::<PrepareQuery>()?;
+                HelperResponse::from(qp.prepare_shard(&self.shard_transport, req)?)
+            }
+            r => {
+                return Err(ApiError::BadRequest(
+                    format!("{r:?} request must not be handled by shard query processing flow")
+                        .into(),
+                ))
+            }
+        })
     }
 }
 
@@ -184,12 +203,6 @@ impl RequestHandler<HelperIdentity> for Inner {
         req: Addr<HelperIdentity>,
         data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
-        fn ext_query_id(req: &Addr<HelperIdentity>) -> Result<QueryId, ApiError> {
-            req.query_id.ok_or_else(|| {
-                ApiError::BadRequest("Query input is missing query_id argument".into())
-            })
-        }
-
         let qp = &self.query_processor;
 
         Ok(match req.route {
@@ -202,13 +215,24 @@ impl RequestHandler<HelperIdentity> for Inner {
             RouteId::ReceiveQuery => {
                 let req = req.into::<QueryConfig>()?;
                 HelperResponse::from(
-                    qp.new_query(Transport::clone_ref(&self.mpc_transport), req)
-                        .await?,
+                    qp.new_query(
+                        self.mpc_transport.clone_ref(),
+                        self.shard_transport.clone_ref(),
+                        req,
+                    )
+                    .await?,
                 )
             }
             RouteId::PrepareQuery => {
                 let req = req.into::<PrepareQuery>()?;
-                HelperResponse::from(qp.prepare(&self.mpc_transport, req)?)
+                HelperResponse::from(
+                    qp.prepare_helper(
+                        self.mpc_transport.clone_ref(),
+                        self.shard_transport.clone_ref(),
+                        req,
+                    )
+                    .await?,
+                )
             }
             RouteId::QueryInput => {
                 let query_id = ext_query_id(&req)?;

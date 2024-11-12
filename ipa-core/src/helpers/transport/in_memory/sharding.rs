@@ -2,7 +2,7 @@ use crate::{
     helpers::{
         in_memory_config::{passthrough, DynStreamInterceptor},
         transport::in_memory::transport::{InMemoryTransport, Setup, TransportConfigBuilder},
-        HelperIdentity,
+        HandlerBox, HelperIdentity, RequestHandler,
     },
     sharding::ShardIndex,
     sync::{Arc, Weak},
@@ -30,8 +30,24 @@ impl InMemoryShardNetwork {
         shard_count: I,
         interceptor: &DynStreamInterceptor,
     ) -> Self {
+        let shard_network = Self::create_shard_connections(shard_count, interceptor).map(
+            |(shard_connections, h)| {
+                shard_connections
+                    .into_iter()
+                    .map(|s| tracing::info_span!("", ?h).in_scope(|| s.start(None)))
+                    .collect::<Vec<_>>()
+                    .into()
+            },
+        );
+        Self { shard_network }
+    }
+
+    pub fn create_shard_connections<I: Into<ShardIndex>>(
+        shard_count: I,
+        interceptor: &DynStreamInterceptor,
+    ) -> [(Vec<Setup<ShardIndex>>, HelperIdentity); 3] {
         let shard_count = shard_count.into();
-        let shard_network: [_; 3] = HelperIdentity::make_three().map(|h| {
+        HelperIdentity::make_three().map(|h| {
             let mut config_builder = TransportConfigBuilder::for_helper(h);
             config_builder.with_interceptor(interceptor);
 
@@ -48,14 +64,35 @@ impl InMemoryShardNetwork {
                 }
             }
 
+            (shard_connections, h)
+        })
+    }
+
+    pub fn with_shards_and_handlers<I, F>(
+        shard_count: I,
+        handler_fn: F,
+    ) -> (Self, Vec<Arc<dyn RequestHandler<ShardIndex>>>)
+    where
+        I: Into<ShardIndex>,
+        F: Fn(ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>>,
+    {
+        let connections = Self::create_shard_connections(shard_count, &passthrough());
+        let shard_count = connections[0].0.len();
+        let mut handlers = Vec::with_capacity(3 * shard_count);
+        let shard_network = connections.map(|(shard_connections, h)| {
             shard_connections
                 .into_iter()
-                .map(|s| tracing::info_span!("", ?h).in_scope(|| s.start(None)))
+                .map(|s| {
+                    tracing::info_span!("", ?h).in_scope(|| {
+                        let handler = handler_fn(s.identity);
+                        handlers.push(Arc::clone(&handler));
+                        s.start(Some(HandlerBox::owning_ref(&handler)))
+                    })
+                })
                 .collect::<Vec<_>>()
                 .into()
         });
-
-        Self { shard_network }
+        (Self { shard_network }, handlers)
     }
 
     pub fn transport<I: Into<ShardIndex>>(
