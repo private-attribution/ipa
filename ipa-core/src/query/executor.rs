@@ -39,7 +39,7 @@ use crate::{
         Gate,
     },
     query::{
-        runner::{OprfIpaQuery, QueryResult},
+        runner::{execute_sharded_shuffle, OprfIpaQuery, QueryResult},
         state::RunningQuery,
     },
     sync::Arc,
@@ -108,7 +108,7 @@ pub fn execute<R: PrivateKeyRegistry>(
             config,
             gateway,
             input,
-            |_prss, _gateway, _config, _input| unimplemented!(),
+            |prss, gateway, _config, input| Box::pin(execute_sharded_shuffle(prss, gateway, input)),
         ),
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::TestAddInPrimeField, FieldType::Fp31) => do_query(

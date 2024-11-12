@@ -46,6 +46,10 @@ impl Transport for RoleResolvingTransport {
         Role::all().iter().filter(move |&v| v != &this).copied()
     }
 
+    fn peer_count(&self) -> u32 {
+        self.inner.peer_count()
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,

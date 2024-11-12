@@ -5,18 +5,20 @@ use ipa_step_derive::{CompactGate, CompactStep};
 #[derive(CompactStep, CompactGate)]
 pub enum ProtocolStep {
     Prss,
+    CrossShardPrss,
     #[step(child = crate::protocol::ipa_prf::step::IpaPrfStep)]
     IpaPrf,
     #[step(child = crate::protocol::hybrid::step::HybridStep)]
     Hybrid,
     Multiply,
     PrimeFieldAddition,
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::ShardedShuffleStep)]
+    ShardedShuffle,
     /// Steps used in unit tests are grouped under this one. Ideally it should be
     /// gated behind test configuration, but it does not work with build.rs that
     /// does not enable any features when creating protocol gate file
     #[step(child = TestExecutionStep)]
     Test,
-
     /// This step includes all the steps that are currently not linked into a top-level protocol.
     ///
     /// This allows those steps to be compiled. However, any use of them will fail at run time.
@@ -39,8 +41,6 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
     Multiplication,
-    #[step(child = crate::protocol::ipa_prf::shuffle::step::ShardedShuffleStep)]
-    ShardedShuffle,
 }
 
 /// Provides a unique per-iteration context in tests.

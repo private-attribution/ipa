@@ -266,6 +266,10 @@ impl Transport for MpcHttpTransport {
             .filter(move |&id| id != this)
     }
 
+    fn peer_count(&self) -> u32 {
+        2
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
@@ -334,6 +338,10 @@ impl Transport for ShardHttpTransport {
     fn peers(&self) -> impl Iterator<Item = Self::Identity> {
         let this = self.identity();
         self.shard_count.iter().filter(move |&v| v != this)
+    }
+
+    fn peer_count(&self) -> u32 {
+        u32::from(self.shard_count).saturating_sub(1)
     }
 
     async fn send<D, Q, S, R>(
