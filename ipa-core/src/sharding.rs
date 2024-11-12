@@ -1,7 +1,7 @@
 use std::{
     fmt::{Debug, Display, Formatter},
     num::TryFromIntError,
-    ops::{Index, IndexMut},
+    ops::{Index, IndexMut, Rem},
     sync::Arc,
 };
 
@@ -103,6 +103,19 @@ impl TryFrom<u128> for ShardIndex {
 
     fn try_from(value: u128) -> Result<Self, Self::Error> {
         u32::try_from(value).map(Self)
+    }
+}
+
+/// It is common to compute the shard index based on some integer value modulo
+/// total shard count
+impl Rem<ShardIndex> for u64 {
+    type Output = ShardIndex;
+
+    fn rem(self, rhs: ShardIndex) -> Self::Output {
+        // mod u32 always fits in u32
+        // branching may hurt performance here, so a cast is preferred
+        #[allow(clippy::cast_possible_truncation)]
+        ShardIndex((self % u64::from(rhs.0)) as u32)
     }
 }
 

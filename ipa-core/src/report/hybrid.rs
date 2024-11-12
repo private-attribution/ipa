@@ -33,12 +33,15 @@ use bytes::{Buf, BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Sum, Unsigned, U16};
+use typenum::{Sum, Unsigned, U12, U16};
 
 use crate::{
     const_assert_eq,
     error::{BoxError, Error},
-    ff::{boolean_array::BA64, Serializable},
+    ff::{
+        boolean_array::{BA3, BA64, BA8},
+        Serializable,
+    },
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
@@ -669,17 +672,20 @@ where
     }
 }
 
+/// Converted report where shares of match key are replaced with OPRF value
+pub type PrfHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, u64>;
+
 /// This struct is designed to fit both `HybridConversionReport`s
 /// and `HybridImpressionReport`s so that they can be made indistingushable.
 /// Note: these need to be shuffled (and secret shares need to be rerandomized)
 /// to provide any formal indistinguishability.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct IndistinguishableHybridReport<BK, V>
+pub struct IndistinguishableHybridReport<BK, V, MK = Replicated<BA64>>
 where
     BK: SharedValue,
     V: SharedValue,
 {
-    pub match_key: Replicated<BA64>,
+    pub match_key: MK,
     pub value: Replicated<V>,
     pub breakdown_key: Replicated<BK>,
 }
@@ -748,6 +754,48 @@ where
             value: conversion_report.value,
             breakdown_key: Replicated::ZERO,
         }
+    }
+}
+
+impl PrfHybridReport<BA8, BA3> {
+    const PRF_MK_SZ: usize = 8;
+    const V_SZ: usize = <Replicated<BA3> as Serializable>::Size::USIZE;
+    const BK_SZ: usize = <Replicated<BA8> as Serializable>::Size::USIZE;
+}
+
+impl Serializable for PrfHybridReport<BA8, BA3> {
+    type Size = U12;
+    type DeserializationError = InvalidHybridReportError;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        buf[..Self::PRF_MK_SZ].copy_from_slice(&self.match_key.to_le_bytes());
+
+        self.value.serialize(GenericArray::from_mut_slice(
+            &mut buf[Self::PRF_MK_SZ..Self::PRF_MK_SZ + Self::V_SZ],
+        ));
+
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(
+            &mut buf[Self::PRF_MK_SZ + Self::V_SZ..Self::PRF_MK_SZ + Self::V_SZ + Self::BK_SZ],
+        ));
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        let prf_of_match_key = u64::from_le_bytes(buf[..Self::PRF_MK_SZ].try_into().unwrap());
+
+        let value = Replicated::<BA3>::deserialize(GenericArray::from_slice(
+            &buf[Self::PRF_MK_SZ..Self::PRF_MK_SZ + Self::V_SZ],
+        ))
+        .map_err(|e| InvalidHybridReportError::DeserializationError("value", e.into()))?;
+
+        let breakdown_key = Replicated::<BA8>::deserialize_infallible(GenericArray::from_slice(
+            &buf[Self::PRF_MK_SZ + Self::V_SZ..Self::PRF_MK_SZ + Self::V_SZ + Self::BK_SZ],
+        ));
+
+        Ok(Self {
+            match_key: prf_of_match_key,
+            value,
+            breakdown_key,
+        })
     }
 }
 
@@ -988,7 +1036,7 @@ impl UniqueTagValidator {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod test {
 
     use rand::{rngs::ThreadRng, thread_rng, Rng};
@@ -997,7 +1045,8 @@ mod test {
     use super::{
         EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
         HybridConversionReport, HybridImpressionReport, HybridReport,
-        IndistinguishableHybridReport, UniqueTag, UniqueTagValidator, HELPER_ORIGIN,
+        IndistinguishableHybridReport, PrfHybridReport, UniqueTag, UniqueTagValidator,
+        HELPER_ORIGIN,
     };
     use crate::{
         error::Error,
@@ -1010,7 +1059,12 @@ mod test {
             hybrid::{EncryptedHybridConversionReport, HybridEventType, NonAsciiStringError, BA64},
             hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
         },
-        secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        secret_sharing::replicated::{
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
+            ReplicatedSecretSharing,
+        },
+        test_executor::run,
+        test_fixture::TestWorld,
     };
 
     fn build_hybrid_report(
@@ -1365,5 +1419,22 @@ mod test {
         let non_ascii_string = "☃️☃️☃️";
         let err = HybridImpressionInfo::new(0, non_ascii_string).unwrap_err();
         assert!(matches!(err, NonAsciiStringError(_)));
+    }
+
+    #[test]
+    fn serde() {
+        run(|| async {
+            let world = TestWorld::default();
+            let mut rng = world.rng();
+            let report = PrfHybridReport::<BA8, BA3> {
+                match_key: rng.gen(),
+                breakdown_key: Replicated::new(rng.gen(), rng.gen()),
+                value: Replicated::new(rng.gen(), rng.gen()),
+            };
+            let mut buf = GenericArray::default();
+            report.serialize(&mut buf);
+            let deserialized_report = PrfHybridReport::<BA8, BA3>::deserialize(&buf);
+            assert_eq!(report, deserialized_report.unwrap());
+        });
     }
 }
