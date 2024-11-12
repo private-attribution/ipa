@@ -1,4 +1,5 @@
 use axum::{routing::get, Router};
+use hyper::StatusCode;
 use opentelemetry::KeyValue;
 
 use crate::net::{
@@ -6,7 +7,7 @@ use crate::net::{
     Error,
 };
 
-use prometheus::{self, TextEncoder};
+use prometheus::{self, Encoder, TextEncoder};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry::metrics::MeterProvider;
 
@@ -15,7 +16,7 @@ use opentelemetry::metrics::MeterProvider;
 async fn handler(
     // transport: Extension<MpcHttpTransport>,
     // QueryConfigQueryParams(query_config): QueryConfigQueryParams,
-) -> Result<String, Error> {
+) -> Result<Vec<u8>, Error> {
     // match transport.dispatch(query_config, BodyStream::empty()).await {
     //     Ok(resp) => Ok(Json(resp.try_into()?)),
     //     Err(err @ ApiError::NewQuery(NewQueryError::State { .. })) => {
@@ -52,10 +53,11 @@ async fn handler(
     // Encode data as text or protobuf
     let encoder = TextEncoder::new();
     let metric_families = registry.gather();
-    let mut result = String::new();
-    encoder.encode_utf8(&metric_families, &mut result).unwrap();
-    
-    Ok(result)
+    let mut result = Vec::new();
+    match encoder.encode(&metric_families, &mut result) {
+        Ok(()) => Ok(result),
+        Err(err) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, err)),
+    }
 }
 
 pub fn router() -> Router {

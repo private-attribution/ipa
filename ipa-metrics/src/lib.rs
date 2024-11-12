@@ -5,6 +5,7 @@
 mod collector;
 mod context;
 mod controller;
+mod exporter;
 mod key;
 mod kind;
 mod label;
