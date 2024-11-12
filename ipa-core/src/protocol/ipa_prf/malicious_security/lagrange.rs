@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fmt::Debug};
+use std::fmt::Debug;
 
 use typenum::Unsigned;
 
@@ -79,8 +79,7 @@ pub struct LagrangeTable<F: Field, const N: usize, const M: usize> {
 
 impl<F, const N: usize> LagrangeTable<F, N, 1>
 where
-    F: Field + TryFrom<u128>,
-    <F as TryFrom<u128>>::Error: Debug,
+    F: PrimeField,
 {
     /// generates a `CanonicalLagrangeTable` from `CanoncialLagrangeDenominators` for a single output point
     /// The "x coordinate" of the output point is `x_output`.
@@ -95,31 +94,16 @@ where
 
 impl<F, const N: usize, const M: usize> LagrangeTable<F, N, M>
 where
-    F: Field,
+    F: PrimeField,
 {
     /// This function uses the `LagrangeTable` to evaluate `polynomial` on the _output_ "x coordinates"
     /// that were used to generate this table.
     /// It is assumed that the `y_coordinates` provided to this function correspond the values of the _input_ "x coordinates"
     /// that were used to generate this table.
-    pub fn eval<I>(&self, y_coordinates: I) -> [F; M]
-    where
-        I: IntoIterator + Copy,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: Borrow<F>,
-    {
-        debug_assert_eq!(y_coordinates.into_iter().len(), N);
-
+    pub fn eval(&self, y_coordinates: &[F; N]) -> [F; M] {
         self.table
-            .iter()
-            .map(|table_row| {
-                table_row
-                    .iter()
-                    .zip(y_coordinates)
-                    .fold(F::ZERO, |acc, (&base, y)| acc + base * (*y.borrow()))
-            })
-            .collect::<Vec<F>>()
-            .try_into()
-            .unwrap()
+            .each_ref()
+            .map(|row| dot_product(row, y_coordinates))
     }
 
     /// helper function to compute a single row of `LagrangeTable`
@@ -174,6 +158,28 @@ where
                 .unwrap(),
         }
     }
+}
+
+/// Computes the dot product of two arrays of the same size.
+/// It is isolated from Lagrange because there could be potential SIMD optimizations used
+fn dot_product<F: PrimeField, const N: usize>(a: &[F; N], b: &[F; N]) -> F {
+    // Staying in integers allows rustc to optimize this code properly, but puts a restriction
+    // on how large the prime field can be
+    debug_assert!(
+        2 * F::BITS + N.next_power_of_two().ilog2() <= 128,
+        "The prime field {} is too large for this dot product implementation",
+        F::PRIME.into()
+    );
+
+    let mut sum = 0;
+
+    // I am cautious about using zip in hot code
+    // https://github.com/rust-lang/rust/issues/103555
+    for i in 0..N {
+        sum += a[i].as_u128() * b[i].as_u128();
+    }
+
+    F::truncate_from(sum)
 }
 
 #[cfg(all(test, unit_test))]

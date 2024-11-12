@@ -159,7 +159,7 @@ where
     last_array[1..last_u_or_v_values.len()].copy_from_slice(&last_u_or_v_values[1..]);
 
     // compute and output p_or_q
-    tables.last().unwrap().eval(last_array)[0]
+    tables.last().unwrap().eval(&last_array)[0]
 }
 
 #[cfg(all(test, unit_test))]
