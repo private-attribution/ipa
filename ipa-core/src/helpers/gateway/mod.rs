@@ -108,6 +108,16 @@ pub struct GatewayConfig {
 
 impl ShardConfiguration for Gateway {
     fn shard_id(&self) -> ShardIndex {
+        ShardConfiguration::shard_id(&self)
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        ShardConfiguration::shard_count(&self)
+    }
+}
+
+impl ShardConfiguration for &Gateway {
+    fn shard_id(&self) -> ShardIndex {
         self.transports.shard.identity()
     }
 

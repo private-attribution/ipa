@@ -39,14 +39,15 @@ use crate::{
         Gate,
     },
     query::{
-        runner::{execute_sharded_shuffle, OprfIpaQuery, QueryResult},
+        runner::{OprfIpaQuery, QueryResult},
         state::RunningQuery,
     },
     sync::Arc,
 };
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 use crate::{
-    ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add_in_prime_field,
+    ff::Fp32BitPrime, query::runner::execute_sharded_shuffle, query::runner::execute_test_multiply,
+    query::runner::test_add_in_prime_field,
 };
 
 pub trait Result: Send + Debug {
