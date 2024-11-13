@@ -171,9 +171,9 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
                 let (u_chunk, v_chunk) = polynomial.borrow();
                 (
                     // new u value
-                    lagrange_table_r.eval(u_chunk)[0],
+                    lagrange_table_r.eval_first(u_chunk),
                     // new v value
-                    lagrange_table_r.eval(v_chunk)[0],
+                    lagrange_table_r.eval_first(v_chunk),
                 )
             })
             .collect::<UVValues<F, N>>()

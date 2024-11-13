@@ -106,6 +106,12 @@ where
             .map(|row| dot_product(row, y_coordinates))
     }
 
+    /// Evaluates only the first row of the `LagrangeTable`
+    pub fn eval_first(&self, y_coordinates: &[F; N]) -> F {
+        // Unwrap is safe because the table is not empty
+        dot_product(self.table.first().unwrap(), y_coordinates)
+    }
+
     /// helper function to compute a single row of `LagrangeTable`
     ///
     /// ## Panics
