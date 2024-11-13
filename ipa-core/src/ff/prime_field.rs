@@ -65,9 +65,6 @@ where
 {
     let N = field_elements.len();
     let mut prefix_products = field_elements.to_vec();
-    //.iter()
-    //.copied() /*.map(|i| *i)*/
-    //.collect::<Vec<P>>();
     for i in 1..N {
         let temp = prefix_products[i] * prefix_products[i - 1];
         prefix_products[i] = temp;
