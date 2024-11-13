@@ -53,6 +53,35 @@ pub trait PrimeField: Field + U128Conversions {
     }
 }
 
+/// Performs multiple field inversions at once for a lower cost
+/// Follows the "multiple inverses" algorithm in
+/// <https://en.wikipedia.org/wiki/Modular_multiplicative_inverse>
+/// ## Panics
+/// If any element is 0
+#[allow(non_snake_case)]
+pub fn batch_invert<P>(field_elements: &mut [P])
+where
+    P: PrimeField,
+{
+    let N = field_elements.len();
+    let mut prefix_products = field_elements.to_vec();
+    //.iter()
+    //.copied() /*.map(|i| *i)*/
+    //.collect::<Vec<P>>();
+    for i in 1..N {
+        let temp = prefix_products[i] * prefix_products[i - 1];
+        prefix_products[i] = temp;
+    }
+    prefix_products[N - 1] = prefix_products[N - 1].invert();
+    for i in (1..N).rev() {
+        let inv_i = prefix_products[i] * prefix_products[i - 1];
+        let temp = prefix_products[i] * field_elements[i];
+        prefix_products[i - 1] = temp;
+        field_elements[i] = inv_i;
+    }
+    field_elements[0] = prefix_products[0];
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("Field value {0} provided is greater than prime: {1}")]
 pub struct GreaterThanPrimeError<V: Display>(V, u128);
