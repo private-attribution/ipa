@@ -207,6 +207,15 @@ impl<const SHARDS: usize, D: Distribute> TestWorld<WithShards<SHARDS, D>> {
             .unwrap()
     }
 
+    /// Returns a reference to the gateway for the specific shard on
+    /// the given helper.
+    /// # Panics
+    /// If there are fewer shards than the shard index provided
+    #[must_use]
+    pub fn gateway(&self, role: Role, shard_index: ShardIndex) -> &Gateway {
+        &self.shards[usize::from(shard_index)].gateways[role]
+    }
+
     /// Creates protocol contexts for 3 helpers across all shards
     ///
     /// # Panics

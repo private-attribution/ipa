@@ -13,6 +13,7 @@ use std::{
 use generic_array::GenericArray;
 
 mod buffers;
+mod cross_shard_prss;
 mod error;
 mod futures;
 mod gateway;

@@ -19,7 +19,7 @@ use crate::{
 
 #[derive(Debug, thiserror::Error)]
 #[error("Expected to receive {0:?} but hit end of stream")]
-pub struct EndOfStreamError(RecordId);
+pub struct EndOfStreamError(pub RecordId);
 
 #[derive(Debug, thiserror::Error)]
 #[error("Error deserializing {0:?} record: {1}")]

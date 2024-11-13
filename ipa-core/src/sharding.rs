@@ -200,6 +200,16 @@ pub trait ShardConfiguration {
 
         max.iter().filter(move |&v| v != this)
     }
+
+    /// Returns `true` if this shard is considered leader.
+    fn is_leader(&self) -> bool {
+        self.shard_id() == ShardIndex::FIRST
+    }
+
+    /// Returns the index of leader shard.
+    fn leader(&self) -> ShardIndex {
+        ShardIndex::FIRST
+    }
 }
 
 pub trait ShardBinding: Debug + Send + Sync + Clone + 'static {
