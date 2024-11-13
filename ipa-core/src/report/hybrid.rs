@@ -688,8 +688,8 @@ pub type PrfHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, u64>;
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct IndistinguishableHybridReport<BK, V, MK = Replicated<BA64>>
 where
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     pub match_key: MK,
     pub value: Replicated<V>,
@@ -698,8 +698,8 @@ where
 
 impl<BK, V> IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     pub const ZERO: Self = Self {
         match_key: Replicated::<BA64>::ZERO,
@@ -729,8 +729,8 @@ where
 
 impl<BK, V> From<Replicated<BA64>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(match_key: Replicated<BA64>) -> Self {
         Self {
@@ -743,8 +743,8 @@ where
 
 impl<BK, V> From<HybridReport<BK, V>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(report: HybridReport<BK, V>) -> Self {
         match report {
@@ -756,8 +756,8 @@ where
 
 impl<BK, V> From<HybridImpressionReport<BK>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(impression_report: HybridImpressionReport<BK>) -> Self {
         Self {
@@ -770,8 +770,8 @@ where
 
 impl<BK, V> From<HybridConversionReport<V>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(conversion_report: HybridConversionReport<V>) -> Self {
         Self {
@@ -784,10 +784,10 @@ where
 
 impl<BK, V> Shuffleable for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
-    // this requires BK:BAXX + B:BAYY  such that XX + YY <= 48
+    // this requires BK:BAXX + V:BAYY  such that XX + YY <= 48
     // this is checked in a debud_assert call in ::new below
     // PERF OPPORTUNITY
     // note that BA96 would likely be a better fit here. however, that would require a `BA128`
