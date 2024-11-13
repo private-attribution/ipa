@@ -194,7 +194,8 @@ where
         total_number_of_fake_rows: u32,
     ) {
         padding_input_rows.extend(
-            repeat(IndistinguishableHybridReport::ZERO).take(total_number_of_fake_rows as usize),
+            repeat(IndistinguishableHybridReport::<BK, V>::ZERO)
+                .take(total_number_of_fake_rows as usize),
         );
     }
 }

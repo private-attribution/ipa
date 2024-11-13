@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use futures::stream;
+use futures_util::{StreamExt, TryStreamExt};
+
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BooleanArray, ArrayAccess},
@@ -10,14 +13,18 @@ use crate::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
             Context, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
-        hybrid::step::HybridStep,
+        hybrid::step::{AggregateReportsStep, HybridStep},
         ipa_prf::boolean_ops::addition_sequential::integer_add,
         BooleanProtocols, RecordId,
     },
     report::hybrid::{AggregateableHybridReport, PrfHybridReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+    seq_join::{seq_join, SeqJoin},
 };
 
+/// This protocol is used to aggregate `PRFHybridReports` and returns `AggregateableHybridReports`.
+/// It groups all the reports by the PRF of the `match_key`, finds all reports from `match_keys`
+/// with that provided exactly 2 reports, then adds those 2 reports.
 pub async fn aggregate_reports<BK, V, C>(
     ctx: C,
     reports: Vec<PrfHybridReport<BK, V>>,
@@ -28,32 +35,43 @@ where
     V: SharedValue + BooleanArray,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
 {
-    let mut reports_by_matchkey = HashMap::new();
-    reports_by_matchkey.reserve(reports.len() / 2);
+    let mut reports_by_matchkey = HashMap::with_capacity(reports.len() / 2);
 
-    for report in reports {
-        reports_by_matchkey
-            .entry(report.match_key)
-            .or_insert_with(Vec::new)
-            .push(report);
-    }
-
+    // build a hashmap of match_key -> ([AggregateableHybridReport;2], count)
+    // if count ever exceeds 2, we drop reports, but keep counting
     // an honest client and report collector will only submit
     // one report with a breakdown key and one report with a value.
     // if there are less, it's unattributed. if more, something went wrong.
-    // we remove these (instead of erroring/panicing).
+    for report in reports {
+        let match_key = report.match_key;
+        let entry = reports_by_matchkey.entry(match_key).or_insert((
+            [
+                AggregateableHybridReport::<BK, V>::ZERO,
+                AggregateableHybridReport::<BK, V>::ZERO,
+            ],
+            0,
+        ));
+        if entry.1 == 0 {
+            // If the count is 0, replace the first element with the new report
+            entry.0[0] = report.into();
+            entry.1 += 1;
+        } else if entry.1 == 1 {
+            // If the count is 1, replace the second element with the new report
+            entry.0[1] = report.into();
+            entry.1 += 1;
+        } else {
+            // If the count is 2 or more, increment the counter and drop the report
+            entry.1 += 1;
+        }
+    }
+
+    // we only keep the reports from match_keys that provided exactly 2 reports
     let report_pairs: Vec<[AggregateableHybridReport<BK, V>; 2]> = reports_by_matchkey
         .into_iter()
-        .filter_map(|(_, value)| {
-            if value.len() == 2 {
-                Some([value[0].clone().into(), value[1].clone().into()])
-            } else {
-                None
-            }
-        })
+        .filter_map(|(_, v)| if v.1 == 2 { Some(v.0) } else { None })
         .collect::<Vec<_>>();
 
-    let mut agg_reports = Vec::new();
+    // let mut agg_reports = Vec::with_capacity(report_pairs.len());
 
     let chunk_size = TARGET_PROOF_SIZE;
 
@@ -69,32 +87,39 @@ where
         .context()
         .set_total_records(TotalRecords::specified(2 * report_pairs.len())?);
 
-    for (i, reports) in report_pairs.into_iter().enumerate() {
-        let record_id_bk = RecordId::FIRST + 2 * i;
-        let record_id_v = RecordId::FIRST + 2 * i + 1;
-        let (breakdown_key, _) = integer_add::<_, EightBitStep, 1>(
-            ctx.clone(),
-            record_id_bk,
-            &reports[0].breakdown_key.to_bits(),
-            &reports[1].breakdown_key.to_bits(),
-        )
-        .await?;
-        let (value, _) = integer_add::<_, ThirtyTwoBitStep, 1>(
-            ctx.clone(),
-            record_id_v,
-            &reports[0].value.to_bits(),
-            &reports[1].value.to_bits(),
-        )
-        .await?;
-
-        agg_reports.push(AggregateableHybridReport::<BK, V> {
-            match_key: (),
-            breakdown_key: breakdown_key.collect_bits(),
-            value: value.collect_bits(),
+    let agg_work = stream::iter(report_pairs)
+        .enumerate()
+        .map(|(idx, reports)| {
+            let record_id_bk = RecordId::FIRST + 2 * idx;
+            let record_id_v = RecordId::FIRST + 2 * idx + 1;
+            let agg_ctx = ctx.clone();
+            async move {
+                let (breakdown_key, _) = integer_add::<_, EightBitStep, 1>(
+                    agg_ctx.narrow(&AggregateReportsStep::Add),
+                    record_id_bk,
+                    &reports[0].breakdown_key.to_bits(),
+                    &reports[1].breakdown_key.to_bits(),
+                )
+                .await?;
+                let (value, _) = integer_add::<_, ThirtyTwoBitStep, 1>(
+                    agg_ctx.narrow(&AggregateReportsStep::Add),
+                    record_id_v,
+                    &reports[0].value.to_bits(),
+                    &reports[1].value.to_bits(),
+                )
+                .await?;
+                Ok::<_, Error>(AggregateableHybridReport::<BK, V> {
+                    match_key: (),
+                    breakdown_key: breakdown_key.collect_bits(),
+                    value: value.collect_bits(),
+                })
+            }
         });
-    }
 
-    Ok(agg_reports)
+    let agg_result = seq_join(ctx.active_work(), agg_work)
+        .try_collect::<Vec<_>>()
+        .await?;
+    Ok(agg_result)
 }
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
@@ -126,10 +151,6 @@ pub mod test {
                     value: 1,
                 }, // attributed
                 TestHybridRecord::TestImpression {
-                    match_key: 34567,
-                    breakdown_key: 1,
-                },
-                TestHybridRecord::TestImpression {
                     match_key: 45678,
                     breakdown_key: 3,
                 },
@@ -152,32 +173,26 @@ pub mod test {
                 TestHybridRecord::TestConversion {
                     match_key: 78901,
                     value: 4,
-                }, // attributed twice
+                }, // attributed twice, removed
                 TestHybridRecord::TestConversion {
                     match_key: 78901,
                     value: 5,
-                }, // attributed twice
+                }, // attributed twice, removed
                 TestHybridRecord::TestImpression {
                     match_key: 89012,
                     breakdown_key: 4,
                 },
+                TestHybridRecord::TestImpression {
+                    match_key: 89012,
+                    breakdown_key: 3,
+                }, // duplicated impression with same match_key
                 TestHybridRecord::TestConversion {
                     match_key: 89012,
                     value: 6,
-                }, // attributed
-                TestHybridRecord::TestConversion {
-                    match_key: 90123,
-                    value: 7,
-                }, // NOT attributed
+                }, // removed
             ];
 
-            // at this point, all unattributed values end up in index 0
-            // we will zero them out later.
-            // let expected = vec![
-            //     22, 0, 43, // 14 + 8, 12 + 31
-            //     13, 33, // 25 + 8
-            //     0,
-            // ];
+            // let expected = [[4, 1], [3, 2]];
 
             let world = TestWorld::<WithShards<2>>::with_shards(TestWorldConfig::default());
 
@@ -194,8 +209,10 @@ pub mod test {
                             .zip(og_records.iter())
                             .map(|(indist_report, test_report)| {
                                 let match_key = match test_report {
-                                    TestHybridRecord::TestConversion { match_key, .. } => match_key,
-                                    TestHybridRecord::TestImpression { match_key, .. } => match_key,
+                                    TestHybridRecord::TestConversion { match_key, .. }
+                                    | TestHybridRecord::TestImpression { match_key, .. } => {
+                                        match_key
+                                    }
                                 };
                                 PrfHybridReport {
                                     match_key: *match_key,
@@ -210,8 +227,9 @@ pub mod test {
                 })
                 .await;
 
-            println!("{:?}", results);
-            panic!();
-        })
+            println!("{results:?}");
+            // todo: reconstruct results
+            // assert_eq!(results, expected);
+        });
     }
 }

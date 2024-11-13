@@ -680,6 +680,18 @@ pub type PrfHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, u64>;
 /// that OPRF value is no longer required.
 pub type AggregateableHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, ()>;
 
+impl<BK, V> AggregateableHybridReport<BK, V>
+where
+    BK: SharedValue,
+    V: SharedValue,
+{
+    pub const ZERO: Self = Self {
+        match_key: (),
+        value: Replicated::<V>::ZERO,
+        breakdown_key: Replicated::<BK>::ZERO,
+    };
+}
+
 /// When aggregating reports, we need to lift the value from `V` to `HV`.
 impl<BK, V, HV> From<PrfHybridReport<BK, V>> for AggregateableHybridReport<BK, HV>
 where
