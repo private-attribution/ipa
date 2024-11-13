@@ -42,7 +42,6 @@ where
                             .filter(|&j| i != j)
                             .map(|j| F::try_from(i).unwrap() - F::try_from(j).unwrap())
                             .fold(F::ONE, |acc, a| acc * a)
-                        //.invert()
                     })
                     .collect::<Vec<_>>();
                 batch_invert(&mut denominators);
