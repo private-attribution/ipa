@@ -8,14 +8,14 @@ use crate::{
     ff::{boolean::Boolean, boolean_array::BooleanArray, ArrayAccess},
     helpers::TotalRecords,
     protocol::{
-        boolean::step::{EightBitStep, ThirtyTwoBitStep},
+        boolean::step::EightBitStep,
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
+            Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         hybrid::step::{AggregateReportsStep, HybridStep},
         ipa_prf::boolean_ops::addition_sequential::integer_add,
-        BooleanProtocols, RecordId,
+        BooleanProtocols,
     },
     report::hybrid::{AggregateableHybridReport, PrfHybridReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
@@ -71,8 +71,6 @@ where
         .filter_map(|(_, v)| if v.1 == 2 { Some(v.0) } else { None })
         .collect::<Vec<_>>();
 
-    // let mut agg_reports = Vec::with_capacity(report_pairs.len());
-
     let chunk_size = TARGET_PROOF_SIZE;
 
     let dzkp_validator = ctx.clone().dzkp_validator(
@@ -85,29 +83,28 @@ where
 
     let ctx = dzkp_validator
         .context()
-        .set_total_records(TotalRecords::specified(2 * report_pairs.len())?);
+        .set_total_records(TotalRecords::specified(report_pairs.len())?);
 
     let agg_work = stream::iter(report_pairs)
         .enumerate()
         .map(|(idx, reports)| {
-            let record_id_bk = RecordId::FIRST + 2 * idx;
-            let record_id_v = RecordId::FIRST + 2 * idx + 1;
             let agg_ctx = ctx.clone();
             async move {
                 let (breakdown_key, _) = integer_add::<_, EightBitStep, 1>(
-                    agg_ctx.narrow(&AggregateReportsStep::Add),
-                    record_id_bk,
+                    agg_ctx.narrow(&AggregateReportsStep::AddBK),
+                    idx.into(),
                     &reports[0].breakdown_key.to_bits(),
                     &reports[1].breakdown_key.to_bits(),
                 )
                 .await?;
-                let (value, _) = integer_add::<_, ThirtyTwoBitStep, 1>(
-                    agg_ctx.narrow(&AggregateReportsStep::Add),
-                    record_id_v,
+                let (value, _) = integer_add::<_, EightBitStep, 1>(
+                    agg_ctx.narrow(&AggregateReportsStep::AddV),
+                    idx.into(),
                     &reports[0].value.to_bits(),
                     &reports[1].value.to_bits(),
                 )
                 .await?;
+                agg_ctx.validate_record(idx.into()).await?;
                 Ok::<_, Error>(AggregateableHybridReport::<BK, V> {
                     match_key: (),
                     breakdown_key: breakdown_key.collect_bits(),
@@ -227,7 +224,7 @@ pub mod test {
                 })
                 .await;
 
-            println!("{results:?}");
+            println!("results: {results:?}");
             // todo: reconstruct results
             // assert_eq!(results, expected);
         });

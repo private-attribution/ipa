@@ -21,5 +21,7 @@ pub(crate) enum HybridStep {
 #[derive(CompactStep)]
 pub(crate) enum AggregateReportsStep {
     #[step(child = crate::protocol::boolean::step::EightBitStep)]
-    Add,
+    AddBK,
+    #[step(child = crate::protocol::boolean::step::EightBitStep)]
+    AddV,
 }
