@@ -1436,9 +1436,7 @@ mod test {
 
     #[test]
     fn serde() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
+        run_random(|mut rng| async move {
             let report = PrfHybridReport::<BA8, BA3> {
                 match_key: rng.gen(),
                 breakdown_key: Replicated::new(rng.gen(), rng.gen()),
