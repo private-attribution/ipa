@@ -82,7 +82,7 @@ pub fn interpolate_at_r<F: PrimeField, const P: usize>(
     lagrange_denominator: &CanonicalLagrangeDenominator<F, P>,
 ) -> F {
     let lagrange_table_g = LagrangeTable::<F, P, 1>::new(lagrange_denominator, r);
-    lagrange_table_g.eval(zkp)[0]
+    lagrange_table_g.eval_first(zkp)
 }
 
 /// This function computes the sum of the first L elements of the zero-knowledge proof
@@ -105,7 +105,7 @@ where
 {
     u_or_v
         .chunk_array::<L>()
-        .map(|x| lagrange_table.eval(&x)[0])
+        .map(|x| lagrange_table.eval_first(&x))
 }
 
 /// This function recursively compresses the `u_or_v` values.
@@ -159,7 +159,7 @@ where
     last_array[1..last_u_or_v_values.len()].copy_from_slice(&last_u_or_v_values[1..]);
 
     // compute and output p_or_q
-    tables.last().unwrap().eval(&last_array)[0]
+    tables.last().unwrap().eval_first(&last_array)
 }
 
 #[cfg(all(test, unit_test))]
