@@ -15,7 +15,7 @@ use futures::{future::join_all, stream::FuturesOrdered, Future, StreamExt};
 use rand::{
     distributions::{Distribution, Standard},
     rngs::StdRng,
-    Rng, RngCore, SeedableRng,
+    CryptoRng, Rng, RngCore, SeedableRng,
 };
 use tracing::{Instrument, Level, Span};
 
@@ -361,10 +361,15 @@ impl<S: ShardingScheme> TestWorld<S> {
 
     /// Return a new `Rng` seeded from the primary `TestWorld` RNG.
     ///
+    /// Note that this RNG is not cryptographically secure. For one, it's seeded
+    /// with a known config value. It's also seeded with non-secure entropy.
+    /// However, in order to test cryptographic functions that require an
+    /// RNG with the `CryptoRng`, we add it here.
+    ///
     /// ## Panics
     /// If the mutex is poisoned.
     #[must_use]
-    pub fn rng(&self) -> impl Rng {
+    pub fn rng(&self) -> impl Rng + CryptoRng {
         // We need to use the `TestWorld` RNG within the `Runner` helpers, which
         // unfortunately take `&self`.
         StdRng::from_seed(self.rng.lock().unwrap().gen())
