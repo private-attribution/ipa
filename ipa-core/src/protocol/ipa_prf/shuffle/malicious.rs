@@ -42,7 +42,6 @@ use crate::{
     seq_join::seq_join,
     sharding::ShardIndex,
 };
-// use crate::protocol::ipa_prf::shuffle::sharded::MaliciousShuffleShare;
 
 /// Container for left and right shares with tags attached to them.
 /// Looks like an additive share, but it is not because it does not need
