@@ -10,8 +10,7 @@ use crate::{
         boolean::step::EightBitStep,
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, ShardedContext,
-            UpgradableContext,
+            Context, DZKPUpgraded, MaliciousProtocolSteps, ShardedContext, UpgradableContext,
         },
         hybrid::step::{AggregateReportsStep, HybridStep},
         ipa_prf::boolean_ops::addition_sequential::integer_add,
@@ -19,7 +18,6 @@ use crate::{
     },
     report::hybrid::{AggregateableHybridReport, PrfHybridReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
-    seq_join::{assert_send, seq_join, SeqJoin},
 };
 
 /// This protocol is used to aggregate `PRFHybridReports` and returns `AggregateableHybridReports`.
@@ -71,7 +69,8 @@ where
         .filter_map(|(_, v)| if v.1 == 2 { Some(v.0) } else { None })
         .collect::<Vec<_>>();
 
-    let chunk_size = TARGET_PROOF_SIZE;
+    let chunk_size: usize = TARGET_PROOF_SIZE / (BK::BITS as usize + V::BITS as usize);
+
     let ctx = ctx.set_total_records(TotalRecords::specified(report_pairs.len())?);
 
     let dzkp_validator = ctx.dzkp_validator(
@@ -79,7 +78,7 @@ where
             protocol: &HybridStep::GroupBySum,
             validate: &HybridStep::GroupBySumValidate,
         },
-        usize::MAX,
+        chunk_size.next_power_of_two(),
     );
 
     let agg_ctx = dzkp_validator.context();
