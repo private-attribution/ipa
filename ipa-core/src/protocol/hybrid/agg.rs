@@ -72,23 +72,22 @@ where
         .collect::<Vec<_>>();
 
     let chunk_size = TARGET_PROOF_SIZE;
+    let ctx = ctx.set_total_records(TotalRecords::specified(report_pairs.len())?);
 
-    let dzkp_validator = ctx.clone().dzkp_validator(
+    let dzkp_validator = ctx.dzkp_validator(
         MaliciousProtocolSteps {
             protocol: &HybridStep::GroupBySum,
             validate: &HybridStep::GroupBySumValidate,
         },
-        std::cmp::min(ctx.active_work().get(), chunk_size.next_power_of_two()),
+        chunk_size.next_power_of_two(),
     );
 
-    let ctx = dzkp_validator
-        .context()
-        .set_total_records(TotalRecords::specified(report_pairs.len())?);
+    let agg_ctx = dzkp_validator.context();
 
     let agg_work = stream::iter(report_pairs)
         .enumerate()
         .map(|(idx, reports)| {
-            let agg_ctx = ctx.clone();
+            let agg_ctx = agg_ctx.clone();
             async move {
                 let (breakdown_key, _) = integer_add::<_, EightBitStep, 1>(
                     agg_ctx.narrow(&AggregateReportsStep::AddBK),
@@ -113,7 +112,7 @@ where
             }
         });
 
-    let agg_result = seq_join(ctx.active_work(), agg_work)
+    let agg_result = seq_join(agg_ctx.active_work(), agg_work)
         .try_collect::<Vec<_>>()
         .await?;
     Ok(agg_result)
