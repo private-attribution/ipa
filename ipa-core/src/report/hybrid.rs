@@ -39,15 +39,21 @@ use crate::{
     const_assert_eq,
     error::{BoxError, Error},
     ff::{
-        boolean_array::{BA3, BA64, BA8},
+        boolean_array::{
+            BooleanArray, BooleanArrayReader, BooleanArrayWriter, BA112, BA3, BA64, BA8,
+        },
         Serializable,
     },
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
     },
+    protocol::ipa_prf::shuffle::Shuffleable,
     report::hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        SharedValue,
+    },
     sharding::ShardIndex,
 };
 
@@ -682,8 +688,8 @@ pub type PrfHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, u64>;
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct IndistinguishableHybridReport<BK, V, MK = Replicated<BA64>>
 where
-    BK: SharedValue,
-    V: SharedValue,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     pub match_key: MK,
     pub value: Replicated<V>,
@@ -692,20 +698,39 @@ where
 
 impl<BK, V> IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue,
-    V: SharedValue,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     pub const ZERO: Self = Self {
         match_key: Replicated::<BA64>::ZERO,
         value: Replicated::<V>::ZERO,
         breakdown_key: Replicated::<BK>::ZERO,
     };
+
+    fn join_fields(match_key: BA64, value: V, breakdown_key: BK) -> <Self as Shuffleable>::Share {
+        let mut share = <Self as Shuffleable>::Share::ZERO;
+
+        BooleanArrayWriter::new(&mut share)
+            .write(&match_key)
+            .write(&value)
+            .write(&breakdown_key);
+
+        share
+    }
+
+    fn split_fields(share: &<Self as Shuffleable>::Share) -> (BA64, V, BK) {
+        let bits = BooleanArrayReader::new(share);
+        let (match_key, bits) = bits.read();
+        let (value, bits) = bits.read();
+        let (breakdown_key, _) = bits.read();
+        (match_key, value, breakdown_key)
+    }
 }
 
 impl<BK, V> From<Replicated<BA64>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue,
-    V: SharedValue,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(match_key: Replicated<BA64>) -> Self {
         Self {
@@ -718,8 +743,8 @@ where
 
 impl<BK, V> From<HybridReport<BK, V>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue,
-    V: SharedValue,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(report: HybridReport<BK, V>) -> Self {
         match report {
@@ -731,8 +756,8 @@ where
 
 impl<BK, V> From<HybridImpressionReport<BK>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue,
-    V: SharedValue,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(impression_report: HybridImpressionReport<BK>) -> Self {
         Self {
@@ -745,14 +770,62 @@ where
 
 impl<BK, V> From<HybridConversionReport<V>> for IndistinguishableHybridReport<BK, V>
 where
-    BK: SharedValue,
-    V: SharedValue,
+    BK: BooleanArray,
+    V: BooleanArray,
 {
     fn from(conversion_report: HybridConversionReport<V>) -> Self {
         Self {
             match_key: conversion_report.match_key,
             value: conversion_report.value,
             breakdown_key: Replicated::ZERO,
+        }
+    }
+}
+
+impl<BK, V> Shuffleable for IndistinguishableHybridReport<BK, V>
+where
+    BK: BooleanArray,
+    V: BooleanArray,
+{
+    // this requires BK:BAXX + V:BAYY  such that XX + YY <= 48
+    // this is checked in a debud_assert call in ::new below
+    // PERF OPPORTUNITY
+    // note that BA96 would likely be a better fit here. however, that would require a `BA128`
+    // in order to use `impl_malicious_shuffle_share!` and `BA128` cannot currently be
+    // implemented with `the boolean_array_impl!` macro as the trait `secret_sharing::Block`
+    // is not implemented for `bitvec::array::BitArray<[u8; 16]>`
+    type Share = BA112;
+
+    fn left(&self) -> Self::Share {
+        Self::join_fields(
+            ReplicatedSecretSharing::left(&self.match_key),
+            self.value.left(),
+            self.breakdown_key.left(),
+        )
+    }
+
+    fn right(&self) -> Self::Share {
+        Self::join_fields(
+            ReplicatedSecretSharing::right(&self.match_key),
+            self.value.right(),
+            self.breakdown_key.right(),
+        )
+    }
+
+    fn new(l: Self::Share, r: Self::Share) -> Self {
+        debug_assert!(
+            BA64::BITS + BK::BITS + V::BITS <= Self::Share::BITS,
+            "share type {} is too small",
+            std::any::type_name::<Self::Share>(),
+        );
+
+        let left = Self::split_fields(&l);
+        let right = Self::split_fields(&r);
+
+        Self {
+            match_key: ReplicatedSecretSharing::new(left.0, right.0),
+            value: ReplicatedSecretSharing::new(left.1, right.1),
+            breakdown_key: ReplicatedSecretSharing::new(left.2, right.2),
         }
     }
 }
