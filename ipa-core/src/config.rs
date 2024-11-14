@@ -3,6 +3,7 @@ use std::{
     fmt::{Debug, Formatter},
     iter::zip,
     path::PathBuf,
+    str::FromStr,
     time::Duration,
 };
 
@@ -38,6 +39,8 @@ pub enum Error {
     InvalidNetworkSize(usize),
     #[error(transparent)]
     IOError(#[from] std::io::Error),
+    #[error("Missing shard ports for peers {0:?}")]
+    MissingShardPorts(Vec<usize>),
 }
 
 /// Configuration describing either 3 peers in a Ring or N shard peers. In a non-sharded case a
@@ -119,88 +122,6 @@ impl<F: ConnectionFlavor> NetworkConfig<F> {
     }
 }
 
-/// Reads a the config for a specific, single, sharded server from string. Expects config to be
-/// toml format. The server in the network is specified via `id`, `shard_index` and
-/// `shard_count`.
-///
-/// First we read the configuration without assigning any identities. The number of peers in the
-/// configuration must be a multiple of 6, or 3 as a special case to support older, non-sharded
-/// configurations.
-///
-/// If there are 3 entries, we assign helper identities for them. We create a dummy sharded
-/// configuration.
-///
-/// If there are any multiple of 6 peers, then peer assignment is as follows:
-/// By rings (to be reminiscent of the previous config). The first 6 entries corresponds to the
-/// leaders Ring. H1 shard 0, H2, shard 0, and H3 shard 0. The next 6 correspond increases the
-/// shard index by one.
-///
-/// Other methods to read the network.toml exist depending on the use, for example
-/// [`NetworkConfig::from_toml_str`] reads a non-sharded config.
-/// TODO: There will be one to read the information relevant for the RC (doesn't need shard
-/// info)
-///
-/// # Errors
-/// if `input` is in an invalid format
-pub fn sharded_server_from_toml_str(
-    input: &str,
-    id: HelperIdentity,
-    shard_index: ShardIndex,
-    shard_count: ShardIndex,
-) -> Result<(NetworkConfig<Helper>, NetworkConfig<Shard>), Error> {
-    use config::{Config, File, FileFormat};
-
-    let all_network: NetworkConfig = Config::builder()
-        .add_source(File::from_str(input, FileFormat::Toml))
-        .build()?
-        .try_deserialize()?;
-
-    let ix: usize = shard_index.as_index();
-    let ix_count: usize = shard_count.as_index();
-    let mpc_id: usize = id.as_index();
-
-    let total_peers = all_network.peers.len();
-    if total_peers == 3 {
-        let mpc_network = NetworkConfig {
-            peers: all_network.peers.clone(),
-            client: all_network.client.clone(),
-            identities: HelperIdentity::make_three().to_vec(),
-        };
-        let shard_network = NetworkConfig {
-            peers: vec![all_network.peers[mpc_id].clone()],
-            client: all_network.client,
-            identities: vec![ShardIndex(0)],
-        };
-        Ok((mpc_network, shard_network))
-    } else if total_peers > 0 && total_peers % 6 == 0 {
-        let mpc_network = NetworkConfig {
-            peers: all_network
-                .peers
-                .clone()
-                .into_iter()
-                .skip(ix * 6)
-                .take(3)
-                .collect(),
-            client: all_network.client.clone(),
-            identities: HelperIdentity::make_three().to_vec(),
-        };
-        let shard_network = NetworkConfig {
-            peers: all_network
-                .peers
-                .into_iter()
-                .skip(3 + mpc_id)
-                .step_by(6)
-                .take(ix_count)
-                .collect(),
-            client: all_network.client,
-            identities: shard_count.iter().collect(),
-        };
-        Ok((mpc_network, shard_network))
-    } else {
-        Err(Error::InvalidNetworkSize(total_peers))
-    }
-}
-
 impl NetworkConfig<Shard> {
     /// # Panics
     /// In the unexpected case there are more than max usize shards.
@@ -266,6 +187,135 @@ impl NetworkConfig<Helper> {
             .try_into()
             .unwrap_or_else(|v: Vec<_>| panic!("Expected a Vec of length 3 but it was {}", v.len()))
     }
+}
+
+/// This struct is only used by [`parse_sharded_network_toml`] to parse the entire network.
+/// Unlike [`NetworkConfig`], this one doesn't have identities.
+#[derive(Clone, Debug, Deserialize)]
+struct ShardedNetworkToml {
+    pub peers: Vec<ShardedPeerConfigToml>,
+
+    /// HTTP client configuration.
+    #[serde(default)]
+    pub client: ClientConfig,
+}
+
+/// This struct is only used by [`parse_sharded_network_toml`] to generate [`PeerConfig`]. It
+/// contains an optional `shard_port`.
+#[derive(Clone, Debug, Deserialize)]
+struct ShardedPeerConfigToml {
+    #[serde(flatten)]
+    pub config: PeerConfig,
+    pub shard_port: Option<u16>,
+}
+
+impl ShardedPeerConfigToml {
+    /// Clones the inner Peer.
+    fn to_mpc_peer(&self) -> PeerConfig {
+        self.config.clone()
+    }
+
+    /// Create a new Peer but its url using [`ShardedPeerConfigToml::shard_port`].
+    fn to_shard_peer(&self) -> PeerConfig {
+        let url = self.config.url.to_string();
+        let new_url = format!(
+            "{}{}",
+            &url[..=url.find(':').unwrap()],
+            self.shard_port.expect("Shard port should be set")
+        );
+        let mut shard_peer = self.config.clone();
+        shard_peer.url = Uri::from_str(&new_url).expect("Problem creating uri with sharded port");
+        shard_peer
+    }
+}
+
+/// Parses a [`ShardedNetworkToml`] from a network.toml file. Validates that sharding ports are set
+///  if necessary. The number of peers needs to be a multiple of 3.
+fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> {
+    use config::{Config, File, FileFormat};
+
+    let parsed: ShardedNetworkToml = Config::builder()
+        .add_source(File::from_str(input, FileFormat::Toml))
+        .build()?
+        .try_deserialize()?;
+
+    if parsed.peers.len() % 3 != 0 {
+        return Err(Error::InvalidNetworkSize(parsed.peers.len()));
+    }
+
+    // Validate sharding config is set
+    let any_shard_port_set = parsed.peers.iter().any(|peer| peer.shard_port.is_some());
+    if any_shard_port_set || parsed.peers.len() > 3 {
+        let missing_ports: Vec<usize> = parsed
+            .peers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, peer)| {
+                if peer.shard_port.is_some() {
+                    None
+                } else {
+                    Some(i)
+                }
+            })
+            .collect();
+        if !missing_ports.is_empty() {
+            return Err(Error::MissingShardPorts(missing_ports));
+        }
+    }
+
+    Ok(parsed)
+}
+
+/// Reads a the config for a specific, single, sharded server from string. Expects config to be
+/// toml format. The server in the network is specified via `id`, `shard_index` and
+/// `shard_count`.
+/// The first 3 entries corresponds to the leaders Ring. H1 shard 0, H2, shard 0, and H3 shard 0.
+///
+/// Other methods to read the network.toml exist depending on the use, for example
+/// [`NetworkConfig::from_toml_str`] reads a non-sharded config.
+/// TODO: There will be one to read the information relevant for the RC (doesn't need shard
+/// info)
+///
+/// # Errors
+/// if `input` is in an invalid format
+pub fn sharded_server_from_toml_str(
+    input: &str,
+    id: HelperIdentity,
+    shard_index: ShardIndex,
+    shard_count: ShardIndex,
+) -> Result<(NetworkConfig<Helper>, NetworkConfig<Shard>), Error> {
+    let all_network = parse_sharded_network_toml(input)?;
+
+    let ix: usize = shard_index.as_index();
+    let ix_count: usize = shard_count.as_index();
+    let mpc_id: usize = id.as_index();
+
+    let mpc_network = NetworkConfig {
+        peers: all_network
+            .peers
+            .iter()
+            .map(ShardedPeerConfigToml::to_mpc_peer)
+            .skip(ix * 3)
+            .take(3)
+            .collect(),
+        client: all_network.client.clone(),
+        identities: HelperIdentity::make_three().to_vec(),
+    };
+
+    let shard_network = NetworkConfig {
+        peers: all_network
+            .peers
+            .iter()
+            .map(ShardedPeerConfigToml::to_shard_peer)
+            .skip(mpc_id)
+            .step_by(3)
+            .take(ix_count)
+            .collect(),
+        client: all_network.client,
+        identities: shard_count.iter().collect(),
+    };
+
+    Ok((mpc_network, shard_network))
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -611,15 +661,21 @@ mod tests {
 
     use hpke::{kem::X25519HkdfSha256, Kem};
     use hyper::Uri;
+    use once_cell::sync::Lazy;
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
 
-    use super::{NetworkConfig, PeerConfig};
+    use super::{
+        parse_sharded_network_toml, sharded_server_from_toml_str, NetworkConfig, PeerConfig,
+    };
     use crate::{
-        config::{ClientConfig, HpkeClientConfig, Http2Configurator, HttpClientConfigurator},
+        config::{
+            ClientConfig, Error, HpkeClientConfig, Http2Configurator, HttpClientConfigurator,
+        },
         helpers::HelperIdentity,
         net::test::TestConfigBuilder,
         sharding::ShardIndex,
+        utils::replace_all,
     };
 
     const URI_1: &str = "http://localhost:3000";
@@ -715,4 +771,293 @@ mod tests {
         let conf = NetworkConfig::new_shards(vec![pc1.clone()], client);
         assert_eq!(conf.peers[ShardIndex(0)].url, pc1.url);
     }
+
+    #[test]
+    fn parse_sharded_server_happy() {
+        // Asuming position of the second helper in the second shard (the middle server in the 3 x 3)
+        let (mpc, shard) = sharded_server_from_toml_str(
+            &SHARDED_OK_REPEAT,
+            HelperIdentity::TWO,
+            ShardIndex::from(1),
+            ShardIndex::from(3),
+        )
+        .unwrap();
+        assert_eq!(
+            vec![
+                "helper1.prod.ipa-helper.shard1.dev:443",
+                "helper2.prod.ipa-helper.shard1.dev:443",
+                "helper3.prod.ipa-helper.shard1.dev:443"
+            ],
+            mpc.peers
+                .into_iter()
+                .map(|p| p.url.to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            vec![
+                "helper2.prod.ipa-helper.shard0.dev:555",
+                "helper2.prod.ipa-helper.shard1.dev:555",
+                "helper2.prod.ipa-helper.shard2.dev:555"
+            ],
+            shard
+                .peers
+                .into_iter()
+                .map(|p| p.url.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Tests that the url of a shard gets updated with the shard port.
+    #[test]
+    fn transform_sharded_peers() {
+        let mut n = parse_sharded_network_toml(&SHARDED_OK_REPEAT).unwrap();
+        assert_eq!(
+            "helper3.prod.ipa-helper.shard2.dev:666",
+            n.peers.pop().unwrap().to_shard_peer().url
+        );
+        assert_eq!(
+            "helper2.prod.ipa-helper.shard2.dev:555",
+            n.peers.pop().unwrap().to_shard_peer().url
+        );
+    }
+
+    /// Expects an error if the number of peers isn't a multiple of 3
+    #[test]
+    fn invalid_nr_of_peers() {
+        assert!(matches!(
+            parse_sharded_network_toml(&SHARDED_8),
+            Err(Error::InvalidNetworkSize(_))
+        ));
+    }
+
+    /// If any sharded port is set (indicating this is a sharding config), then ALL ports must be set.
+    #[test]
+    fn parse_network_toml_shard_port_some_set() {
+        assert!(matches!(
+            parse_sharded_network_toml(&SHARDED_COMPAT_ONE_PORT),
+            Err(Error::MissingShardPorts(_))
+        ));
+    }
+
+    /// If there are more than 3 peers configured (indicating this is a sharding config), then ALL ports must be set.
+    #[test]
+    fn parse_network_toml_shard_port_set() {
+        assert!(matches!(
+            parse_sharded_network_toml(&SHARDED_MISSING_PORTS_REPEAT),
+            Err(Error::MissingShardPorts(_))
+        ));
+    }
+
+    /// Testing happy case of a sharded network config
+    #[test]
+    fn happy_parse_sharded_network_toml() {
+        let r_entire_network = parse_sharded_network_toml(SHARDED_OK);
+        assert!(r_entire_network.is_ok());
+        let entire_network = r_entire_network.unwrap();
+        assert!(matches!(
+            entire_network.client.http_config,
+            HttpClientConfigurator::Http2(_)
+        ));
+        assert_eq!(3, entire_network.peers.len());
+        assert_eq!(
+            "helper3.prod.ipa-helper.shard0.dev:443",
+            entire_network.peers[2].config.url
+        );
+        assert_eq!(Some(666), entire_network.peers[2].shard_port);
+    }
+
+    /// Testing happy case of a longer sharded network config
+    #[test]
+    fn happy_parse_larger_sharded_network_toml() {
+        let r_entire_network = parse_sharded_network_toml(&SHARDED_OK_REPEAT);
+        assert!(r_entire_network.is_ok());
+        let entire_network = r_entire_network.unwrap();
+        assert_eq!(9, entire_network.peers.len());
+        assert_eq!(Some(666), entire_network.peers[8].shard_port);
+    }
+
+    /// This test validates that the new logic that handles sharded configurations can also handle the previous version
+    #[test]
+    fn parse_non_sharded_network_toml() {
+        let r_entire_network = parse_sharded_network_toml(&NON_SHARDED_COMPAT);
+        assert!(r_entire_network.is_ok());
+        let entire_network = r_entire_network.unwrap();
+        assert!(matches!(
+            entire_network.client.http_config,
+            HttpClientConfigurator::Http2(_)
+        ));
+        assert_eq!(3, entire_network.peers.len());
+        assert_eq!(
+            "helper3.prod.ipa-helper.dev:443",
+            entire_network.peers[2].config.url
+        );
+    }
+
+    // Following are some large &str const used for tests
+
+    /// Valid: A non-sharded network toml, just how they used to be
+    static NON_SHARDED_COMPAT: Lazy<String> = Lazy::new(|| format!("{CLIENT}{P1}{REST}"));
+
+    /// Invalid: Same as [`NON_SHARDED_COMPAT`] but with a single `shard_port` set.
+    static SHARDED_COMPAT_ONE_PORT: Lazy<String> =
+        Lazy::new(|| format!("{CLIENT}{P1}\nshard_port = 777\n{REST}"));
+
+    /// Helper const used to create client configs
+    const CLIENT: &str = "[client.http_config]
+ping_interval_secs = 90.0
+version = \"http2\"
+";
+
+    /// Helper const that has the first part of a Peer, just before were `shard_port` should be
+    /// specified.
+    const P1: &str = "
+[[peers]]
+certificate = \"\"\"
+-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIIMlnveFys5QUwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
+aGVscGVyMS5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwM1oXDTI0
+MTIwNDAzMzMwM1owJjEkMCIGA1UEAwwbaGVscGVyMS5wcm9kLmlwYS1oZWxwZXIu
+ZGV2MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEWmrrkaKM7HQ0Y3ZGJtHB7vfG
+cT/hDCXCoob4pJ/fpPDMrqhiwTTck3bNOuzv9QIx+p5C2Qp8u67rYfK78w86NaNZ
+MFcwJgYDVR0RBB8wHYIbaGVscGVyMS5wcm9kLmlwYS1oZWxwZXIuZGV2MA4GA1Ud
+DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
+zj0EAwIDSAAwRQIhAKVdDCQeXLRXDYXy4b1N1UxD/JPuD9H7zeRb8/nmIDTfAiBL
+a6L0t1Ug8i2RcequSo21x319Tvs5nUbGwzMFSS5wKA==
+-----END CERTIFICATE-----
+\"\"\"
+url = \"helper1.prod.ipa-helper.dev:443\"";
+
+    /// The rest of a configuration
+    const REST: &str = "
+[peers.hpke]
+public_key = \"f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756\"
+
+[[peers]]
+certificate = \"\"\"
+-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIITOtoca16QckwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
+aGVscGVyMi5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwOFoXDTI0
+MTIwNDAzMzMwOFowJjEkMCIGA1UEAwwbaGVscGVyMi5wcm9kLmlwYS1oZWxwZXIu
+ZGV2MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETxOH4ATz6kBxLuRznKDFRugm
+XKmH7mzRB9wn5vaVlVpDzf4nDHJ+TTzSS6Lb3YLsA7jrXDx+W7xPLGow1+9FNqNZ
+MFcwJgYDVR0RBB8wHYIbaGVscGVyMi5wcm9kLmlwYS1oZWxwZXIuZGV2MA4GA1Ud
+DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
+zj0EAwIDSAAwRQIhAI4G5ICVm+v5KK5Y8WVetThtNCXGykUBAM1eE973FBOUAiAS
+XXgJe9q9hAfHf0puZbv0j0tGY3BiqCkJJaLvK7ba+g==
+-----END CERTIFICATE-----
+\"\"\"
+url = \"helper2.prod.ipa-helper.dev:443\"
+
+[peers.hpke]
+public_key = \"62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22\"
+
+[[peers]]
+certificate = \"\"\"
+-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIIaf7eDCnXh2swCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
+aGVscGVyMy5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMxMloXDTI0
+MTIwNDAzMzMxMlowJjEkMCIGA1UEAwwbaGVscGVyMy5wcm9kLmlwYS1oZWxwZXIu
+ZGV2MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIMqxCCtu4joFr8YtOrEtq230
+NuTtUAaJHIHNtv4CvpUcbtlFMWFYUUum7d22A8YTfUeccG5PsjjCoQG/dhhSbKNZ
+MFcwJgYDVR0RBB8wHYIbaGVscGVyMy5wcm9kLmlwYS1oZWxwZXIuZGV2MA4GA1Ud
+DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
+zj0EAwIDSAAwRQIhAOTSQWbN7kfIatNJEwWTBL4xOY88E3+SOnBNExCsTkQuAiBB
+/cwOQQUEeE4llrDp+EnyGbzmVm5bINz8gePIxkKqog==
+-----END CERTIFICATE-----
+\"\"\"
+url = \"helper3.prod.ipa-helper.dev:443\"
+
+[peers.hpke]
+public_key = \"55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61\"
+";
+
+    /// Valid: A sharded configuration
+    const SHARDED_OK: &str = "
+[[peers]]
+certificate = \"\"\"
+-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIIMlnveFys5QUwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
+aGVscGVyMS5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwM1oXDTI0
+MTIwNDAzMzMwM1owJjEkMCIGA1UEAwwbaGVscGVyMS5wcm9kLmlwYS1oZWxwZXIu
+ZGV2MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEWmrrkaKM7HQ0Y3ZGJtHB7vfG
+cT/hDCXCoob4pJ/fpPDMrqhiwTTck3bNOuzv9QIx+p5C2Qp8u67rYfK78w86NaNZ
+MFcwJgYDVR0RBB8wHYIbaGVscGVyMS5wcm9kLmlwYS1oZWxwZXIuZGV2MA4GA1Ud
+DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
+zj0EAwIDSAAwRQIhAKVdDCQeXLRXDYXy4b1N1UxD/JPuD9H7zeRb8/nmIDTfAiBL
+a6L0t1Ug8i2RcequSo21x319Tvs5nUbGwzMFSS5wKA==
+-----END CERTIFICATE-----
+\"\"\"
+url = \"helper1.prod.ipa-helper.shard0.dev:443\"
+shard_port = 444
+
+[peers.hpke]
+public_key = \"f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756\"
+
+[[peers]]
+certificate = \"\"\"
+-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIITOtoca16QckwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
+aGVscGVyMi5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwOFoXDTI0
+MTIwNDAzMzMwOFowJjEkMCIGA1UEAwwbaGVscGVyMi5wcm9kLmlwYS1oZWxwZXIu
+ZGV2MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETxOH4ATz6kBxLuRznKDFRugm
+XKmH7mzRB9wn5vaVlVpDzf4nDHJ+TTzSS6Lb3YLsA7jrXDx+W7xPLGow1+9FNqNZ
+MFcwJgYDVR0RBB8wHYIbaGVscGVyMi5wcm9kLmlwYS1oZWxwZXIuZGV2MA4GA1Ud
+DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
+zj0EAwIDSAAwRQIhAI4G5ICVm+v5KK5Y8WVetThtNCXGykUBAM1eE973FBOUAiAS
+XXgJe9q9hAfHf0puZbv0j0tGY3BiqCkJJaLvK7ba+g==
+-----END CERTIFICATE-----
+\"\"\"
+url = \"helper2.prod.ipa-helper.shard0.dev:443\"
+shard_port = 555
+
+[peers.hpke]
+public_key = \"62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22\"
+
+[[peers]]
+certificate = \"\"\"
+-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIIaf7eDCnXh2swCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
+aGVscGVyMy5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMxMloXDTI0
+MTIwNDAzMzMxMlowJjEkMCIGA1UEAwwbaGVscGVyMy5wcm9kLmlwYS1oZWxwZXIu
+ZGV2MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIMqxCCtu4joFr8YtOrEtq230
+NuTtUAaJHIHNtv4CvpUcbtlFMWFYUUum7d22A8YTfUeccG5PsjjCoQG/dhhSbKNZ
+MFcwJgYDVR0RBB8wHYIbaGVscGVyMy5wcm9kLmlwYS1oZWxwZXIuZGV2MA4GA1Ud
+DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
+zj0EAwIDSAAwRQIhAOTSQWbN7kfIatNJEwWTBL4xOY88E3+SOnBNExCsTkQuAiBB
+/cwOQQUEeE4llrDp+EnyGbzmVm5bINz8gePIxkKqog==
+-----END CERTIFICATE-----
+\"\"\"
+url = \"helper3.prod.ipa-helper.shard0.dev:443\"
+shard_port = 666
+
+[peers.hpke]
+public_key = \"55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61\"
+";
+
+    /// Valid: Three sharded configs together for 9
+    static SHARDED_OK_REPEAT: Lazy<String> = Lazy::new(|| {
+        format!(
+            "{}{}{}",
+            SHARDED_OK,
+            replace_all(SHARDED_OK, "shard0", "shard1"),
+            replace_all(SHARDED_OK, "shard0", "shard2")
+        )
+    });
+
+    /// Invalid: A network toml with 8 entries
+    static SHARDED_8: Lazy<String> = Lazy::new(|| {
+        let last_peers_index = SHARDED_OK_REPEAT.rfind("[[peers]]").unwrap();
+        SHARDED_OK_REPEAT[..last_peers_index].to_string()
+    });
+
+    /// Invalid: Same as [`SHARDED_OK_REPEAT`] but without the expected ports
+    static SHARDED_MISSING_PORTS_REPEAT: Lazy<String> = Lazy::new(|| {
+        let lines: Vec<&str> = SHARDED_OK_REPEAT.lines().collect();
+        let new_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| !line.starts_with("shard_port ="))
+            .map(std::string::ToString::to_string)
+            .collect();
+        new_lines.join("\n")
+    });
 }
