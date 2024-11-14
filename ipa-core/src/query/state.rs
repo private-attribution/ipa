@@ -33,9 +33,6 @@ pub enum QueryStatus {
     AwaitingCompletion,
     /// Query has finished and results are available.
     Completed,
-    /// This is used when there are different states for multiple queries, for instance when 
-    /// querying a sharded helper, and shards are in different states.
-    MixedStatus,
 }
 
 impl From<&QueryState> for QueryStatus {

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crate::{
     executor::IpaRuntime,
     helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
         routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerBox, HandlerRef, HelperIdentity, HelperResponse,
         MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport, TransportIdentity,
@@ -192,8 +192,8 @@ impl RequestHandler<ShardIndex> for Inner {
                 HelperResponse::from(qp.prepare_shard(&self.shard_transport, req)?)
             }
             RouteId::QueryStatus => {
-                let query_id = ext_query_id(&req)?;
-                HelperResponse::from(qp.shard_status(query_id)?)
+                let req = req.into::<CompareStatusRequest>()?;
+                HelperResponse::from(qp.shard_status(&req)?)
             }
             r => {
                 return Err(ApiError::BadRequest(
