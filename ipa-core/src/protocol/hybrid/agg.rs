@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use futures::stream;
-use futures_util::{StreamExt, TryStreamExt};
+use futures::{stream, FutureExt, StreamExt, TryStreamExt};
 
 use crate::{
     error::Error,
@@ -11,7 +10,8 @@ use crate::{
         boolean::step::EightBitStep,
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
+            Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, ShardedContext,
+            UpgradableContext,
         },
         hybrid::step::{AggregateReportsStep, HybridStep},
         ipa_prf::boolean_ops::addition_sequential::integer_add,
@@ -19,7 +19,7 @@ use crate::{
     },
     report::hybrid::{AggregateableHybridReport, PrfHybridReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
-    seq_join::{seq_join, SeqJoin},
+    seq_join::{assert_send, seq_join, SeqJoin},
 };
 
 /// This protocol is used to aggregate `PRFHybridReports` and returns `AggregateableHybridReports`.
@@ -30,7 +30,7 @@ pub async fn aggregate_reports<BK, V, C>(
     reports: Vec<PrfHybridReport<BK, V>>,
 ) -> Result<Vec<AggregateableHybridReport<BK, V>>, Error>
 where
-    C: UpgradableContext,
+    C: UpgradableContext + ShardedContext,
     BK: SharedValue + BooleanArray,
     V: SharedValue + BooleanArray,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
@@ -79,7 +79,7 @@ where
             protocol: &HybridStep::GroupBySum,
             validate: &HybridStep::GroupBySumValidate,
         },
-        chunk_size.next_power_of_two(),
+        usize::MAX,
     );
 
     let agg_ctx = dzkp_validator.context();
@@ -103,7 +103,6 @@ where
                     &reports[1].value.to_bits(),
                 )
                 .await?;
-                agg_ctx.validate_record(idx.into()).await?;
                 Ok::<_, Error>(AggregateableHybridReport::<BK, V> {
                     match_key: (),
                     breakdown_key: breakdown_key.collect_bits(),
@@ -112,10 +111,12 @@ where
             }
         });
 
-    let agg_result = seq_join(agg_ctx.active_work(), agg_work)
-        .try_collect::<Vec<_>>()
-        .await?;
-    Ok(agg_result)
+    dzkp_validator
+        .validated_seq_join(agg_work)
+        .try_collect()
+        // "Implementation of Send is not general enough" famous issue
+        .boxed()
+        .await
 }
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
@@ -190,7 +191,7 @@ pub mod test {
 
             // let expected = [[4, 1], [3, 2]];
 
-            let world = TestWorld::<WithShards<2>>::with_shards(TestWorldConfig::default());
+            let world = TestWorld::<WithShards<3>>::with_shards(TestWorldConfig::default());
 
             let results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
