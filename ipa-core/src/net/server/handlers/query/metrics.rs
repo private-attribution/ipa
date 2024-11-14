@@ -7,14 +7,13 @@ use crate::net::{
     Error,
 };
 
-use prometheus::{self, Encoder, TextEncoder};
-use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry::metrics::MeterProvider;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
+use prometheus::{self, Encoder, TextEncoder};
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
 /// to the [`HttpTransport`].
-async fn handler(
-    // transport: Extension<MpcHttpTransport>,
+async fn handler(// transport: Extension<MpcHttpTransport>,
     // QueryConfigQueryParams(query_config): QueryConfigQueryParams,
 ) -> Result<Vec<u8>, Error> {
     // match transport.dispatch(query_config, BodyStream::empty()).await {
@@ -25,13 +24,16 @@ async fn handler(
     //     Err(err) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, err)),
     // }
 
+    // TODO: Remove this dummy metrics and get metrics for scraper from ipa-metrics::PrometheusMetricsExporter (see ipa-metrics/exporter.rs)
+
     // create a new prometheus registry
     let registry = prometheus::Registry::new();
 
     // configure OpenTelemetry to use this registry
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     // set up a meter to create instruments
     let provider = SdkMeterProvider::builder().with_reader(exporter).build();

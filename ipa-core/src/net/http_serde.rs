@@ -81,8 +81,7 @@ pub mod metrics {
     }
 
     impl Request {
-        pub fn new(
-            // headers: HashMap<String, String>,
+        pub fn new(// headers: HashMap<String, String>,
         ) -> Self {
             Self {
                 // headers,
@@ -99,9 +98,9 @@ pub mod metrics {
                 .build()?;
 
             // let req = self
-                // .headers
-                // .into_iter()
-                // .fold(hyper::Request::get(uri), |req, (k, v)| req.header(k, v));
+            // .headers
+            // .into_iter()
+            // .fold(hyper::Request::get(uri), |req, (k, v)| req.header(k, v));
             let req = hyper::Request::get(uri);
             Ok(req.body(Body::empty())?)
         }

@@ -20,6 +20,7 @@ use hashbrown::hash_map::Entry;
 use rustc_hash::FxBuildHasher;
 
 use crate::{
+    key::OwnedMetricName,
     kind::CounterValue,
     store::{CounterHandle, Store},
     MetricName,
@@ -118,6 +119,10 @@ impl PartitionedStore {
         key: B,
     ) -> CounterHandle<'a, LABELS> {
         self.get_mut(CurrentThreadContext::get()).counter(key)
+    }
+
+    pub fn counters(&mut self) -> impl Iterator<Item = (&OwnedMetricName, CounterValue)> {
+        self.get_mut(CurrentThreadContext::get()).counters()
     }
 
     #[must_use]

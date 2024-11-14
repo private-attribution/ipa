@@ -1,11 +1,11 @@
 mod create;
 mod input;
 mod kill;
+mod metrics;
 mod prepare;
 mod results;
 mod status;
 mod step;
-mod metrics;
 
 use std::marker::PhantomData;
 
@@ -62,8 +62,7 @@ pub fn s2s_router(transport: ShardHttpTransport) -> Router {
 
 /// Construct router for exporting metrics to metrics backend (e.g. Prometheus scraper)
 pub fn metric_router() -> Router {
-    Router::new()
-        .merge(metrics::router())
+    Router::new().merge(metrics::router())
 }
 
 /// Returns HTTP 401 Unauthorized if the request does not have valid authentication.
