@@ -344,7 +344,10 @@ macro_rules! field_impl {
             };
 
             use super::*;
-            use crate::ff::Serializable;
+            use crate::{
+                ff::Serializable,
+                rand::{thread_rng, Rng},
+            };
 
             impl Arbitrary for $field {
                 type Parameters = ();
@@ -371,6 +374,19 @@ macro_rules! field_impl {
                     $field::ZERO - $field::ONE
                 );
                 assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
+            }
+
+            #[test]
+            fn batch_invert_test() {
+                let mut rng = thread_rng();
+                let mut elements = (0..100)
+                    .into_iter()
+                    .map(|_i| $field::truncate_from(rng.gen::<u128>()))
+                    .filter(|x| *x != $field::ZERO)
+                    .collect::<Vec<$field>>();
+                let ground_truth = elements.iter().map(|x| x.invert()).collect::<Vec<$field>>();
+                batch_invert(&mut elements);
+                assert_eq!(ground_truth, elements);
             }
 
             proptest! {
