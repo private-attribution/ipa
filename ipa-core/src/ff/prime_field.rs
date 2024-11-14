@@ -58,13 +58,11 @@ pub trait PrimeField: Field + U128Conversions {
 /// <https://en.wikipedia.org/wiki/Modular_multiplicative_inverse>
 /// ## Panics
 /// If any element is 0
-#[allow(non_snake_case)]
-pub fn batch_invert<P>(field_elements: &mut [P])
+pub fn batch_invert<const N: usize, P>(field_elements: &mut [P; N])
 where
     P: PrimeField,
 {
-    let N = field_elements.len();
-    let mut prefix_products = field_elements.to_vec();
+    let mut prefix_products = *field_elements;
     for i in 1..N {
         let temp = prefix_products[i] * prefix_products[i - 1];
         prefix_products[i] = temp;
@@ -335,7 +333,7 @@ macro_rules! field_impl {
 
         #[cfg(all(test, unit_test))]
         mod common_tests {
-            use std::ops::Range;
+            use std::{array::from_fn, ops::Range};
 
             use generic_array::GenericArray;
             use proptest::{
@@ -379,12 +377,14 @@ macro_rules! field_impl {
             #[test]
             fn batch_invert_test() {
                 let mut rng = thread_rng();
-                let mut elements = (0..100)
-                    .into_iter()
-                    .map(|_i| $field::truncate_from(rng.gen::<u128>()))
-                    .filter(|x| *x != $field::ZERO)
-                    .collect::<Vec<$field>>();
-                let ground_truth = elements.iter().map(|x| x.invert()).collect::<Vec<$field>>();
+                let mut elements: [$field; 100] = from_fn(|_| {
+                    let mut element = $field::truncate_from(rng.gen::<u128>());
+                    while (element == $field::ZERO) {
+                        element = $field::truncate_from(rng.gen::<u128>());
+                    }
+                    element
+                });
+                let ground_truth: [$field; 100] = from_fn(|i| elements[i].invert());
                 batch_invert(&mut elements);
                 assert_eq!(ground_truth, elements);
             }

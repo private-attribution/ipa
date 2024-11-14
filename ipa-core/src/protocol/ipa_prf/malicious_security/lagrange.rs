@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{array::from_fn, fmt::Debug};
 
 use typenum::Unsigned;
 
@@ -36,16 +36,14 @@ where
 
         Self {
             denominator: {
-                let mut denominators = (0u128..N.try_into().unwrap())
-                    .map(|i| {
-                        (0u128..N.try_into().unwrap())
-                            .filter(|&j| i != j)
-                            .map(|j| F::try_from(i).unwrap() - F::try_from(j).unwrap())
-                            .fold(F::ONE, |acc, a| acc * a)
-                    })
-                    .collect::<Vec<_>>();
+                let mut denominators: [F; N] = from_fn(|i| {
+                    (0u128..N.try_into().unwrap())
+                        .filter(|&j| (i as u128) != j)
+                        .map(|j| F::try_from(i as u128).unwrap() - F::try_from(j).unwrap())
+                        .fold(F::ONE, |acc, a| acc * a)
+                });
                 batch_invert(&mut denominators);
-                denominators.try_into().unwrap()
+                denominators
             },
         }
     }
