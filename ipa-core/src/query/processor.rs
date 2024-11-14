@@ -11,8 +11,8 @@ use crate::{
     executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
-        ShardTransportImpl, Transport,
+        BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
+        RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -21,11 +21,12 @@ use crate::{
         state::{QueryState, QueryStatus, RemoveQuery, RunningQueries, StateError},
         CompletionHandle, ProtocolResult,
     },
+    sharding::ShardIndex,
     sync::Arc,
     utils::NonZeroU32PowerOfTwo,
 };
 
-/// `Processor` accepts and tracks requests to initiate new queries on this helper party
+/// [`Processor`] accepts and tracks requests to initiate new queries on this helper party
 /// network. It makes sure queries are coordinated and each party starts processing it when
 /// it has all the information required.
 ///
@@ -40,6 +41,11 @@ use crate::{
 ///     IPA protocol.
 /// - When helper party is done, it holds onto the results of the computation until the external party
 ///     that initiated this request asks for them.
+///
+/// This struct is decoupled from the [`Transport`]s used to communicate with other [`Processor`]
+/// running in other shards or helpers. Many functions require transport as part of their arguments
+/// to communicate with its peers. The transports also identify this [`Processor`] in the network so
+/// it's important to remain consistent on the transports given as parameters.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
 pub struct Processor {
@@ -66,12 +72,18 @@ pub enum NewQueryError {
     State(#[from] StateError),
     #[error(transparent)]
     MpcTransport(#[from] MpcTransportError),
+    #[error(transparent)]
+    ShardBroadcastError(#[from] BroadcastError<ShardIndex, ShardTransportError>),
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum PrepareQueryError {
     #[error("This helper is the query coordinator, cannot respond to Prepare requests")]
     WrongTarget,
+    #[error("This shard {0:?} isn't the leader (shard 0)")]
+    NotLeader(ShardIndex),
+    #[error("This is the leader shard")]
+    Leader,
     #[error("Query is already running")]
     AlreadyRunning,
     #[error(transparent)]
@@ -79,6 +91,8 @@ pub enum PrepareQueryError {
         #[from]
         source: StateError,
     },
+    #[error(transparent)]
+    ShardBroadcastError(#[from] BroadcastError<ShardIndex, ShardTransportError>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -141,7 +155,7 @@ impl Processor {
     /// * Requests Infra and Network layer to create resources for this query
     /// * sends `prepare` request that describes the query configuration
     ///     (query id, query type, field type, roles -> endpoints or reverse)
-    ///         to followers and waits for the confirmation
+    ///         to helpers and its shards and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
     /// * returns query configuration
     ///
@@ -151,6 +165,7 @@ impl Processor {
     pub async fn new_query(
         &self,
         transport: MpcTransportImpl,
+        shard_transport: ShardTransportImpl,
         req: QueryConfig,
     ) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
@@ -169,8 +184,8 @@ impl Processor {
             config: req,
             roles: roles.clone(),
         };
-
-        // Inform other parties about new query. If any of them rejects it, this join will fail
+        // Inform other helpers about new query. If any of them rejects it, this join will fail
+        // TODO: If H2 succeeds and H3 fails, we need to rollback H2.
         try_join(
             transport.send(left, prepare_request.clone(), stream::empty()),
             transport.send(right, prepare_request.clone(), stream::empty()),
@@ -178,30 +193,72 @@ impl Processor {
         .await
         .map_err(NewQueryError::MpcTransport)?;
 
+        // TODO: Similar to the todo above. If shards 1,2 and 3 succeed but 4 fails, then we need
+        // to rollback 1,2 and 3
+        shard_transport.broadcast(prepare_request.clone()).await?;
+
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
         guard.restore();
         Ok(prepare_request)
     }
 
-    /// On prepare, each follower:
-    /// * ensures that it is not the leader on this query
+    /// On prepare, each leader:
+    /// * ensures that it is not the leader helper on this query
     /// * query is not registered yet
-    /// * creates gateway and network
     /// * registers query
     ///
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
-    pub fn prepare(
+    pub async fn prepare_helper(
         &self,
-        transport: &MpcTransportImpl,
+        mpc_transport: MpcTransportImpl,
+        shard_transport: ShardTransportImpl,
         req: PrepareQuery,
     ) -> Result<(), PrepareQueryError> {
-        let my_role = req.roles.role(transport.identity());
+        let my_role = req.roles.role(mpc_transport.identity());
+        let shard_index = shard_transport.identity();
 
         if my_role == Role::H1 {
             return Err(PrepareQueryError::WrongTarget);
         }
+        if shard_index != ShardIndex::FIRST {
+            return Err(PrepareQueryError::NotLeader(shard_index));
+        }
+        let handle = self.queries.handle(req.query_id);
+        if handle.status().is_some() {
+            return Err(PrepareQueryError::AlreadyRunning);
+        }
+
+        // TODO: If shards 1,2 and 3 succeed but 4 fails, then we need to rollback 1,2 and 3.
+        shard_transport.broadcast(req.clone()).await?;
+
+        handle.set_state(QueryState::AwaitingInputs(
+            req.query_id,
+            req.config,
+            req.roles,
+        ))?;
+
+        Ok(())
+    }
+
+    /// On prepare, each shard:
+    /// * ensures that it is not the leader on this query
+    /// * query is not registered yet
+    /// * registers query
+    ///
+    /// ## Errors
+    /// if query is already running or this helper cannot be a follower in it
+    pub fn prepare_shard(
+        &self,
+        shard_transport: &ShardTransportImpl,
+        req: PrepareQuery,
+    ) -> Result<(), PrepareQueryError> {
+        let shard_index = shard_transport.identity();
+        if shard_index == ShardIndex::FIRST {
+            return Err(PrepareQueryError::Leader);
+        }
+
         let handle = self.queries.handle(req.query_id);
         if handle.status().is_some() {
             return Err(PrepareQueryError::AlreadyRunning);
@@ -216,7 +273,7 @@ impl Processor {
         Ok(())
     }
 
-    /// Receive inputs for the specified query. That triggers query processing
+    /// Receive inputs for the specified query and creates gateway and network
     ///
     /// ## Errors
     /// if query is not registered on this helper.
@@ -275,18 +332,11 @@ impl Processor {
         }
     }
 
-    /// Returns the query status.
-    ///
-    /// ## Errors
-    /// If query is not registered on this helper.
-    ///
-    /// ## Panics
-    /// If the query collection mutex is poisoned.
-    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
+    /// Returns the status of the running query or [`None`].
+    /// If the query was completed it updates the state to reflect that.
+    fn get_status(&self, query_id: QueryId) -> Option<QueryStatus> {
         let mut queries = self.queries.inner.lock().unwrap();
-        let Some(mut state) = queries.remove(&query_id) else {
-            return Err(QueryStatusError::NoSuchQuery(query_id));
-        };
+        let mut state = queries.remove(&query_id)?;
 
         if let QueryState::Running(ref mut running) = state {
             if let Some(result) = running.try_complete() {
@@ -296,6 +346,20 @@ impl Processor {
 
         let status = QueryStatus::from(&state);
         queries.insert(query_id, state);
+        Some(status)
+    }
+
+    /// Returns the query status.
+    ///
+    /// ## Errors
+    /// If query is not registered on this helper.
+    ///
+    /// ## Panics
+    /// If the query collection mutex is poisoned.
+    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
+        let status = self
+            .get_status(query_id)
+            .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
         Ok(status)
     }
 
@@ -381,15 +445,18 @@ mod tests {
             make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
             ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
-            RequestHandler, RoleAssignment, Transport,
+            InMemoryShardNetwork, InMemoryTransport, RequestHandler, RoleAssignment, Transport,
+            TransportIdentity,
         },
         protocol::QueryId,
         query::{
             processor::Processor, state::StateError, NewQueryError, PrepareQueryError, QueryStatus,
+            QueryStatusError,
         },
+        sharding::ShardIndex,
     };
 
-    fn prepare_query_handler<F, Fut>(cb: F) -> Arc<dyn RequestHandler<HelperIdentity>>
+    fn prepare_query_handler<F, Fut, I: TransportIdentity>(cb: F) -> Arc<dyn RequestHandler<I>>
     where
         F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
@@ -400,16 +467,128 @@ mod tests {
         })
     }
 
-    fn respond_ok() -> Arc<dyn RequestHandler<HelperIdentity>> {
-        prepare_query_handler(move |_| async move { Ok(HelperResponse::ok()) })
+    fn helper_respond_ok() -> Arc<dyn RequestHandler<HelperIdentity>> {
+        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
+    }
+
+    fn shard_respond_ok(_si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
+        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
     }
 
     fn test_multiply_config() -> QueryConfig {
         QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap()
     }
 
+    struct TestComponentsArgs {
+        #[allow(clippy::type_complexity)]
+        opt_shards: Option<(
+            InMemoryShardNetwork,
+            Vec<Arc<dyn RequestHandler<ShardIndex>>>,
+        )>,
+        mpc_handlers: [Option<Arc<dyn RequestHandler<HelperIdentity>>>; 3],
+        shard_count: u32,
+    }
+
+    impl TestComponentsArgs {
+        fn new(mpc_handler: &Arc<dyn RequestHandler<HelperIdentity>>) -> Self {
+            Self {
+                opt_shards: None,
+                mpc_handlers: array::from_fn(|_| Some(Arc::clone(mpc_handler))),
+                shard_count: 2,
+            }
+        }
+
+        #[allow(dead_code)]
+        fn set_shard_handler<F>(&mut self, handler: F)
+        where
+            F: Fn(ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>>,
+        {
+            self.opt_shards = Some(InMemoryShardNetwork::with_shards_and_handlers(
+                self.shard_count,
+                handler,
+            ));
+        }
+
+        fn take_shards(
+            &mut self,
+        ) -> (
+            InMemoryShardNetwork,
+            Vec<Arc<dyn RequestHandler<ShardIndex>>>,
+        ) {
+            if let Some(shards) = self.opt_shards.take() {
+                shards
+            } else {
+                // This method creates a network for 3 helpers but we will only use one.
+                InMemoryShardNetwork::with_shards_and_handlers(self.shard_count, shard_respond_ok)
+            }
+        }
+    }
+
+    impl Default for TestComponentsArgs {
+        fn default() -> Self {
+            TestComponentsArgs::new(&helper_respond_ok())
+        }
+    }
+
+    /// This struct aims to streamline unit tests that use a single [`Processor`] and mock the
+    /// responses coming from the other's. Note only one [`Processor`] is ever created, not an
+    /// entire MPC network. This means that if you want to test a workflow that involves multiple
+    /// steps involving [`Processor`] function calls, in different helpers or shards, you will need
+    /// to create multiple instances of this helper.
+    ///
+    /// Following is a minimal example on how to setup a single [`Processor`] for which all
+    /// transport calls to either shards or helpers with simply return Ok.
+    ///
+    /// ```
+    /// let t = TestComponents::new(TestComponentsArgs::default());
+    /// t.processor.query_status(QueryId)
+    /// ```
+    #[allow(dead_code)]
+    struct TestComponents {
+        processor: Processor,
+        query_config: QueryConfig,
+
+        mpc_network: InMemoryMpcNetwork,
+        first_transport: InMemoryTransport<HelperIdentity>,
+        second_transport: InMemoryTransport<HelperIdentity>,
+        third_transport: InMemoryTransport<HelperIdentity>,
+        mpc_handlers: [Option<Arc<dyn RequestHandler<HelperIdentity>>>; 3],
+
+        shard_network: InMemoryShardNetwork,
+        shard_handlers: Vec<Arc<dyn RequestHandler<ShardIndex>>>,
+        shard_transport: InMemoryTransport<ShardIndex>,
+    }
+
+    impl TestComponents {
+        fn new(mut args: TestComponentsArgs) -> Self {
+            let mpc_network = InMemoryMpcNetwork::new(
+                args.mpc_handlers
+                    .each_ref()
+                    .map(|opt_h| opt_h.as_ref().map(HandlerBox::owning_ref)),
+            );
+            let (shard_network, shard_handlers) = args.take_shards();
+            let processor = Processor::default();
+            let query_config = test_multiply_config();
+            let [t0, t1, t2] = mpc_network.transports();
+            let shard_transport = shard_network.transport(HelperIdentity::ONE, ShardIndex::FIRST);
+            TestComponents {
+                processor,
+                query_config,
+                mpc_network,
+                first_transport: t0,
+                second_transport: t1,
+                third_transport: t2,
+                mpc_handlers: args.mpc_handlers,
+                shard_network,
+                shard_handlers,
+                shard_transport,
+            }
+        }
+    }
+
     #[tokio::test]
     async fn new_query() {
+        let mut args = TestComponentsArgs::default();
         let barrier = Arc::new(Barrier::new(3));
         let h2_barrier = Arc::clone(&barrier);
         let h3_barrier = Arc::clone(&barrier);
@@ -427,22 +606,20 @@ mod tests {
                 Ok(HelperResponse::ok())
             }
         });
-        let network = InMemoryMpcNetwork::new([
-            None,
-            Some(HandlerBox::owning_ref(&h2)),
-            Some(HandlerBox::owning_ref(&h3)),
-        ]);
-        let [t0, _, _] = network.transports();
-        let p0 = Processor::default();
-        let request = test_multiply_config();
-
-        let qc_future = p0.new_query(t0, request);
+        args.mpc_handlers = [None, Some(h2), Some(h3)];
+        let t = TestComponents::new(args);
+        let qc_future = t
+            .processor
+            .new_query(t.first_transport, t.shard_transport, t.query_config);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
         let _qc = poll_immediate(&mut qc_future).await;
 
-        assert_eq!(QueryStatus::Preparing, p0.query_status(QueryId).unwrap());
+        assert_eq!(
+            QueryStatus::Preparing,
+            t.processor.query_status(QueryId).unwrap()
+        );
         // unblock sends
         barrier.wait().await;
 
@@ -452,135 +629,251 @@ mod tests {
         assert_eq!(
             PrepareQuery {
                 query_id: QueryId,
-                config: request,
+                config: t.query_config,
                 roles: expected_assignment,
             },
             qc
         );
         assert_eq!(
             QueryStatus::AwaitingInputs,
-            p0.query_status(QueryId).unwrap()
+            t.processor.query_status(QueryId).unwrap()
         );
     }
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let handlers =
-            array::from_fn(|_| prepare_query_handler(|_| async { Ok(HelperResponse::ok()) }));
-        let network =
-            InMemoryMpcNetwork::new(handlers.each_ref().map(HandlerBox::owning_ref).map(Some));
-        let [t0, _, _] = network.transports();
-        let p0 = Processor::default();
-        let request = test_multiply_config();
-
-        let _qc = p0
-            .new_query(Transport::clone_ref(&t0), request)
+        let t = TestComponents::new(TestComponentsArgs::default());
+        let st = t.shard_transport;
+        let _ = t
+            .processor
+            .new_query(
+                Transport::clone_ref(&t.first_transport),
+                Transport::clone_ref(&st),
+                t.query_config,
+            )
             .await
             .unwrap();
         assert!(matches!(
-            p0.new_query(t0, request).await,
+            t.processor
+                .new_query(t.first_transport, st, t.query_config)
+                .await,
             Err(NewQueryError::State(StateError::AlreadyRunning)),
         ));
     }
 
     #[tokio::test]
     async fn prepare_error() {
-        let h2 = respond_ok();
+        let mut args = TestComponentsArgs::default();
+        let h2 = helper_respond_ok();
         let h3 = prepare_query_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
         });
-        let network = InMemoryMpcNetwork::new([
-            None,
-            Some(HandlerBox::owning_ref(&h2)),
-            Some(HandlerBox::owning_ref(&h3)),
-        ]);
-        let [t0, _, _] = network.transports();
-        let p0 = Processor::default();
-        let request = test_multiply_config();
-
+        args.mpc_handlers = [None, Some(h2), Some(h3)];
+        let t = TestComponents::new(args);
         assert!(matches!(
-            p0.new_query(t0, request).await.unwrap_err(),
+            t.processor
+                .new_query(t.first_transport, t.shard_transport, t.query_config)
+                .await
+                .unwrap_err(),
             NewQueryError::MpcTransport(_)
         ));
     }
 
+    /// Context:
+    /// * From the standpoint of the leader shard in Helper 1
+    /// * When receiving a new query
+    ///
+    /// This test makes sure that if there's an error in shard 2, in this case a query is (still)
+    /// being run, that error gets reported back.
     #[tokio::test]
-    async fn can_recover_from_prepare_error() {
-        let h2 = respond_ok();
+    async fn shard_prepare_error() {
+        fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
+            prepare_query_handler(move |_| async move {
+                if si == ShardIndex(2) {
+                    Err(ApiError::QueryPrepare(PrepareQueryError::AlreadyRunning))
+                } else {
+                    Ok(HelperResponse::ok())
+                }
+            })
+        }
+        let mut args = TestComponentsArgs {
+            shard_count: 4,
+            ..Default::default()
+        };
+        args.set_shard_handler(shard_handle);
+        let t = TestComponents::new(args);
+        let r = t
+            .processor
+            .new_query(t.first_transport, t.shard_transport, t.query_config)
+            .await;
+        // The following makes sure the error is a broadcast error from shard 2
+        assert!(r.is_err());
+        if let Err(e) = r {
+            if let NewQueryError::ShardBroadcastError(be) = e {
+                assert_eq!(be.failures[0].0, ShardIndex(2));
+            } else {
+                panic!("Unexpected error type");
+            }
+        }
+        assert!(matches!(
+            t.processor.query_status(QueryId).unwrap_err(),
+            QueryStatusError::NoSuchQuery(_)
+        ));
+    }
+
+    /// Context:
+    /// * From the standpoint of the leader shard in Helper 1
+    /// * When receiving a new query
+    ///
+    /// This test makes sure that if there's an error reported from other helpers, the state is set
+    /// back to ready to accept queries.
+    #[tokio::test]
+    async fn new_query_can_recover_from_prepare_helper_error() {
+        // First we setup MPC handlers that will return some error
+        let mut args = TestComponentsArgs::default();
+        let h2 = helper_respond_ok();
         let h3 = prepare_query_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
         });
-        let network = InMemoryMpcNetwork::new([
-            None,
-            Some(HandlerBox::owning_ref(&h2)),
-            Some(HandlerBox::owning_ref(&h3)),
-        ]);
-        let [t0, _, _] = network.transports();
-        let p0 = Processor::default();
-        let request = test_multiply_config();
-        p0.new_query(t0.clone_ref(), request).await.unwrap_err();
+        args.mpc_handlers = [None, Some(h2), Some(h3)];
+        let t = TestComponents::new(args);
 
+        // We should see that error surface on new_query
         assert!(matches!(
-            p0.new_query(t0, request).await.unwrap_err(),
+            t.processor
+                .new_query(
+                    t.first_transport.clone_ref(),
+                    t.shard_transport.clone_ref(),
+                    t.query_config
+                )
+                .await
+                .unwrap_err(),
             NewQueryError::MpcTransport(_)
         ));
+
+        // We check the internal state of the processor
+        assert!(t.processor.get_status(QueryId).is_none());
     }
 
     mod prepare {
         use super::*;
         use crate::query::QueryStatusError;
 
-        fn prepare_query(identities: [HelperIdentity; 3]) -> PrepareQuery {
+        fn prepare_query() -> PrepareQuery {
             PrepareQuery {
                 query_id: QueryId,
                 config: test_multiply_config(),
-                roles: RoleAssignment::new(identities),
+                roles: RoleAssignment::new(HelperIdentity::make_three()),
             }
         }
 
         #[tokio::test]
         async fn happy_case() {
-            let network = InMemoryMpcNetwork::default();
-            let identities = HelperIdentity::make_three();
-            let req = prepare_query(identities);
-            let transport = network.transport(identities[1]);
-            let processor = Processor::default();
-
+            let req = prepare_query();
+            let t = TestComponents::new(TestComponentsArgs::default());
             assert!(matches!(
-                processor.query_status(QueryId).unwrap_err(),
+                t.processor.query_status(QueryId).unwrap_err(),
                 QueryStatusError::NoSuchQuery(_)
             ));
-            processor.prepare(&transport, req).unwrap();
+            t.processor
+                .prepare_helper(t.second_transport, t.shard_transport, req)
+                .await
+                .unwrap();
             assert_eq!(
                 QueryStatus::AwaitingInputs,
-                processor.query_status(QueryId).unwrap()
+                t.processor.query_status(QueryId).unwrap()
             );
         }
 
         #[tokio::test]
         async fn rejects_if_coordinator() {
-            let network = InMemoryMpcNetwork::default();
-            let identities = HelperIdentity::make_three();
-            let req = prepare_query(identities);
-            let transport = network.transport(identities[0]);
-            let processor = Processor::default();
-
+            let req = prepare_query();
+            let t = TestComponents::new(TestComponentsArgs::default());
             assert!(matches!(
-                processor.prepare(&transport, req),
+                t.processor
+                    .prepare_helper(t.first_transport, t.shard_transport, req)
+                    .await,
                 Err(PrepareQueryError::WrongTarget)
             ));
         }
 
+        /// Context:
+        /// * From the standpoint of the second shard in Helper 2
+        ///
+        /// This test makes sure that an error is returned if I get a [`Processor::prepare_helper`]
+        /// call. Only the shard leader (shard 0) should handle those calls.
+        #[tokio::test]
+        async fn rejects_if_not_shard_leader() {
+            let req = prepare_query();
+            let t = TestComponents::new(TestComponentsArgs::default());
+            assert!(matches!(
+                t.processor
+                    .prepare_helper(
+                        t.second_transport,
+                        t.shard_network
+                            .transport(HelperIdentity::TWO, ShardIndex::from(1)),
+                        req
+                    )
+                    .await,
+                Err(PrepareQueryError::NotLeader(_))
+            ));
+        }
+
+        /// Context:
+        /// * From the standpoint of the leader shard in Helper 2
+        ///
+        /// This test makes sure that an error is returned if I get a [`Processor::prepare_shard`]
+        /// call. Only non-leaders (1,2,3...) should handle those calls.
+        #[tokio::test]
+        async fn shard_not_leader() {
+            let req = prepare_query();
+            let t = TestComponents::new(TestComponentsArgs::default());
+            assert!(matches!(
+                t.processor
+                    .prepare_shard(
+                        &t.shard_network
+                            .transport(HelperIdentity::TWO, ShardIndex::FIRST),
+                        req
+                    )
+                    .unwrap_err(),
+                PrepareQueryError::Leader
+            ));
+        }
+
+        /// This tests that both [`Processor::prepare_helper`] and [`Processor::prepare_shard`]
+        /// return an [`PrepareQueryError::AlreadyRunning`] error if the internal processor state
+        /// already has a running query.
         #[tokio::test]
         async fn rejects_if_query_exists() {
-            let network = InMemoryMpcNetwork::default();
-            let identities = HelperIdentity::make_three();
-            let req = prepare_query(identities);
-            let transport = network.transport(identities[1]);
-            let processor = Processor::default();
-            processor.prepare(&transport, req.clone()).unwrap();
+            let req = prepare_query();
+            let t = TestComponents::new(TestComponentsArgs::default());
+            // We set the processor to run a query so that subsequent calls fail.
+            t.processor
+                .prepare_helper(
+                    t.second_transport.clone_ref(),
+                    t.shard_transport.clone_ref(),
+                    req.clone(),
+                )
+                .await
+                .unwrap();
+
+            // both helper and shard APIs should fail
             assert!(matches!(
-                processor.prepare(&transport, req),
+                t.processor
+                    .prepare_helper(
+                        t.second_transport,
+                        t.shard_transport.clone_ref(),
+                        req.clone()
+                    )
+                    .await,
+                Err(PrepareQueryError::AlreadyRunning)
+            ));
+            assert!(matches!(
+                t.processor.prepare_shard(
+                    &t.shard_network
+                        .transport(HelperIdentity::ONE, ShardIndex::from(1)),
+                    req
+                ),
                 Err(PrepareQueryError::AlreadyRunning)
             ));
         }
@@ -589,19 +882,13 @@ mod tests {
     mod kill {
         use std::sync::Arc;
 
+        use super::{TestComponents, TestComponentsArgs};
         use crate::{
             executor::IpaRuntime,
-            ff::FieldType,
-            helpers::{
-                query::{
-                    QueryConfig,
-                    QueryType::{TestAddInPrimeField, TestMultiply},
-                },
-                HandlerBox, HelperIdentity, InMemoryMpcNetwork, Transport,
-            },
+            helpers::Transport,
             protocol::QueryId,
             query::{
-                processor::{tests::respond_ok, Processor},
+                processor::Processor,
                 state::{QueryState, RunningQuery},
                 QueryKillStatus,
             },
@@ -611,9 +898,9 @@ mod tests {
         #[test]
         fn non_existent_query() {
             run(|| async {
-                let processor = Processor::default();
+                let t = TestComponents::new(TestComponentsArgs::default());
                 assert!(matches!(
-                    processor.kill(QueryId),
+                    t.processor.kill(QueryId),
                     Err(QueryKillStatus::NoSuchQuery(QueryId))
                 ));
             });
@@ -622,32 +909,23 @@ mod tests {
         #[test]
         fn existing_query() {
             run(|| async move {
-                let h2 = respond_ok();
-                let h3 = respond_ok();
-                let network = InMemoryMpcNetwork::new([
-                    None,
-                    Some(HandlerBox::owning_ref(&h2)),
-                    Some(HandlerBox::owning_ref(&h3)),
-                ]);
-                let identities = HelperIdentity::make_three();
-                let processor = Processor::default();
-                let transport = network.transport(identities[0]);
-                processor
+                let mut args = TestComponentsArgs::default();
+                args.mpc_handlers[0].take();
+                let t = TestComponents::new(args);
+                t.processor
                     .new_query(
-                        Transport::clone_ref(&transport),
-                        QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
+                        t.first_transport.clone_ref(),
+                        t.shard_transport.clone_ref(),
+                        t.query_config,
                     )
                     .await
                     .unwrap();
 
-                processor.kill(QueryId).unwrap();
+                t.processor.kill(QueryId).unwrap();
 
                 // start query again - it should work because the query was killed
-                processor
-                    .new_query(
-                        transport,
-                        QueryConfig::new(TestAddInPrimeField, FieldType::Fp32BitPrime, 1).unwrap(),
-                    )
+                t.processor
+                    .new_query(t.first_transport, t.shard_transport, t.query_config)
                     .await
                     .unwrap();
             });

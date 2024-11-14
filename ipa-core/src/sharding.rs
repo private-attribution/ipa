@@ -1,7 +1,7 @@
 use std::{
     fmt::{Debug, Display, Formatter},
     num::TryFromIntError,
-    ops::{Index, IndexMut},
+    ops::{Index, IndexMut, Rem},
     sync::Arc,
 };
 
@@ -106,6 +106,19 @@ impl TryFrom<u128> for ShardIndex {
     }
 }
 
+/// It is common to compute the shard index based on some integer value modulo
+/// total shard count
+impl Rem<ShardIndex> for u64 {
+    type Output = ShardIndex;
+
+    fn rem(self, rhs: ShardIndex) -> Self::Output {
+        // mod u32 always fits in u32
+        // branching may hurt performance here, so a cast is preferred
+        #[allow(clippy::cast_possible_truncation)]
+        ShardIndex((self % u64::from(rhs.0)) as u32)
+    }
+}
+
 impl Display for ShardIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
@@ -186,6 +199,16 @@ pub trait ShardConfiguration {
         );
 
         max.iter().filter(move |&v| v != this)
+    }
+
+    /// Returns `true` if this shard is considered leader.
+    fn is_leader(&self) -> bool {
+        self.shard_id() == ShardIndex::FIRST
+    }
+
+    /// Returns the index of leader shard.
+    fn leader(&self) -> ShardIndex {
+        ShardIndex::FIRST
     }
 }
 

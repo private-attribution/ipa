@@ -11,7 +11,7 @@ use typenum::{Unsigned, U16, U256, U32, U64};
 use crate::{
     const_assert_eq,
     error::LengthError,
-    ff::{ec_prime_field::Fp25519, Field, Fp32BitPrime, Serializable},
+    ff::{ec_prime_field::Fp25519, Field, Fp32BitPrime, Gf32Bit, Serializable},
     protocol::{ipa_prf::PRF_CHUNK, prss::FromRandom},
     secret_sharing::{FieldArray, Sendable, SharedValue, SharedValueArray},
 };
@@ -303,6 +303,16 @@ impl<F: SharedValue + FromRandom> FromRandom for StdArray<F, 1> {
     }
 }
 
+/// Implement `FromRandom` for a share array.
+///
+/// The third argument, `$source_len`, is the total amount of randomness required,
+/// counted in `u128`s.
+///
+/// The fourth argument, `$item_len`, is the amount of randomness required for each
+/// element, also in `u128`s.
+///
+/// Note that smaller `SharedValue` types still require an entire `u128` of
+/// randomness.
 macro_rules! impl_from_random {
     ($value_ty:ty, $width:expr, $source_len:ty, $item_len:expr) => {
         impl FromRandom for StdArray<$value_ty, $width> {
@@ -327,6 +337,7 @@ const_assert_eq!(
 impl_from_random!(Fp25519, 16, U32, 2);
 
 impl_from_random!(Fp32BitPrime, 32, U32, 1);
+impl_from_random!(Gf32Bit, 32, U32, 1);
 
 impl<V: SharedValue> Serializable for StdArray<V, 1> {
     type Size = <V as Serializable>::Size;

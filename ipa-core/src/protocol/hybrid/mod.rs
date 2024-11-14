@@ -1,7 +1,7 @@
 pub(crate) mod oprf;
 pub(crate) mod step;
 
-use oprf::PRFIndistinguishableHybridReport;
+use tracing::{info_span, Instrument};
 
 use crate::{
     error::Error,
@@ -12,9 +12,9 @@ use crate::{
     helpers::query::DpMechanism,
     protocol::{
         basics::{BooleanProtocols, Reveal},
-        context::{reshard_iter, DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
-            oprf::{compute_prf_for_inputs, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
+            oprf::{compute_prf_and_reshard, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
             step::HybridStep as Step,
         },
         ipa_prf::{
@@ -24,7 +24,7 @@ use crate::{
         },
         prss::FromPrss,
     },
-    report::hybrid::IndistinguishableHybridReport,
+    report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
 };
 
@@ -69,7 +69,7 @@ where
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
-    PRFIndistinguishableHybridReport<BK, V>: Serializable,
+    PrfHybridReport<BK, V>: Serializable,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
@@ -83,17 +83,13 @@ where
     )
     .await?;
 
-    // TODO shuffle input rows
-    let shuffled_input_rows = padded_input_rows;
+    let shuffled_input_rows = ctx
+        .narrow(&Step::InputShuffle)
+        .shuffle(padded_input_rows)
+        .instrument(info_span!("shuffle_inputs"))
+        .await?;
 
-    let prf_input_rows_stream = compute_prf_for_inputs(ctx.clone(), &shuffled_input_rows).await?;
-
-    let _sharded_prf_rows = reshard_iter(
-        ctx.narrow(&Step::ReshardByPrf),
-        prf_input_rows_stream,
-        |ctx, _, report| report.shard_picker(ctx.shard_count()),
-    )
-    .await?;
+    let _sharded_reports = compute_prf_and_reshard(ctx.clone(), shuffled_input_rows).await?;
 
     unimplemented!("protocol::hybrid::hybrid_protocol is not fully implemented")
 }

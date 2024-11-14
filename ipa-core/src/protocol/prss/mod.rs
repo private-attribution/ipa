@@ -1,4 +1,6 @@
 mod crypto;
+mod seed;
+
 use std::{collections::HashMap, fmt::Debug, marker::PhantomData, ops::AddAssign};
 
 pub use crypto::{
@@ -7,6 +9,7 @@ pub use crypto::{
 };
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 pub(super) use internal::PrssIndex128;
+pub use seed::{Seed, SeededEndpointSetup};
 use x25519_dalek::PublicKey;
 
 use crate::{

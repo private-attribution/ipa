@@ -5,7 +5,7 @@ use crate::{
         boolean::Boolean,
         boolean_array::{BA16, BA20, BA256, BA3, BA32, BA5, BA64, BA8},
         ec_prime_field::Fp25519,
-        Fp32BitPrime,
+        Fp32BitPrime, Gf32Bit,
     },
     protocol::{
         context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
@@ -18,6 +18,7 @@ use crate::{
 };
 
 impl FieldSimd<32> for Fp32BitPrime {}
+impl FieldSimd<32> for Gf32Bit {}
 
 impl FieldSimd<PRF_CHUNK> for Fp25519 {}
 

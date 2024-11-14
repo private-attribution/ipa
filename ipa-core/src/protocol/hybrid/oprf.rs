@@ -1,14 +1,11 @@
-use std::iter::zip;
-
 use futures::{stream, StreamExt, TryStreamExt};
-use generic_array::GenericArray;
-use typenum::{Const, Unsigned, U12};
+use typenum::Const;
 
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA3, BA5, BA64, BA8},
+        boolean_array::{BooleanArray, BA5, BA64, BA8},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
@@ -20,8 +17,8 @@ use crate::{
     protocol::{
         basics::{BooleanProtocols, Reveal},
         context::{
-            dzkp_validator::DZKPValidator, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps,
-            ShardedContext, UpgradableContext, Validator,
+            dzkp_validator::DZKPValidator, reshard_try_stream, DZKPUpgraded, MacUpgraded,
+            MaliciousProtocolSteps, ShardedContext, UpgradableContext, Validator,
         },
         hybrid::step::HybridStep,
         ipa_prf::{
@@ -31,15 +28,13 @@ use crate::{
         prss::{FromPrss, SharedRandomness},
         RecordId,
     },
-    report::hybrid::{IndistinguishableHybridReport, InvalidHybridReportError},
+    report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
-        TransposeFrom, Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+        Vectorizable,
     },
     seq_join::seq_join,
-    sharding::ShardIndex,
 };
-
 // In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
 // ≤ 2^|bk|, with all three values distinct, but at present, there is no runtime configuration and
 // the latter two must be equal. The implementation of `move_single_value_to_bucket` does support a
@@ -77,77 +72,14 @@ pub const PRF_CHUNK: usize = 16;
 // multiplications per batch
 const CONV_PROOF_CHUNK: usize = 256;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct PRFIndistinguishableHybridReport<BK: SharedValue, V: SharedValue> {
-    // `prf_of_match_key` needs to be a u64 for serialization and deserialization to work
-    prf_of_match_key: u64,
-    value: Replicated<V>,
-    breakdown_key: Replicated<BK>,
-}
-
-impl<BK, V> PRFIndistinguishableHybridReport<BK, V>
-where
-    BK: SharedValue,
-    V: SharedValue,
-{
-    /// ## Panics
-    /// it doesn't. `ShardIndex` is a u32, expanded into a u64 for the mod operation
-    /// `prf_of_match_key % shard_count` will always fit into a `ShardIndex`
-    #[must_use]
-    pub fn shard_picker(&self, shard_count: ShardIndex) -> ShardIndex {
-        let shard_count = u64::from(shard_count);
-        ShardIndex::try_from(self.prf_of_match_key % shard_count)
-            .expect("Modulo a u32 will fit in a u32")
-    }
-}
-
-impl PRFIndistinguishableHybridReport<BA8, BA3> {
-    const PRF_MK_SZ: usize = 8;
-    const V_SZ: usize = <Replicated<BA3> as Serializable>::Size::USIZE;
-    const BK_SZ: usize = <Replicated<BA8> as Serializable>::Size::USIZE;
-}
-
-impl Serializable for PRFIndistinguishableHybridReport<BA8, BA3> {
-    type Size = U12;
-    type DeserializationError = InvalidHybridReportError;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        buf[..Self::PRF_MK_SZ].copy_from_slice(&self.prf_of_match_key.to_le_bytes());
-
-        self.value.serialize(GenericArray::from_mut_slice(
-            &mut buf[Self::PRF_MK_SZ..Self::PRF_MK_SZ + Self::V_SZ],
-        ));
-
-        self.breakdown_key.serialize(GenericArray::from_mut_slice(
-            &mut buf[Self::PRF_MK_SZ + Self::V_SZ..Self::PRF_MK_SZ + Self::V_SZ + Self::BK_SZ],
-        ));
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        let prf_of_match_key = u64::from_le_bytes(buf[..Self::PRF_MK_SZ].try_into().unwrap());
-
-        let value = Replicated::<BA3>::deserialize(GenericArray::from_slice(
-            &buf[Self::PRF_MK_SZ..Self::PRF_MK_SZ + Self::V_SZ],
-        ))
-        .map_err(|e| InvalidHybridReportError::DeserializationError("value", e.into()))?;
-
-        let breakdown_key = Replicated::<BA8>::deserialize_infallible(GenericArray::from_slice(
-            &buf[Self::PRF_MK_SZ + Self::V_SZ..Self::PRF_MK_SZ + Self::V_SZ + Self::BK_SZ],
-        ));
-
-        Ok(Self {
-            prf_of_match_key,
-            value,
-            breakdown_key,
-        })
-    }
-}
-
+/// This computes the Dodis-Yampolsky PRF value on every match key from input,
+/// and reshards the reports according to the computed PRF. At the end, reports with the
+/// same value end up on the same shard.
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
-pub async fn compute_prf_for_inputs<C, BK, V>(
+pub async fn compute_prf_and_reshard<C, BK, V>(
     ctx: C,
-    input_rows: &[IndistinguishableHybridReport<BK, V>],
-) -> Result<Vec<PRFIndistinguishableHybridReport<BK, V>>, Error>
+    input_rows: Vec<IndistinguishableHybridReport<BK, V>>,
+) -> Result<Vec<PrfHybridReport<BK, V>>, Error>
 where
     C: UpgradableContext + ShardedContext,
     BK: BooleanArray,
@@ -157,6 +89,7 @@ where
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
+    PrfHybridReport<BK, V>: Serializable,
 {
     let conv_records =
         TotalRecords::specified(div_round_up(input_rows.len(), Const::<CONV_CHUNK>))?;
@@ -174,15 +107,18 @@ where
 
     let curve_pts = seq_join(
         ctx.active_work(),
-        process_slice_by_chunks(input_rows, move |idx, records: ChunkData<_, CONV_CHUNK>| {
-            let record_id = RecordId::from(idx);
-            let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
-                &|i| records[i].match_key.clone();
-            let match_keys =
-                BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
-                    .unwrap_infallible();
-            convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(m_ctx.clone(), record_id, match_keys)
-        }),
+        process_slice_by_chunks(
+            &input_rows,
+            move |idx, records: ChunkData<_, CONV_CHUNK>| {
+                let record_id = RecordId::from(idx);
+                let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
+                    &|i| records[i].match_key.clone();
+                let match_keys =
+                    BitDecomposed::<Replicated<Boolean, 256>>::transposed_from(input_match_keys)
+                        .unwrap_infallible();
+                convert_to_fp25519::<_, CONV_CHUNK, PRF_CHUNK>(m_ctx.clone(), record_id, match_keys)
+            },
+        ),
     )
     .map_ok(Chunk::unpack::<PRF_CHUNK>)
     .try_flatten_iters()
@@ -207,24 +143,24 @@ where
                 .then(move |pts| eval_dy_prf::<_, PRF_CHUNK>(eval_ctx, record_id, prf_key, pts))
         }),
     )
-    .try_collect::<Vec<_>>()
-    .await?;
+    .try_flatten_iters();
 
-    Ok(zip(input_rows, prf_of_match_keys.into_iter().flatten())
-        .map(|(input, prf_of_match_key)| {
-            let IndistinguishableHybridReport {
-                match_key: _,
-                value,
-                breakdown_key,
-            } = &input;
+    let report_stream = prf_of_match_keys
+        .zip(stream::iter(input_rows))
+        // map from (Result<X>, T) to Result<(X, T)>
+        .map(|(mk, input)| mk.map(|mk| (mk, input)))
+        .map_ok(|(prf_of_match_key, input)| PrfHybridReport {
+            match_key: prf_of_match_key,
+            value: input.value,
+            breakdown_key: input.breakdown_key,
+        });
 
-            PRFIndistinguishableHybridReport {
-                prf_of_match_key,
-                value: value.clone(),
-                breakdown_key: breakdown_key.clone(),
-            }
-        })
-        .collect())
+    // reshard reports based on OPRF values. This ensures at the end of this function
+    // reports with the same value end up on the same shard.
+    reshard_try_stream(ctx, report_stream, |ctx, _, report| {
+        report.match_key % ctx.shard_count()
+    })
+    .await
 }
 
 /// generates PRF key k as secret sharing over Fp25519
@@ -240,40 +176,26 @@ where
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod test {
-    use generic_array::GenericArray;
-    use ipa_step::StepNarrow;
-    use rand::Rng;
+    use std::collections::{HashMap, HashSet};
 
-    use super::PRFIndistinguishableHybridReport;
+    use ipa_step::StepNarrow;
+
     use crate::{
-        ff::{
-            boolean_array::{BA3, BA8},
-            Serializable,
-        },
-        protocol::{hybrid::oprf::compute_prf_for_inputs, step::ProtocolStep, Gate},
-        report::hybrid::{HybridReport, IndistinguishableHybridReport},
-        secret_sharing::{
-            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-            IntoShares,
-        },
+        ff::boolean_array::{BA3, BA8},
+        protocol::{hybrid::oprf::compute_prf_and_reshard, step::ProtocolStep, Gate},
+        report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
         test_executor::run,
-        test_fixture::{
-            hybrid::TestHybridRecord, RoundRobinInputDistribution, TestWorld, TestWorldConfig,
-            WithShards,
-        },
+        test_fixture::{hybrid::TestHybridRecord, Runner, TestWorld, TestWorldConfig, WithShards},
     };
 
     #[test]
     fn hybrid_oprf() {
         run(|| async {
             const SHARDS: usize = 2;
-            let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
-                TestWorld::with_shards(TestWorldConfig {
-                    initial_gate: Some(Gate::default().narrow(&ProtocolStep::Hybrid)),
-                    ..Default::default()
-                });
-
-            let contexts = world.contexts();
+            let world: TestWorld<WithShards<SHARDS>> = TestWorld::with_shards(TestWorldConfig {
+                initial_gate: Some(Gate::default().narrow(&ProtocolStep::Hybrid)),
+                ..Default::default()
+            });
 
             let records = [
                 TestHybridRecord::TestImpression {
@@ -301,82 +223,65 @@ mod test {
                     value: 7,
                 },
             ];
-            let indices_to_compare = [(0, 2), (1, 3), (1, 4), (1, 5)];
 
-            let shares: [Vec<HybridReport<BA8, BA3>>; 3] = records.iter().cloned().share();
-
-            let indistinguishable_reports: [Vec<IndistinguishableHybridReport<BA8, BA3>>; 3] =
-                shares
-                    .iter()
-                    .map(|s| s.iter().map(|r| r.clone().into()).collect::<Vec<_>>())
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .expect("Expected exactly 3 elements");
-
-            let chunked_reports: [Vec<Vec<IndistinguishableHybridReport<BA8, BA3>>>; 3] =
-                indistinguishable_reports
-                    .iter()
-                    .map(|vec| {
-                        let mid = vec.len() / SHARDS;
-                        vec.chunks(mid)
-                            .map(<[IndistinguishableHybridReport<BA8, BA3>]>::to_vec)
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .expect("Expected exactly 3 elements");
-
-            let mut results = Vec::new();
-            for (reports_by_helper, helper_ctxs) in chunked_reports.into_iter().zip(contexts) {
-                for (reports, ctx) in reports_by_helper.into_iter().zip(helper_ctxs) {
-                    let result = async move { compute_prf_for_inputs(ctx, &reports).await };
-                    results.push(result);
-                }
-            }
-
-            #[allow(clippy::large_futures)]
-            let results = futures::future::try_join_all(results).await.unwrap();
-
-            let results = results
-                .chunks(SHARDS)
-                .map(|chunk| chunk.iter().flatten().collect::<Vec<_>>())
-                .collect::<Vec<_>>();
-
-            let prfs = results
-                .iter()
-                .map(|helper_results| {
-                    helper_results
-                        .iter()
-                        .map(|r| r.prf_of_match_key)
-                        .collect::<Vec<_>>()
+            // TODO: we need to use malicious circuits here
+            let reports_per_shard = world
+                .semi_honest(records.clone().into_iter(), |ctx, reports| async move {
+                    let ind_reports = reports
+                        .into_iter()
+                        .map(IndistinguishableHybridReport::from)
+                        .collect();
+                    compute_prf_and_reshard(ctx, ind_reports).await.unwrap()
                 })
-                .collect::<Vec<_>>();
+                .await;
 
-            // check to make sure each helper has the same PRF values
-            assert!(prfs.iter().all(|x| *x == prfs[0]));
+            // exactly two unique PRF values on every helper
+            assert_eq!(
+                2,
+                reports_per_shard
+                    .iter()
+                    .flat_map(|v| v.iter().flat_map(Clone::clone))
+                    .map(|report| report.match_key)
+                    .collect::<HashSet<_>>()
+                    .len(),
+            );
 
-            // check to make sure the reports with the same match keys have the same prf values
-            for (i, j) in indices_to_compare {
-                assert_eq!(prfs[0][i], prfs[0][j]);
-            }
-        });
-    }
+            // every unique match key belongs to a single shard, and it is consistent across helpers
+            let mut global_mk = HashMap::new();
+            reports_per_shard
+                .into_iter()
+                .enumerate()
+                .for_each(|(shard_id, [h1, h2, h3])| {
+                    fn extractor(
+                        shard_id: usize,
+                        input: Vec<PrfHybridReport<BA8, BA3>>,
+                    ) -> HashMap<u64, usize> {
+                        input
+                            .into_iter()
+                            .map(|report| (report.match_key, shard_id))
+                            .collect()
+                    }
+                    let m1 = extractor(shard_id, h1);
+                    let m2 = extractor(shard_id, h2);
+                    let m3 = extractor(shard_id, h3);
 
-    #[test]
-    fn prf_indistinguishable_serialize_deserialize() {
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-            let report = PRFIndistinguishableHybridReport::<BA8, BA3> {
-                prf_of_match_key: rng.gen(),
-                breakdown_key: Replicated::new(rng.gen(), rng.gen()),
-                value: Replicated::new(rng.gen(), rng.gen()),
-            };
-            let mut buf = GenericArray::default();
-            report.serialize(&mut buf);
-            let deserialized_report =
-                PRFIndistinguishableHybridReport::<BA8, BA3>::deserialize(&buf);
-            assert_eq!(report, deserialized_report.unwrap());
+                    // it is ok for some shards to have empty list, so len check is not required
+                    assert_eq!(
+                        m1, m2,
+                        "h1 and h2 helper PRF values don't match: {m1:?} != {m2:?}"
+                    );
+                    assert_eq!(
+                        m2, m3,
+                        "h2 and h3 helper PRF values don't match: {m2:?} != {m3:?}"
+                    );
+
+                    for key in m1.keys() {
+                        global_mk.entry(*key).or_insert(Vec::new()).push(shard_id);
+                    }
+                });
+            let mk_on_shards = global_mk.values().map(Vec::len).collect::<HashSet<_>>();
+            assert_eq!(1, mk_on_shards.len());
+            assert_eq!(Some(&1), mk_on_shards.get(&1));
         });
     }
 }

@@ -290,7 +290,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
 #[derive(thiserror::Error, Debug)]
 #[error("One or more peers rejected the request: {failures:?}")]
 pub struct BroadcastError<I: TransportIdentity, E: Debug> {
-    failures: Vec<(I, E)>,
+    pub failures: Vec<(I, E)>,
 }
 
 impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> {
@@ -339,8 +339,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
 
     /// Broadcasts a message to all peers, excluding this instance, collecting all failures and
     /// successes. This method waits for all responses and returns only when all peers responded.
-    /// The routes and data will be cloned.
-    async fn broadcast<Q, S, R, D>(
+    async fn broadcast<Q, S, R>(
         &self,
         route: R,
     ) -> Result<(), BroadcastError<Self::Identity, Self::Error>>

@@ -45,7 +45,7 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
 // breakdown key type BK is BA8) can invoke vectorized multiply. Without this trait, those
 // implementations would need to specify the `N` const parameter, which is tricky, because you
 // can't supply an expression involving a type parameter (BK::BITS) as a const parameter.
-pub trait BooleanArrayMul<C>: Expand<Input = Replicated<Boolean>> + From<Self::Vectorized>
+pub trait BooleanArrayMul<C>: Expand<Replicated<Boolean>> + From<Self::Vectorized>
 where
     C: Context,
 {

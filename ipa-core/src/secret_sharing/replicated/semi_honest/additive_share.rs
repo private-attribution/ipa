@@ -1,5 +1,6 @@
 use std::{
     fmt::{Debug, Formatter},
+    iter::repeat_n,
     ops::{Add, AddAssign, Mul, Neg, Range, Sub, SubAssign},
 };
 
@@ -422,18 +423,26 @@ impl<S: BooleanArray> ArrayAccess for AdditiveShare<S> {
     }
 }
 
-impl<S, A, T> Expand for AdditiveShare<S>
+impl<A> Expand<AdditiveShare<Boolean>> for AdditiveShare<A>
 where
-    S: Expand<Input = T> + SharedValue + Vectorizable<1, Array = A>,
-    A: SharedValueArray<S>,
-    T: SharedValue,
+    A: BooleanArray,
 {
-    type Input = AdditiveShare<<S as Expand>::Input>;
-
-    fn expand(v: &Self::Input) -> Self {
+    fn expand(v: &AdditiveShare<Boolean>) -> Self {
         AdditiveShare(
-            S::expand(&T::from_array(&v.0)).into_array(),
-            S::expand(&T::from_array(&v.1)).into_array(),
+            A::expand(&Boolean::from_array(&v.0)).into_array(),
+            A::expand(&Boolean::from_array(&v.1)).into_array(),
+        )
+    }
+}
+
+impl<V, const N: usize> Expand<AdditiveShare<V>> for AdditiveShare<V, N>
+where
+    V: SharedValue + Vectorizable<N>,
+{
+    fn expand(v: &AdditiveShare<V>) -> Self {
+        AdditiveShare(
+            repeat_n(v.left(), N).collect::<<V as Vectorizable<N>>::Array>(),
+            repeat_n(v.right(), N).collect::<<V as Vectorizable<N>>::Array>(),
         )
     }
 }
@@ -467,6 +476,21 @@ impl<S: BooleanArray> FromIterator<AdditiveShare<Boolean>> for AdditiveShare<S> 
             ArrayAccess::set(&mut result, i, v);
         }
         result
+    }
+}
+
+impl<V: SharedValue + Vectorizable<N>, const N: usize> FromIterator<AdditiveShare<V>>
+    for AdditiveShare<V, N>
+{
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = AdditiveShare<V>>,
+    {
+        let (left, right) = iter
+            .into_iter()
+            .map(|v| v.as_tuple())
+            .collect::<(Vec<_>, Vec<_>)>();
+        AdditiveShare::new_arr(left.try_into().unwrap(), right.try_into().unwrap())
     }
 }
 

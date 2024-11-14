@@ -84,14 +84,14 @@ pub const MAX_PROOF_RECURSION: usize = 9;
 /// `z(i+1)` is the result of the multiplication received from the helper on the right.
 /// We do not need to store `zi` since it can be computed from the other stored values.
 #[derive(Clone, Debug)]
-struct MultiplicationInputsBlock {
-    x_left: Array256Bit,
-    x_right: Array256Bit,
-    y_left: Array256Bit,
-    y_right: Array256Bit,
-    prss_left: Array256Bit,
-    prss_right: Array256Bit,
-    z_right: Array256Bit,
+pub struct MultiplicationInputsBlock {
+    pub x_left: Array256Bit,
+    pub x_right: Array256Bit,
+    pub y_left: Array256Bit,
+    pub y_right: Array256Bit,
+    pub prss_left: Array256Bit,
+    pub prss_right: Array256Bit,
+    pub z_right: Array256Bit,
 }
 
 impl Default for MultiplicationInputsBlock {
