@@ -25,12 +25,29 @@ where
     BK: BooleanArray,
     V: BooleanArray,
 {
+    Empty,
     Single(AggregateableHybridReport<BK, V>),
     Pair(
         AggregateableHybridReport<BK, V>,
         AggregateableHybridReport<BK, V>,
     ),
     MoreThanTwo,
+}
+
+impl<BK, V> MatchEntry<BK, V>
+where
+    BK: BooleanArray,
+    V: BooleanArray,
+{
+    pub fn add_report(&mut self, new_report: AggregateableHybridReport<BK, V>) {
+        match self {
+            Self::Empty => *self = Self::Single(new_report),
+            Self::Single(old_report) => {
+                *self = Self::Pair(old_report.clone(), new_report);
+            }
+            Self::Pair { .. } | Self::MoreThanTwo => *self = Self::MoreThanTwo,
+        }
+    }
 }
 
 /// This function takes in a vector of `PrfHybridReports`, groups them by the oprf of the `match_key`,
@@ -48,22 +65,10 @@ where
     let mut reports_by_matchkey: BTreeMap<u64, MatchEntry<BK, V>> = BTreeMap::new();
 
     for report in reports {
-        let match_key = report.match_key;
-        match reports_by_matchkey.get(&match_key) {
-            Some(match_entry) => match match_entry {
-                MatchEntry::Single(s_report) => {
-                    reports_by_matchkey
-                        .insert(match_key, MatchEntry::Pair(report.into(), s_report.clone()));
-                }
-                MatchEntry::Pair(_, _) => {
-                    reports_by_matchkey.insert(match_key, MatchEntry::MoreThanTwo);
-                }
-                MatchEntry::MoreThanTwo => (),
-            },
-            None => {
-                reports_by_matchkey.insert(match_key, MatchEntry::Single(report.into()));
-            }
-        };
+        let match_entry = reports_by_matchkey
+            .entry(report.match_key)
+            .or_insert(MatchEntry::Empty);
+        match_entry.add_report(report.into());
     }
 
     // we only keep the reports from match_keys that provided exactly 2 reports
