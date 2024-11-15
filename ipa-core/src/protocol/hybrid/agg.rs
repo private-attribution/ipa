@@ -151,7 +151,10 @@ pub mod test {
             AggregateableHybridReport, IndistinguishableHybridReport, PrfHybridReport,
         },
         test_executor::run,
-        test_fixture::{hybrid::TestHybridRecord, Runner, TestWorld, TestWorldConfig, WithShards},
+        test_fixture::{
+            hybrid::{TestAggregateableHybridReport, TestHybridRecord},
+            Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards,
+        },
     };
 
     #[test]
@@ -212,7 +215,18 @@ pub mod test {
                 }, // removed
             ];
 
-            // let expected = [[4, 1], [3, 2]];
+            let expected = vec![
+                TestAggregateableHybridReport {
+                    match_key: (),
+                    breakdown_key: 4,
+                    value: 1,
+                },
+                TestAggregateableHybridReport {
+                    match_key: (),
+                    breakdown_key: 3,
+                    value: 2,
+                },
+            ];
 
             let world = TestWorld::<WithShards<3>>::with_shards(TestWorldConfig::default());
 
@@ -247,9 +261,22 @@ pub mod test {
                 })
                 .await;
 
-            println!("results: {results:?}");
-            // todo: reconstruct results
-            // assert_eq!(results, expected);
+            let results: Vec<TestAggregateableHybridReport> = results
+                .into_iter()
+                .map(|shard_result| {
+                    shard_result[0]
+                        .clone()
+                        .into_iter()
+                        .zip(shard_result[1].clone().into_iter())
+                        .zip(shard_result[2].clone().into_iter())
+                        .map(|((r1, r2), r3)| [&r1, &r2, &r3].reconstruct())
+                        .collect::<Vec<_>>()
+                })
+                .flatten()
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            assert_eq!(results, expected);
         });
     }
 }
