@@ -193,7 +193,7 @@ impl RequestHandler<ShardIndex> for Inner {
             }
             RouteId::QueryStatus => {
                 let req = req.into::<CompareStatusRequest>()?;
-                HelperResponse::from(qp.shard_status(&req)?)
+                HelperResponse::from(qp.shard_status(&self.shard_transport, &req)?)
             }
             r => {
                 return Err(ApiError::BadRequest(

@@ -112,6 +112,10 @@ pub enum QueryStatusError {
     NoSuchQuery(QueryId),
     #[error(transparent)]
     ShardBroadcastError(#[from] BroadcastError<ShardIndex, ShardTransportError>),
+    #[error("This shard {0:?} isn't the leader (shard 0)")]
+    NotLeader(ShardIndex),
+    #[error("This is the leader shard")]
+    Leader,
     #[error("My status {my_status:?} for query {query_id:?} differs from {other_status:?}")]
     DifferentStatus {
         query_id: QueryId,
@@ -369,6 +373,11 @@ impl Processor {
         shard_transport: ShardTransportImpl,
         query_id: QueryId,
     ) -> Result<QueryStatus, QueryStatusError> {
+        let shard_index = shard_transport.identity();
+        if shard_index != ShardIndex::FIRST {
+            return Err(QueryStatusError::NotLeader(shard_index));
+        }
+
         let status = self
             .get_status(query_id)
             .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
@@ -383,14 +392,19 @@ impl Processor {
     /// Compares this shard status against the given type. Returns an error if different.
     ///
     /// ## Errors
-    /// If query is not registered on this helper.
+    /// If query is not registered on this helper or
     ///
     /// ## Panics
     /// If the query collection mutex is poisoned.
     pub fn shard_status(
         &self,
+        shard_transport: &ShardTransportImpl,
         req: &CompareStatusRequest,
     ) -> Result<QueryStatus, QueryStatusError> {
+        let shard_index = shard_transport.identity();
+        if shard_index == ShardIndex::FIRST {
+            return Err(QueryStatusError::Leader);
+        }
         let status = self
             .get_status(req.query_id)
             .ok_or(QueryStatusError::NoSuchQuery(req.query_id))?;
@@ -941,7 +955,7 @@ mod tests {
 
     mod query_status {
         use super::*;
-        use crate::protocol::QueryId;
+        use crate::{helpers::query::CompareStatusRequest, protocol::QueryId};
 
         /// * From the standpoint of leader shard in Helper 1
         /// * On query_status
@@ -991,6 +1005,50 @@ mod tests {
                     panic!("Unexpected error type");
                 }
             }
+        }
+
+        /// Context:
+        /// * From the standpoint of the second shard in Helper 2
+        ///
+        /// This test makes sure that an error is returned if I get a [`Processor::query_status`]
+        /// call. Only the shard leader (shard 0) should handle those calls.
+        #[tokio::test]
+        async fn rejects_if_not_shard_leader() {
+            let t = TestComponents::new(TestComponentsArgs::default());
+            assert!(matches!(
+                t.processor
+                    .query_status(
+                        t.shard_network
+                            .transport(HelperIdentity::TWO, ShardIndex::from(1)),
+                        QueryId
+                    )
+                    .await,
+                Err(QueryStatusError::NotLeader(_))
+            ));
+        }
+
+        /// Context:
+        /// * From the standpoint of the leader shard in Helper 2
+        ///
+        /// This test makes sure that an error is returned if I get a [`Processor::shard_status`]
+        /// call. Only non-leaders (1,2,3...) should handle those calls.
+        #[tokio::test]
+        async fn shard_not_leader() {
+            let req = CompareStatusRequest {
+                query_id: QueryId,
+                status: QueryStatus::Running,
+            };
+            let t = TestComponents::new(TestComponentsArgs::default());
+            assert!(matches!(
+                t.processor
+                    .shard_status(
+                        &t.shard_network
+                            .transport(HelperIdentity::TWO, ShardIndex::FIRST),
+                        &req
+                    )
+                    .unwrap_err(),
+                QueryStatusError::Leader
+            ));
         }
     }
 
