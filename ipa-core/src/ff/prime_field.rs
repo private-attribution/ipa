@@ -53,6 +53,30 @@ pub trait PrimeField: Field + U128Conversions {
     }
 }
 
+/// Performs multiple field inversions at once for a lower cost
+/// Follows the "multiple inverses" algorithm in
+/// <https://en.wikipedia.org/wiki/Modular_multiplicative_inverse>
+/// ## Panics
+/// If any element is 0
+pub fn batch_invert<const N: usize, P>(field_elements: &mut [P; N])
+where
+    P: PrimeField,
+{
+    let mut prefix_products = *field_elements;
+    for i in 1..N {
+        let temp = prefix_products[i] * prefix_products[i - 1];
+        prefix_products[i] = temp;
+    }
+    prefix_products[N - 1] = prefix_products[N - 1].invert();
+    for i in (1..N).rev() {
+        let inv_i = prefix_products[i] * prefix_products[i - 1];
+        let temp = prefix_products[i] * field_elements[i];
+        prefix_products[i - 1] = temp;
+        field_elements[i] = inv_i;
+    }
+    field_elements[0] = prefix_products[0];
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("Field value {0} provided is greater than prime: {1}")]
 pub struct GreaterThanPrimeError<V: Display>(V, u128);
@@ -309,7 +333,7 @@ macro_rules! field_impl {
 
         #[cfg(all(test, unit_test))]
         mod common_tests {
-            use std::ops::Range;
+            use std::{array::from_fn, ops::Range};
 
             use generic_array::GenericArray;
             use proptest::{
@@ -318,7 +342,10 @@ macro_rules! field_impl {
             };
 
             use super::*;
-            use crate::ff::Serializable;
+            use crate::{
+                ff::Serializable,
+                rand::{thread_rng, Rng},
+            };
 
             impl Arbitrary for $field {
                 type Parameters = ();
@@ -345,6 +372,21 @@ macro_rules! field_impl {
                     $field::ZERO - $field::ONE
                 );
                 assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
+            }
+
+            #[test]
+            fn batch_invert_test() {
+                let mut rng = thread_rng();
+                let mut elements: [$field; 100] = from_fn(|_| {
+                    let mut element = $field::truncate_from(rng.gen::<u128>());
+                    while (element == $field::ZERO) {
+                        element = $field::truncate_from(rng.gen::<u128>());
+                    }
+                    element
+                });
+                let ground_truth: [$field; 100] = from_fn(|i| elements[i].invert());
+                batch_invert(&mut elements);
+                assert_eq!(ground_truth, elements);
             }
 
             proptest! {
