@@ -19,7 +19,7 @@ pub use share_known_value::ShareKnownValue;
 
 use crate::{
     const_assert_eq,
-    ff::{boolean::Boolean, ec_prime_field::Fp25519, PrimeField},
+    ff::{boolean::Boolean, ec_prime_field::Fp25519},
     protocol::{
         context::{
             Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,

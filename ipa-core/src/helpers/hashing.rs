@@ -5,6 +5,7 @@ use sha2::{
     digest::{Output, OutputSizeUser},
     Digest, Sha256,
 };
+use subtle::{Choice, ConstantTimeEq};
 
 use crate::{
     ff::{PrimeField, Serializable},
@@ -14,6 +15,12 @@ use crate::{
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hash(Output<Sha256>);
+
+impl ConstantTimeEq for Hash {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.0.as_slice().ct_eq(other.0.as_slice())
+    }
+}
 
 impl Serializable for Hash {
     type Size = <Sha256 as OutputSizeUser>::OutputSize;
