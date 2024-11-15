@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use futures::{stream, FutureExt, StreamExt, TryStreamExt};
 
@@ -17,8 +17,64 @@ use crate::{
         BooleanProtocols,
     },
     report::hybrid::{AggregateableHybridReport, PrfHybridReport},
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
+
+enum MatchEntry<BK, V>
+where
+    BK: BooleanArray,
+    V: BooleanArray,
+{
+    Single(AggregateableHybridReport<BK, V>),
+    Pair(
+        AggregateableHybridReport<BK, V>,
+        AggregateableHybridReport<BK, V>,
+    ),
+    MoreThanTwo,
+}
+
+/// This function takes in a vector of `PrfHybridReports`, groups them by the oprf of the `match_key`,
+/// and collects all pairs of reports with the same `match_key` into a vector of paris (as an array.)
+/// Note that any `match_key` which appears once or more than twice is removed.
+/// An honest report collector will only provide a single impression report per `match_key` and
+/// an honest client will only provide a single conversion report per `match_key`.
+fn group_report_pairs<BK, V>(
+    reports: Vec<PrfHybridReport<BK, V>>,
+) -> Vec<[AggregateableHybridReport<BK, V>; 2]>
+where
+    BK: BooleanArray,
+    V: BooleanArray,
+{
+    let mut reports_by_matchkey: BTreeMap<u64, MatchEntry<BK, V>> = BTreeMap::new();
+
+    for report in reports {
+        let match_key = report.match_key;
+        match reports_by_matchkey.get(&match_key) {
+            Some(match_entry) => match match_entry {
+                MatchEntry::Single(s_report) => {
+                    reports_by_matchkey
+                        .insert(match_key, MatchEntry::Pair(report.into(), s_report.clone()));
+                }
+                MatchEntry::Pair(_, _) => {
+                    reports_by_matchkey.insert(match_key, MatchEntry::MoreThanTwo);
+                }
+                MatchEntry::MoreThanTwo => (),
+            },
+            None => {
+                reports_by_matchkey.insert(match_key, MatchEntry::Single(report.into()));
+            }
+        };
+    }
+
+    // we only keep the reports from match_keys that provided exactly 2 reports
+    reports_by_matchkey
+        .into_values()
+        .filter_map(|match_entry| match match_entry {
+            MatchEntry::Pair(r1, r2) => Some([r1, r2]),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+}
 
 /// This protocol is used to aggregate `PRFHybridReports` and returns `AggregateableHybridReports`.
 /// It groups all the reports by the PRF of the `match_key`, finds all reports from `match_keys`
@@ -29,45 +85,11 @@ pub async fn aggregate_reports<BK, V, C>(
 ) -> Result<Vec<AggregateableHybridReport<BK, V>>, Error>
 where
     C: UpgradableContext + ShardedContext,
-    BK: SharedValue + BooleanArray,
-    V: SharedValue + BooleanArray,
+    BK: BooleanArray,
+    V: BooleanArray,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
 {
-    let mut reports_by_matchkey = HashMap::with_capacity(reports.len() / 2);
-
-    // build a hashmap of match_key -> ([AggregateableHybridReport;2], count)
-    // if count ever exceeds 2, we drop reports, but keep counting
-    // an honest client and report collector will only submit
-    // one report with a breakdown key and one report with a value.
-    // if there are less, it's unattributed. if more, something went wrong.
-    for report in reports {
-        let match_key = report.match_key;
-        let entry = reports_by_matchkey.entry(match_key).or_insert((
-            [
-                AggregateableHybridReport::<BK, V>::ZERO,
-                AggregateableHybridReport::<BK, V>::ZERO,
-            ],
-            0,
-        ));
-        if entry.1 == 0 {
-            // If the count is 0, replace the first element with the new report
-            entry.0[0] = report.into();
-            entry.1 += 1;
-        } else if entry.1 == 1 {
-            // If the count is 1, replace the second element with the new report
-            entry.0[1] = report.into();
-            entry.1 += 1;
-        } else {
-            // If the count is 2 or more, increment the counter and drop the report
-            entry.1 += 1;
-        }
-    }
-
-    // we only keep the reports from match_keys that provided exactly 2 reports
-    let report_pairs: Vec<[AggregateableHybridReport<BK, V>; 2]> = reports_by_matchkey
-        .into_iter()
-        .filter_map(|(_, v)| if v.1 == 2 { Some(v.0) } else { None })
-        .collect::<Vec<_>>();
+    let report_pairs = group_report_pairs(reports);
 
     let chunk_size: usize = TARGET_PROOF_SIZE / (BK::BITS as usize + V::BITS as usize);
 
