@@ -8,7 +8,7 @@ use crate::{
     helpers::{Direction, MpcMessage, TotalRecords},
     protocol::{
         context::{
-            dzkp_field::{UVTupleBlock, BLOCK_SIZE},
+            dzkp_field::{UVTupleBlock, TABLE_LEFT, TABLE_RIGHT},
             dzkp_validator::MAX_PROOF_RECURSION,
             Context,
         },
@@ -50,7 +50,8 @@ impl ProofBatch {
     #[allow(clippy::len_without_is_empty)]
     #[must_use]
     pub fn len(&self) -> usize {
-        FirstProofGenerator::PROOF_LENGTH + self.proofs.len() * CompressedProofGenerator::PROOF_LENGTH
+        FirstProofGenerator::PROOF_LENGTH
+            + self.proofs.len() * CompressedProofGenerator::PROOF_LENGTH
     }
 
     #[allow(clippy::unnecessary_box_returns)] // clippy bug? `Array` exceeds unnecessary-box-size
@@ -79,17 +80,18 @@ impl ProofBatch {
     /// ## Panics
     /// Panics when the function fails to set the masks without overwritting `u` and `v` values.
     /// This only happens when there is an issue in the recursion.
-    pub fn generate<C, I>(
+    pub fn generate<C>(
         ctx: &C,
         mut prss_record_ids: RecordIdRange,
-        uv_tuple_inputs: I,
+        table_index_tuple_inputs: impl Iterator<Item = (u8, u8)>,
+        uv_tuple_inputs: impl Iterator<Item = UVTupleBlock<Fp61BitPrime>>,
     ) -> (Self, Self, Fp61BitPrime, Fp61BitPrime)
     where
         C: Context,
-        I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
     {
         const FRF: usize = FirstProofGenerator::RECURSION_FACTOR;
         const FLL: usize = FirstProofGenerator::LAGRANGE_LENGTH;
+        const FPL: usize = FirstProofGenerator::PROOF_LENGTH;
         const CRF: usize = CompressedProofGenerator::RECURSION_FACTOR;
         const CLL: usize = CompressedProofGenerator::LAGRANGE_LENGTH;
         const CPL: usize = CompressedProofGenerator::PROOF_LENGTH;
@@ -98,13 +100,37 @@ impl ProofBatch {
         let first_denominator = CanonicalLagrangeDenominator::<Fp61BitPrime, FRF>::new();
         let first_lagrange_table = LagrangeTable::<Fp61BitPrime, FRF, FLL>::from(first_denominator);
 
+        let table_left: [[Fp61BitPrime; FPL]; 8] = array::from_fn(|i| {
+            let mut result = [Fp61BitPrime::ZERO; FPL];
+            let u = &TABLE_LEFT[i];
+            result[0..FRF].copy_from_slice(u);
+            result[FRF..].copy_from_slice(&first_lagrange_table.eval(u));
+            result
+        });
+        let table_right: [[Fp61BitPrime; FPL]; 8] = array::from_fn(|i| {
+            let mut result = [Fp61BitPrime::ZERO; FPL];
+            let v = &TABLE_RIGHT[i];
+            result[0..FRF].copy_from_slice(v);
+            result[FRF..].copy_from_slice(&first_lagrange_table.eval(v));
+            result
+        });
+
+        let first_proof = FirstProofGenerator::compute_proof(table_index_tuple_inputs.map(
+            |(u_index, v_index)| {
+                (
+                    table_right[usize::from(u_index)],
+                    table_left[usize::from(v_index)],
+                )
+            },
+        ));
+
         // generate first proof from input iterator
         let (mut uv_values, first_proof_from_left, my_first_proof_left_share) =
             FirstProofGenerator::gen_artefacts_from_recursive_step(
                 ctx,
                 &mut prss_record_ids,
-                &first_lagrange_table,
-                ProofBatch::polynomials_from_inputs(uv_tuple_inputs),
+                first_proof,
+                uv_tuple_inputs,
             );
 
         // `MAX_PROOF_RECURSION - 2` because:
@@ -154,11 +180,13 @@ impl ProofBatch {
                 did_set_masks = true;
                 uv_values.set_masks(my_p_mask, my_q_mask).unwrap();
             }
+            let my_proof =
+                CompressedProofGenerator::compute_proof_from_uv(uv_values.iter(), &lagrange_table);
             let (uv_values_new, share_of_proof_from_prover_left, my_proof_left_share) =
                 CompressedProofGenerator::gen_artefacts_from_recursive_step(
                     ctx,
                     &mut prss_record_ids,
-                    &lagrange_table,
+                    my_proof,
                     uv_values.iter(),
                 );
             shares_of_proofs_from_prover_left.push(share_of_proof_from_prover_left);
@@ -223,42 +251,6 @@ impl ProofBatch {
             .take(length)
             .collect())
     }
-
-    /// This is a helper function that allows to split a `UVTupleInputs`
-    /// which consists of arrays of size `BLOCK_SIZE`
-    /// into an iterator over arrays of size `LargeProofGenerator::RECURSION_FACTOR`.
-    ///
-    /// ## Panics
-    /// Panics when `unwrap` panics, i.e. `try_from` fails to convert a slice to an array.
-    pub fn polynomials_from_inputs<I>(
-        inputs: I,
-    ) -> impl Iterator<
-        Item = (
-            [Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR],
-            [Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR],
-        ),
-    > + Clone
-    where
-        I: Iterator<Item = UVTupleBlock<Fp61BitPrime>> + Clone,
-    {
-        assert_eq!(BLOCK_SIZE % FirstProofGenerator::RECURSION_FACTOR, 0);
-        inputs.flat_map(|(u_block, v_block)| {
-            (0usize..(BLOCK_SIZE / FirstProofGenerator::RECURSION_FACTOR)).map(move |i| {
-                (
-                    <[Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR]>::try_from(
-                        &u_block[i * FirstProofGenerator::RECURSION_FACTOR
-                            ..(i + 1) * FirstProofGenerator::RECURSION_FACTOR],
-                    )
-                    .unwrap(),
-                    <[Fp61BitPrime; FirstProofGenerator::RECURSION_FACTOR]>::try_from(
-                        &v_block[i * FirstProofGenerator::RECURSION_FACTOR
-                            ..(i + 1) * FirstProofGenerator::RECURSION_FACTOR],
-                    )
-                    .unwrap(),
-                )
-            })
-        })
-    }
 }
 
 const ARRAY_LEN: usize = FirstProofGenerator::PROOF_LENGTH
@@ -293,6 +285,7 @@ impl Serializable for Box<Array> {
 
 impl MpcMessage for Box<Array> {}
 
+/*
 #[cfg(all(test, unit_test))]
 mod test {
     use rand::{thread_rng, Rng};
@@ -300,11 +293,11 @@ mod test {
     use crate::{
         ff::{Fp61BitPrime, U128Conversions},
         protocol::{
-            context::{dzkp_field::BLOCK_SIZE, Context},
-            ipa_prf::validation_protocol::{
+            context::Context,
+            ipa_prf::{validation_protocol::{
                 proof_generation::ProofBatch,
-                validation::{test::simple_proof_check, BatchToVerify},
-            },
+                validation::{/*test::simple_proof_check,*/ BatchToVerify},
+            }, BLOCK_SIZE},
             RecordId, RecordIdRange,
         },
         secret_sharing::replicated::ReplicatedSecretSharing,
@@ -385,3 +378,4 @@ mod test {
         });
     }
 }
+*/

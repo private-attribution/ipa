@@ -112,6 +112,8 @@ pub struct ProofGenerator<F: PrimeField, const L: usize, const P: usize, const M
 // The reason we need these is that Rust doesn't support basic math operations on const generics
 pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 4, 7, 3>;
 
+pub const BLOCK_SIZE: usize = 4;
+
 impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerator<F, L, P, M> {
     // define constants such that they can be used externally
     // when using the pub types defined above
@@ -119,27 +121,50 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     pub const PROOF_LENGTH: usize = P;
     pub const LAGRANGE_LENGTH: usize = M;
 
-    ///
-    /// Distributed Zero Knowledge Proofs algorithm drawn from
-    /// `https://eprint.iacr.org/2023/909.pdf`
-    pub fn compute_proof<J>(uv_iterator: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
+    pub fn compute_proof_from_uv<J>(uv: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
     where
         J: Iterator,
         J::Item: Borrow<([F; L], [F; L])>,
     {
-        let mut proof = [F::ZERO; P];
-        for uv_polynomial in uv_iterator {
-            for (i, proof_part) in proof.iter_mut().enumerate().take(L) {
-                *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
-            }
-            let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
-            let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
+        Self::compute_proof(uv.map(|uv| {
+            let (u, v) = uv.borrow();
+            let mut u_ex = [F::ZERO; P];
+            let mut v_ex = [F::ZERO; P];
+            u_ex[0..L].copy_from_slice(u);
+            v_ex[0..L].copy_from_slice(v);
+            u_ex[L..].copy_from_slice(&lagrange_table.eval(u));
+            v_ex[L..].copy_from_slice(&lagrange_table.eval(v));
+            (u_ex, v_ex)
+        }))
+    }
 
-            for (i, (x, y)) in
-                zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
-            {
-                proof[L + i] += x * y;
+    ///
+    /// Distributed Zero Knowledge Proofs algorithm drawn from
+    /// `https://eprint.iacr.org/2023/909.pdf`
+    pub fn compute_proof<J>(pq_iterator: J) -> [F; P]
+    where
+        J: Iterator,
+        J::Item: Borrow<([F; P], [F; P])>,
+    {
+        let mut proof = [F::ZERO; P];
+        let mut accums = [0u128; P];
+        let mut accum_count = 0;
+        for pq in pq_iterator {
+            for (accum, (p, q)) in zip(accums.iter_mut(), zip(&pq.borrow().0, &pq.borrow().1)) {
+                *accum += p.as_u128() * q.as_u128();
             }
+
+            accum_count += 1;
+            if accum_count == 63 {
+                for (proof_elt, accum) in zip(proof.iter_mut(), accums.iter_mut()) {
+                    *proof_elt = F::truncate_from(*accum + proof_elt.as_u128());
+                    *accum = 0;
+                }
+                accum_count = 0;
+            }
+        }
+        for (proof_elt, accum) in zip(proof.iter_mut(), accums.iter_mut()) {
+            *proof_elt = F::truncate_from(*accum + proof_elt.as_u128())
         }
         proof
     }
@@ -213,17 +238,16 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     pub fn gen_artefacts_from_recursive_step<C, J, const N: usize>(
         ctx: &C,
         record_ids: &mut RecordIdRange,
-        lagrange_table: &LagrangeTable<F, L, M>,
+        my_proof: [F; P],
         uv_iterator: J,
     ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
-        J: Iterator + Clone,
+        J: Iterator,
         J::Item: Borrow<([F; L], [F; L])>,
     {
         // generate next proof
         // from iterator
-        let my_proof = Self::compute_proof(uv_iterator.clone(), lagrange_table);
 
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
@@ -316,7 +340,7 @@ mod test {
         let uv_1 = zip_chunks(U_1, V_1);
 
         // first iteration
-        let proof_1 = TestProofGenerator::compute_proof(uv_1.iter(), &lagrange_table);
+        let proof_1 = TestProofGenerator::compute_proof_from_uv(uv_1.iter(), &lagrange_table);
         assert_eq!(
             proof_1.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_1,
@@ -340,7 +364,7 @@ mod test {
         assert_eq!(uv_2, zip_chunks(U_2, V_2));
 
         // next iteration
-        let proof_2 = TestProofGenerator::compute_proof(uv_2.iter(), &lagrange_table);
+        let proof_2 = TestProofGenerator::compute_proof_from_uv(uv_2.iter(), &lagrange_table);
         assert_eq!(
             proof_2.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_2,
@@ -369,7 +393,8 @@ mod test {
         );
 
         // final iteration
-        let proof_3 = TestProofGenerator::compute_proof(masked_uv_3.iter(), &lagrange_table);
+        let proof_3 =
+            TestProofGenerator::compute_proof_from_uv(masked_uv_3.iter(), &lagrange_table);
         assert_eq!(
             proof_3.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_3,
@@ -397,10 +422,11 @@ mod test {
             // first iteration
             let world = TestWorld::default();
             let mut record_ids = RecordIdRange::ALL;
+            let proof = TestProofGenerator::compute_proof_from_uv(uv_1.iter(), &lagrange_table);
             let (uv_values, _, _) = TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, 4>(
                 &world.contexts()[0],
                 &mut record_ids,
-                &lagrange_table,
+                proof,
                 uv_1.iter(),
             );
 
@@ -436,7 +462,7 @@ mod test {
         >::from(denominator);
 
         // compute proof
-        let proof = SmallProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+        let proof = SmallProofGenerator::compute_proof_from_uv(uv_before.iter(), &lagrange_table);
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
 
@@ -472,7 +498,7 @@ mod test {
         >::from(denominator);
 
         // compute proof
-        let proof = LargeProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+        let proof = LargeProofGenerator::compute_proof_from_uv(uv_before.iter(), &lagrange_table);
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
 

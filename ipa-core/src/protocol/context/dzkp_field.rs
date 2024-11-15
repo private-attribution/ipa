@@ -1,15 +1,27 @@
-use std::{iter::zip, sync::LazyLock};
+use std::sync::LazyLock;
 
 use bitvec::field::BitField;
 
 use crate::{
+    const_assert,
     ff::{Field, Fp61BitPrime, PrimeField},
-    protocol::context::dzkp_validator::{Array256Bit, SegmentEntry},
+    protocol::{
+        context::dzkp_validator::{Array256Bit, SegmentEntry},
+        ipa_prf::BLOCK_SIZE,
+    },
     secret_sharing::{FieldSimd, SharedValue, Vectorizable},
 };
 
-// BlockSize is fixed to 32
-pub const BLOCK_SIZE: usize = 32;
+/// We receive multiplication intermediates in `Array256Bit` (i.e. for 256
+/// multiplications), and then generate 4 U and/or 4 V values for each multiplication.
+pub const INPUT_CHUNK_SIZE: usize = 1024;
+
+/// The number of entries in the arrays of `UVTupleBlock`s returned by the conversion
+/// routines in the `DZKPBaseField` trait.
+pub const BLOCKS_PER_INPUT_CHUNK: usize = INPUT_CHUNK_SIZE / BLOCK_SIZE;
+
+const_assert!(INPUT_CHUNK_SIZE % BLOCK_SIZE == 0);
+
 // UVTupleBlock is a block of interleaved U and V values
 pub type UVTupleBlock<F> = ([F; BLOCK_SIZE], [F; BLOCK_SIZE]);
 
@@ -28,31 +40,31 @@ pub trait DZKPBaseField: PrimeField {
 
     /// Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements.
     /// This function is called by the prover.
-    fn convert_prover<'a>(
-        x_left: &'a Array256Bit,
-        x_right: &'a Array256Bit,
-        y_left: &'a Array256Bit,
-        y_right: &'a Array256Bit,
-        prss_right: &'a Array256Bit,
+    fn convert_prover(
+        x_left: &Array256Bit,
+        x_right: &Array256Bit,
+        y_left: &Array256Bit,
+        y_right: &Array256Bit,
+        prss_right: &Array256Bit,
     ) -> Vec<UVTupleBlock<Self>>;
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the left of the prover.
     /// The verifier on the left uses its right shares, since they are consistent with the prover's left shares.
     /// This produces the 'u' values.
-    fn convert_value_from_right_prover<'a>(
-        x_right: &'a Array256Bit,
-        y_right: &'a Array256Bit,
-        prss_right: &'a Array256Bit,
-        z_right: &'a Array256Bit,
+    fn convert_value_from_right_prover(
+        x_right: &Array256Bit,
+        y_right: &Array256Bit,
+        prss_right: &Array256Bit,
+        z_right: &Array256Bit,
     ) -> Vec<Self>;
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the right of the prover.
     /// The verifier on the right uses its left shares, since they are consistent with the prover's right shares.
     /// This produces the 'v' values
-    fn convert_value_from_left_prover<'a>(
-        x_left: &'a Array256Bit,
-        y_left: &'a Array256Bit,
-        prss_left: &'a Array256Bit,
+    fn convert_value_from_left_prover(
+        x_left: &Array256Bit,
+        y_left: &Array256Bit,
+        prss_left: &Array256Bit,
     ) -> Vec<Self>;
 }
 
@@ -151,7 +163,7 @@ fn convert_values_table_indices(b0: u128, b1: u128, b2: u128) -> [u128; 4] {
 // Table used for `convert_prover` and `convert_value_from_right_prover`.
 //
 // The conversion to "g" and "h" values is from https://eprint.iacr.org/2023/909.pdf.
-static TABLE_RIGHT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
+pub static TABLE_RIGHT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
     let mut result = Vec::with_capacity(8);
     for e in [false, true] {
         for c in [false, true] {
@@ -178,7 +190,7 @@ static TABLE_RIGHT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
 // Table used for `convert_prover` and `convert_value_from_left_prover`.
 //
 // The conversion to "g" and "h" values is from https://eprint.iacr.org/2023/909.pdf.
-static TABLE_LEFT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
+pub static TABLE_LEFT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
     let mut result = Vec::with_capacity(8);
     for f in [false, true] {
         for d in [false, true] {
@@ -218,12 +230,13 @@ static TABLE_LEFT: LazyLock<[[Fp61BitPrime; 4]; 8]> = LazyLock::new(|| {
 /// as the same order is used on all three helpers. We preserve the order anyways
 /// to simplify the end-to-end dataflow, even though it makes this routine slightly
 /// more complicated.
-fn convert_values(
+fn convert_values<'a>(
     i0: &Array256Bit,
     i1: &Array256Bit,
     i2: &Array256Bit,
     table: &[[Fp61BitPrime; 4]; 8],
-) -> Vec<Fp61BitPrime> {
+    mut out: impl Iterator<Item = &'a mut [Fp61BitPrime; 4]>,
+) {
     // Split inputs to two `u128`s. We do this because `u128` is the largest integer
     // type rust supports. It is possible that using SIMD types here would improve
     // code generation for AVX-256/512.
@@ -241,23 +254,75 @@ fn convert_values(
     let [mut z00, mut z01, mut z02, mut z03] = convert_values_table_indices(i00, i10, i20);
     let [mut z10, mut z11, mut z12, mut z13] = convert_values_table_indices(i01, i11, i21);
 
-    let mut result = Vec::with_capacity(1024);
     for _ in 0..32 {
         // Take one index in turn from each `z` to preserve the output order.
-        for z in [&mut z00, &mut z01, &mut z02, &mut z03] {
-            result.extend(table[(*z as usize) & 0x7]);
-            *z >>= 4;
-        }
+        *out.next().unwrap() = table[(z00 as usize) & 0x7];
+        z00 >>= 4;
+        *out.next().unwrap() = table[(z01 as usize) & 0x7];
+        z01 >>= 4;
+        *out.next().unwrap() = table[(z02 as usize) & 0x7];
+        z02 >>= 4;
+        *out.next().unwrap() = table[(z03 as usize) & 0x7];
+        z03 >>= 4;
     }
     for _ in 0..32 {
-        for z in [&mut z10, &mut z11, &mut z12, &mut z13] {
-            result.extend(table[(*z as usize) & 0x7]);
-            *z >>= 4;
-        }
+        *out.next().unwrap() = table[(z10 as usize) & 0x7];
+        z10 >>= 4;
+        *out.next().unwrap() = table[(z11 as usize) & 0x7];
+        z11 >>= 4;
+        *out.next().unwrap() = table[(z12 as usize) & 0x7];
+        z12 >>= 4;
+        *out.next().unwrap() = table[(z13 as usize) & 0x7];
+        z13 >>= 4;
     }
-    debug_assert!(result.len() == 1024);
+    debug_assert!(out.next().is_none());
+}
 
-    result
+pub fn convert_values_alt<'a>(
+    i0: &Array256Bit,
+    i1: &Array256Bit,
+    i2: &Array256Bit,
+    mut out: impl Iterator<Item = &'a mut u8>,
+) {
+    // Split inputs to two `u128`s. We do this because `u128` is the largest integer
+    // type rust supports. It is possible that using SIMD types here would improve
+    // code generation for AVX-256/512.
+    let i00 = i0[..128].load_le::<u128>();
+    let i01 = i0[128..].load_le::<u128>();
+
+    let i10 = i1[..128].load_le::<u128>();
+    let i11 = i1[128..].load_le::<u128>();
+
+    let i20 = i2[..128].load_le::<u128>();
+    let i21 = i2[128..].load_le::<u128>();
+
+    // Output word `j` in each set contains the table indices for input positions `i`
+    // having (i%4) == j.
+    let [mut z00, mut z01, mut z02, mut z03] = convert_values_table_indices(i00, i10, i20);
+    let [mut z10, mut z11, mut z12, mut z13] = convert_values_table_indices(i01, i11, i21);
+
+    for _ in 0..32 {
+        // Take one index in turn from each `z` to preserve the output order.
+        *out.next().unwrap() = (z00 as u8) & 0x7;
+        z00 >>= 4;
+        *out.next().unwrap() = (z01 as u8) & 0x7;
+        z01 >>= 4;
+        *out.next().unwrap() = (z02 as u8) & 0x7;
+        z02 >>= 4;
+        *out.next().unwrap() = (z03 as u8) & 0x7;
+        z03 >>= 4;
+    }
+    for _ in 0..32 {
+        *out.next().unwrap() = (z10 as u8) & 0x7;
+        z10 >>= 4;
+        *out.next().unwrap() = (z11 as u8) & 0x7;
+        z11 >>= 4;
+        *out.next().unwrap() = (z12 as u8) & 0x7;
+        z12 >>= 4;
+        *out.next().unwrap() = (z13 as u8) & 0x7;
+        z13 >>= 4;
+    }
+    debug_assert!(out.next().is_none());
 }
 
 impl DZKPBaseField for Fp61BitPrime {
@@ -292,12 +357,12 @@ impl DZKPBaseField for Fp61BitPrime {
     // therefore e = ab⊕cd⊕ f must hold. (alternatively, you can also see this by substituting z_left,
     // i.e. z_left = x_left · y_left ⊕ x_left · y_right ⊕ x_right · y_left ⊕ prss_left ⊕ prss_right
     #[allow(clippy::many_single_char_names)]
-    fn convert_prover<'a>(
-        x_left: &'a Array256Bit,
-        x_right: &'a Array256Bit,
-        y_left: &'a Array256Bit,
-        y_right: &'a Array256Bit,
-        prss_right: &'a Array256Bit,
+    fn convert_prover(
+        x_left: &Array256Bit,
+        x_right: &Array256Bit,
+        y_left: &Array256Bit,
+        y_right: &Array256Bit,
+        prss_right: &Array256Bit,
     ) -> Vec<UVTupleBlock<Fp61BitPrime>> {
         let a = x_left;
         let b = y_right;
@@ -307,12 +372,28 @@ impl DZKPBaseField for Fp61BitPrime {
         let e = (*x_left & y_right) ^ (*y_left & x_right) ^ prss_right;
         let f = prss_right;
 
-        let g = convert_values(a, c, &e, &TABLE_RIGHT);
-        let h = convert_values(b, d, f, &TABLE_LEFT);
-
-        zip(g.chunks_exact(BLOCK_SIZE), h.chunks_exact(BLOCK_SIZE))
-            .map(|(g_chunk, h_chunk)| (g_chunk.try_into().unwrap(), h_chunk.try_into().unwrap()))
-            .collect()
+        let mut output = vec![
+            (
+                [Fp61BitPrime::ZERO; BLOCK_SIZE],
+                [Fp61BitPrime::ZERO; BLOCK_SIZE]
+            );
+            BLOCKS_PER_INPUT_CHUNK
+        ];
+        convert_values(
+            a,
+            c,
+            &e,
+            &TABLE_RIGHT,
+            output.iter_mut().map(|block| &mut block.0),
+        );
+        convert_values(
+            b,
+            d,
+            f,
+            &TABLE_LEFT,
+            output.iter_mut().map(|block| &mut block.1),
+        );
+        output
     }
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
@@ -328,19 +409,27 @@ impl DZKPBaseField for Fp61BitPrime {
     // (a,c,e) = (x_right, y_right, x_right * y_right ⊕ z_right ⊕ prss_right)
     // here e is defined as in the paper (since the the verifier does not have access to b,d,f,
     // he cannot use the simplified formula for e)
-    fn convert_value_from_right_prover<'a>(
-        x_right: &'a Array256Bit,
-        y_right: &'a Array256Bit,
-        prss_right: &'a Array256Bit,
-        z_right: &'a Array256Bit,
-    ) -> Vec<Self> {
+    fn convert_value_from_right_prover(
+        x_right: &Array256Bit,
+        y_right: &Array256Bit,
+        prss_right: &Array256Bit,
+        z_right: &Array256Bit,
+    ) -> Vec<Fp61BitPrime> {
         let a = x_right;
         let c = y_right;
         // e = ac ⊕ zright ⊕ prssright
         // as defined in the paper
         let e = (*a & *c) ^ prss_right ^ z_right;
 
-        convert_values(a, c, &e, &TABLE_RIGHT)
+        let mut output = vec![Fp61BitPrime::ZERO; INPUT_CHUNK_SIZE];
+        convert_values(
+            a,
+            c,
+            &e,
+            &TABLE_RIGHT,
+            output.chunks_mut(4).map(|chunk| chunk.try_into().unwrap()),
+        );
+        output
     }
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
@@ -354,16 +443,24 @@ impl DZKPBaseField for Fp61BitPrime {
     //
     // where
     // (b,d,f) = (y_left, x_left, prss_left)
-    fn convert_value_from_left_prover<'a>(
-        x_left: &'a Array256Bit,
-        y_left: &'a Array256Bit,
-        prss_left: &'a Array256Bit,
-    ) -> Vec<Self> {
+    fn convert_value_from_left_prover(
+        x_left: &Array256Bit,
+        y_left: &Array256Bit,
+        prss_left: &Array256Bit,
+    ) -> Vec<Fp61BitPrime> {
         let b = y_left;
         let d = x_left;
         let f = prss_left;
 
-        convert_values(b, d, f, &TABLE_LEFT)
+        let mut output = vec![Fp61BitPrime::ZERO; INPUT_CHUNK_SIZE];
+        convert_values(
+            b,
+            d,
+            f,
+            &TABLE_LEFT,
+            output.chunks_mut(4).map(|chunk| chunk.try_into().unwrap()),
+        );
+        output
     }
 }
 
@@ -375,8 +472,9 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp61BitPrime, U128Conversions},
-        protocol::context::dzkp_field::{
-            convert_values_table_indices, DZKPBaseField, UVTupleBlock, BLOCK_SIZE,
+        protocol::{
+            context::dzkp_field::{convert_values_table_indices, DZKPBaseField, UVTupleBlock},
+            ipa_prf::BLOCK_SIZE,
         },
         secret_sharing::SharedValue,
     };

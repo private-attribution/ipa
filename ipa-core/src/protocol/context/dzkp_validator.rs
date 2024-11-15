@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         context::{
             batcher::Batcher,
-            dzkp_field::{DZKPBaseField, UVTupleBlock},
+            dzkp_field::{convert_values_alt, DZKPBaseField, UVTupleBlock},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             step::DzkpValidationProtocolStep as Step,
@@ -178,6 +178,23 @@ impl MultiplicationInputsBlock {
             &self.y_right,
             &self.prss_right,
         )
+    }
+
+    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
+    /// This is the convert function called by the prover.
+    fn convert_prover_alt(&self) -> Vec<(u8, u8)> {
+        let a = &self.x_left;
+        let b = &self.y_right;
+        let c = &self.y_left;
+        let d = &self.x_right;
+        // e = ab ⊕ cd ⊕ f = x_left * y_right ⊕ y_left * x_right ⊕ prss_right
+        let e = (self.x_left & self.y_right) ^ (self.y_left & self.x_right) ^ self.prss_right;
+        let f = &self.prss_right;
+
+        let mut output = vec![(0u8, 0u8); 256];
+        convert_values_alt(a, c, &e, output.iter_mut().map(|tup| &mut tup.0));
+        convert_values_alt(b, d, f, output.iter_mut().map(|tup| &mut tup.1));
+        output
     }
 
     /// `convert_values_from_right_prover` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
@@ -484,10 +501,16 @@ impl MultiplicationInputsBatch {
     /// values used by the prover of the DZKPs
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = UVTupleBlock<DF>> + Clone + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
         self.vec
             .iter()
             .flat_map(MultiplicationInputsBlock::convert_prover::<DF>)
+    }
+
+    fn get_table_indices_prover(&self) -> impl Iterator<Item = (u8, u8)> + '_ {
+        self.vec
+            .iter()
+            .flat_map(MultiplicationInputsBlock::convert_prover_alt)
     }
 
     /// `get_field_values_from_right_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
@@ -577,10 +600,16 @@ impl Batch {
     /// which is used by the prover of the DZKP
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = UVTupleBlock<DF>> + Clone + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
         self.inner
             .values()
             .flat_map(MultiplicationInputsBatch::get_field_values_prover::<DF>)
+    }
+
+    fn get_table_indices_prover(&self) -> impl Iterator<Item = (u8, u8)> + '_ {
+        self.inner
+            .values()
+            .flat_map(MultiplicationInputsBatch::get_table_indices_prover)
     }
 
     /// `get_field_values_from_right_prover` converts a `Batch` into an iterator over field values
@@ -634,7 +663,12 @@ impl Batch {
             q_mask_from_left_prover,
         ) = {
             // generate BatchToVerify
-            ProofBatch::generate(&proof_ctx, prss_record_ids, self.get_field_values_prover())
+            ProofBatch::generate(
+                &proof_ctx,
+                prss_record_ids,
+                self.get_table_indices_prover(),
+                self.get_field_values_prover(),
+            )
         };
 
         let chunk_batch = BatchToVerify::generate_batch_to_verify(
@@ -978,7 +1012,7 @@ mod tests {
         protocol::{
             basics::{select, BooleanArrayMul, SecureMul},
             context::{
-                dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
+                dzkp_field::DZKPCompatibleField,
                 dzkp_validator::{
                     prev_power_of_two, Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN,
                     TARGET_PROOF_SIZE,
@@ -986,6 +1020,7 @@ mod tests {
                 Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
                 UpgradableContext, TEST_DZKP_STEPS,
             },
+            ipa_prf::BLOCK_SIZE,
             Gate, RecordId,
         },
         rand::{thread_rng, Rng},

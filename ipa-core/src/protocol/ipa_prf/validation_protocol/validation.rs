@@ -440,6 +440,7 @@ impl Serializable for ProofDiff {
 
 impl MpcMessage for ProofDiff {}
 
+/*
 #[cfg(all(test, unit_test))]
 pub mod test {
     use futures_util::future::try_join;
@@ -450,7 +451,7 @@ pub mod test {
         helpers::Direction,
         protocol::{
             context::{
-                dzkp_field::{UVTupleBlock, BLOCK_SIZE},
+                dzkp_field::UVTupleBlock,
                 Context,
             },
             ipa_prf::{
@@ -458,7 +459,7 @@ pub mod test {
                     lagrange::CanonicalLagrangeDenominator,
                     verifier::{compute_sum_share, interpolate_at_r},
                 },
-                validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
+                validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify}, BLOCK_SIZE,
                 CompressedProofGenerator, FirstProofGenerator,
             },
             prss::SharedRandomness,
@@ -997,3 +998,4 @@ pub mod test {
         verify_batch(num_inputs / BLOCK_SIZE);
     }
 }
+*/

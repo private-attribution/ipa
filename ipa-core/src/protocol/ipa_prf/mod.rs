@@ -60,7 +60,7 @@ pub mod validation_protocol;
 
 pub type FirstProofGenerator = malicious_security::prover::SmallProofGenerator;
 pub type CompressedProofGenerator = malicious_security::prover::SmallProofGenerator;
-
+pub use malicious_security::prover::BLOCK_SIZE;
 pub use shuffle::Shuffle;
 
 /// Match key type
