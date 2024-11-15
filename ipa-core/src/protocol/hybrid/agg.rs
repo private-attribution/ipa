@@ -52,10 +52,15 @@ where
 
 /// This function takes in a vector of `PrfHybridReports`, groups them by the oprf of the `match_key`,
 /// and collects all pairs of reports with the same `match_key` into a vector of paris (as an array.)
-/// Note that any `match_key` which appears once or more than twice is removed.
+///
+/// *Note*: Any `match_key` which appears once or more than twice is removed.
 /// An honest report collector will only provide a single impression report per `match_key` and
 /// an honest client will only provide a single conversion report per `match_key`.
-fn group_report_pairs<BK, V>(
+///
+/// *Note*: In order to add the pairs, the vector of pairs must be in the same order across all
+/// three helpers. A standard `HashMap` uses system randomness for insertion placement, so we
+/// use a `BTreeMap` to maintain consistent ordering across the helpers.
+fn group_report_pairs_ordered<BK, V>(
     reports: Vec<PrfHybridReport<BK, V>>,
 ) -> Vec<[AggregateableHybridReport<BK, V>; 2]>
 where
@@ -94,7 +99,7 @@ where
     V: BooleanArray,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
 {
-    let report_pairs = group_report_pairs(reports);
+    let report_pairs = group_report_pairs_ordered(reports);
 
     let chunk_size: usize = TARGET_PROOF_SIZE / (BK::BITS as usize + V::BITS as usize);
 
@@ -144,12 +149,20 @@ where
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 pub mod test {
-    use super::aggregate_reports;
+    use super::{aggregate_reports, group_report_pairs_ordered};
     use crate::{
-        ff::boolean_array::{BA3, BA8},
+        ff::{
+            boolean_array::{BA3, BA8},
+            U128Conversions,
+        },
+        protocol::context::Context,
         report::hybrid::{
             AggregateableHybridReport, IndistinguishableHybridReport, PrfHybridReport,
         },
+        secret_sharing::replicated::{
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        },
+        sharding::{ShardConfiguration, ShardIndex},
         test_executor::run,
         test_fixture::{
             hybrid::{TestAggregateableHybridReport, TestHybridRecord},
@@ -157,82 +170,133 @@ pub mod test {
         },
     };
 
+    // we re-use these as the "prf" of the match_key
+    // to avoid needing to actually do the prf here
+    const SHARD1_MKS: [u64; 7] = [12345, 12345, 34567, 34567, 78901, 78901, 78901];
+    const SHARD2_MKS: [u64; 7] = [23456, 23456, 45678, 56789, 67890, 67890, 67890];
+
+    fn get_records() -> Vec<TestHybridRecord> {
+        let shard1_records = [
+            TestHybridRecord::TestImpression {
+                match_key: SHARD1_MKS[0],
+                breakdown_key: 45,
+            },
+            TestHybridRecord::TestConversion {
+                match_key: SHARD1_MKS[1],
+                value: 1,
+            }, // attributed
+            TestHybridRecord::TestConversion {
+                match_key: SHARD1_MKS[2],
+                value: 3,
+            },
+            TestHybridRecord::TestConversion {
+                match_key: SHARD1_MKS[3],
+                value: 4,
+            }, // not attibuted, but duplicated conversion. will land in breakdown_key 0
+            TestHybridRecord::TestImpression {
+                match_key: SHARD1_MKS[4],
+                breakdown_key: 1,
+            }, // duplicated impression with same match_key
+            TestHybridRecord::TestImpression {
+                match_key: SHARD1_MKS[4],
+                breakdown_key: 2,
+            }, // duplicated impression with same match_key
+            TestHybridRecord::TestConversion {
+                match_key: SHARD1_MKS[5],
+                value: 7,
+            }, // removed
+        ];
+        let shard2_records = [
+            TestHybridRecord::TestImpression {
+                match_key: SHARD2_MKS[0],
+                breakdown_key: 56,
+            },
+            TestHybridRecord::TestConversion {
+                match_key: SHARD2_MKS[1],
+                value: 2,
+            }, // attributed
+            TestHybridRecord::TestImpression {
+                match_key: SHARD2_MKS[2],
+                breakdown_key: 78,
+            }, // NOT attributed
+            TestHybridRecord::TestConversion {
+                match_key: SHARD2_MKS[3],
+                value: 5,
+            }, // NOT attributed
+            TestHybridRecord::TestImpression {
+                match_key: SHARD2_MKS[4],
+                breakdown_key: 90,
+            }, // attributed twice, removed
+            TestHybridRecord::TestConversion {
+                match_key: SHARD2_MKS[5],
+                value: 6,
+            }, // attributed twice, removed
+            TestHybridRecord::TestConversion {
+                match_key: SHARD2_MKS[6],
+                value: 7,
+            }, // attributed twice, removed
+        ];
+
+        shard1_records
+            .chunks(1)
+            .zip(shard2_records.chunks(1))
+            .flat_map(|(a, b)| a.iter().chain(b))
+            .cloned()
+            .collect()
+    }
+
     #[test]
-    fn aggregate_reports_test() {
+    fn group_reports_mpc() {
         run(|| async {
-            let records = vec![
-                TestHybridRecord::TestImpression {
-                    match_key: 12345,
-                    breakdown_key: 2,
-                },
-                TestHybridRecord::TestImpression {
-                    match_key: 23456,
-                    breakdown_key: 4,
-                },
-                TestHybridRecord::TestConversion {
-                    match_key: 23456,
-                    value: 1,
-                }, // attributed
-                TestHybridRecord::TestImpression {
-                    match_key: 45678,
-                    breakdown_key: 3,
-                },
-                TestHybridRecord::TestConversion {
-                    match_key: 45678,
-                    value: 2,
-                }, // attributed
-                TestHybridRecord::TestImpression {
-                    match_key: 56789,
-                    breakdown_key: 5,
-                },
-                TestHybridRecord::TestConversion {
-                    match_key: 67890,
-                    value: 3,
-                }, // NOT attributed
-                TestHybridRecord::TestImpression {
-                    match_key: 78901,
-                    breakdown_key: 2,
-                },
-                TestHybridRecord::TestConversion {
-                    match_key: 78901,
-                    value: 4,
-                }, // attributed twice, removed
-                TestHybridRecord::TestConversion {
-                    match_key: 78901,
-                    value: 5,
-                }, // attributed twice, removed
-                TestHybridRecord::TestImpression {
-                    match_key: 89012,
-                    breakdown_key: 4,
-                },
-                TestHybridRecord::TestImpression {
-                    match_key: 89012,
-                    breakdown_key: 3,
-                }, // duplicated impression with same match_key
-                TestHybridRecord::TestConversion {
-                    match_key: 89012,
-                    value: 6,
-                }, // removed
-            ];
-
+            let records = get_records();
             let expected = vec![
-                TestAggregateableHybridReport {
-                    match_key: (),
-                    breakdown_key: 4,
-                    value: 1,
-                },
-                TestAggregateableHybridReport {
-                    match_key: (),
-                    breakdown_key: 3,
-                    value: 2,
-                },
+                [
+                    TestAggregateableHybridReport {
+                        match_key: (),
+                        value: 0,
+                        breakdown_key: 45,
+                    },
+                    TestAggregateableHybridReport {
+                        match_key: (),
+                        value: 1,
+                        breakdown_key: 0,
+                    },
+                ],
+                [
+                    TestAggregateableHybridReport {
+                        match_key: (),
+                        value: 3,
+                        breakdown_key: 0,
+                    },
+                    TestAggregateableHybridReport {
+                        match_key: (),
+                        value: 4,
+                        breakdown_key: 0,
+                    },
+                ],
+                [
+                    TestAggregateableHybridReport {
+                        match_key: (),
+                        value: 0,
+                        breakdown_key: 56,
+                    },
+                    TestAggregateableHybridReport {
+                        match_key: (),
+                        value: 2,
+                        breakdown_key: 0,
+                    },
+                ],
             ];
 
-            let world = TestWorld::<WithShards<3>>::with_shards(TestWorldConfig::default());
-
-            let results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
+            let world = TestWorld::<WithShards<2>>::with_shards(TestWorldConfig::default());
+            #[allow(clippy::type_complexity)]
+            let results: Vec<[Vec<[AggregateableHybridReport<BA8, BA3>; 2]>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
-                    let og_records = records.clone();
+                    let match_keys = match ctx.shard_id() {
+                        ShardIndex(0) => SHARD1_MKS,
+                        ShardIndex(1) => SHARD2_MKS,
+                        _ => panic!("invalid shard_id"),
+                    };
                     async move {
                         let indistinguishable_reports: Vec<
                             IndistinguishableHybridReport<BA8, BA3>,
@@ -240,19 +304,87 @@ pub mod test {
 
                         let prf_reports: Vec<PrfHybridReport<BA8, BA3>> = indistinguishable_reports
                             .iter()
-                            .zip(og_records.iter())
-                            .map(|(indist_report, test_report)| {
-                                let match_key = match test_report {
-                                    TestHybridRecord::TestConversion { match_key, .. }
-                                    | TestHybridRecord::TestImpression { match_key, .. } => {
-                                        match_key
-                                    }
-                                };
-                                PrfHybridReport {
-                                    match_key: *match_key,
-                                    value: indist_report.value.clone(),
-                                    breakdown_key: indist_report.breakdown_key.clone(),
-                                }
+                            .zip(match_keys)
+                            .map(|(indist_report, match_key)| PrfHybridReport {
+                                match_key,
+                                value: indist_report.value.clone(),
+                                breakdown_key: indist_report.breakdown_key.clone(),
+                            })
+                            .collect::<Vec<_>>();
+                        println!("{:#?}", ctx.shard_id());
+                        println!("{:#?}", ctx.role());
+                        println!("{prf_reports:#?}");
+                        group_report_pairs_ordered(prf_reports)
+                    }
+                })
+                .await;
+
+            let results: Vec<[TestAggregateableHybridReport; 2]> = results
+                .into_iter()
+                .flat_map(|shard_result| {
+                    shard_result[0]
+                        .clone()
+                        .into_iter()
+                        .zip(shard_result[1].clone())
+                        .zip(shard_result[2].clone())
+                        .map(|((r1, r2), r3)| {
+                            [
+                                [&r1[0], &r2[0], &r3[0]].reconstruct(),
+                                [&r1[1], &r2[1], &r3[1]].reconstruct(),
+                            ]
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            println!("{results:#?}");
+            assert_eq!(results, expected);
+        });
+    }
+
+    #[test]
+    fn aggregate_reports_test() {
+        run(|| async {
+            let records = get_records();
+            let expected = vec![
+                TestAggregateableHybridReport {
+                    match_key: (),
+                    value: 1,
+                    breakdown_key: 45,
+                },
+                TestAggregateableHybridReport {
+                    match_key: (),
+                    value: 7,
+                    breakdown_key: 0,
+                },
+                TestAggregateableHybridReport {
+                    match_key: (),
+                    value: 2,
+                    breakdown_key: 56,
+                },
+            ];
+
+            let world = TestWorld::<WithShards<2>>::with_shards(TestWorldConfig::default());
+
+            let results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
+                .malicious(records.clone().into_iter(), |ctx, input| {
+                    let match_keys = match ctx.shard_id() {
+                        ShardIndex(0) => SHARD1_MKS,
+                        ShardIndex(1) => SHARD2_MKS,
+                        _ => panic!("invalid shard_id"),
+                    };
+                    async move {
+                        let indistinguishable_reports: Vec<
+                            IndistinguishableHybridReport<BA8, BA3>,
+                        > = input.iter().map(|r| r.clone().into()).collect::<Vec<_>>();
+
+                        let prf_reports: Vec<PrfHybridReport<BA8, BA3>> = indistinguishable_reports
+                            .iter()
+                            .zip(match_keys)
+                            .map(|(indist_report, match_key)| PrfHybridReport {
+                                match_key,
+                                value: indist_report.value.clone(),
+                                breakdown_key: indist_report.breakdown_key.clone(),
                             })
                             .collect::<Vec<_>>();
 
@@ -263,20 +395,77 @@ pub mod test {
 
             let results: Vec<TestAggregateableHybridReport> = results
                 .into_iter()
-                .map(|shard_result| {
+                .flat_map(|shard_result| {
                     shard_result[0]
                         .clone()
                         .into_iter()
-                        .zip(shard_result[1].clone().into_iter())
-                        .zip(shard_result[2].clone().into_iter())
+                        .zip(shard_result[1].clone())
+                        .zip(shard_result[2].clone())
                         .map(|((r1, r2), r3)| [&r1, &r2, &r3].reconstruct())
                         .collect::<Vec<_>>()
                 })
-                .flatten()
-                .into_iter()
                 .collect::<Vec<_>>();
 
+            println!("{results:#?}");
             assert_eq!(results, expected);
         });
+    }
+
+    fn build_prf_hybrid_report(
+        match_key: u64,
+        value: u8,
+        breakdown_key: u8,
+    ) -> PrfHybridReport<BA8, BA3> {
+        PrfHybridReport::<BA8, BA3> {
+            match_key,
+            value: Replicated::new(BA3::truncate_from(value), BA3::truncate_from(0_u128)),
+            breakdown_key: Replicated::new(
+                BA8::truncate_from(breakdown_key),
+                BA8::truncate_from(0_u128),
+            ),
+        }
+    }
+
+    fn build_aggregateable_report(
+        value: u8,
+        breakdown_key: u8,
+    ) -> AggregateableHybridReport<BA8, BA3> {
+        AggregateableHybridReport::<BA8, BA3> {
+            match_key: (),
+            value: Replicated::new(BA3::truncate_from(value), BA3::truncate_from(0_u128)),
+            breakdown_key: Replicated::new(
+                BA8::truncate_from(breakdown_key),
+                BA8::truncate_from(0_u128),
+            ),
+        }
+    }
+
+    #[test]
+    fn group_reports() {
+        let reports = vec![
+            build_prf_hybrid_report(42, 2, 0),  // pair: index (1,0)
+            build_prf_hybrid_report(42, 0, 3),  // pair: index (1,1)
+            build_prf_hybrid_report(17, 4, 0),  // pair: index (0,0)
+            build_prf_hybrid_report(17, 0, 13), // pair: index (0,1)
+            build_prf_hybrid_report(13, 0, 5),  // single
+            build_prf_hybrid_report(11, 2, 0),  // single
+            build_prf_hybrid_report(31, 1, 2),  // triple
+            build_prf_hybrid_report(31, 3, 4),  // triple
+            build_prf_hybrid_report(31, 5, 6),  // triple
+        ];
+
+        let expected = vec![
+            [
+                build_aggregateable_report(4, 0),
+                build_aggregateable_report(0, 13),
+            ],
+            [
+                build_aggregateable_report(2, 0),
+                build_aggregateable_report(0, 3),
+            ],
+        ];
+
+        let results = group_report_pairs_ordered(reports);
+        assert_eq!(results, expected);
     }
 }
