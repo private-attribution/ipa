@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use futures::{stream, FutureExt, StreamExt, TryStreamExt};
+use futures::{stream, StreamExt, TryStreamExt};
 
 use crate::{
     error::Error,
@@ -9,7 +9,7 @@ use crate::{
     protocol::{
         boolean::step::EightBitStep,
         context::{
-            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
+            dzkp_validator::{validated_seq_join, DZKPValidator, TARGET_PROOF_SIZE},
             Context, DZKPUpgraded, MaliciousProtocolSteps, ShardedContext, UpgradableContext,
         },
         hybrid::step::{AggregateReportsStep, HybridStep},
@@ -132,11 +132,8 @@ where
             }
         });
 
-    dzkp_validator
-        .validated_seq_join(agg_work)
+    validated_seq_join(dzkp_validator, agg_work)
         .try_collect()
-        // "Implementation of Send is not general enough" famous issue
-        .boxed()
         .await
 }
 
