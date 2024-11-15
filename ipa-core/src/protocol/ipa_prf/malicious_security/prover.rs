@@ -1,14 +1,15 @@
 use std::{borrow::Borrow, iter::zip, marker::PhantomData};
 
-#[cfg(all(test, unit_test))]
-use crate::ff::Fp31;
 use crate::{
     error::Error::{self, DZKPMasks},
     ff::{Fp61BitPrime, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
         context::Context,
-        ipa_prf::malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+        ipa_prf::{
+            malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+            CompressedProofGenerator,
+        },
         prss::SharedRandomness,
         RecordId, RecordIdRange,
     },
@@ -84,8 +85,8 @@ where
         // compute final uv values
         let (u_values, v_values) = &mut self.uv_chunks[0];
         // shift first element to last position
-        u_values[SmallProofGenerator::RECURSION_FACTOR - 1] = u_values[0];
-        v_values[SmallProofGenerator::RECURSION_FACTOR - 1] = v_values[0];
+        u_values[CompressedProofGenerator::RECURSION_FACTOR - 1] = u_values[0];
+        v_values[CompressedProofGenerator::RECURSION_FACTOR - 1] = v_values[0];
         // set masks in first position
         u_values[0] = my_p_mask;
         v_values[0] = my_q_mask;
@@ -105,15 +106,11 @@ pub struct ProofGenerator<F: PrimeField, const L: usize, const P: usize, const M
     phantom_data: PhantomData<F>,
 }
 
-#[cfg(all(test, unit_test))]
-pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
-
 // Compression Factor is L
 // P, Proof size is 2*L - 1
 // M, the number of interpolated points is L - 1
 // The reason we need these is that Rust doesn't support basic math operations on const generics
-pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
-pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
+pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 4, 7, 3>;
 
 impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerator<F, L, P, M> {
     // define constants such that they can be used externally
@@ -265,7 +262,7 @@ mod test {
             context::Context,
             ipa_prf::malicious_security::{
                 lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-                prover::{LargeProofGenerator, SmallProofGenerator, TestProofGenerator, UVValues},
+                prover::{ProofGenerator, SmallProofGenerator, UVValues},
             },
             RecordId, RecordIdRange,
         },
@@ -273,6 +270,9 @@ mod test {
         test_executor::run,
         test_fixture::{Runner, TestWorld},
     };
+
+    type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
+    type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
     fn zip_chunks<F: PrimeField, const U: usize, I, J>(a: I, b: J) -> UVValues<F, U>
     where

@@ -20,7 +20,7 @@ use crate::{
         },
         ipa_prf::{
             validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
-            LargeProofGenerator, SmallProofGenerator,
+            CompressedProofGenerator, FirstProofGenerator,
         },
         Gate, RecordId, RecordIdRange,
     },
@@ -50,10 +50,21 @@ const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 // A smaller value is used for tests, to enable covering some corner cases with a
 // reasonable runtime. Some of these tests use TARGET_PROOF_SIZE directly, so for tests
 // it does need to be a power of two.
+//
+// TARGET_PROOF_SIZE is closely related to MAX_PROOF_RECURSION; see the assertion that
+// `uv_values.len() <= max_uv_values` in `ProofBatch` for more detail.
 #[cfg(test)]
 pub const TARGET_PROOF_SIZE: usize = 8192;
 #[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
+
+/// Returns the largest power of two less than or equal to `self`.
+///
+/// Returns 0 if the input is outside the range `1..1 << (usize::BITS - 1)`.
+#[must_use]
+pub const fn prev_power_of_two(value: usize) -> usize {
+    (value + 1).next_power_of_two() / 2
+}
 
 /// Maximum proof recursion depth.
 //
@@ -73,7 +84,7 @@ pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 // to blocks of 256), leaving some margin is advised.
 //
 // The implementation requires that MAX_PROOF_RECURSION is at least 2.
-pub const MAX_PROOF_RECURSION: usize = 9;
+pub const MAX_PROOF_RECURSION: usize = 14;
 
 /// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
 /// that occur duringa multiplication.
@@ -601,8 +612,8 @@ impl Batch {
         ctx: Base<'_, B>,
         batch_index: usize,
     ) -> Result<(), Error> {
-        const PRSS_RECORDS_PER_BATCH: usize = LargeProofGenerator::PROOF_LENGTH
-            + (MAX_PROOF_RECURSION - 1) * SmallProofGenerator::PROOF_LENGTH
+        const PRSS_RECORDS_PER_BATCH: usize = FirstProofGenerator::PROOF_LENGTH
+            + (MAX_PROOF_RECURSION - 1) * CompressedProofGenerator::PROOF_LENGTH
             + 2; // P and Q masks
 
         let proof_ctx = ctx.narrow(&Step::GenerateProof);
@@ -969,7 +980,8 @@ mod tests {
             context::{
                 dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
                 dzkp_validator::{
-                    Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
+                    prev_power_of_two, Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN,
+                    TARGET_PROOF_SIZE,
                 },
                 Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
                 UpgradableContext, TEST_DZKP_STEPS,
@@ -1939,5 +1951,19 @@ mod tests {
                 .len()
                 .next_power_of_two()
         );
+
+        assert_eq!(prev_power_of_two(0), 0usize);
+        assert_eq!(prev_power_of_two(1), 1usize);
+        assert_eq!(prev_power_of_two(2), 2usize);
+        assert_eq!(prev_power_of_two(3), 2usize);
+        assert_eq!(prev_power_of_two(4), 4usize);
+        assert_eq!(
+            prev_power_of_two((1usize << (usize::BITS - 1)) - 1),
+            1usize << (usize::BITS - 2)
+        );
+        #[cfg(not(debug_assertions))] // debug mode panics on overflow
+        assert_eq!(prev_power_of_two(1usize << (usize::BITS - 1)), 0);
+        #[cfg(not(debug_assertions))] // debug mode panics on overflow
+        assert_eq!(prev_power_of_two((1usize << (usize::BITS - 1)) + 1), 0);
     }
 }
