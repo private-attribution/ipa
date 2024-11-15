@@ -200,14 +200,7 @@ impl RequestHandler<ShardIndex> for Inner {
                     format!("{r:?} request must not be handled by shard query processing flow")
                         .into(),
                 ))
-            } /*RouteId::CompleteQuery => {
-                  let query_id = ext_query_id(&req)?;
-                  HelperResponse::from(qp.complete(query_id).await?)
-              }
-              RouteId::KillQuery => {
-                  let query_id = ext_query_id(&req)?;
-                  HelperResponse::from(qp.kill(query_id)?)
-              }*/
+            }
         })
     }
 }
