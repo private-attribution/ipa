@@ -16,7 +16,7 @@ use tokio::fs;
 
 use crate::{
     error::BoxError,
-    helpers::{HelperIdentity, TransportIdentity},
+    helpers::HelperIdentity,
     hpke::{
         Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry, PrivateKeyOnly,
         PublicKeyOnly, Serializable as _,
@@ -32,10 +32,8 @@ pub type OwnedPrivateKey = PrivateKeyDer<'static>;
 pub enum Error {
     #[error(transparent)]
     ParseError(#[from] config::ConfigError),
-    #[error("Invalid uri: {0}")]
+    #[error("invalid uri: {0}")]
     InvalidUri(#[from] hyper::http::uri::InvalidUri),
-    #[error("Invalid network size {0}")]
-    InvalidNetworkSize(usize),
     #[error(transparent)]
     IOError(#[from] std::io::Error),
 }
@@ -116,88 +114,6 @@ impl<F: ConnectionFlavor> NetworkConfig<F> {
             BASE64.encode(cert),
         );
         None
-    }
-}
-
-/// Reads a the config for a specific, single, sharded server from string. Expects config to be
-/// toml format. The server in the network is specified via `id`, `shard_index` and
-/// `shard_count`.
-///
-/// First we read the configuration without assigning any identities. The number of peers in the
-/// configuration must be a multiple of 6, or 3 as a special case to support older, non-sharded
-/// configurations.
-///
-/// If there are 3 entries, we assign helper identities for them. We create a dummy sharded
-/// configuration.
-///
-/// If there are any multiple of 6 peers, then peer assignment is as follows:
-/// By rings (to be reminiscent of the previous config). The first 6 entries corresponds to the
-/// leaders Ring. H1 shard 0, H2, shard 0, and H3 shard 0. The next 6 correspond increases the
-/// shard index by one.
-///
-/// Other methods to read the network.toml exist depending on the use, for example
-/// [`NetworkConfig::from_toml_str`] reads a non-sharded config.
-/// TODO: There will be one to read the information relevant for the RC (doesn't need shard
-/// info)
-///
-/// # Errors
-/// if `input` is in an invalid format
-pub fn sharded_server_from_toml_str(
-    input: &str,
-    id: HelperIdentity,
-    shard_index: ShardIndex,
-    shard_count: ShardIndex,
-) -> Result<(NetworkConfig<Helper>, NetworkConfig<Shard>), Error> {
-    use config::{Config, File, FileFormat};
-
-    let all_network: NetworkConfig = Config::builder()
-        .add_source(File::from_str(input, FileFormat::Toml))
-        .build()?
-        .try_deserialize()?;
-
-    let ix: usize = shard_index.as_index();
-    let ix_count: usize = shard_count.as_index();
-    let mpc_id: usize = id.as_index();
-
-    let total_peers = all_network.peers.len();
-    if total_peers == 3 {
-        let mpc_network = NetworkConfig {
-            peers: all_network.peers.clone(),
-            client: all_network.client.clone(),
-            identities: HelperIdentity::make_three().to_vec(),
-        };
-        let shard_network = NetworkConfig {
-            peers: vec![all_network.peers[mpc_id].clone()],
-            client: all_network.client,
-            identities: vec![ShardIndex(0)],
-        };
-        Ok((mpc_network, shard_network))
-    } else if total_peers > 0 && total_peers % 6 == 0 {
-        let mpc_network = NetworkConfig {
-            peers: all_network
-                .peers
-                .clone()
-                .into_iter()
-                .skip(ix * 6)
-                .take(3)
-                .collect(),
-            client: all_network.client.clone(),
-            identities: HelperIdentity::make_three().to_vec(),
-        };
-        let shard_network = NetworkConfig {
-            peers: all_network
-                .peers
-                .into_iter()
-                .skip(3 + mpc_id)
-                .step_by(6)
-                .take(ix_count)
-                .collect(),
-            client: all_network.client,
-            identities: shard_count.iter().collect(),
-        };
-        Ok((mpc_network, shard_network))
-    } else {
-        Err(Error::InvalidNetworkSize(total_peers))
     }
 }
 
