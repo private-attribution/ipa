@@ -139,12 +139,8 @@ pub fn gen_client_config<'a>(
             )),
         );
         peer.insert(
-            String::from("shard_url"),
-            Value::String(format!(
-                "{host}:{port}",
-                host = client_conf.host,
-                port = client_conf.shard_port
-            )),
+            String::from("shard_port"),
+            Value::Integer(client_conf.shard_port.into()),
         );
         peer.insert(String::from("certificate"), Value::String(certificate));
         peer.insert(

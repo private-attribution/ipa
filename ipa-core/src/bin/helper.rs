@@ -71,7 +71,6 @@ struct ServerArgs {
     #[arg(short, long, default_value = "3000")]
     port: Option<u16>,
 
-    /// Port to use for shard-to-shard communication, if sharded MPC is used
     #[arg(default_value = "6000")]
     shard_port: Option<u16>,
 

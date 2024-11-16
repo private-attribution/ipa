@@ -3,6 +3,7 @@ use std::{
     fmt::{Debug, Formatter},
     iter::zip,
     path::PathBuf,
+    str::FromStr,
     time::Duration,
 };
 
@@ -38,8 +39,8 @@ pub enum Error {
     InvalidNetworkSize(usize),
     #[error(transparent)]
     IOError(#[from] std::io::Error),
-    #[error("Missing shard URLs for peers {0:?}")]
-    MissingShardUrls(Vec<usize>),
+    #[error("Missing shard ports for peers {0:?}")]
+    MissingShardPorts(Vec<usize>),
 }
 
 /// Configuration describing either 3 peers in a Ring or N shard peers. In a non-sharded case a
@@ -200,12 +201,12 @@ struct ShardedNetworkToml {
 }
 
 impl ShardedNetworkToml {
-    fn missing_shard_urls(&self) -> Vec<usize> {
+    fn missing_shard_ports(&self) -> Vec<usize> {
         self.peers
             .iter()
             .enumerate()
             .filter_map(|(i, peer)| {
-                if peer.shard_url.is_some() {
+                if peer.shard_port.is_some() {
                     None
                 } else {
                     Some(i)
@@ -216,14 +217,12 @@ impl ShardedNetworkToml {
 }
 
 /// This struct is only used by [`parse_sharded_network_toml`] to generate [`PeerConfig`]. It
-/// contains an optional `shard_url`.
+/// contains an optional `shard_port`.
 #[derive(Clone, Debug, Deserialize)]
 struct ShardedPeerConfigToml {
     #[serde(flatten)]
     pub config: PeerConfig,
-
-    #[serde(default, with = "crate::serde::option::uri")]
-    pub shard_url: Option<Uri>,
+    pub shard_port: Option<u16>,
 }
 
 impl ShardedPeerConfigToml {
@@ -232,15 +231,21 @@ impl ShardedPeerConfigToml {
         self.config.clone()
     }
 
-    /// Create a new Peer but its url using [`ShardedPeerConfigToml::shard_url`].
+    /// Create a new Peer but its url using [`ShardedPeerConfigToml::shard_port`].
     fn to_shard_peer(&self) -> PeerConfig {
+        let url = self.config.url.to_string();
+        let new_url = format!(
+            "{}{}",
+            &url[..=url.find(':').unwrap()],
+            self.shard_port.expect("Shard port should be set")
+        );
         let mut shard_peer = self.config.clone();
-        shard_peer.url = self.shard_url.clone().expect("Shard URL should be set");
+        shard_peer.url = Uri::from_str(&new_url).expect("Problem creating uri with sharded port");
         shard_peer
     }
 }
 
-/// Parses a [`ShardedNetworkToml`] from a network.toml file. Validates that sharding urls are set
+/// Parses a [`ShardedNetworkToml`] from a network.toml file. Validates that sharding ports are set
 ///  if necessary. The number of peers needs to be a multiple of 3.
 fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> {
     use config::{Config, File, FileFormat};
@@ -255,11 +260,11 @@ fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> 
     }
 
     // Validate sharding config is set
-    let any_shard_url_set = parsed.peers.iter().any(|peer| peer.shard_url.is_some());
-    if any_shard_url_set || parsed.peers.len() > 3 {
-        let missing_urls = parsed.missing_shard_urls();
-        if !missing_urls.is_empty() {
-            return Err(Error::MissingShardUrls(missing_urls));
+    let any_shard_port_set = parsed.peers.iter().any(|peer| peer.shard_port.is_some());
+    if any_shard_port_set || parsed.peers.len() > 3 {
+        let missing_ports = parsed.missing_shard_ports();
+        if !missing_ports.is_empty() {
+            return Err(Error::MissingShardPorts(missing_ports));
         }
     }
 
@@ -268,7 +273,7 @@ fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> 
 
 /// Reads a the config for a specific, single, sharded server from string. Expects config to be
 /// toml format. The server in the network is specified via `id`, `shard_index` and
-/// `shard_count`. This function expects shard urls to be set for all peers.
+/// `shard_count`. This function expects shard ports to be set for all peers.
 ///
 /// The first 3 peers corresponds to the leaders Ring. H1 shard 0, H2 shard 0, and H3 shard 0.
 /// The next 3 correspond to the next ring with `shard_index` equals 1 and so on.
@@ -287,9 +292,9 @@ pub fn sharded_server_from_toml_str(
     shard_count: ShardIndex,
 ) -> Result<(NetworkConfig<Helper>, NetworkConfig<Shard>), Error> {
     let all_network = parse_sharded_network_toml(input)?;
-    let missing_urls = all_network.missing_shard_urls();
-    if !missing_urls.is_empty() {
-        return Err(Error::MissingShardUrls(missing_urls));
+    let missing_ports = all_network.missing_shard_ports();
+    if !missing_ports.is_empty() {
+        return Err(Error::MissingShardPorts(missing_ports));
     }
 
     let ix: usize = shard_index.as_index();
@@ -681,6 +686,7 @@ mod tests {
         helpers::HelperIdentity,
         net::test::TestConfigBuilder,
         sharding::ShardIndex,
+        utils::replace_all,
     };
 
     const URI_1: &str = "http://localhost:3000";
@@ -724,10 +730,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(1);
         let (_, public_key) = X25519HkdfSha256::gen_keypair(&mut rng);
         let config = HpkeClientConfig { public_key };
-        assert_eq!(
-            format!("{config:?}"),
-            r#"HpkeClientConfig { public_key: "2bd9da78f01d8bc6948bbcbe44ec1e7163d05083e267d110cdb2e75d847e3b6f" }"#
-        );
+        assert_eq!(format!("{config:?}"), "HpkeClientConfig { public_key: \"2bd9da78f01d8bc6948bbcbe44ec1e7163d05083e267d110cdb2e75d847e3b6f\" }");
     }
 
     #[test]
@@ -792,9 +795,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             vec![
-                "helper1.shard1.org:443",
-                "helper2.shard1.org:443",
-                "helper3.shard1.org:443"
+                "helper1.prod.ipa-helper.shard1.dev:443",
+                "helper2.prod.ipa-helper.shard1.dev:443",
+                "helper3.prod.ipa-helper.shard1.dev:443"
             ],
             mpc.peers
                 .into_iter()
@@ -803,9 +806,9 @@ mod tests {
         );
         assert_eq!(
             vec![
-                "helper2.shard0.org:555",
-                "helper2.shard1.org:555",
-                "helper2.shard2.org:555"
+                "helper2.prod.ipa-helper.shard0.dev:555",
+                "helper2.prod.ipa-helper.shard1.dev:555",
+                "helper2.prod.ipa-helper.shard2.dev:555"
             ],
             shard
                 .peers
@@ -815,16 +818,16 @@ mod tests {
         );
     }
 
-    /// Tests that the url of a shard gets updated with the shard url.
+    /// Tests that the url of a shard gets updated with the shard port.
     #[test]
     fn transform_sharded_peers() {
         let mut n = parse_sharded_network_toml(&SHARDED_OK_REPEAT).unwrap();
         assert_eq!(
-            "helper3.shard2.org:666",
+            "helper3.prod.ipa-helper.shard2.dev:666",
             n.peers.pop().unwrap().to_shard_peer().url
         );
         assert_eq!(
-            "helper2.shard2.org:555",
+            "helper2.prod.ipa-helper.shard2.dev:555",
             n.peers.pop().unwrap().to_shard_peer().url
         );
     }
@@ -838,27 +841,27 @@ mod tests {
         ));
     }
 
-    /// If any sharded url is set (indicating this is a sharding config), then ALL urls must be set.
+    /// If any sharded port is set (indicating this is a sharding config), then ALL ports must be set.
     #[test]
-    fn parse_network_toml_shard_urls_some_set() {
+    fn parse_network_toml_shard_port_some_set() {
         assert!(matches!(
-            parse_sharded_network_toml(&SHARDED_COMPAT_ONE_URL),
-            Err(Error::MissingShardUrls(_))
+            parse_sharded_network_toml(&SHARDED_COMPAT_ONE_PORT),
+            Err(Error::MissingShardPorts(_))
         ));
     }
 
-    /// If there are more than 3 peers configured (indicating this is a sharding config), then ALL urls must be set.
+    /// If there are more than 3 peers configured (indicating this is a sharding config), then ALL ports must be set.
     #[test]
-    fn parse_network_toml_shard_urls_set() {
+    fn parse_network_toml_shard_port_set() {
         assert!(matches!(
-            parse_sharded_network_toml(&SHARDED_MISSING_URLS_REPEAT),
-            Err(Error::MissingShardUrls(_))
+            parse_sharded_network_toml(&SHARDED_MISSING_PORTS_REPEAT),
+            Err(Error::MissingShardPorts(_))
         ));
     }
 
-    /// Check that shard urls are given for [`sharded_server_from_toml_str`] or error is returned.
+    /// Check that shard ports are given for [`sharded_server_from_toml_str`] or error is returned.
     #[test]
-    fn parse_sharded_without_shard_urls() {
+    fn parse_sharded_without_shard_ports() {
         // Second, I test the networkconfig parsing
         assert!(matches!(
             sharded_server_from_toml_str(
@@ -867,7 +870,7 @@ mod tests {
                 ShardIndex::FIRST,
                 ShardIndex::from(1)
             ),
-            Err(Error::MissingShardUrls(_))
+            Err(Error::MissingShardPorts(_))
         ));
     }
 
@@ -882,15 +885,11 @@ mod tests {
             HttpClientConfigurator::Http2(_)
         ));
         assert_eq!(3, entire_network.peers.len());
-        assert_eq!("helper3.shard0.org:443", entire_network.peers[2].config.url);
         assert_eq!(
-            "helper3.shard0.org:666",
-            entire_network.peers[2]
-                .shard_url
-                .as_ref()
-                .unwrap()
-                .to_string()
+            "helper3.prod.ipa-helper.shard0.dev:443",
+            entire_network.peers[2].config.url
         );
+        assert_eq!(Some(666), entire_network.peers[2].shard_port);
     }
 
     /// Testing happy case of a longer sharded network config
@@ -900,14 +899,7 @@ mod tests {
         assert!(r_entire_network.is_ok());
         let entire_network = r_entire_network.unwrap();
         assert_eq!(9, entire_network.peers.len());
-        assert_eq!(
-            "helper3.shard2.org:666",
-            entire_network.peers[8]
-                .shard_url
-                .as_ref()
-                .unwrap()
-                .to_string()
-        );
+        assert_eq!(Some(666), entire_network.peers[8].shard_port);
     }
 
     /// This test validates that the new logic that handles sharded configurations can also handle the previous version
@@ -921,7 +913,10 @@ mod tests {
             HttpClientConfigurator::Http2(_)
         ));
         assert_eq!(3, entire_network.peers.len());
-        assert_eq!("helper3.org:443", entire_network.peers[2].config.url);
+        assert_eq!(
+            "helper3.prod.ipa-helper.dev:443",
+            entire_network.peers[2].config.url
+        );
     }
 
     // Following are some large &str const used for tests
@@ -930,20 +925,20 @@ mod tests {
     static NON_SHARDED_COMPAT: Lazy<String> = Lazy::new(|| format!("{CLIENT}{P1}{REST}"));
 
     /// Invalid: Same as [`NON_SHARDED_COMPAT`] but with a single `shard_port` set.
-    static SHARDED_COMPAT_ONE_URL: Lazy<String> =
-        Lazy::new(|| format!("{CLIENT}{P1}\nshard_url = \"helper1.org:777\"\n{REST}"));
+    static SHARDED_COMPAT_ONE_PORT: Lazy<String> =
+        Lazy::new(|| format!("{CLIENT}{P1}\nshard_port = 777\n{REST}"));
 
     /// Helper const used to create client configs
-    const CLIENT: &str = r#"[client.http_config]
+    const CLIENT: &str = "[client.http_config]
 ping_interval_secs = 90.0
-version = "http2"
-"#;
+version = \"http2\"
+";
 
     /// Helper const that has the first part of a Peer, just before were `shard_port` should be
     /// specified.
-    const P1: &str = r#"
+    const P1: &str = "
 [[peers]]
-certificate = """
+certificate = \"\"\"
 -----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIIMlnveFys5QUwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
 aGVscGVyMS5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwM1oXDTI0
@@ -955,16 +950,16 @@ DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
 zj0EAwIDSAAwRQIhAKVdDCQeXLRXDYXy4b1N1UxD/JPuD9H7zeRb8/nmIDTfAiBL
 a6L0t1Ug8i2RcequSo21x319Tvs5nUbGwzMFSS5wKA==
 -----END CERTIFICATE-----
-"""
-url = "helper1.org:443""#;
+\"\"\"
+url = \"helper1.prod.ipa-helper.dev:443\"";
 
     /// The rest of a configuration
-    const REST: &str = r#"
+    const REST: &str = "
 [peers.hpke]
-public_key = "f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756"
+public_key = \"f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756\"
 
 [[peers]]
-certificate = """
+certificate = \"\"\"
 -----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIITOtoca16QckwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
 aGVscGVyMi5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwOFoXDTI0
@@ -976,14 +971,14 @@ DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
 zj0EAwIDSAAwRQIhAI4G5ICVm+v5KK5Y8WVetThtNCXGykUBAM1eE973FBOUAiAS
 XXgJe9q9hAfHf0puZbv0j0tGY3BiqCkJJaLvK7ba+g==
 -----END CERTIFICATE-----
-"""
-url = "helper2.org:443"
+\"\"\"
+url = \"helper2.prod.ipa-helper.dev:443\"
 
 [peers.hpke]
-public_key = "62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22"
+public_key = \"62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22\"
 
 [[peers]]
-certificate = """
+certificate = \"\"\"
 -----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIIaf7eDCnXh2swCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
 aGVscGVyMy5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMxMloXDTI0
@@ -995,17 +990,17 @@ DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
 zj0EAwIDSAAwRQIhAOTSQWbN7kfIatNJEwWTBL4xOY88E3+SOnBNExCsTkQuAiBB
 /cwOQQUEeE4llrDp+EnyGbzmVm5bINz8gePIxkKqog==
 -----END CERTIFICATE-----
-"""
-url = "helper3.org:443"
+\"\"\"
+url = \"helper3.prod.ipa-helper.dev:443\"
 
 [peers.hpke]
-public_key = "55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61"
-"#;
+public_key = \"55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61\"
+";
 
     /// Valid: A sharded configuration
-    const SHARDED_OK: &str = r#"
+    const SHARDED_OK: &str = "
 [[peers]]
-certificate = """
+certificate = \"\"\"
 -----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIIMlnveFys5QUwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
 aGVscGVyMS5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwM1oXDTI0
@@ -1017,15 +1012,15 @@ DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
 zj0EAwIDSAAwRQIhAKVdDCQeXLRXDYXy4b1N1UxD/JPuD9H7zeRb8/nmIDTfAiBL
 a6L0t1Ug8i2RcequSo21x319Tvs5nUbGwzMFSS5wKA==
 -----END CERTIFICATE-----
-"""
-url = "helper1.shard0.org:443"
-shard_url = "helper1.shard0.org:444"
+\"\"\"
+url = \"helper1.prod.ipa-helper.shard0.dev:443\"
+shard_port = 444
 
 [peers.hpke]
-public_key = "f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756"
+public_key = \"f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756\"
 
 [[peers]]
-certificate = """
+certificate = \"\"\"
 -----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIITOtoca16QckwCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
 aGVscGVyMi5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMwOFoXDTI0
@@ -1037,15 +1032,15 @@ DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
 zj0EAwIDSAAwRQIhAI4G5ICVm+v5KK5Y8WVetThtNCXGykUBAM1eE973FBOUAiAS
 XXgJe9q9hAfHf0puZbv0j0tGY3BiqCkJJaLvK7ba+g==
 -----END CERTIFICATE-----
-"""
-url = "helper2.shard0.org:443"
-shard_url = "helper2.shard0.org:555"
+\"\"\"
+url = \"helper2.prod.ipa-helper.shard0.dev:443\"
+shard_port = 555
 
 [peers.hpke]
-public_key = "62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22"
+public_key = \"62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22\"
 
 [[peers]]
-certificate = """
+certificate = \"\"\"
 -----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIIaf7eDCnXh2swCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwb
 aGVscGVyMy5wcm9kLmlwYS1oZWxwZXIuZGV2MB4XDTI0MDkwNDAzMzMxMloXDTI0
@@ -1057,21 +1052,21 @@ DwEB/wQEAwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZI
 zj0EAwIDSAAwRQIhAOTSQWbN7kfIatNJEwWTBL4xOY88E3+SOnBNExCsTkQuAiBB
 /cwOQQUEeE4llrDp+EnyGbzmVm5bINz8gePIxkKqog==
 -----END CERTIFICATE-----
-"""
-url = "helper3.shard0.org:443"
-shard_url = "helper3.shard0.org:666"
+\"\"\"
+url = \"helper3.prod.ipa-helper.shard0.dev:443\"
+shard_port = 666
 
 [peers.hpke]
-public_key = "55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61"
-"#;
+public_key = \"55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61\"
+";
 
     /// Valid: Three sharded configs together for 9
     static SHARDED_OK_REPEAT: Lazy<String> = Lazy::new(|| {
         format!(
             "{}{}{}",
             SHARDED_OK,
-            SHARDED_OK.replace("shard0", "shard1"),
-            SHARDED_OK.replace("shard0", "shard2")
+            replace_all(SHARDED_OK, "shard0", "shard1"),
+            replace_all(SHARDED_OK, "shard0", "shard2")
         )
     });
 
@@ -1082,11 +1077,11 @@ public_key = "55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61"
     });
 
     /// Invalid: Same as [`SHARDED_OK_REPEAT`] but without the expected ports
-    static SHARDED_MISSING_URLS_REPEAT: Lazy<String> = Lazy::new(|| {
+    static SHARDED_MISSING_PORTS_REPEAT: Lazy<String> = Lazy::new(|| {
         let lines: Vec<&str> = SHARDED_OK_REPEAT.lines().collect();
         let new_lines: Vec<String> = lines
             .iter()
-            .filter(|line| !line.starts_with("shard_url ="))
+            .filter(|line| !line.starts_with("shard_port ="))
             .map(std::string::ToString::to_string)
             .collect();
         new_lines.join("\n")
