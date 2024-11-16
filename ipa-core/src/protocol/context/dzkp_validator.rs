@@ -56,7 +56,7 @@ const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 #[cfg(test)]
 pub const TARGET_PROOF_SIZE: usize = 8192;
 #[cfg(not(test))]
-pub const TARGET_PROOF_SIZE: usize = 50_000_000;
+pub const TARGET_PROOF_SIZE: usize = 28_000_000;
 
 /// Returns the largest power of two less than or equal to `self`.
 ///
@@ -84,7 +84,7 @@ pub const fn prev_power_of_two(value: usize) -> usize {
 // to blocks of 256), leaving some margin is advised.
 //
 // The implementation requires that MAX_PROOF_RECURSION is at least 2.
-pub const MAX_PROOF_RECURSION: usize = 14;
+pub const MAX_PROOF_RECURSION: usize = 9;
 
 /// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
 /// that occur duringa multiplication.

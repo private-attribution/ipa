@@ -4,7 +4,7 @@ use std::{
 };
 
 use futures_util::future::{try_join, try_join4};
-use typenum::{Unsigned, U120, U448};
+use typenum::{Unsigned, U288, U80};
 
 use crate::{
     const_assert_eq,
@@ -372,12 +372,12 @@ impl ProofHashes {
 
 const_assert_eq!(
     MAX_PROOF_RECURSION,
-    14,
-    "following impl valid only for MAX_PROOF_RECURSION = 14"
+    9,
+    "following impl valid only for MAX_PROOF_RECURSION = 9"
 );
 
 impl Serializable for [Hash; MAX_PROOF_RECURSION] {
-    type Size = U448;
+    type Size = U288;
 
     type DeserializationError = <Hash as Serializable>::DeserializationError;
 
@@ -406,14 +406,14 @@ impl MpcMessage for [Hash; MAX_PROOF_RECURSION] {}
 
 const_assert_eq!(
     MAX_PROOF_RECURSION,
-    14,
-    "following impl valid only for MAX_PROOF_RECURSION = 14"
+    9,
+    "following impl valid only for MAX_PROOF_RECURSION = 9"
 );
 
 type ProofDiff = [Fp61BitPrime; MAX_PROOF_RECURSION + 1];
 
 impl Serializable for ProofDiff {
-    type Size = U120;
+    type Size = U80;
 
     type DeserializationError = <Fp61BitPrime as Serializable>::DeserializationError;
 
