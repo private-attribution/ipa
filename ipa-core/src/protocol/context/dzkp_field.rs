@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{iter::zip, sync::LazyLock};
 
 use bitvec::field::BitField;
 
@@ -6,8 +6,7 @@ use crate::{
     const_assert,
     ff::{Field, Fp61BitPrime, PrimeField},
     protocol::{
-        context::dzkp_validator::{Array256Bit, SegmentEntry},
-        ipa_prf::BLOCK_SIZE,
+        context::dzkp_validator::{Array256Bit, SegmentEntry}, ipa_prf::BLOCK_SIZE,
     },
     secret_sharing::{FieldSimd, SharedValue, Vectorizable},
 };
@@ -23,7 +22,7 @@ pub const BLOCKS_PER_INPUT_CHUNK: usize = INPUT_CHUNK_SIZE / BLOCK_SIZE;
 const_assert!(INPUT_CHUNK_SIZE % BLOCK_SIZE == 0);
 
 // UVTupleBlock is a block of interleaved U and V values
-pub type UVTupleBlock<F> = ([F; BLOCK_SIZE], [F; BLOCK_SIZE]);
+pub type UVTupleBlock<F, const L: usize = BLOCK_SIZE> = ([F; L], [F; L]);
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
@@ -235,8 +234,7 @@ fn convert_values<'a>(
     i1: &Array256Bit,
     i2: &Array256Bit,
     table: &[[Fp61BitPrime; 4]; 8],
-    mut out: impl Iterator<Item = &'a mut [Fp61BitPrime; 4]>,
-) {
+) -> Vec<Fp61BitPrime> {
     // Split inputs to two `u128`s. We do this because `u128` is the largest integer
     // type rust supports. It is possible that using SIMD types here would improve
     // code generation for AVX-256/512.
@@ -254,28 +252,23 @@ fn convert_values<'a>(
     let [mut z00, mut z01, mut z02, mut z03] = convert_values_table_indices(i00, i10, i20);
     let [mut z10, mut z11, mut z12, mut z13] = convert_values_table_indices(i01, i11, i21);
 
+    let mut result = Vec::with_capacity(1024);
     for _ in 0..32 {
         // Take one index in turn from each `z` to preserve the output order.
-        *out.next().unwrap() = table[(z00 as usize) & 0x7];
-        z00 >>= 4;
-        *out.next().unwrap() = table[(z01 as usize) & 0x7];
-        z01 >>= 4;
-        *out.next().unwrap() = table[(z02 as usize) & 0x7];
-        z02 >>= 4;
-        *out.next().unwrap() = table[(z03 as usize) & 0x7];
-        z03 >>= 4;
+        for z in [&mut z00, &mut z01, &mut z02, &mut z03] {
+            result.extend(table[(*z as usize) & 0x7]);
+            *z >>= 4;
+        }
     }
     for _ in 0..32 {
-        *out.next().unwrap() = table[(z10 as usize) & 0x7];
-        z10 >>= 4;
-        *out.next().unwrap() = table[(z11 as usize) & 0x7];
-        z11 >>= 4;
-        *out.next().unwrap() = table[(z12 as usize) & 0x7];
-        z12 >>= 4;
-        *out.next().unwrap() = table[(z13 as usize) & 0x7];
-        z13 >>= 4;
+        for z in [&mut z10, &mut z11, &mut z12, &mut z13] {
+            result.extend(table[(*z as usize) & 0x7]);
+            *z >>= 4;
+        }
     }
-    debug_assert!(out.next().is_none());
+    debug_assert!(result.len() == 1024);
+
+    result
 }
 
 pub fn convert_values_alt<'a>(
@@ -372,28 +365,12 @@ impl DZKPBaseField for Fp61BitPrime {
         let e = (*x_left & y_right) ^ (*y_left & x_right) ^ prss_right;
         let f = prss_right;
 
-        let mut output = vec![
-            (
-                [Fp61BitPrime::ZERO; BLOCK_SIZE],
-                [Fp61BitPrime::ZERO; BLOCK_SIZE]
-            );
-            BLOCKS_PER_INPUT_CHUNK
-        ];
-        convert_values(
-            a,
-            c,
-            &e,
-            &TABLE_RIGHT,
-            output.iter_mut().map(|block| &mut block.0),
-        );
-        convert_values(
-            b,
-            d,
-            f,
-            &TABLE_LEFT,
-            output.iter_mut().map(|block| &mut block.1),
-        );
-        output
+        let g = convert_values(a, c, &e, &TABLE_RIGHT);
+        let h = convert_values(b, d, f, &TABLE_LEFT);
+
+        zip(g.chunks_exact(BLOCK_SIZE), h.chunks_exact(BLOCK_SIZE))
+            .map(|(g_chunk, h_chunk)| (g_chunk.try_into().unwrap(), h_chunk.try_into().unwrap()))
+            .collect()
     }
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
@@ -421,15 +398,7 @@ impl DZKPBaseField for Fp61BitPrime {
         // as defined in the paper
         let e = (*a & *c) ^ prss_right ^ z_right;
 
-        let mut output = vec![Fp61BitPrime::ZERO; INPUT_CHUNK_SIZE];
-        convert_values(
-            a,
-            c,
-            &e,
-            &TABLE_RIGHT,
-            output.chunks_mut(4).map(|chunk| chunk.try_into().unwrap()),
-        );
-        output
+        convert_values(a, c, &e, &TABLE_RIGHT)
     }
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
@@ -452,15 +421,7 @@ impl DZKPBaseField for Fp61BitPrime {
         let d = x_left;
         let f = prss_left;
 
-        let mut output = vec![Fp61BitPrime::ZERO; INPUT_CHUNK_SIZE];
-        convert_values(
-            b,
-            d,
-            f,
-            &TABLE_LEFT,
-            output.chunks_mut(4).map(|chunk| chunk.try_into().unwrap()),
-        );
-        output
+        convert_values(b, d, f, &TABLE_LEFT)
     }
 }
 

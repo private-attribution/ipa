@@ -110,9 +110,9 @@ pub struct ProofGenerator<F: PrimeField, const L: usize, const P: usize, const M
 // P, Proof size is 2*L - 1
 // M, the number of interpolated points is L - 1
 // The reason we need these is that Rust doesn't support basic math operations on const generics
-pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 4, 7, 3>;
+pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
 
-pub const BLOCK_SIZE: usize = 4;
+pub const BLOCK_SIZE: usize = 8;
 
 impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerator<F, L, P, M> {
     // define constants such that they can be used externally
