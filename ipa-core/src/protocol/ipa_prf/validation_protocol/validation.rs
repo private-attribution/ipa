@@ -4,6 +4,7 @@ use std::{
 };
 
 use futures_util::future::{try_join, try_join4};
+use subtle::ConstantTimeEq;
 use typenum::{Unsigned, U120, U448};
 
 use crate::{
@@ -293,11 +294,13 @@ impl BatchToVerify {
         .await?;
         let diff_right_from_other_verifier = receive_data[0..length].to_vec();
 
-        // compare recombined dif to zero
-        for i in 0..length {
-            if diff_right[i] + diff_right_from_other_verifier[i] != Fp61BitPrime::ZERO {
-                return Err(Error::DZKPValidationFailed);
-            }
+        // compare recombined diff to zero
+        let diff = zip(diff_right, diff_right_from_other_verifier)
+            .map(|(a, b)| a + b)
+            .collect::<Vec<_>>();
+
+        if diff.ct_ne(&vec![Fp61BitPrime::ZERO; length]).into() {
+            return Err(Error::DZKPValidationFailed);
         }
 
         Ok(())
