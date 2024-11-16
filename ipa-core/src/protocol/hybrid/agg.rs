@@ -154,26 +154,34 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod test {
+    use rand::Rng;
+
     use super::{aggregate_reports, group_report_pairs_ordered};
     use crate::{
         ff::{
             boolean_array::{BA3, BA8},
             U128Conversions,
         },
+        helpers::Role,
         protocol::context::Context,
         report::hybrid::{
             AggregateableHybridReport, IndistinguishableHybridReport, PrfHybridReport,
         },
-        secret_sharing::replicated::{
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+            SharedValue,
         },
         sharding::{ShardConfiguration, ShardIndex},
-        test_executor::run,
+        test_executor::{run, run_random},
         test_fixture::{
             hybrid::{TestAggregateableHybridReport, TestHybridRecord},
             Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards,
         },
     };
+
+    // the inputs are laid out to work with exactly 2 shards
+    // as if it we're resharded by match_key/prf
+    const SHARDS: usize = 2;
 
     // we re-use these as the "prf" of the match_key
     // to avoid needing to actually do the prf here
@@ -293,7 +301,7 @@ pub mod test {
                 ],
             ];
 
-            let world = TestWorld::<WithShards<2>>::with_shards(TestWorldConfig::default());
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
             #[allow(clippy::type_complexity)]
             let results: Vec<[Vec<[AggregateableHybridReport<BA8, BA3>; 2]>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
@@ -316,9 +324,6 @@ pub mod test {
                                 breakdown_key: indist_report.breakdown_key.clone(),
                             })
                             .collect::<Vec<_>>();
-                        println!("{:#?}", ctx.shard_id());
-                        println!("{:#?}", ctx.role());
-                        println!("{prf_reports:#?}");
                         group_report_pairs_ordered(prf_reports)
                     }
                 })
@@ -342,7 +347,6 @@ pub mod test {
                 })
                 .collect::<Vec<_>>();
 
-            println!("{results:#?}");
             assert_eq!(results, expected);
         });
     }
@@ -369,7 +373,7 @@ pub mod test {
                 },
             ];
 
-            let world = TestWorld::<WithShards<2>>::with_shards(TestWorldConfig::default());
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
 
             let results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
@@ -411,7 +415,6 @@ pub mod test {
                 })
                 .collect::<Vec<_>>();
 
-            println!("{results:#?}");
             assert_eq!(results, expected);
         });
     }
@@ -472,5 +475,50 @@ pub mod test {
 
         let results = group_report_pairs_ordered(reports);
         assert_eq!(results, expected);
+    }
+
+    /// This test checks that the sharded malicious `aggregate_reports` fails
+    /// under a simple bit flip attack by H1.
+    #[test]
+    #[should_panic(expected = "DZKPValidationFailed")]
+    fn sharded_fail_under_bit_flip_attack_on_breakdown_key() {
+        run_random(|mut rng| async move {
+            let target_shard = ShardIndex::from(rng.gen_range(0..u32::try_from(SHARDS).unwrap()));
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
+            let records = get_records();
+            let _results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
+                .malicious(records.clone().into_iter(), |ctx, input| {
+                    let match_keys = match ctx.shard_id() {
+                        ShardIndex(0) => SHARD1_MKS,
+                        ShardIndex(1) => SHARD2_MKS,
+                        _ => panic!("invalid shard_id"),
+                    };
+                    async move {
+                        let indistinguishable_reports: Vec<
+                            IndistinguishableHybridReport<BA8, BA3>,
+                        > = input.iter().map(|r| r.clone().into()).collect::<Vec<_>>();
+
+                        let mut prf_reports: Vec<PrfHybridReport<BA8, BA3>> =
+                            indistinguishable_reports
+                                .iter()
+                                .zip(match_keys)
+                                .map(|(indist_report, match_key)| PrfHybridReport {
+                                    match_key,
+                                    value: indist_report.value.clone(),
+                                    breakdown_key: indist_report.breakdown_key.clone(),
+                                })
+                                .collect::<Vec<_>>();
+
+                        // flip a bit of the match_key on the target shard, H1
+                        if ctx.shard_id() == target_shard && ctx.role() == Role::H1 {
+                            prf_reports[0].breakdown_key +=
+                                Replicated::new(BA8::ZERO, BA8::truncate_from(1_u128));
+                        }
+
+                        aggregate_reports(ctx.clone(), prf_reports).await.unwrap()
+                    }
+                })
+                .await;
+        });
     }
 }
