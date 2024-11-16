@@ -85,9 +85,7 @@ fn keygen_confgen() {
             .args(["--output-dir".as_ref(), path.as_os_str()])
             .args(["--keys-dir".as_ref(), path.as_os_str()])
             .arg("--ports")
-            .args(ports.iter().take(3).map(|p| p.to_string()))
-            .arg("--shard-ports")
-            .args(ports.iter().skip(3).take(3).map(|p| p.to_string()))
+            .args(ports.chunks(2).map(|p| p[0].to_string()))
             .arg("--hosts")
             .args(["localhost", "localhost", "localhost"]);
         if overwrite {
