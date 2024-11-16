@@ -137,19 +137,11 @@ impl ProofBatch {
         let first_proof = FirstProofGenerator::compute_proof(table_index_tuple_inputs.chunk_array::<2>().map(
             |chunk| {
                 let [(u0, v0), (u1, v1)] = chunk;
-                [
-                    (
-                        table_right_0[usize::from(u0)],
-                        table_left_0[usize::from(v0)],
-                    ),
-                    (
-                        table_right_1[usize::from(u1)],
-                        table_left_1[usize::from(v1)],
-                    ),
-                ]
+                let u = array::from_fn(|i| table_right_0[usize::from(u0)][i] + table_right_1[usize::from(u1)][i]);
+                let v = array::from_fn(|i| table_left_0[usize::from(v0)][i] + table_left_1[usize::from(v1)][i]);
+                (u, v)
             },
-        )
-        .flatten());
+        ));
 
         // generate first proof from input iterator
         let (mut uv_values, first_proof_from_left, my_first_proof_left_share) =
