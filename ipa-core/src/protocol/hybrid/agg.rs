@@ -25,7 +25,6 @@ where
     BK: BooleanArray,
     V: BooleanArray,
 {
-    Empty,
     Single(AggregateableHybridReport<BK, V>),
     Pair(
         AggregateableHybridReport<BK, V>,
@@ -41,11 +40,17 @@ where
 {
     pub fn add_report(&mut self, new_report: AggregateableHybridReport<BK, V>) {
         match self {
-            Self::Empty => *self = Self::Single(new_report),
             Self::Single(old_report) => {
                 *self = Self::Pair(old_report.clone(), new_report);
             }
             Self::Pair { .. } | Self::MoreThanTwo => *self = Self::MoreThanTwo,
+        }
+    }
+
+    pub fn into_pair(self) -> Option<[AggregateableHybridReport<BK, V>; 2]> {
+        match self {
+            Self::Pair(r1, r2) => Some([r1, r2]),
+            _ => None,
         }
     }
 }
@@ -56,6 +61,9 @@ where
 /// *Note*: Any `match_key` which appears once or more than twice is removed.
 /// An honest report collector will only provide a single impression report per `match_key` and
 /// an honest client will only provide a single conversion report per `match_key`.
+/// Also note that a malicious client (intenional or bug) could provide exactly two conversions.
+/// This would put the sum of conversion values into `breakdown_key` 0. As this is undetectable,
+/// this makes `breakdown_key = 0` *unreliable*.
 ///
 /// *Note*: In order to add the pairs, the vector of pairs must be in the same order across all
 /// three helpers. A standard `HashMap` uses system randomness for insertion placement, so we
@@ -70,19 +78,16 @@ where
     let mut reports_by_matchkey: BTreeMap<u64, MatchEntry<BK, V>> = BTreeMap::new();
 
     for report in reports {
-        let match_entry = reports_by_matchkey
+        reports_by_matchkey
             .entry(report.match_key)
-            .or_insert(MatchEntry::Empty);
-        match_entry.add_report(report.into());
+            .and_modify(|e| e.add_report(report.clone().into()))
+            .or_insert(MatchEntry::Single(report.into()));
     }
 
     // we only keep the reports from match_keys that provided exactly 2 reports
     reports_by_matchkey
         .into_values()
-        .filter_map(|match_entry| match match_entry {
-            MatchEntry::Pair(r1, r2) => Some([r1, r2]),
-            _ => None,
-        })
+        .filter_map(MatchEntry::into_pair)
         .collect::<Vec<_>>()
 }
 
@@ -147,7 +152,7 @@ where
         .await
 }
 
-#[cfg(all(test, unit_test, feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub mod test {
     use super::{aggregate_reports, group_report_pairs_ordered};
     use crate::{
