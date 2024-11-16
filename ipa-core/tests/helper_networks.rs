@@ -71,8 +71,8 @@ fn keygen_confgen() {
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
-    let sockets: [_; 6] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
-    let ports: [u16; 6] = sockets
+    let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+    let ports: [u16; 3] = sockets
         .each_ref()
         .map(|sock| sock.local_addr().unwrap().port());
 
@@ -85,9 +85,7 @@ fn keygen_confgen() {
             .args(["--output-dir".as_ref(), path.as_os_str()])
             .args(["--keys-dir".as_ref(), path.as_os_str()])
             .arg("--ports")
-            .args(ports.iter().take(3).map(|p| p.to_string()))
-            .arg("--shard-ports")
-            .args(ports.iter().skip(3).take(3).map(|p| p.to_string()))
+            .args(ports.map(|p| p.to_string()))
             .arg("--hosts")
             .args(["localhost", "localhost", "localhost"]);
         if overwrite {

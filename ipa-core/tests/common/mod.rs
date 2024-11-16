@@ -109,9 +109,9 @@ impl CommandExt for Command {
     }
 }
 
-fn test_setup(config_path: &Path) -> [TcpListener; 6] {
-    let sockets: [_; 6] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
-    let ports: [u16; 6] = sockets
+fn test_setup(config_path: &Path) -> [TcpListener; 3] {
+    let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+    let ports: [u16; 3] = sockets
         .each_ref()
         .map(|sock| sock.local_addr().unwrap().port());
 
@@ -121,9 +121,7 @@ fn test_setup(config_path: &Path) -> [TcpListener; 6] {
         .arg("test-setup")
         .args(["--output-dir".as_ref(), config_path.as_os_str()])
         .arg("--ports")
-        .args(ports.iter().take(3).map(|p| p.to_string()))
-        .arg("--shard-ports")
-        .args(ports.iter().skip(3).take(3).map(|p| p.to_string()));
+        .args(ports.map(|p| p.to_string()));
 
     command.status().unwrap_status();
     sockets
@@ -131,53 +129,45 @@ fn test_setup(config_path: &Path) -> [TcpListener; 6] {
 
 pub fn spawn_helpers(
     config_path: &Path,
-    sockets: &[TcpListener; 6],
+    sockets: &[TcpListener; 3],
     https: bool,
 ) -> Vec<TerminateOnDrop> {
-    zip(
-        [1, 2, 3],
-        zip(sockets.iter().take(3), sockets.iter().skip(3).take(3)),
-    )
-    .map(|(id, (socket, shard_socket))| {
-        let mut command = Command::new(HELPER_BIN);
-        command
-            .args(["-i", &id.to_string()])
-            .args(["--network".into(), config_path.join("network.toml")])
-            .silent();
-
-        if https {
+    zip([1, 2, 3], sockets)
+        .map(|(id, socket)| {
+            let mut command = Command::new(HELPER_BIN);
             command
-                .args(["--tls-cert".into(), config_path.join(format!("h{id}.pem"))])
-                .args(["--tls-key".into(), config_path.join(format!("h{id}.key"))])
-                .args([
-                    "--mk-public-key".into(),
-                    config_path.join(format!("h{id}_mk.pub")),
-                ])
-                .args([
-                    "--mk-private-key".into(),
-                    config_path.join(format!("h{id}_mk.key")),
-                ]);
-        } else {
-            command.arg("--disable-https");
-        }
+                .args(["-i", &id.to_string()])
+                .args(["--network".into(), config_path.join("network.toml")])
+                .silent();
 
-        command.preserved_fds(vec![socket.as_raw_fd()]);
-        command.args(["--server-socket-fd", &socket.as_raw_fd().to_string()]);
-        command.preserved_fds(vec![shard_socket.as_raw_fd()]);
-        command.args([
-            "--shard-server-socket-fd",
-            &shard_socket.as_raw_fd().to_string(),
-        ]);
+            if https {
+                command
+                    .args(["--tls-cert".into(), config_path.join(format!("h{id}.pem"))])
+                    .args(["--tls-key".into(), config_path.join(format!("h{id}.key"))])
+                    .args([
+                        "--mk-public-key".into(),
+                        config_path.join(format!("h{id}_mk.pub")),
+                    ])
+                    .args([
+                        "--mk-private-key".into(),
+                        config_path.join(format!("h{id}_mk.key")),
+                    ]);
+            } else {
+                command.arg("--disable-https");
+            }
 
-        // something went wrong if command is terminated at this point.
-        let mut child = command.spawn().unwrap();
-        if let Ok(Some(status)) = child.try_wait() {
-            panic!("Helper binary terminated early with status = {status}");
-        }
+            command.preserved_fds(vec![socket.as_raw_fd()]);
+            command.args(["--server-socket-fd", &socket.as_raw_fd().to_string()]);
 
-        child.terminate_on_drop()
-    })
-    .collect::<Vec<_>>()
+            // something went wrong if command is terminated at this point.
+            let mut child = command.spawn().unwrap();
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("Helper binary terminated early with status = {status}");
+            }
+
+            child.terminate_on_drop()
+        })
+        .collect::<Vec<_>>()
 }
 
 pub fn test_multiply(config_dir: &Path, https: bool) {
