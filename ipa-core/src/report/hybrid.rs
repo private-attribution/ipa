@@ -48,7 +48,7 @@ use crate::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
     },
-    protocol::ipa_prf::{shuffle::Shuffleable, boolean_ops::expand_shared_array_in_place},
+    protocol::ipa_prf::{boolean_ops::expand_shared_array_in_place, shuffle::Shuffleable},
     report::hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
