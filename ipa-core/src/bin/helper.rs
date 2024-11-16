@@ -159,10 +159,10 @@ fn create_client_identity<F: ConnectionFlavor>(
     }
 }
 
-/// Creates a [`TcpListener`] from an optional raw file descriptor. Safety notes:
-///  1. The `--server-socket-fd` option is only intended for use in tests, not in production.
-///  2. This must be the only call to from_raw_fd for this file descriptor, to ensure it has
-///     only one owner.
+// SAFETY:
+//  1. The `--server-socket-fd` option is only intended for use in tests, not in production.
+//  2. This must be the only call to from_raw_fd for this file descriptor, to ensure it has
+//     only one owner.
 fn create_listener(server_socket_fd: Option<RawFd>) -> Result<Option<TcpListener>, BoxError> {
     server_socket_fd
         .map(|fd| {
