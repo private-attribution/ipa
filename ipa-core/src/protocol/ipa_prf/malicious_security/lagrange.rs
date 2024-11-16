@@ -1,8 +1,8 @@
-use std::fmt::Debug;
+use std::{array::from_fn, fmt::Debug};
 
 use typenum::Unsigned;
 
-use crate::ff::{Field, PrimeField, Serializable};
+use crate::ff::{batch_invert, Field, PrimeField, Serializable};
 
 /// The Canonical Lagrange denominator is defined as the denominator of the Lagrange base polynomials
 /// `https://en.wikipedia.org/wiki/Lagrange_polynomial`
@@ -35,17 +35,16 @@ where
         assert!(<F as Serializable>::Size::USIZE * N < 2024);
 
         Self {
-            denominator: (0u128..N.try_into().unwrap())
-                .map(|i| {
+            denominator: {
+                let mut denominators: [F; N] = from_fn(|i| {
                     (0u128..N.try_into().unwrap())
-                        .filter(|&j| i != j)
-                        .map(|j| F::try_from(i).unwrap() - F::try_from(j).unwrap())
+                        .filter(|&j| (i as u128) != j)
+                        .map(|j| F::try_from(i as u128).unwrap() - F::try_from(j).unwrap())
                         .fold(F::ONE, |acc, a| acc * a)
-                        .invert()
-                })
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap(),
+                });
+                batch_invert(&mut denominators);
+                denominators
+            },
         }
     }
 }

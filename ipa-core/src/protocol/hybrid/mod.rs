@@ -2,6 +2,8 @@ pub(crate) mod agg;
 pub(crate) mod oprf;
 pub(crate) mod step;
 
+use tracing::{info_span, Instrument};
+
 use crate::{
     error::Error,
     ff::{
@@ -85,8 +87,11 @@ where
     )
     .await?;
 
-    // TODO shuffle input rows
-    let shuffled_input_rows = padded_input_rows;
+    let shuffled_input_rows = ctx
+        .narrow(&Step::InputShuffle)
+        .shuffle(padded_input_rows)
+        .instrument(info_span!("shuffle_inputs"))
+        .await?;
 
     let sharded_reports = compute_prf_and_reshard(ctx.clone(), shuffled_input_rows).await?;
 

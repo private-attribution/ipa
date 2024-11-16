@@ -8,6 +8,7 @@ use bitvec::{
     prelude::{bitarr, BitArr, Lsb0},
 };
 use generic_array::GenericArray;
+use subtle::{Choice, ConstantTimeEq};
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use crate::{
@@ -225,6 +226,18 @@ macro_rules! bit_array_impl {
 
             impl GaloisField for $name {
                 const POLYNOMIAL: u128 = $polynomial;
+            }
+
+            // If the field value fits in a machine word, a naive comparison should be fine.
+            // But this impl is important for `[T]`, and useful to document where a
+            // constant-time compare is intended.
+            impl ConstantTimeEq for $name {
+                fn ct_eq(&self, other: &Self) -> Choice {
+                    // Note that this will compare the padding bits. That should not be
+                    // a problem, because we should not allow the padding bits to become
+                    // non-zero.
+                    self.0.as_raw_slice().ct_eq(&other.0.as_raw_slice())
+                }
             }
 
             impl rand::distributions::Distribution<$name> for rand::distributions::Standard {

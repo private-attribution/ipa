@@ -10,6 +10,7 @@ use futures::{
     stream::{iter as stream_iter, StreamExt},
 };
 use generic_array::{ArrayLength, GenericArray};
+use subtle::ConstantTimeEq;
 use typenum::Unsigned;
 
 use crate::{
@@ -41,7 +42,7 @@ pub struct AdditiveShare<V: SharedValue + ExtendableFieldSimd<N>, const N: usize
 }
 
 pub trait ExtendableField: Field {
-    type ExtendedField: Field + FromRandom;
+    type ExtendedField: Field + FromRandom + ConstantTimeEq;
     fn to_extended(&self) -> Self::ExtendedField;
 }
 
@@ -57,7 +58,7 @@ impl<F: ExtendableField<ExtendedField: FieldSimd<N>> + FieldSimd<N>, const N: us
 {
 }
 
-impl<F: PrimeField> ExtendableField for F {
+impl<F: PrimeField + ConstantTimeEq> ExtendableField for F {
     type ExtendedField = F;
 
     fn to_extended(&self) -> Self::ExtendedField {

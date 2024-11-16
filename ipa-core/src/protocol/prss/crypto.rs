@@ -271,8 +271,8 @@ impl KeyExchange {
     pub fn key_exchange(self, pk: &PublicKey) -> GeneratorFactory {
         debug_assert_ne!(pk, &self.public_key(), "self key exchange detected");
         let secret = self.sk.diffie_hellman(pk);
-        let kdf = Hkdf::<Sha256>::new(None, secret.as_bytes());
-        GeneratorFactory { kdf }
+
+        GeneratorFactory::from_secret(secret.as_bytes())
     }
 }
 
@@ -283,6 +283,13 @@ pub struct GeneratorFactory {
 }
 
 impl GeneratorFactory {
+    /// Create a factory from provided secret. This is not public,
+    /// as it is only intended use is within the PRSS module.
+    pub(super) fn from_secret(secret: &[u8; 32]) -> Self {
+        let kdf = Hkdf::<Sha256>::new(None, secret);
+        GeneratorFactory { kdf }
+    }
+
     /// Create a new generator using the provided context string.
     #[allow(clippy::missing_panics_doc)] // Panic should be impossible.
     #[must_use]
