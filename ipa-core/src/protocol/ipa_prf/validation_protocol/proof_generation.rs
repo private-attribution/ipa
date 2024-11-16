@@ -37,7 +37,8 @@ impl FromIterator<Fp61BitPrime> for ProofBatch {
             .take(FirstProofGenerator::PROOF_LENGTH)
             .collect::<[Fp61BitPrime; FirstProofGenerator::PROOF_LENGTH]>();
         // consume the rest
-        let proofs = iterator.collect::<Vec<[Fp61BitPrime; FirstProofGenerator::PROOF_LENGTH]>>();
+        let proofs =
+            iterator.collect::<Vec<[Fp61BitPrime; CompressedProofGenerator::PROOF_LENGTH]>>();
         ProofBatch {
             first_proof,
             proofs,
@@ -50,7 +51,8 @@ impl ProofBatch {
     #[allow(clippy::len_without_is_empty)]
     #[must_use]
     pub fn len(&self) -> usize {
-        FirstProofGenerator::PROOF_LENGTH + self.proofs.len() * CompressedProofGenerator::PROOF_LENGTH
+        FirstProofGenerator::PROOF_LENGTH
+            + self.proofs.len() * CompressedProofGenerator::PROOF_LENGTH
     }
 
     #[allow(clippy::unnecessary_box_returns)] // clippy bug? `Array` exceeds unnecessary-box-size
