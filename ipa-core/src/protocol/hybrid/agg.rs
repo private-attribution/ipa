@@ -65,9 +65,13 @@ where
 /// This would put the sum of conversion values into `breakdown_key` 0. As this is undetectable,
 /// this makes `breakdown_key = 0` *unreliable*.
 ///
+/// Note: Possible Perf opportunity by removing the `collect()`.
+/// See [#1443](https://github.com/private-attribution/ipa/issues/1443).
+///
 /// *Note*: In order to add the pairs, the vector of pairs must be in the same order across all
 /// three helpers. A standard `HashMap` uses system randomness for insertion placement, so we
 /// use a `BTreeMap` to maintain consistent ordering across the helpers.
+///
 fn group_report_pairs_ordered<BK, V>(
     reports: Vec<PrfHybridReport<BK, V>>,
 ) -> Vec<[AggregateableHybridReport<BK, V>; 2]>
