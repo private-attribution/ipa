@@ -5,27 +5,10 @@ use opentelemetry::KeyValue;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::{self, Encoder, TextEncoder};
 
-use crate::MetricsStore;
+use ipa_metrics::MetricsStore;
 
 pub trait PrometheusMetricsExporter {
     fn export<W: io::Write>(&mut self, w: &mut W);
-}
-
-impl MetricsStore {
-    fn to_otlp(&mut self, meter: &Meter) {
-        let counters = self.counters();
-
-        counters.for_each(|(counter_name, counter_value)| {
-            let otlp_counter = meter.u64_counter(counter_name.key).init();
-
-            let attributes: Vec<KeyValue> = counter_name
-                .labels()
-                .map(|l| KeyValue::new(l.name, l.val.to_string()))
-                .collect();
-
-            otlp_counter.add(counter_value, &attributes[..]);
-        });
-    }
 }
 
 impl PrometheusMetricsExporter for MetricsStore {
@@ -43,7 +26,18 @@ impl PrometheusMetricsExporter for MetricsStore {
         // Convert the snapshot to otel struct
         // TODO : We need to define a proper scope for the metrics
         let meter = meter_provider.meter("ipa-helper");
-        self.to_otlp(&meter);
+
+        let counters = self.counters();
+        counters.for_each(|(counter_name, counter_value)| {
+            let otlp_counter = meter.u64_counter(counter_name.key).init();
+
+            let attributes: Vec<KeyValue> = counter_name
+                .labels()
+                .map(|l| KeyValue::new(l.name, l.val.to_string()))
+                .collect();
+
+            otlp_counter.add(counter_value, &attributes[..]);
+        });
 
         let encoder = TextEncoder::new();
         let metric_families = registry.gather();
@@ -57,8 +51,9 @@ mod test {
 
     use std::thread;
 
+    use ipa_metrics::{counter, install_new_thread, MetricChannelType};
+
     use super::PrometheusMetricsExporter;
-    use crate::{counter, install_new_thread, MetricChannelType};
 
     #[test]
     fn export_to_prometheus() {

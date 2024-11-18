@@ -13,13 +13,7 @@ partitions = []
 crossbeam-channel = "0.5"
 # This crate uses raw entry API that is unstable in stdlib
 hashbrown = "0.15"
-# Open telemetry crates: opentelemetry-prometheus crate implementation is based on Opentelemetry API and SDK 0.23. (TBC)
-opentelemetry = "0.24"
-opentelemetry_sdk = { version = "0.24", features = ["metrics", "rt-tokio"] }
-opentelemetry-prometheus = { version = "0.17" }
-prometheus = "0.13.3"
 # Fast non-collision-resistant hashing
 rustc-hash = "2.0.0"
 # logging
 tracing = "0.1"
-
