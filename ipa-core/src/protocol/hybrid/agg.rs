@@ -94,6 +94,8 @@ where
 /// This protocol is used to aggregate `PRFHybridReports` and returns `AggregateableHybridReports`.
 /// It groups all the reports by the PRF of the `match_key`, finds all reports from `match_keys`
 /// with that provided exactly 2 reports, then adds those 2 reports.
+/// TODO (Performance opportunity): These additions are not currently vectorized.
+/// We are currently deferring that work until the protocol is complete.
 pub async fn aggregate_reports<BK, V, C>(
     ctx: C,
     reports: Vec<PrfHybridReport<BK, V>>,
