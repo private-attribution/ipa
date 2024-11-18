@@ -72,6 +72,7 @@ where
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
+    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(

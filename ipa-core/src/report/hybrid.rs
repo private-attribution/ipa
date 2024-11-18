@@ -48,7 +48,7 @@ use crate::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
     },
-    protocol::ipa_prf::shuffle::Shuffleable,
+    protocol::ipa_prf::{boolean_ops::expand_shared_array_in_place, shuffle::Shuffleable},
     report::hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
@@ -680,6 +680,28 @@ where
 
 /// Converted report where shares of match key are replaced with OPRF value
 pub type PrfHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, u64>;
+
+/// After grouping `IndistinguishableHybridReport`s by the OPRF of thier `match_key`,
+/// that OPRF value is no longer required.
+pub type AggregateableHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, ()>;
+
+/// When aggregating reports, we need to lift the value from `V` to `HV`.
+impl<BK, V, HV> From<PrfHybridReport<BK, V>> for AggregateableHybridReport<BK, HV>
+where
+    BK: SharedValue + BooleanArray,
+    V: SharedValue + BooleanArray,
+    HV: SharedValue + BooleanArray,
+{
+    fn from(report: PrfHybridReport<BK, V>) -> Self {
+        let mut value = Replicated::<HV>::ZERO;
+        expand_shared_array_in_place(&mut value, &report.value, 0);
+        Self {
+            match_key: (),
+            breakdown_key: report.breakdown_key,
+            value,
+        }
+    }
+}
 
 /// This struct is designed to fit both `HybridConversionReport`s
 /// and `HybridImpressionReport`s so that they can be made indistingushable.

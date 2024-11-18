@@ -1,3 +1,4 @@
+pub(crate) mod agg;
 pub(crate) mod oprf;
 pub(crate) mod step;
 
@@ -11,9 +12,10 @@ use crate::{
     },
     helpers::query::DpMechanism,
     protocol::{
-        basics::{BooleanProtocols, Reveal},
+        basics::Reveal,
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
+            agg::aggregate_reports,
             oprf::{compute_prf_and_reshard, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
             step::HybridStep as Step,
         },
@@ -23,6 +25,7 @@ use crate::{
             shuffle::Shuffle,
         },
         prss::FromPrss,
+        BooleanProtocols,
     },
     report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
@@ -70,6 +73,7 @@ where
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
     PrfHybridReport<BK, V>: Serializable,
+    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
@@ -89,7 +93,9 @@ where
         .instrument(info_span!("shuffle_inputs"))
         .await?;
 
-    let _sharded_reports = compute_prf_and_reshard(ctx.clone(), shuffled_input_rows).await?;
+    let sharded_reports = compute_prf_and_reshard(ctx.clone(), shuffled_input_rows).await?;
+
+    let _aggregated_reports = aggregate_reports::<BK, V, C>(ctx.clone(), sharded_reports);
 
     unimplemented!("protocol::hybrid::hybrid_protocol is not fully implemented")
 }
