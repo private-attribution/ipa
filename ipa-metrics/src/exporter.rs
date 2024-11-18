@@ -52,60 +52,33 @@ impl PrometheusMetricsExporter for MetricsStore {
     }
 }
 
+#[cfg(test)]
 mod test {
 
-    use std::thread::{self, Scope, ScopedJoinHandle};
+    use std::thread;
 
     use super::PrometheusMetricsExporter;
-    use crate::{counter, install_new_thread, producer::Producer, MetricChannelType};
-    struct MeteredScope<'scope, 'env: 'scope>(&'scope Scope<'scope, 'env>, Producer);
-
-    impl<'scope, 'env: 'scope> MeteredScope<'scope, 'env> {
-        fn spawn<F, T>(&self, f: F) -> ScopedJoinHandle<'scope, T>
-        where
-            F: FnOnce() -> T + Send + 'scope,
-            T: Send + 'scope,
-        {
-            let producer = self.1.clone();
-
-            self.0.spawn(move || {
-                producer.install();
-                let r = f();
-                let _ = producer.drop_handle();
-
-                r
-            })
-        }
-    }
-
-    trait IntoMetered<'scope, 'env: 'scope> {
-        fn metered(&'scope self, meter: Producer) -> MeteredScope<'scope, 'env>;
-    }
-
-    impl<'scope, 'env: 'scope> IntoMetered<'scope, 'env> for Scope<'scope, 'env> {
-        fn metered(&'scope self, meter: Producer) -> MeteredScope<'scope, 'env> {
-            MeteredScope(self, meter)
-        }
-    }
+    use crate::{counter, install_new_thread, MetricChannelType};
 
     #[test]
     fn export_to_prometheus() {
         let (producer, controller, _) = install_new_thread(MetricChannelType::Rendezvous).unwrap();
 
-        thread::scope(move |s| {
-            let s = s.metered(producer);
-            s.spawn(|| counter!("baz", 4)).join().unwrap();
-            s.spawn(|| counter!("bar", 1)).join().unwrap();
+        thread::spawn(move || {
+            producer.install();
+            counter!("baz", 4);
+            counter!("bar", 1);
+            let _ = producer.drop_handle();
+        })
+        .join()
+        .unwrap();
 
-            let mut store = controller
-                .snapshot()
-                .expect("Metrics snapshot must be available");
+        let mut store = controller.snapshot().unwrap();
 
-            let mut buff = Vec::new();
-            store.export(&mut buff);
+        let mut buff = Vec::new();
+        store.export(&mut buff);
 
-            let result = String::from_utf8(buff).unwrap();
-            println!("{result}");
-        });
+        let result = String::from_utf8(buff).unwrap();
+        println!("Export to Prometheus: {result}");
     }
 }
