@@ -165,13 +165,12 @@ pub mod test {
             U128Conversions,
         },
         helpers::Role,
-        protocol::context::Context,
+        protocol::hybrid::step::AggregateReportsStep,
         report::hybrid::{
             AggregateableHybridReport, IndistinguishableHybridReport, PrfHybridReport,
         },
-        secret_sharing::{
-            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-            SharedValue,
+        secret_sharing::replicated::{
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
         },
         sharding::{ShardConfiguration, ShardIndex},
         test_executor::{run, run_random},
@@ -484,9 +483,24 @@ pub mod test {
     #[test]
     #[should_panic(expected = "DZKPValidationFailed")]
     fn sharded_fail_under_bit_flip_attack_on_breakdown_key() {
+        use crate::helpers::in_memory_config::MaliciousHelper;
         run_random(|mut rng| async move {
             let target_shard = ShardIndex::from(rng.gen_range(0..u32::try_from(SHARDS).unwrap()));
-            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
+            let mut config = TestWorldConfig::default();
+
+            let step = format!("{}/{}", AggregateReportsStep::AddBK.as_ref(), "bit0",);
+            config.stream_interceptor =
+                MaliciousHelper::new(Role::H2, config.role_assignment(), move |ctx, data| {
+                    // flip a bit of the match_key on the target shard, H1
+                    if ctx.gate.as_ref().contains(&step)
+                        && ctx.dest == Role::H1
+                        && ctx.shard == Some(target_shard)
+                    {
+                        data[0] ^= 1u8;
+                    }
+                });
+
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(config);
             let records = get_records();
             let _results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
@@ -500,22 +514,15 @@ pub mod test {
                             IndistinguishableHybridReport<BA8, BA3>,
                         > = input.iter().map(|r| r.clone().into()).collect::<Vec<_>>();
 
-                        let mut prf_reports: Vec<PrfHybridReport<BA8, BA3>> =
-                            indistinguishable_reports
-                                .iter()
-                                .zip(match_keys)
-                                .map(|(indist_report, match_key)| PrfHybridReport {
-                                    match_key,
-                                    value: indist_report.value.clone(),
-                                    breakdown_key: indist_report.breakdown_key.clone(),
-                                })
-                                .collect::<Vec<_>>();
-
-                        // flip a bit of the match_key on the target shard, H1
-                        if ctx.shard_id() == target_shard && ctx.role() == Role::H1 {
-                            prf_reports[0].breakdown_key +=
-                                Replicated::new(BA8::ZERO, BA8::truncate_from(1_u128));
-                        }
+                        let prf_reports: Vec<PrfHybridReport<BA8, BA3>> = indistinguishable_reports
+                            .iter()
+                            .zip(match_keys)
+                            .map(|(indist_report, match_key)| PrfHybridReport {
+                                match_key,
+                                value: indist_report.value.clone(),
+                                breakdown_key: indist_report.breakdown_key.clone(),
+                            })
+                            .collect::<Vec<_>>();
 
                         aggregate_reports(ctx.clone(), prf_reports).await.unwrap()
                     }
