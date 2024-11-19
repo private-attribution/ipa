@@ -12,7 +12,7 @@ use crate::{
         basics::{reveal, Reveal},
         context::{
             dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
-            UpgradableContext,
+            ShardedContext, UpgradableContext,
         },
         ipa_prf::{
             aggregation::{
@@ -66,7 +66,7 @@ pub async fn breakdown_reveal_aggregation<C, BK, V, HV, const B: usize>(
     padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradableContext + Shuffle,
+    C: UpgradableContext + Shuffle + ShardedContext,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     BK: BooleanArray + U128Conversions,
@@ -250,7 +250,10 @@ pub mod tests {
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
         test_executor::run,
-        test_fixture::{hybrid::TestAggregateableHybridReport, Reconstruct, Runner, TestWorld},
+        test_fixture::{
+            hybrid::TestAggregateableHybridReport, Reconstruct, Runner, TestWorld, TestWorldConfig,
+            WithShards,
+        },
     };
 
     fn input_row(breakdown_key: usize, value: u128) -> TestAggregateableHybridReport {
@@ -264,8 +267,9 @@ pub mod tests {
     #[test]
     fn breakdown_reveal_malicious_happy_path() {
         type HV = BA16;
+        const SHARDS: usize = 2;
         run(|| async {
-            let world = TestWorld::default();
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
             let mut rng = world.rng();
             let mut expectation = Vec::new();
             for _ in 0..32 {
@@ -290,6 +294,7 @@ pub mod tests {
                 inputs.push(input_row(breakdown_key, remainder));
             }
             inputs.shuffle(&mut rng);
+
             let result: Vec<_> = world
                 .malicious(inputs.into_iter(), |ctx, reports| async move {
                     breakdown_reveal_aggregation::<_, BA5, BA3, HV, 32>(
@@ -305,7 +310,18 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-            let result = result.iter().map(|v: &HV| v.as_u128()).collect::<Vec<_>>();
+
+            let initial = vec![0_u128; 32];
+            let result = result
+                .iter()
+                .fold(initial, |mut acc, vec: &Vec<HV>| {
+                    acc.iter_mut()
+                        .zip(vec)
+                        .for_each(|(a, &b)| *a += b.as_u128());
+                    acc
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
             assert_eq!(32, result.len());
             assert_eq!(result, expectation);
         });
