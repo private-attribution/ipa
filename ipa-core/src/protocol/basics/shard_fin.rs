@@ -121,7 +121,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         ff::boolean_array::BA64,
