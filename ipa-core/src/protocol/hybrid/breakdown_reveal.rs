@@ -231,15 +231,17 @@ where
     }
 }
 
-#[cfg(all(test, unit_test, not(feature = "shuttle")))]
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
     use futures::TryFutureExt;
     use rand::seq::SliceRandom;
 
+    #[cfg(not(feature = "shuttle"))]
+    use crate::{ff::boolean_array::BA16, test_executor::run};
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA16, BA3, BA5},
+            boolean_array::{BA3, BA5, BA8},
             U128Conversions,
         },
         protocol::{
@@ -249,7 +251,7 @@ pub mod tests {
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
-        test_executor::run,
+        test_executor::run_with,
         test_fixture::{
             hybrid::TestAggregateableHybridReport, Reconstruct, Runner, TestWorld, TestWorldConfig,
             WithShards,
@@ -265,6 +267,66 @@ pub mod tests {
     }
 
     #[test]
+    fn breakdown_reveal_semi_honest_happy_path() {
+        // if shuttle executor is enabled, run this test only once.
+        // it is a very expensive test to explore all possible states,
+        // sometimes github bails after 40 minutes of running it
+        // (workers there are really slow).
+        type HV = BA8;
+        const SHARDS: usize = 2;
+        run_with::<_, _, 3>(|| async {
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
+            let mut rng = world.rng();
+            let mut expectation = Vec::new();
+            for _ in 0..32 {
+                expectation.push(rng.gen_range(0u128..256));
+            }
+            let expectation = expectation; // no more mutability for safety
+            let mut inputs = Vec::new();
+            for (bk, expected_hv) in expectation.iter().enumerate() {
+                let mut remainder = *expected_hv;
+                while remainder > 7 {
+                    let tv = rng.gen_range(0u128..8);
+                    remainder -= tv;
+                    inputs.push(input_row(bk, tv));
+                }
+                inputs.push(input_row(bk, remainder));
+            }
+            inputs.shuffle(&mut rng);
+            let result: Vec<_> = world
+                .semi_honest(inputs.into_iter(), |ctx, reports| async move {
+                    breakdown_reveal_aggregation::<_, BA5, BA3, HV, 32>(
+                        ctx,
+                        reports,
+                        &PaddingParameters::relaxed(),
+                    )
+                    .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                        Vec::transposed_from(&d).unwrap()
+                    })
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            let initial = vec![0_u128; 32];
+            let result = result
+                .iter()
+                .fold(initial, |mut acc, vec: &Vec<HV>| {
+                    acc.iter_mut()
+                        .zip(vec)
+                        .for_each(|(a, &b)| *a += b.as_u128());
+                    acc
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
+    }
+
+    #[test]
+    #[cfg(not(feature = "shuttle"))] // too slow
     fn breakdown_reveal_malicious_happy_path() {
         type HV = BA16;
         const SHARDS: usize = 2;
