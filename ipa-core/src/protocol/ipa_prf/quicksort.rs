@@ -30,6 +30,7 @@ use crate::{
         Vectorizable,
     },
     seq_join::seq_join,
+    utils::non_zero_prev_power_of_two,
 };
 
 impl<K> ChunkBuffer<SORT_CHUNK> for (Vec<AdditiveShare<K>>, Vec<AdditiveShare<K>>)
@@ -98,7 +99,7 @@ where
 }
 
 fn quicksort_proof_chunk(key_bits: usize) -> usize {
-    (TARGET_PROOF_SIZE / key_bits / SORT_CHUNK).next_power_of_two()
+    non_zero_prev_power_of_two(TARGET_PROOF_SIZE / key_bits / SORT_CHUNK)
 }
 
 /// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.
