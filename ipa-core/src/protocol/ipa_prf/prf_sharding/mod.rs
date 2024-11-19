@@ -28,7 +28,7 @@ use crate::{
             NBitStep,
         },
         context::{
-            dzkp_validator::{prev_power_of_two, DZKPValidator, TARGET_PROOF_SIZE},
+            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
             Context, DZKPContext, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
@@ -52,6 +52,7 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
+    utils::non_zero_prev_power_of_two,
 };
 
 pub mod feature_label_dot_product;
@@ -515,7 +516,10 @@ where
         // TODO: this override was originally added to work around problems with
         // read_size vs. batch size alignment. Those are now fixed (in #1332), but this
         // is still observed to help performance (see #1376), so has been retained.
-        std::cmp::min(sh_ctx.active_work().get(), prev_power_of_two(chunk_size)),
+        std::cmp::min(
+            sh_ctx.active_work().get(),
+            non_zero_prev_power_of_two(chunk_size),
+        ),
     );
     dzkp_validator.set_total_records(TotalRecords::specified(histogram[1]).unwrap());
     let ctx_for_row_number = set_up_contexts(&dzkp_validator.context(), histogram)?;

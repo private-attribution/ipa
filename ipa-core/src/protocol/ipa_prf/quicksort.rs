@@ -15,9 +15,7 @@ use crate::{
         basics::reveal,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
         context::{
-            dzkp_validator::{
-                prev_power_of_two, validated_seq_join, DZKPValidator, TARGET_PROOF_SIZE,
-            },
+            dzkp_validator::{validated_seq_join, DZKPValidator, TARGET_PROOF_SIZE},
             Context, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
         },
         ipa_prf::{
@@ -32,6 +30,7 @@ use crate::{
         Vectorizable,
     },
     seq_join::seq_join,
+    utils::non_zero_prev_power_of_two,
 };
 
 impl<K> ChunkBuffer<SORT_CHUNK> for (Vec<AdditiveShare<K>>, Vec<AdditiveShare<K>>)
@@ -99,8 +98,8 @@ where
     }
 }
 
-const fn quicksort_proof_chunk(key_bits: usize) -> usize {
-    prev_power_of_two(TARGET_PROOF_SIZE / key_bits / SORT_CHUNK)
+fn quicksort_proof_chunk(key_bits: usize) -> usize {
+    non_zero_prev_power_of_two(TARGET_PROOF_SIZE / key_bits / SORT_CHUNK)
 }
 
 /// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.

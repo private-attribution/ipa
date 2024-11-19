@@ -58,14 +58,6 @@ pub const TARGET_PROOF_SIZE: usize = 8192;
 #[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 
-/// Returns the largest power of two less than or equal to `self`.
-///
-/// Returns 0 if the input is outside the range `1..1 << (usize::BITS - 1)`.
-#[must_use]
-pub const fn prev_power_of_two(value: usize) -> usize {
-    (value + 1).next_power_of_two() / 2
-}
-
 /// Maximum proof recursion depth.
 //
 // This is a hard limit. Each GF(2) multiply generates four G values and four H values,
@@ -980,8 +972,7 @@ mod tests {
             context::{
                 dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
                 dzkp_validator::{
-                    prev_power_of_two, Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN,
-                    TARGET_PROOF_SIZE,
+                    Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
                 },
                 Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
                 UpgradableContext, TEST_DZKP_STEPS,
@@ -1951,19 +1942,5 @@ mod tests {
                 .len()
                 .next_power_of_two()
         );
-
-        assert_eq!(prev_power_of_two(0), 0usize);
-        assert_eq!(prev_power_of_two(1), 1usize);
-        assert_eq!(prev_power_of_two(2), 2usize);
-        assert_eq!(prev_power_of_two(3), 2usize);
-        assert_eq!(prev_power_of_two(4), 4usize);
-        assert_eq!(
-            prev_power_of_two((1usize << (usize::BITS - 1)) - 1),
-            1usize << (usize::BITS - 2)
-        );
-        #[cfg(not(debug_assertions))] // debug mode panics on overflow
-        assert_eq!(prev_power_of_two(1usize << (usize::BITS - 1)), 0);
-        #[cfg(not(debug_assertions))] // debug mode panics on overflow
-        assert_eq!(prev_power_of_two((1usize << (usize::BITS - 1)) + 1), 0);
     }
 }

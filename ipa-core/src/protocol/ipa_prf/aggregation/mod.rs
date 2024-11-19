@@ -13,10 +13,7 @@ use crate::{
     protocol::{
         basics::BooleanProtocols,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::{
-            dzkp_validator::{prev_power_of_two, TARGET_PROOF_SIZE},
-            Context,
-        },
+        context::{dzkp_validator::TARGET_PROOF_SIZE, Context},
         ipa_prf::{
             aggregation::step::{AggregateChunkStep, AggregateValuesStep},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
@@ -28,6 +25,7 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
         SharedValue, TransposeFrom, Vectorizable,
     },
+    utils::non_zero_prev_power_of_two,
 };
 
 pub(crate) mod breakdown_reveal;
@@ -103,7 +101,7 @@ pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>
 /// We set a floor of 2 to avoid computing a chunk of zero when `TARGET_PROOF_SIZE` is
 /// smaller for tests.
 pub fn aggregate_values_proof_chunk(input_width: usize, input_item_bits: usize) -> usize {
-    prev_power_of_two(max(
+    non_zero_prev_power_of_two(max(
         2,
         TARGET_PROOF_SIZE / input_width / (input_item_bits + 1),
     ))

@@ -19,7 +19,7 @@ use crate::{
     protocol::{
         basics::{BooleanProtocols, Reveal},
         context::{
-            dzkp_validator::{prev_power_of_two, DZKPValidator, TARGET_PROOF_SIZE},
+            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
             reshard_try_stream, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext,
             UpgradableContext, Validator,
         },
@@ -37,6 +37,7 @@ use crate::{
         Vectorizable,
     },
     seq_join::seq_join,
+    utils::non_zero_prev_power_of_two,
 };
 
 // In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
@@ -77,7 +78,7 @@ pub const PRF_CHUNK: usize = 16;
 /// on proof chunks to be powers of two, and we don't want to compute a proof chunk
 /// of zero when `TARGET_PROOF_SIZE` is smaller for tests.
 fn conv_proof_chunk() -> usize {
-    prev_power_of_two(max(2, TARGET_PROOF_SIZE / CONV_CHUNK / 512))
+    non_zero_prev_power_of_two(max(2, TARGET_PROOF_SIZE / CONV_CHUNK / 512))
 }
 
 /// This computes the Dodis-Yampolsky PRF value on every match key from input,

@@ -25,6 +25,7 @@ use crate::{
         labels::{ROLE, STEP},
         metrics::{BYTES_SENT, RECORDS_SENT},
     },
+    utils::non_zero_prev_power_of_two,
 };
 
 /// Sending end of the gateway channel.
@@ -256,14 +257,6 @@ impl SendChannelConfig {
         total_records: TotalRecords,
         record_size: usize,
     ) -> Self {
-        // this computes the greatest positive power of 2 that is
-        // less than or equal to target.
-        fn non_zero_prev_power_of_two(target: usize) -> usize {
-            let bits = usize::BITS - target.leading_zeros();
-
-            1 << (std::cmp::max(1, bits) - 1)
-        }
-
         assert!(record_size > 0, "Message size cannot be 0");
 
         let total_capacity = gateway_config.active.get() * record_size;
