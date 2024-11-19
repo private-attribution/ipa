@@ -60,13 +60,14 @@ pub enum QueryState {
 
 impl QueryState {
     pub fn transition(cur_state: &Self, new_state: Self) -> Result<Self, StateError> {
-        use QueryState::{AwaitingInputs, Empty, Preparing};
+        use QueryState::{AwaitingInputs, Empty, Preparing, Running};
 
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
             (Empty, Preparing(_) | AwaitingInputs(_, _, _))
-            | (Preparing(_), AwaitingInputs(_, _, _)) => Ok(new_state),
+            | (Preparing(_), AwaitingInputs(_, _, _))
+            | (AwaitingInputs(_, _, _), Running(_)) => Ok(new_state),
             (_, Preparing(_)) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.into(),

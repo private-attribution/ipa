@@ -161,7 +161,7 @@ impl HelperApp {
         Ok(self
             .inner
             .query_processor
-            .complete(query_id)
+            .complete(query_id, self.inner.shard_transport.clone_ref())
             .await?
             .to_bytes())
     }
@@ -251,7 +251,10 @@ impl RequestHandler<HelperIdentity> for Inner {
             }
             RouteId::CompleteQuery => {
                 let query_id = ext_query_id(&req)?;
-                HelperResponse::from(qp.complete(query_id).await?)
+                HelperResponse::from(
+                    qp.complete(query_id, self.shard_transport.clone_ref())
+                        .await?,
+                )
             }
             RouteId::KillQuery => {
                 let query_id = ext_query_id(&req)?;

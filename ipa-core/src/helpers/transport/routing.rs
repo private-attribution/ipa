@@ -8,7 +8,7 @@ use crate::{
 };
 
 // The type of request made to an MPC helper.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RouteId {
     Records,
     ReceiveQuery,

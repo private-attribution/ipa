@@ -11,6 +11,7 @@ use crate::{
     executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
+        routing::RouteId,
         BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
         RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
@@ -123,6 +124,8 @@ pub enum QueryCompletionError {
     },
     #[error("query execution failed: {0}")]
     ExecutionError(#[from] ProtocolError),
+    #[error("one or more shards rejected this request: {0}")]
+    ShardError(#[from] BroadcastError<ShardIndex, ShardTransportError>),
 }
 
 impl Debug for Processor {
@@ -373,6 +376,7 @@ impl Processor {
     pub async fn complete(
         &self,
         query_id: QueryId,
+        shard_transport: ShardTransportImpl,
     ) -> Result<Box<dyn ProtocolResult>, QueryCompletionError> {
         let handle = {
             let mut queries = self.queries.inner.lock().unwrap();
@@ -396,6 +400,18 @@ impl Processor {
                 None => return Err(QueryCompletionError::NoSuchQuery(query_id)),
             }
         }; // release mutex before await
+
+        // Inform other shards about our intent to complete the query.
+        // If any of them rejects it, report the error back. We expect all shards
+        // to be in the same state. In normal cycle, this API is called only after
+        // query status reports completion.
+        if shard_transport.identity() == ShardIndex::FIRST {
+            // See shard finalizer protocol to see how shards merge their results together.
+            // At the end, only leader holds the value
+            shard_transport
+                .broadcast((RouteId::CompleteQuery, query_id))
+                .await?;
+        }
 
         Ok(handle.await?)
     }
@@ -440,7 +456,8 @@ mod tests {
     use tokio::sync::Barrier;
 
     use crate::{
-        ff::FieldType,
+        executor::IpaRuntime,
+        ff::{boolean_array::BA64, FieldType},
         helpers::{
             make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
@@ -450,8 +467,9 @@ mod tests {
         },
         protocol::QueryId,
         query::{
-            processor::Processor, state::StateError, NewQueryError, PrepareQueryError, QueryStatus,
-            QueryStatusError,
+            processor::Processor,
+            state::{QueryState, RunningQuery, StateError},
+            NewQueryError, PrepareQueryError, QueryStatus, QueryStatusError,
         },
         sharding::ShardIndex,
     };
@@ -468,11 +486,11 @@ mod tests {
     }
 
     fn helper_respond_ok() -> Arc<dyn RequestHandler<HelperIdentity>> {
-        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
+        make_owned_handler(move |_req, _| futures::future::ok(HelperResponse::ok()))
     }
 
     fn shard_respond_ok(_si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-        prepare_query_handler(|_| async { Ok(HelperResponse::ok()) })
+        make_owned_handler(move |_req, _| futures::future::ok(HelperResponse::ok()))
     }
 
     fn test_multiply_config() -> QueryConfig {
@@ -559,6 +577,12 @@ mod tests {
         shard_transport: InMemoryTransport<ShardIndex>,
     }
 
+    impl Default for TestComponents {
+        fn default() -> Self {
+            Self::new(TestComponentsArgs::default())
+        }
+    }
+
     impl TestComponents {
         fn new(mut args: TestComponentsArgs) -> Self {
             let mpc_network = InMemoryMpcNetwork::new(
@@ -583,6 +607,31 @@ mod tests {
                 shard_handlers,
                 shard_transport,
             }
+        }
+
+        /// This initiates a new query on all shards and puts them all on running state.
+        /// It also makes up a fake query result
+        async fn new_running_query(&self) -> QueryId {
+            self.processor
+                .new_query(
+                    self.first_transport.clone_ref(),
+                    self.shard_transport.clone_ref(),
+                    self.query_config,
+                )
+                .await
+                .unwrap();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.processor
+                .queries
+                .handle(QueryId)
+                .set_state(QueryState::Running(RunningQuery {
+                    result: rx,
+                    join_handle: IpaRuntime::current().spawn(async {}),
+                }))
+                .unwrap();
+            tx.send(Ok(Box::new(Vec::<BA64>::new()))).unwrap();
+
+            QueryId
         }
     }
 
@@ -753,6 +802,81 @@ mod tests {
 
         // We check the internal state of the processor
         assert!(t.processor.get_status(QueryId).is_none());
+    }
+
+    mod complete {
+
+        use crate::{
+            helpers::{make_owned_handler, routing::RouteId, ApiError, Transport},
+            query::{
+                processor::{
+                    tests::{HelperResponse, TestComponents, TestComponentsArgs},
+                    QueryId,
+                },
+                QueryCompletionError,
+            },
+            sharding::ShardIndex,
+        };
+
+        #[tokio::test]
+        async fn complete_basic() {
+            let t = TestComponents::default();
+            let query_id = t.new_running_query().await;
+
+            t.processor
+                .complete(query_id, t.shard_transport.clone_ref())
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn complete_one_shard_fails() {
+            let mut args = TestComponentsArgs::default();
+
+            args.set_shard_handler(|shard_id| {
+                make_owned_handler(move |req, _| {
+                    if shard_id != ShardIndex::from(1) || req.route != RouteId::CompleteQuery {
+                        futures::future::ok(HelperResponse::ok())
+                    } else {
+                        futures::future::err(QueryCompletionError::NoSuchQuery(QueryId).into())
+                    }
+                })
+            });
+
+            let t = TestComponents::new(args);
+            let query_id = t.new_running_query().await;
+
+            let _ = t
+                .processor
+                .complete(query_id, t.shard_transport.clone_ref())
+                .await
+                .unwrap_err();
+        }
+
+        #[tokio::test]
+        async fn only_leader_broadcasts() {
+            let mut args = TestComponentsArgs::default();
+
+            args.set_shard_handler(|shard_id| {
+                make_owned_handler(move |_req, _| {
+                    if shard_id == ShardIndex::FIRST {
+                        futures::future::err(ApiError::BadRequest(
+                            "Leader shard must not receive requests through shard channels".into(),
+                        ))
+                    } else {
+                        futures::future::ok(HelperResponse::ok())
+                    }
+                })
+            });
+
+            let t = TestComponents::new(args);
+            let query_id = t.new_running_query().await;
+
+            t.processor
+                .complete(query_id, t.shard_transport.clone_ref())
+                .await
+                .unwrap();
+        }
     }
 
     mod prepare {
