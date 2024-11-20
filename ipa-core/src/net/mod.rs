@@ -24,7 +24,7 @@ pub mod test;
 mod transport;
 
 pub use client::{ClientIdentity, IpaHttpClient};
-pub use error::Error;
+pub use error::{Error, ShardError};
 pub use server::{IpaHttpServer, TracingSpanMaker};
 pub use transport::{HttpTransport, MpcHttpTransport, ShardHttpTransport};
 

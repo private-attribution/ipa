@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use super::min_status;
 use crate::{
-    error::Error as ProtocolError,
+    error::{BoxError, Error as ProtocolError},
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
@@ -362,16 +362,45 @@ impl Processor {
         Some(status)
     }
 
-    #[cfg(feature = "in-memory-infra")]
-    fn get_state_from_error(
-        _be: &crate::helpers::InMemoryTransportError<ShardIndex>,
-    ) -> Option<QueryStatus> {
-        todo!()
+    /// This helper function is used to transform a [`BoxError`] into a
+    /// [`QueryStatusError::DifferentStatus`] and retrieve it's internal state. Returns [`None`]
+    /// if not possible.
+    fn downcast_state_error(be: BoxError) -> Option<QueryStatus> {
+        let ae = be.downcast::<crate::helpers::ApiError>().ok()?;
+        if let crate::helpers::ApiError::QueryStatus(QueryStatusError::DifferentStatus {
+            my_status,
+            ..
+        }) = *ae
+        {
+            return Some(my_status);
+        }
+        None
     }
 
+    /// This helper is used by the in-memory stack to obtain the state of other shards via a 
+    /// [`QueryStatusError::DifferentStatus`] error.
+    /// TODO: Ideally broadcast should return a value, that we could use to parse the state instead
+    /// of relying on errors.
+    #[cfg(feature = "in-memory-infra")]
+    fn get_state_from_error(
+        be: crate::helpers::InMemoryTransportError<ShardIndex>,
+    ) -> Option<QueryStatus> {
+        if let crate::helpers::InMemoryTransportError::Rejected { inner, .. } = be {
+            return Self::downcast_state_error(inner);
+        }
+        None
+    }
+
+    /// This helper is used by the HTTP stack to obtain the state of other shards via a 
+    /// [`QueryStatusError::DifferentStatus`] error.
+    /// TODO: Ideally broadcast should return a value, that we could use to parse the state instead
+    /// of relying on errors.
     #[cfg(feature = "real-world-infra")]
-    fn get_state_from_error(be: &ShardError) -> QueryStatus {
-        todo!()
+    fn get_state_from_error(se: crate::net::ShardError) -> Option<QueryStatus> {
+        if let crate::net::Error::Application { error, .. } = se.source {
+            return Self::downcast_state_error(error);
+        }
+        None
     }
 
     /// Returns the query status in this helper, by querying all shards.
@@ -403,7 +432,7 @@ impl Processor {
             // errors return `None` for [`BroadcasteableError::peer_state()`]
             let states: Vec<_> = e
                 .failures
-                .iter()
+                .into_iter()
                 .filter_map(|(_si, e)| Self::get_state_from_error(e))
                 .collect();
             status = states.into_iter().fold(status, min_status);
