@@ -109,9 +109,9 @@ impl CommandExt for Command {
     }
 }
 
-fn test_setup(config_path: &Path) -> [TcpListener; 3] {
-    let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
-    let ports: [u16; 3] = sockets
+fn test_setup(config_path: &Path) -> [TcpListener; 6] {
+    let sockets: [_; 6] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+    let ports: [u16; 6] = sockets
         .each_ref()
         .map(|sock| sock.local_addr().unwrap().port());
 
@@ -121,7 +121,7 @@ fn test_setup(config_path: &Path) -> [TcpListener; 3] {
         .arg("test-setup")
         .args(["--output-dir".as_ref(), config_path.as_os_str()])
         .arg("--ports")
-        .args(ports.map(|p| p.to_string()));
+        .args(ports.chunks(2).map(|p| p[0].to_string()));
 
     command.status().unwrap_status();
     sockets
@@ -129,10 +129,10 @@ fn test_setup(config_path: &Path) -> [TcpListener; 3] {
 
 pub fn spawn_helpers(
     config_path: &Path,
-    sockets: &[TcpListener; 3],
+    sockets: &[TcpListener; 6],
     https: bool,
 ) -> Vec<TerminateOnDrop> {
-    zip([1, 2, 3], sockets)
+    zip([1, 2, 3], sockets.chunks(2))
         .map(|(id, socket)| {
             let mut command = Command::new(HELPER_BIN);
             command
@@ -156,8 +156,13 @@ pub fn spawn_helpers(
                 command.arg("--disable-https");
             }
 
-            command.preserved_fds(vec![socket.as_raw_fd()]);
-            command.args(["--server-socket-fd", &socket.as_raw_fd().to_string()]);
+            command.preserved_fds(vec![socket[0].as_raw_fd()]);
+            command.args(["--server-socket-fd", &socket[0].as_raw_fd().to_string()]);
+            command.preserved_fds(vec![socket[1].as_raw_fd()]);
+            command.args([
+                "--shard-server-socket-fd",
+                &socket[1].as_raw_fd().to_string(),
+            ]);
 
             // something went wrong if command is terminated at this point.
             let mut child = command.spawn().unwrap();
