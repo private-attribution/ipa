@@ -573,4 +573,33 @@ mod tests {
             .build();
         test_make_helpers(conf).await;
     }
+
+    #[tokio::test]
+    async fn peer_count() {
+        fn new_transport<F: ConnectionFlavor>(identity: F::Identity) -> Arc<HttpTransport<F>> {
+            Arc::new(HttpTransport {
+                http_runtime: IpaRuntime::current(),
+                identity,
+                clients: Vec::new(),
+                handler: None,
+                record_streams: StreamCollection::default(),
+            })
+        }
+
+        assert_eq!(
+            2,
+            MpcHttpTransport {
+                inner_transport: new_transport(HelperIdentity::ONE)
+            }
+            .peer_count()
+        );
+        assert_eq!(
+            9,
+            ShardHttpTransport {
+                inner_transport: new_transport(ShardIndex::FIRST),
+                shard_count: 10.into()
+            }
+            .peer_count()
+        );
+    }
 }
