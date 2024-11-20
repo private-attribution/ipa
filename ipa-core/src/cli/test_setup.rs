@@ -36,6 +36,9 @@ pub struct TestSetupArgs {
 
     #[arg(short, long, num_args = 3, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
     ports: Vec<u16>,
+
+    #[arg(short, long, num_args = 3, value_name = "SHARD_PORT", default_values = vec!["6000", "6001", "6002"])]
+    shard_ports: Vec<u16>,
 }
 
 /// Prepare a test network of three helpers.
@@ -56,8 +59,8 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
 
     let localhost = String::from("localhost");
 
-    let clients_config: [_; 3] = zip([1, 2, 3], args.ports)
-        .map(|(id, port)| {
+    let clients_config: [_; 3] = zip([1, 2, 3], zip(args.ports, args.shard_ports))
+        .map(|(id, (port, shard_port))| {
             let keygen_args = KeygenArgs {
                 name: localhost.clone(),
                 tls_cert: args.output_dir.helper_tls_cert(id),
@@ -72,6 +75,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
             Ok(HelperClientConf {
                 host: &localhost,
                 port,
+                shard_port,
                 tls_cert_file: keygen_args.tls_cert,
                 mk_public_key_file: keygen_args.mk_public_key,
             })
