@@ -6,13 +6,14 @@ use std::{
 use futures::{future::try_join, stream};
 use serde::Serialize;
 
+use super::min_status;
 use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
-        BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
-        RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
+        BroadcastError, BroadcasteableError, Gateway, GatewayConfig, MpcTransportError,
+        MpcTransportImpl, Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -378,13 +379,23 @@ impl Processor {
             return Err(QueryStatusError::NotLeader(shard_index));
         }
 
-        let status = self
+        let mut status = self
             .get_status(query_id)
             .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
 
         let shard_query_status_req = CompareStatusRequest { query_id, status };
 
-        shard_transport.broadcast(shard_query_status_req).await?;
+        let shard_responses = shard_transport.broadcast(shard_query_status_req).await;
+        if let Err(e) = shard_responses {
+            // The following silently ignores the cases where the query isn't found because those
+            // errors return `None` for [`BroadcasteableError::peer_state()`]
+            let states: Vec<_> = e
+                .failures
+                .iter()
+                .filter_map(|(_si, error)| error.peer_state())
+                .collect();
+            status = states.into_iter().fold(status, min_status);
+        }
 
         Ok(status)
     }
@@ -960,7 +971,9 @@ mod tests {
         /// * From the standpoint of leader shard in Helper 1
         /// * On query_status
         ///
-        /// If one of my shards isn't ready
+        /// The min state should be returned. In this case, if I, as leader, am in AwaitingInputs
+        /// state and shards report that they are further ahead (Completed and Running), then my
+        /// state is returned.
         #[tokio::test]
         async fn combined_status_response() {
             fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
@@ -970,6 +983,13 @@ mod tests {
                             Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
                                 query_id: QueryId,
                                 my_status: QueryStatus::Completed,
+                                other_status: QueryStatus::Preparing,
+                            }))
+                        }
+                        ShardIndex(2) => {
+                            Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
+                                query_id: QueryId,
+                                my_status: QueryStatus::Running,
                                 other_status: QueryStatus::Preparing,
                             }))
                         }
@@ -999,11 +1019,56 @@ mod tests {
                 .query_status(t.shard_transport.clone_ref(), QueryId)
                 .await;
             if let Err(e) = r {
-                if let QueryStatusError::ShardBroadcastError(be) = e {
-                    assert_eq!(be.failures[0].0, ShardIndex(3));
-                } else {
-                    panic!("Unexpected error type");
-                }
+                panic!("Unexpected error {e}");
+            }
+            if let Ok(st) = r {
+                assert_eq!(QueryStatus::AwaitingInputs, st);
+            }
+        }
+
+        /// * From the standpoint of leader shard in Helper 1
+        /// * On query_status
+        ///
+        /// If one of my shards hasn't received the query yet (NoSuchQuery) the leader shouldn't
+        /// return an error but instead with the min state.
+        #[tokio::test]
+        async fn status_query_doesnt_exist() {
+            fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
+                create_handler(move |_| async move {
+                    match si {
+                        ShardIndex(3) => Err(ApiError::QueryStatus(QueryStatusError::NoSuchQuery(
+                            QueryId,
+                        ))),
+                        _ => Ok(HelperResponse::ok()),
+                    }
+                })
+            }
+            let mut args = TestComponentsArgs {
+                shard_count: 4,
+                ..Default::default()
+            };
+            args.set_shard_handler(shard_handle);
+            let t = TestComponents::new(args);
+            let req = prepare_query();
+            // Using prepare shard to set the inner state, but in reality we should be using prepare_helper
+            // Prepare_helper will use the shard_handle defined above though and will fail. The following
+            // achieves the same state.
+            t.processor
+                .prepare_shard(
+                    &t.shard_network
+                        .transport(HelperIdentity::ONE, ShardIndex::from(1)),
+                    req,
+                )
+                .unwrap();
+            let r = t
+                .processor
+                .query_status(t.shard_transport.clone_ref(), QueryId)
+                .await;
+            if let Err(e) = r {
+                panic!("Unexpected error {e}");
+            }
+            if let Ok(st) = r {
+                assert_eq!(QueryStatus::AwaitingInputs, st);
             }
         }
 

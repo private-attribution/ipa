@@ -23,11 +23,12 @@ use crate::{
     helpers::{
         in_memory_config::{self, DynStreamInterceptor},
         transport::routing::{Addr, RouteId},
-        ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoResourceIdentifier,
-        QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection,
-        Transport, TransportIdentity,
+        ApiError, BodyStream, BroadcasteableError, HandlerRef, HelperIdentity, HelperResponse,
+        NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
+        StepBinding, StreamCollection, Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
+    query::{QueryStatus, QueryStatusError},
     sharding::ShardIndex,
     sync::{Arc, Weak},
 };
@@ -59,6 +60,18 @@ pub enum Error<I> {
         #[from]
         inner: serde_json::Error,
     },
+    #[error("Peer is in an invalid state: {peer_state:?}")]
+    PeerState { peer_state: QueryStatus },
+}
+
+impl<I: TransportIdentity> BroadcasteableError for Error<I> {
+    fn peer_state(&self) -> Option<QueryStatus> {
+        let mut status = None;
+        if let Error::PeerState { peer_state } = self {
+            status = Some(peer_state);
+        }
+        status.copied()
+    }
 }
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
@@ -219,9 +232,19 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
                 dest,
                 inner: "channel closed".into(),
             })?
-            .map_err(|e| Error::Rejected {
-                dest,
-                inner: e.into(),
+            .map_err(|e: ApiError| {
+                if let ApiError::QueryStatus(QueryStatusError::DifferentStatus {
+                    my_status, ..
+                }) = e
+                {
+                    return Error::PeerState {
+                        peer_state: my_status,
+                    };
+                }
+                Error::Rejected {
+                    dest,
+                    inner: e.into(),
+                }
             })?;
 
         Ok(())

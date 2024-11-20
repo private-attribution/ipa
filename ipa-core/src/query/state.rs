@@ -48,6 +48,21 @@ impl From<&QueryState> for QueryStatus {
     }
 }
 
+#[must_use]
+pub fn min_status(a: QueryStatus, b: QueryStatus) -> QueryStatus {
+    match (a, b) {
+        (QueryStatus::Preparing, _) | (_, QueryStatus::Preparing) => QueryStatus::Preparing,
+        (QueryStatus::AwaitingInputs, _) | (_, QueryStatus::AwaitingInputs) => {
+            QueryStatus::AwaitingInputs
+        }
+        (QueryStatus::Running, _) | (_, QueryStatus::Running) => QueryStatus::Running,
+        (QueryStatus::AwaitingCompletion, _) | (_, QueryStatus::AwaitingCompletion) => {
+            QueryStatus::AwaitingCompletion
+        }
+        (QueryStatus::Completed, _) => QueryStatus::Completed,
+    }
+}
+
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
 pub enum QueryState {
     Empty,
@@ -224,5 +239,26 @@ impl Drop for RemoveQuery<'_> {
                 );
             }
         }
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use crate::query::{state::min_status, QueryStatus};
+
+    #[test]
+    fn test_order() {
+        assert_eq!(
+            min_status(QueryStatus::Preparing, QueryStatus::Preparing),
+            QueryStatus::Preparing
+        );
+        assert_eq!(
+            min_status(QueryStatus::Preparing, QueryStatus::Completed),
+            QueryStatus::Preparing
+        );
+        assert_eq!(
+            min_status(QueryStatus::AwaitingCompletion, QueryStatus::AwaitingInputs),
+            QueryStatus::AwaitingInputs
+        );
     }
 }

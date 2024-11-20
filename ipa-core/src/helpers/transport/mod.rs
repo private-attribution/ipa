@@ -12,6 +12,7 @@ use crate::helpers::in_memory_config::InspectContext;
 use crate::{
     helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
+    query::QueryStatus,
     sharding::ShardIndex,
 };
 
@@ -287,13 +288,20 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
     }
 }
 
+/// Broadcast errors need to tell in what state their peer is so that the processor that's
+/// broadcasting knows how to handle the error. For example, if the peer is in Completed state it
+/// might want to handle the error differently than if the query hasn't been started.
+pub trait BroadcasteableError: Debug {
+    fn peer_state(&self) -> Option<QueryStatus>;
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("One or more peers rejected the request: {failures:?}")]
-pub struct BroadcastError<I: TransportIdentity, E: Debug> {
+pub struct BroadcastError<I: TransportIdentity, E: BroadcasteableError> {
     pub failures: Vec<(I, E)>,
 }
 
-impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> {
+impl<I: TransportIdentity, E: BroadcasteableError> From<Vec<(I, E)>> for BroadcastError<I, E> {
     fn from(value: Vec<(I, E)>) -> Self {
         Self { failures: value }
     }
@@ -304,7 +312,7 @@ impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> 
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
     type RecordsStream: BytesStream;
-    type Error: std::fmt::Debug + Send;
+    type Error: BroadcasteableError + Send;
 
     /// Return my identity in the network (MPC or Sharded)
     fn identity(&self) -> Self::Identity;

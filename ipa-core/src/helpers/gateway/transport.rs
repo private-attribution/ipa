@@ -3,16 +3,25 @@ use futures::Stream;
 
 use crate::{
     helpers::{
-        transport::routing::RouteId, MpcTransportImpl, NoResourceIdentifier, QueryIdBinding, Role,
-        RoleAssignment, RouteParams, StepBinding, Transport,
+        transport::{routing::RouteId, BroadcasteableError},
+        MpcTransportImpl, NoResourceIdentifier, QueryIdBinding, Role, RoleAssignment, RouteParams,
+        StepBinding, Transport,
     },
     protocol::{Gate, QueryId},
+    query::QueryStatus,
     sharding::ShardIndex,
 };
 
 #[derive(Debug, thiserror::Error)]
 #[error("Failed to send to {0:?}: {1:?}")]
 pub struct SendToRoleError(Role, <MpcTransportImpl as Transport>::Error);
+
+impl BroadcasteableError for SendToRoleError {
+    /// Implementing this as a no-op
+    fn peer_state(&self) -> Option<QueryStatus> {
+        None
+    }
+}
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
