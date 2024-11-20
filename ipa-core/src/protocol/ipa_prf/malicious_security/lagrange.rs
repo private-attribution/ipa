@@ -2,7 +2,9 @@ use std::{array::from_fn, fmt::Debug};
 
 use typenum::Unsigned;
 
-use crate::ff::{batch_invert, Field, PrimeField, Serializable};
+use crate::ff::{
+    batch_invert, Field, MultiplyAccumulate, MultiplyAccumulator, PrimeField, Serializable,
+};
 
 /// The Canonical Lagrange denominator is defined as the denominator of the Lagrange base polynomials
 /// `https://en.wikipedia.org/wiki/Lagrange_polynomial`
@@ -162,23 +164,14 @@ where
 /// Computes the dot product of two arrays of the same size.
 /// It is isolated from Lagrange because there could be potential SIMD optimizations used
 fn dot_product<F: PrimeField, const N: usize>(a: &[F; N], b: &[F; N]) -> F {
-    // Staying in integers allows rustc to optimize this code properly, but puts a restriction
-    // on how large the prime field can be
-    debug_assert!(
-        2 * F::BITS + N.next_power_of_two().ilog2() <= 128,
-        "The prime field {} is too large for this dot product implementation",
-        F::PRIME.into()
-    );
-
-    let mut sum = 0;
-
     // I am cautious about using zip in hot code
     // https://github.com/rust-lang/rust/issues/103555
-    for i in 0..N {
-        sum += a[i].as_u128() * b[i].as_u128();
-    }
 
-    F::truncate_from(sum)
+    let mut acc = <F as MultiplyAccumulate>::Accumulator::new();
+    for i in 0..N {
+        acc.multiply_accumulate(a[i], b[i]);
+    }
+    acc.take()
 }
 
 #[cfg(all(test, unit_test))]
