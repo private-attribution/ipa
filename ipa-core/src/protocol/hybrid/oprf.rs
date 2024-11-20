@@ -248,7 +248,6 @@ mod test {
                 },
             ];
 
-            // TODO: we need to use malicious circuits here
             let reports_per_shard = world
                 .malicious(records.clone().into_iter(), |ctx, reports| async move {
                     let ind_reports = reports
