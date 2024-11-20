@@ -200,6 +200,80 @@ where
     }
 }
 
+impl<BK, V> Paddable for IndistinguishableHybridReport<BK, V, ()>
+where
+    BK: BooleanArray + U128Conversions,
+    V: BooleanArray,
+{
+    /// Given an extendable collection of `AggregateableReports`s,
+    /// this function will pad the collection with dummy reports. The reports
+    /// cover every `breakdown_key` and have a secret sharing of zero for the `value`.
+    /// Each `breakdown_key` receives a random number of a rows.
+    fn add_padding_items<VC: Extend<Self>, const B: usize>(
+        direction_to_excluded_helper: Direction,
+        padding_input_rows: &mut VC,
+        padding_params: &PaddingParameters,
+        rng: &mut InstrumentedSequentialSharedRandomness,
+    ) -> Result<u32, Error> {
+        let mut total_number_of_fake_rows = 0;
+        match padding_params.aggregation_padding {
+            AggregationPadding::NoAggPadding => {}
+            AggregationPadding::Parameters {
+                aggregation_epsilon,
+                aggregation_delta,
+                aggregation_padding_sensitivity,
+            } => {
+                let aggregation_padding = OPRFPaddingDp::new(
+                    aggregation_epsilon,
+                    aggregation_delta,
+                    aggregation_padding_sensitivity,
+                )?;
+                let num_breakdowns: u32 = u32::try_from(B).unwrap();
+                // for every breakdown, sample how many dummies will be added
+                for breakdownkey in 0..num_breakdowns {
+                    let sample = aggregation_padding.sample(rng);
+                    total_number_of_fake_rows += sample;
+
+                    // now add `sample` many fake rows with this `breakdownkey`
+                    for _ in 0..sample {
+                        let breakdownkey_shares = match direction_to_excluded_helper {
+                            Direction::Left => AdditiveShare::new(
+                                BK::ZERO,
+                                BK::truncate_from(u128::from(breakdownkey)),
+                            ),
+                            Direction::Right => AdditiveShare::new(
+                                BK::truncate_from(u128::from(breakdownkey)),
+                                BK::ZERO,
+                            ),
+                        };
+
+                        let row = IndistinguishableHybridReport::<BK, V, ()> {
+                            match_key: (),
+                            value: AdditiveShare::new(V::ZERO, V::ZERO),
+                            breakdown_key: breakdownkey_shares,
+                        };
+
+                        padding_input_rows.extend(std::iter::once(row));
+                    }
+                }
+            }
+        }
+        Ok(total_number_of_fake_rows)
+    }
+
+    /// Given an extendable collection of `IndistinguishableHybridReport`s,
+    /// this function ads `total_number_of_fake_rows` of Reports with zeros in all fields.
+    fn add_zero_shares<VC: Extend<Self>>(
+        padding_input_rows: &mut VC,
+        total_number_of_fake_rows: u32,
+    ) {
+        padding_input_rows.extend(
+            repeat(IndistinguishableHybridReport::<BK, V, ()>::ZERO)
+                .take(total_number_of_fake_rows as usize),
+        );
+    }
+}
+
 impl<BK, TV, TS> Paddable for OPRFIPAInputRow<BK, TV, TS>
 where
     BK: BooleanArray + U128Conversions,

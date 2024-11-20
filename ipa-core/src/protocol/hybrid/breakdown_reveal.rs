@@ -4,100 +4,33 @@ use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
 use tracing::{info_span, Instrument};
 
-use super::aggregate_values;
 use crate::{
     error::{Error, UnwrapInfallible},
-    ff::{
-        boolean::Boolean,
-        boolean_array::{BooleanArray, BooleanArrayReader, BooleanArrayWriter, BA32},
-        U128Conversions,
-    },
+    ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::TotalRecords,
     protocol::{
         basics::{reveal, Reveal},
         context::{
             dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
-            UpgradableContext,
+            ShardedContext, UpgradableContext,
         },
         ipa_prf::{
             aggregation::{
-                aggregate_values_proof_chunk, step::AggregationStep as Step, AGGREGATE_DEPTH,
+                aggregate_values, aggregate_values_proof_chunk, step::AggregationStep as Step,
+                AGGREGATE_DEPTH,
             },
             oprf_padding::{apply_dp_padding, PaddingParameters},
-            prf_sharding::{AttributionOutputs, SecretSharedAttributionOutputs},
-            shuffle::{Shuffle, Shuffleable},
-            BreakdownKey,
+            shuffle::Shuffle,
         },
         BooleanProtocols, RecordId,
     },
+    report::hybrid::AggregateableHybridReport,
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
+        TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
 };
-
-impl<BK, TV> AttributionOutputs<Replicated<BK>, Replicated<TV>>
-where
-    BK: BooleanArray,
-    TV: BooleanArray,
-{
-    fn join_fields(breakdown_key: BK, trigger_value: TV) -> <Self as Shuffleable>::Share {
-        let mut share = <Self as Shuffleable>::Share::ZERO;
-
-        BooleanArrayWriter::new(&mut share)
-            .write(&breakdown_key)
-            .write(&trigger_value);
-
-        share
-    }
-
-    fn split_fields(share: &<Self as Shuffleable>::Share) -> (BK, TV) {
-        let bits = BooleanArrayReader::new(share);
-        let (breakdown_key, bits) = bits.read();
-        let (trigger_value, _bits) = bits.read();
-        (breakdown_key, trigger_value)
-    }
-}
-
-impl<BK, TV> Shuffleable for AttributionOutputs<Replicated<BK>, Replicated<TV>>
-where
-    BK: BooleanArray,
-    TV: BooleanArray,
-{
-    /// TODO: Use a smaller BA type to contain BK and TV
-    type Share = BA32;
-
-    fn left(&self) -> Self::Share {
-        Self::join_fields(
-            ReplicatedSecretSharing::left(&self.attributed_breakdown_key_bits),
-            ReplicatedSecretSharing::left(&self.capped_attributed_trigger_value),
-        )
-    }
-
-    fn right(&self) -> Self::Share {
-        Self::join_fields(
-            ReplicatedSecretSharing::right(&self.attributed_breakdown_key_bits),
-            ReplicatedSecretSharing::right(&self.capped_attributed_trigger_value),
-        )
-    }
-
-    fn new(l: Self::Share, r: Self::Share) -> Self {
-        debug_assert!(
-            BK::BITS + TV::BITS <= Self::Share::BITS,
-            "share type {} is too small",
-            std::any::type_name::<Self::Share>(),
-        );
-
-        let left = Self::split_fields(&l);
-        let right = Self::split_fields(&r);
-
-        Self {
-            attributed_breakdown_key_bits: ReplicatedSecretSharing::new(left.0, right.0),
-            capped_attributed_trigger_value: ReplicatedSecretSharing::new(left.1, right.1),
-        }
-    }
-}
 
 /// Improved Aggregation a.k.a Aggregation revealing breakdown.
 ///
@@ -127,30 +60,29 @@ where
 ///     record. This is currently ensured by the serial operation of the aggregation
 ///     protocol (i.e. by not using `seq_join`).
 #[tracing::instrument(name = "breakdown_reveal_aggregation", skip_all, fields(total = attributed_values.len()))]
-pub async fn breakdown_reveal_aggregation<C, BK, TV, HV, const B: usize>(
+pub async fn breakdown_reveal_aggregation<C, BK, V, HV, const B: usize>(
     ctx: C,
-    attributed_values: Vec<SecretSharedAttributionOutputs<BK, TV>>,
+    attributed_values: Vec<AggregateableHybridReport<BK, V>>,
     padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradableContext + Shuffle,
+    C: UpgradableContext + Shuffle + ShardedContext,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
-    BK: BreakdownKey<B>,
+    BK: BooleanArray + U128Conversions,
     Replicated<BK>: Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
-    TV: BooleanArray + U128Conversions,
+    V: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
     BitDecomposed<Replicated<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
+        for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
 {
     // Apply DP padding for Breakdown Reveal Aggregation
-    let attributed_values_padded =
-        apply_dp_padding::<_, AttributionOutputs<Replicated<BK>, Replicated<TV>>, B>(
-            ctx.narrow(&Step::PaddingDp),
-            attributed_values,
-            padding_params,
-        )
-        .await?;
+    let attributed_values_padded = apply_dp_padding::<_, AggregateableHybridReport<BK, V>, B>(
+        ctx.narrow(&Step::PaddingDp),
+        attributed_values,
+        padding_params,
+    )
+    .await?;
 
     let attributions = ctx
         .narrow(&Step::Shuffle)
@@ -176,7 +108,7 @@ where
     // may exceed that.
     let mut chunk_counter = 0;
     let mut depth = 0;
-    let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap());
+    let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(V::BITS).unwrap());
 
     while intermediate_results.len() > 1 {
         let mut record_ids = [RecordId::FIRST; AGGREGATE_DEPTH];
@@ -220,34 +152,33 @@ where
 #[tracing::instrument(name = "reveal_breakdowns", skip_all, fields(
     total = attributions.len(),
 ))]
-async fn reveal_breakdowns<C, BK, TV, const B: usize>(
+async fn reveal_breakdowns<C, BK, V, const B: usize>(
     parent_ctx: &C,
-    attributions: Vec<SecretSharedAttributionOutputs<BK, TV>>,
-) -> Result<GroupedTriggerValues<TV, B>, Error>
+    attributions: Vec<AggregateableHybridReport<BK, V>>,
+) -> Result<ValueHistogram<V, B>, Error>
 where
     C: Context,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
     Boolean: FieldSimd<B>,
-    BK: BreakdownKey<B>,
+    BK: BooleanArray + U128Conversions,
     Replicated<BK>: Reveal<C, Output = <BK as Vectorizable<1>>::Array>,
-    TV: BooleanArray + U128Conversions,
+    V: BooleanArray + U128Conversions,
 {
     let reveal_ctx = parent_ctx.set_total_records(TotalRecords::specified(attributions.len())?);
 
-    let reveal_work = stream::iter(attributions).enumerate().map(|(i, ao)| {
+    let reveal_work = stream::iter(attributions).enumerate().map(|(i, report)| {
         let record_id = RecordId::from(i);
         let reveal_ctx = reveal_ctx.clone();
         async move {
-            let revealed_bk =
-                reveal(reveal_ctx, record_id, &ao.attributed_breakdown_key_bits).await?;
+            let revealed_bk = reveal(reveal_ctx, record_id, &report.breakdown_key).await?;
             let revealed_bk = BK::from_array(&revealed_bk);
             let Ok(bk) = usize::try_from(revealed_bk.as_u128()) else {
                 return Err(Error::Internal);
             };
-            Ok::<_, Error>((bk, ao.capped_attributed_trigger_value))
+            Ok::<_, Error>((bk, report.value))
         }
     });
-    let mut grouped_tvs = GroupedTriggerValues::<TV, B>::new();
+    let mut grouped_tvs = ValueHistogram::<V, B>::new();
     let mut stream = pin!(seq_join(reveal_ctx.active_work(), reveal_work));
     while let Some((bk, tv)) = stream.try_next().await? {
         grouped_tvs.push(bk, tv);
@@ -259,12 +190,12 @@ where
 /// Helper type that hold all the Trigger Values, grouped by their Breakdown
 /// Key. The main functionality is to turn into a stream that can be given to
 /// [`aggregate_values`].
-struct GroupedTriggerValues<TV: BooleanArray, const B: usize> {
-    tvs: [Vec<Replicated<TV>>; B],
+struct ValueHistogram<V: BooleanArray, const B: usize> {
+    tvs: [Vec<Replicated<V>>; B],
     max_len: usize,
 }
 
-impl<TV: BooleanArray, const B: usize> GroupedTriggerValues<TV, B> {
+impl<V: BooleanArray, const B: usize> ValueHistogram<V, B> {
     fn new() -> Self {
         Self {
             tvs: std::array::from_fn(|_| vec![]),
@@ -272,7 +203,7 @@ impl<TV: BooleanArray, const B: usize> GroupedTriggerValues<TV, B> {
         }
     }
 
-    fn push(&mut self, bk: usize, value: Replicated<TV>) {
+    fn push(&mut self, bk: usize, value: Replicated<V>) {
         self.tvs[bk].push(value);
         if self.tvs[bk].len() > self.max_len {
             self.max_len = self.tvs[bk].len();
@@ -280,18 +211,16 @@ impl<TV: BooleanArray, const B: usize> GroupedTriggerValues<TV, B> {
     }
 }
 
-impl<TV: BooleanArray, const B: usize> From<GroupedTriggerValues<TV, B>>
+impl<V: BooleanArray, const B: usize> From<ValueHistogram<V, B>>
     for Vec<BitDecomposed<Replicated<Boolean, B>>>
 where
     Boolean: FieldSimd<B>,
     BitDecomposed<Replicated<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
+        for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
 {
-    fn from(
-        mut grouped_tvs: GroupedTriggerValues<TV, B>,
-    ) -> Vec<BitDecomposed<Replicated<Boolean, B>>> {
+    fn from(mut grouped_tvs: ValueHistogram<V, B>) -> Vec<BitDecomposed<Replicated<Boolean, B>>> {
         let iter = (0..grouped_tvs.max_len).map(move |_| {
-            let slice: [Replicated<TV>; B] = grouped_tvs
+            let slice: [Replicated<V>; B] = grouped_tvs
                 .tvs
                 .each_mut()
                 .map(|tv| tv.pop().unwrap_or(Replicated::ZERO));
@@ -315,35 +244,38 @@ pub mod tests {
             boolean_array::{BA3, BA5, BA8},
             U128Conversions,
         },
-        protocol::ipa_prf::{
-            aggregation::breakdown_reveal::breakdown_reveal_aggregation,
-            oprf_padding::PaddingParameters,
-            prf_sharding::{AttributionOutputsTestInput, SecretSharedAttributionOutputs},
+        protocol::{
+            hybrid::breakdown_reveal_aggregation, ipa_prf::oprf_padding::PaddingParameters,
         },
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         },
         test_executor::run_with,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{
+            hybrid::TestAggregateableHybridReport, Reconstruct, Runner, TestWorld, TestWorldConfig,
+            WithShards,
+        },
     };
 
-    fn input_row(bk: usize, tv: u128) -> AttributionOutputsTestInput<BA5, BA3> {
-        let bk: u128 = bk.try_into().unwrap();
-        AttributionOutputsTestInput {
-            bk: BA5::truncate_from(bk),
-            tv: BA3::truncate_from(tv),
+    fn input_row(breakdown_key: usize, value: u128) -> TestAggregateableHybridReport {
+        TestAggregateableHybridReport {
+            match_key: (),
+            value: value.try_into().unwrap(),
+            breakdown_key: breakdown_key.try_into().unwrap(),
         }
     }
 
     #[test]
-    fn semi_honest_happy_path() {
+    fn breakdown_reveal_semi_honest_happy_path() {
         // if shuttle executor is enabled, run this test only once.
         // it is a very expensive test to explore all possible states,
         // sometimes github bails after 40 minutes of running it
         // (workers there are really slow).
+        type HV = BA8;
+        const SHARDS: usize = 2;
         run_with::<_, _, 3>(|| async {
-            let world = TestWorld::default();
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
             let mut rng = world.rng();
             let mut expectation = Vec::new();
             for _ in 0..32 {
@@ -362,73 +294,10 @@ pub mod tests {
             }
             inputs.shuffle(&mut rng);
             let result: Vec<_> = world
-                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
-                    let aos = input_rows
-                        .into_iter()
-                        .map(|ti| SecretSharedAttributionOutputs {
-                            attributed_breakdown_key_bits: ti.0,
-                            capped_attributed_trigger_value: ti.1,
-                        })
-                        .collect();
-                    let r: Vec<Replicated<BA8>> =
-                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
-                            ctx,
-                            aos,
-                            &PaddingParameters::relaxed(),
-                        )
-                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
-                            Vec::transposed_from(&d).unwrap()
-                        })
-                        .await
-                        .unwrap();
-                    r
-                })
-                .await
-                .reconstruct();
-            let result = result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>();
-            assert_eq!(32, result.len());
-            assert_eq!(result, expectation);
-        });
-    }
-
-    #[test]
-    #[cfg(not(feature = "shuttle"))] // too slow
-    fn malicious_happy_path() {
-        type HV = BA16;
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-            let mut expectation = Vec::new();
-            for _ in 0..32 {
-                expectation.push(rng.gen_range(0u128..512));
-            }
-            // The size of input needed here to get complete coverage (more precisely,
-            // the size of input to the final aggregation using `aggregate_values`)
-            // depends on `TARGET_PROOF_SIZE`.
-            let expectation = expectation; // no more mutability for safety
-            let mut inputs = Vec::new();
-            for (bk, expected_hv) in expectation.iter().enumerate() {
-                let mut remainder = *expected_hv;
-                while remainder > 7 {
-                    let tv = rng.gen_range(0u128..8);
-                    remainder -= tv;
-                    inputs.push(input_row(bk, tv));
-                }
-                inputs.push(input_row(bk, remainder));
-            }
-            inputs.shuffle(&mut rng);
-            let result: Vec<_> = world
-                .malicious(inputs.into_iter(), |ctx, input_rows| async move {
-                    let aos = input_rows
-                        .into_iter()
-                        .map(|ti| SecretSharedAttributionOutputs {
-                            attributed_breakdown_key_bits: ti.0,
-                            capped_attributed_trigger_value: ti.1,
-                        })
-                        .collect();
+                .semi_honest(inputs.into_iter(), |ctx, reports| async move {
                     breakdown_reveal_aggregation::<_, BA5, BA3, HV, 32>(
                         ctx,
-                        aos,
+                        reports,
                         &PaddingParameters::relaxed(),
                     )
                     .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
@@ -439,7 +308,82 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-            let result = result.iter().map(|v: &HV| v.as_u128()).collect::<Vec<_>>();
+            let initial = vec![0_u128; 32];
+            let result = result
+                .iter()
+                .fold(initial, |mut acc, vec: &Vec<HV>| {
+                    acc.iter_mut()
+                        .zip(vec)
+                        .for_each(|(a, &b)| *a += b.as_u128());
+                    acc
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
+    }
+
+    #[test]
+    #[cfg(not(feature = "shuttle"))] // too slow
+    fn breakdown_reveal_malicious_happy_path() {
+        type HV = BA16;
+        const SHARDS: usize = 2;
+        run(|| async {
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
+            let mut rng = world.rng();
+            let mut expectation = Vec::new();
+            for _ in 0..32 {
+                expectation.push(rng.gen_range(0u128..512));
+            }
+            // The size of input needed here to get complete coverage (more precisely,
+            // the size of input to the final aggregation using `aggregate_values`)
+            // depends on `TARGET_PROOF_SIZE`.
+            let expectation = expectation; // no more mutability for safety
+            let mut inputs = Vec::new();
+            // Builds out inputs with values for each breakdown_key that add up to
+            // the expectation. Expectation is ranomg (0..512). Each iteration
+            // generates a value (0..8) and subtracts from the expectation until a final
+            // remaninder in (0..8) remains to be added to the vec.
+            for (breakdown_key, expected_value) in expectation.iter().enumerate() {
+                let mut remainder = *expected_value;
+                while remainder > 7 {
+                    let value = rng.gen_range(0u128..8);
+                    remainder -= value;
+                    inputs.push(input_row(breakdown_key, value));
+                }
+                inputs.push(input_row(breakdown_key, remainder));
+            }
+            inputs.shuffle(&mut rng);
+
+            let result: Vec<_> = world
+                .malicious(inputs.into_iter(), |ctx, reports| async move {
+                    breakdown_reveal_aggregation::<_, BA5, BA3, HV, 32>(
+                        ctx,
+                        reports,
+                        &PaddingParameters::relaxed(),
+                    )
+                    .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                        Vec::transposed_from(&d).unwrap()
+                    })
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+
+            let initial = vec![0_u128; 32];
+            let result = result
+                .iter()
+                .fold(initial, |mut acc, vec: &Vec<HV>| {
+                    acc.iter_mut()
+                        .zip(vec)
+                        .for_each(|(a, &b)| *a += b.as_u128());
+                    acc
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
             assert_eq!(32, result.len());
             assert_eq!(result, expectation);
         });
