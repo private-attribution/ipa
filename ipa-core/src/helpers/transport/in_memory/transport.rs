@@ -23,9 +23,9 @@ use crate::{
     helpers::{
         in_memory_config::{self, DynStreamInterceptor},
         transport::routing::{Addr, RouteId},
-        ApiError, BodyStream, BroadcasteableError, HandlerRef, HelperIdentity, HelperResponse,
-        NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
-        StepBinding, StreamCollection, Transport, TransportIdentity,
+        ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoResourceIdentifier,
+        QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection,
+        Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
     query::{QueryStatus, QueryStatusError},
@@ -62,16 +62,6 @@ pub enum Error<I> {
     },
     #[error("Peer is in an invalid state: {peer_state:?}")]
     PeerState { peer_state: QueryStatus },
-}
-
-impl<I: TransportIdentity> BroadcasteableError for Error<I> {
-    fn peer_state(&self) -> Option<QueryStatus> {
-        let mut status = None;
-        if let Error::PeerState { peer_state } = self {
-            status = Some(peer_state);
-        }
-        status.copied()
-    }
 }
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.

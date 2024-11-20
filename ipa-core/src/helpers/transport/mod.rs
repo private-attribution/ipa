@@ -297,11 +297,11 @@ pub trait BroadcasteableError: Debug {
 
 #[derive(thiserror::Error, Debug)]
 #[error("One or more peers rejected the request: {failures:?}")]
-pub struct BroadcastError<I: TransportIdentity, E: BroadcasteableError> {
+pub struct BroadcastError<I: TransportIdentity, E: Debug> {
     pub failures: Vec<(I, E)>,
 }
 
-impl<I: TransportIdentity, E: BroadcasteableError> From<Vec<(I, E)>> for BroadcastError<I, E> {
+impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> {
     fn from(value: Vec<(I, E)>) -> Self {
         Self { failures: value }
     }
@@ -312,7 +312,7 @@ impl<I: TransportIdentity, E: BroadcasteableError> From<Vec<(I, E)>> for Broadca
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
     type RecordsStream: BytesStream;
-    type Error: BroadcasteableError + Send;
+    type Error: Debug + Send;
 
     /// Return my identity in the network (MPC or Sharded)
     fn identity(&self) -> Self::Identity;
@@ -358,6 +358,22 @@ pub trait Transport: Clone + Send + Sync + 'static {
         S: StepBinding,
         R: RouteParams<RouteId, Q, S> + Clone,
     {
+        let errs = self.broadcast_with_errors(route).await;
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs.into())
+        }
+    }
+
+    async fn broadcast_with_errors<Q, S, R>(&self, route: R) -> Vec<(Self::Identity, Self::Error)>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S> + Clone,
+    {
         let mut futs = FuturesUnordered::new();
         for peer_identity in self.peers() {
             futs.push(
@@ -373,11 +389,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
             }
         }
 
-        if errs.is_empty() {
-            Ok(())
-        } else {
-            Err(errs.into())
-        }
+        errs
     }
 
     /// Alias for `Clone::clone`.

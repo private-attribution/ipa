@@ -4,8 +4,8 @@ use axum::{
 };
 
 use crate::{
-    error::BoxError, helpers::BroadcasteableError, net::client::ResponseFromEndpoint,
-    protocol::QueryId, query::QueryStatus, sharding::ShardIndex,
+    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId, query::QueryStatus,
+    sharding::ShardIndex,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -144,22 +144,6 @@ pub struct ShardError {
     pub shard_index: ShardIndex,
     pub status: Option<QueryStatus>,
     pub source: Error,
-}
-
-impl BroadcasteableError for ShardError {
-    fn peer_state(&self) -> Option<QueryStatus> {
-        self.status
-    }
-}
-
-impl BroadcasteableError for Error {
-    fn peer_state(&self) -> Option<QueryStatus> {
-        let mut status = None;
-        if let Error::PeerState { peer_state } = self {
-            status = Some(peer_state);
-        }
-        status.copied()
-    }
 }
 
 impl IntoResponse for Error {

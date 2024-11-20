@@ -12,8 +12,8 @@ use crate::{
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
-        BroadcastError, BroadcasteableError, Gateway, GatewayConfig, MpcTransportError,
-        MpcTransportImpl, Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
+        BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
+        RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
