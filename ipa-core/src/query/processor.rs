@@ -584,6 +584,8 @@ mod tests {
     }
 
     impl TestComponents {
+        const COMPLETE_QUERY_RESULT: Vec<BA64> = Vec::new();
+
         fn new(mut args: TestComponentsArgs) -> Self {
             let mpc_network = InMemoryMpcNetwork::new(
                 args.mpc_handlers
@@ -629,7 +631,7 @@ mod tests {
                     join_handle: IpaRuntime::current().spawn(async {}),
                 }))
                 .unwrap();
-            tx.send(Ok(Box::new(Vec::<BA64>::new()))).unwrap();
+            tx.send(Ok(Box::new(Self::COMPLETE_QUERY_RESULT))).unwrap();
 
             QueryId
         }
@@ -807,13 +809,13 @@ mod tests {
     mod complete {
 
         use crate::{
-            helpers::{make_owned_handler, routing::RouteId, ApiError, Transport},
+            helpers::{make_owned_handler, routing::RouteId, Transport},
             query::{
                 processor::{
                     tests::{HelperResponse, TestComponents, TestComponentsArgs},
                     QueryId,
                 },
-                QueryCompletionError,
+                ProtocolResult, QueryCompletionError,
             },
             sharding::ShardIndex,
         };
@@ -823,13 +825,18 @@ mod tests {
             let t = TestComponents::default();
             let query_id = t.new_running_query().await;
 
-            t.processor
-                .complete(query_id, t.shard_transport.clone_ref())
-                .await
-                .unwrap();
+            assert_eq!(
+                TestComponents::COMPLETE_QUERY_RESULT.to_bytes(),
+                t.processor
+                    .complete(query_id, t.shard_transport.clone_ref())
+                    .await
+                    .unwrap()
+                    .to_bytes()
+            );
         }
 
         #[tokio::test]
+        #[should_panic(expected = "QueryCompletion(NoSuchQuery(QueryId))")]
         async fn complete_one_shard_fails() {
             let mut args = TestComponentsArgs::default();
 
@@ -850,7 +857,7 @@ mod tests {
                 .processor
                 .complete(query_id, t.shard_transport.clone_ref())
                 .await
-                .unwrap_err();
+                .unwrap();
         }
 
         #[tokio::test]
@@ -860,9 +867,7 @@ mod tests {
             args.set_shard_handler(|shard_id| {
                 make_owned_handler(move |_req, _| {
                     if shard_id == ShardIndex::FIRST {
-                        futures::future::err(ApiError::BadRequest(
-                            "Leader shard must not receive requests through shard channels".into(),
-                        ))
+                        panic!("Leader shard must not receive requests through shard channels");
                     } else {
                         futures::future::ok(HelperResponse::ok())
                     }

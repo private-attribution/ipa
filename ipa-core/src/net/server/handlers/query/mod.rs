@@ -35,7 +35,7 @@ use crate::{
 pub fn query_router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .merge(create::router(transport.clone()))
-        .merge(input::router(Arc::clone(&transport.inner_transport)))
+        .merge(input::router(transport.clone()))
         .merge(status::router(transport.clone()))
         .merge(kill::router(transport.clone()))
         .merge(results::router(transport.inner_transport))
@@ -61,13 +61,6 @@ pub fn s2s_router(transport: ShardHttpTransport) -> Router {
         .merge(prepare::router(Arc::clone(&transport.inner_transport)))
         .merge(results::router(transport.inner_transport))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
-}
-
-/// Client-to-shard routes. There are only a few cases where we expect parties
-/// to talk to individual shards. Input submission is one of them. This path does
-/// not require cert authentication.
-pub fn c2s_router(transport: &ShardHttpTransport) -> Router {
-    Router::new().merge(input::router(Arc::clone(&transport.inner_transport)))
 }
 
 /// Returns HTTP 401 Unauthorized if the request does not have valid authentication.

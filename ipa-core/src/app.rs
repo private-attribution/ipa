@@ -186,7 +186,7 @@ impl RequestHandler<ShardIndex> for Inner {
                 let req = req.into::<PrepareQuery>()?;
                 HelperResponse::from(qp.prepare_shard(&self.shard_transport, req)?)
             }
-            RouteId::QueryInput | RouteId::CompleteQuery => {
+            RouteId::CompleteQuery => {
                 // The processing flow for this API is exactly the same, regardless
                 // whether it was received from a peer shard or from report collector.
                 // Authentication is handled on the layer above, so we erase the identity
