@@ -4,8 +4,7 @@ use axum::{
 };
 
 use crate::{
-    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId,
-    sharding::ShardIndex,
+    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId, sharding::ShardIndex,
 };
 
 #[derive(thiserror::Error, Debug)]

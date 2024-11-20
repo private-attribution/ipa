@@ -353,9 +353,8 @@ impl Transport for ShardHttpTransport {
         self.inner_transport
             .send(dest, route, data)
             .map_err(|source| ShardError {
-                    shard_index: self.identity(),
-                    status,
-                    source,
+                shard_index: self.identity(),
+                source,
             })
             .await
     }

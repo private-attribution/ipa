@@ -12,7 +12,6 @@ use crate::helpers::in_memory_config::InspectContext;
 use crate::{
     helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
     protocol::{Gate, QueryId},
-    query::QueryStatus,
     sharding::ShardIndex,
 };
 
@@ -28,7 +27,9 @@ pub use handler::{
     make_owned_handler, Error as ApiError, HandlerBox, HandlerRef, HelperResponse, RequestHandler,
 };
 #[cfg(feature = "in-memory-infra")]
-pub use in_memory::{config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
+pub use in_memory::{
+    config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport, InMemoryTransportError,
+};
 use ipa_metrics::LabelValue;
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
@@ -286,13 +287,6 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
     fn extra(&self) -> Self::Params {
         ""
     }
-}
-
-/// Broadcast errors need to tell in what state their peer is so that the processor that's
-/// broadcasting knows how to handle the error. For example, if the peer is in Completed state it
-/// might want to handle the error differently than if the query hasn't been started.
-pub trait BroadcasteableError: Debug {
-    fn peer_state(&self) -> Option<QueryStatus>;
 }
 
 #[derive(thiserror::Error, Debug)]

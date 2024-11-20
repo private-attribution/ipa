@@ -220,8 +220,8 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
                 inner: "channel closed".into(),
             })?
             .map_err(|e| Error::Rejected {
-                    dest,
-                    inner: e.into(),
+                dest,
+                inner: e.into(),
             })?;
 
         Ok(())

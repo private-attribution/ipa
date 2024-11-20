@@ -362,6 +362,18 @@ impl Processor {
         Some(status)
     }
 
+    #[cfg(feature = "in-memory-infra")]
+    fn get_state_from_error(
+        _be: &crate::helpers::InMemoryTransportError<ShardIndex>,
+    ) -> Option<QueryStatus> {
+        todo!()
+    }
+
+    #[cfg(feature = "real-world-infra")]
+    fn get_state_from_error(be: &ShardError) -> QueryStatus {
+        todo!()
+    }
+
     /// Returns the query status in this helper, by querying all shards.
     ///
     /// ## Errors
@@ -392,7 +404,7 @@ impl Processor {
             let states: Vec<_> = e
                 .failures
                 .iter()
-                .filter_map(|(_si, error)| error.peer_state())
+                .filter_map(|(_si, e)| Self::get_state_from_error(e))
                 .collect();
             status = states.into_iter().fold(status, min_status);
         }
