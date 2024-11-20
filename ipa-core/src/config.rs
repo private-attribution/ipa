@@ -200,6 +200,22 @@ struct ShardedNetworkToml {
     pub client: ClientConfig,
 }
 
+impl ShardedNetworkToml {
+    fn missing_shard_ports(&self) -> Vec<usize> {
+        self.peers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, peer)| {
+                if peer.shard_port.is_some() {
+                    None
+                } else {
+                    Some(i)
+                }
+            })
+            .collect()
+    }
+}
+
 /// This struct is only used by [`parse_sharded_network_toml`] to generate [`PeerConfig`]. It
 /// contains an optional `shard_port`.
 #[derive(Clone, Debug, Deserialize)]
@@ -246,18 +262,7 @@ fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> 
     // Validate sharding config is set
     let any_shard_port_set = parsed.peers.iter().any(|peer| peer.shard_port.is_some());
     if any_shard_port_set || parsed.peers.len() > 3 {
-        let missing_ports: Vec<usize> = parsed
-            .peers
-            .iter()
-            .enumerate()
-            .filter_map(|(i, peer)| {
-                if peer.shard_port.is_some() {
-                    None
-                } else {
-                    Some(i)
-                }
-            })
-            .collect();
+        let missing_ports = parsed.missing_shard_ports();
         if !missing_ports.is_empty() {
             return Err(Error::MissingShardPorts(missing_ports));
         }
@@ -268,8 +273,10 @@ fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> 
 
 /// Reads a the config for a specific, single, sharded server from string. Expects config to be
 /// toml format. The server in the network is specified via `id`, `shard_index` and
-/// `shard_count`.
-/// The first 3 entries corresponds to the leaders Ring. H1 shard 0, H2, shard 0, and H3 shard 0.
+/// `shard_count`. This function expects shard ports to be set for all peers.
+///
+/// The first 3 peers corresponds to the leaders Ring. H1 shard 0, H2 shard 0, and H3 shard 0.
+/// The next 3 correspond to the next ring with `shard_index` equals 1 and so on.
 ///
 /// Other methods to read the network.toml exist depending on the use, for example
 /// [`NetworkConfig::from_toml_str`] reads a non-sharded config.
@@ -285,6 +292,10 @@ pub fn sharded_server_from_toml_str(
     shard_count: ShardIndex,
 ) -> Result<(NetworkConfig<Helper>, NetworkConfig<Shard>), Error> {
     let all_network = parse_sharded_network_toml(input)?;
+    let missing_ports = all_network.missing_shard_ports();
+    if !missing_ports.is_empty() {
+        return Err(Error::MissingShardPorts(missing_ports));
+    }
 
     let ix: usize = shard_index.as_index();
     let ix_count: usize = shard_count.as_index();
@@ -844,6 +855,21 @@ mod tests {
     fn parse_network_toml_shard_port_set() {
         assert!(matches!(
             parse_sharded_network_toml(&SHARDED_MISSING_PORTS_REPEAT),
+            Err(Error::MissingShardPorts(_))
+        ));
+    }
+
+    /// Check that shard ports are given for [`sharded_server_from_toml_str`] or error is returned.
+    #[test]
+    fn parse_sharded_without_shard_ports() {
+        // Second, I test the networkconfig parsing
+        assert!(matches!(
+            sharded_server_from_toml_str(
+                &NON_SHARDED_COMPAT,
+                HelperIdentity::TWO,
+                ShardIndex::FIRST,
+                ShardIndex::from(1)
+            ),
             Err(Error::MissingShardPorts(_))
         ));
     }
