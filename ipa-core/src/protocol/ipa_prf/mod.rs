@@ -59,9 +59,10 @@ pub(crate) mod shuffle;
 pub(crate) mod step;
 pub mod validation_protocol;
 
-pub type FirstProofGenerator = malicious_security::prover::SmallProofGenerator;
-pub type CompressedProofGenerator = malicious_security::prover::SmallProofGenerator;
-
+pub use malicious_security::{
+    CompressedProofGenerator, FirstProofGenerator, LagrangeTable, ProverTableIndices,
+    VerifierTableIndices,
+};
 pub use shuffle::Shuffle;
 
 /// Match key type

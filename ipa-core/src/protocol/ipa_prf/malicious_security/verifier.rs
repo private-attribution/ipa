@@ -1,9 +1,18 @@
-use std::iter::{self};
+use std::{
+    array,
+    iter::{self},
+};
 
 use crate::{
     ff::PrimeField,
-    protocol::ipa_prf::malicious_security::lagrange::{
-        CanonicalLagrangeDenominator, LagrangeTable,
+    protocol::{
+        context::{
+            dzkp_field::UVTable,
+            dzkp_validator::{MAX_PROOF_RECURSION, MIN_PROOF_RECURSION},
+        },
+        ipa_prf::malicious_security::{
+            CanonicalLagrangeDenominator, LagrangeTable, FIRST_RECURSION_FACTOR as FRF,
+        },
     },
     utils::arraychunks::ArrayChunkIterator,
 };
@@ -96,35 +105,30 @@ pub fn compute_final_sum_share<F: PrimeField, const L: usize, const P: usize>(zk
 }
 
 /// This function compresses the `u_or_v` values and returns the next `u_or_v` values.
-fn recurse_u_or_v<'a, F: PrimeField, J, const L: usize>(
-    u_or_v: J,
+fn recurse_u_or_v<'a, F: PrimeField, const L: usize>(
+    u_or_v: impl Iterator<Item = F> + 'a,
     lagrange_table: &'a LagrangeTable<F, L, 1>,
-) -> impl Iterator<Item = F> + 'a
-where
-    J: Iterator<Item = F> + 'a,
-{
-    u_or_v
-        .chunk_array::<L>()
-        .map(|x| lagrange_table.eval(&x)[0])
+) -> impl Iterator<Item = F> + 'a {
+    VerifierValues(u_or_v.chunk_array::<L>()).eval_at_r(lagrange_table)
 }
 
 /// This function recursively compresses the `u_or_v` values.
-/// The recursion factor (or compression) of the first recursion is `L_FIRST`
-/// The recursion factor of all following recursions is `L`.
-pub fn recursively_compute_final_check<F: PrimeField, J, const L_FIRST: usize, const L: usize>(
-    u_or_v: J,
+///
+/// The recursion factor (or compression) of the first recursion is fixed at
+/// `FIRST_RECURSION_FACTOR` (`FRF`). The recursion factor of all following recursions
+/// is `L`.
+pub fn recursively_compute_final_check<F: PrimeField, const L: usize>(
+    input: impl VerifierLagrangeInput<F, FRF>,
     challenges: &[F],
     p_or_q_0: F,
-) -> F
-where
-    J: Iterator<Item = F>,
-{
+) -> F {
+    // This function requires MIN_PROOF_RECURSION be at least 3.
+    assert!(challenges.len() >= MIN_PROOF_RECURSION && challenges.len() <= MAX_PROOF_RECURSION);
     let recursions_after_first = challenges.len() - 1;
 
     // compute Lagrange tables
-    let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, L_FIRST>::new();
-    let table_first =
-        LagrangeTable::<F, L_FIRST, 1>::new(&denominator_p_or_q_first, &challenges[0]);
+    let denominator_p_or_q_first = CanonicalLagrangeDenominator::<F, FRF>::new();
+    let table_first = LagrangeTable::<F, FRF, 1>::new(&denominator_p_or_q_first, &challenges[0]);
     let denominator_p_or_q = CanonicalLagrangeDenominator::<F, L>::new();
     let tables = challenges[1..]
         .iter()
@@ -133,11 +137,10 @@ where
 
     // generate & evaluate recursive streams
     // to compute last array
-    let mut iterator: Box<dyn Iterator<Item = F>> =
-        Box::new(recurse_u_or_v::<_, _, L_FIRST>(u_or_v, &table_first));
+    let mut iterator: Box<dyn Iterator<Item = F>> = Box::new(input.eval_at_r(&table_first));
     // all following recursion except last one
     for lagrange_table in tables.iter().take(recursions_after_first - 1) {
-        iterator = Box::new(recurse_u_or_v::<_, _, L>(iterator, lagrange_table));
+        iterator = Box::new(recurse_u_or_v(iterator, lagrange_table));
     }
     let last_u_or_v_values = iterator.collect::<Vec<F>>();
     // Make sure there are less than L last u or v values. The prover is expected to continue
@@ -162,18 +165,127 @@ where
     tables.last().unwrap().eval(&last_array)[0]
 }
 
+/// Trait for inputs to Lagrange interpolation on the verifier.
+///
+/// Lagrange interpolation is used in the verifier to evaluate polynomials at the
+/// randomly chosen challenge point _r_.
+///
+/// There are two implementations of this trait: `VerifierTableIndices`, and
+/// `VerifierValues`. `VerifierTableIndices` is used for the input to the first proof.
+/// Each set of 4 _u_ or _v_ values input to the first proof has one of eight possible
+/// values, determined by the values of the 3 associated multiplication intermediates.
+/// The `VerifierTableIndices` implementation uses a lookup table containing the output
+/// of the Lagrange interpolation for each of these eight possible values. The
+/// `VerifierValues` implementation, which represents actual _u_ and _v_ values, is used
+/// by the remaining recursive proofs.
+///
+/// There is a similar trait `ProverLagrangeInput` in `prover.rs`. The prover operates
+/// on _u_ and _v_ values simultaneously (i.e. iterators of tuples). The verifier
+/// operates on only one of _u_ or _v_ at a time.
+pub trait VerifierLagrangeInput<F: PrimeField, const L: usize> {
+    fn eval_at_r<'a>(
+        self,
+        lagrange_table: &'a LagrangeTable<F, L, 1>,
+    ) -> impl Iterator<Item = F> + 'a
+    where
+        Self: 'a;
+}
+
+/// Implementation of `VerifierLagrangeInput` for table indices, used for the first proof.
+pub struct VerifierTableIndices<'a, F: PrimeField, I: Iterator<Item = u8>> {
+    pub input: I,
+    pub table: &'a UVTable<F>,
+}
+
+/// Iterator producted by `VerifierTableIndices::eval_at_r`.
+struct TableIndicesIterator<F: PrimeField, I: Iterator<Item = u8>> {
+    input: I,
+    table: [F; 8],
+}
+
+impl<F: PrimeField, I: Iterator<Item = u8>> VerifierLagrangeInput<F, FRF>
+    for VerifierTableIndices<'_, F, I>
+{
+    fn eval_at_r<'a>(
+        self,
+        lagrange_table: &'a LagrangeTable<F, FRF, 1>,
+    ) -> impl Iterator<Item = F> + 'a
+    where
+        Self: 'a,
+    {
+        TableIndicesIterator {
+            input: self.input,
+            table: array::from_fn(|i| lagrange_table.eval(&self.table[i])[0]),
+        }
+    }
+}
+
+impl<F: PrimeField, I: Iterator<Item = u8>> Iterator for TableIndicesIterator<F, I> {
+    type Item = F;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.input
+            .next()
+            .map(|index| self.table[usize::from(index)])
+    }
+}
+
+/// Implementation of `VerifierLagrangeInput` for _u_ and _v_ values, used for
+/// subsequent recursive proofs.
+pub struct VerifierValues<F: PrimeField, const L: usize, I: Iterator<Item = [F; L]>>(pub I);
+
+/// Iterator returned by `ProverValues::eval_at_r`.
+struct ValuesEvalAtRIterator<'a, F: PrimeField, const L: usize, I: Iterator<Item = [F; L]>> {
+    input: I,
+    lagrange_table: &'a LagrangeTable<F, L, 1>,
+}
+
+impl<'a, F: PrimeField, const L: usize, I: Iterator<Item = [F; L]>> Iterator
+    for ValuesEvalAtRIterator<'a, F, L, I>
+{
+    type Item = F;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.input
+            .next()
+            .map(|values| self.lagrange_table.eval(&values)[0])
+    }
+}
+
+impl<F: PrimeField, const L: usize, I: Iterator<Item = [F; L]>> VerifierLagrangeInput<F, L>
+    for VerifierValues<F, L, I>
+{
+    fn eval_at_r<'a>(
+        self,
+        lagrange_table: &'a LagrangeTable<F, L, 1>,
+    ) -> impl Iterator<Item = F> + 'a
+    where
+        Self: 'a,
+    {
+        ValuesEvalAtRIterator {
+            input: self.0,
+            lagrange_table,
+        }
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
+    use rand::Rng;
+
+    use super::*;
     use crate::{
         ff::{Fp31, U128Conversions},
-        protocol::ipa_prf::malicious_security::{
-            lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-            verifier::{
-                compute_g_differences, compute_sum_share, interpolate_at_r, recurse_u_or_v,
-                recursively_compute_final_check,
+        protocol::{
+            context::{
+                dzkp_field::{tests::reference_convert, TABLE_U, TABLE_V},
+                dzkp_validator::{MultiplicationInputsBlock, BIT_ARRAY_LEN},
             },
+            ipa_prf::malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
         },
         secret_sharing::SharedValue,
+        test_executor::run_random,
+        utils::arraychunks::ArrayChunkIterator,
     };
 
     fn to_field(a: &[u128]) -> Vec<Fp31> {
@@ -292,12 +404,11 @@ mod test {
         let tables: [LagrangeTable<Fp31, 4, 1>; 3] = CHALLENGES
             .map(|r| LagrangeTable::new(&denominator_p_or_q, &Fp31::try_from(r).unwrap()));
 
-        let u_or_v_2 = recurse_u_or_v::<_, _, 4>(to_field(&U_1).into_iter(), &tables[0])
-            .collect::<Vec<Fp31>>();
+        let u_or_v_2 =
+            recurse_u_or_v::<_, 4>(to_field(&U_1).into_iter(), &tables[0]).collect::<Vec<Fp31>>();
         assert_eq!(u_or_v_2, to_field(&U_2));
 
-        let u_or_v_3 =
-            recurse_u_or_v::<_, _, 4>(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
+        let u_or_v_3 = recurse_u_or_v::<_, 4>(u_or_v_2.into_iter(), &tables[1]).collect::<Vec<_>>();
 
         assert_eq!(u_or_v_3, to_field(&U_3[..2]));
 
@@ -309,12 +420,12 @@ mod test {
         ];
 
         let p_final =
-            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
+            recurse_u_or_v::<_, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_P_FINAL);
 
-        let p_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
-            to_field(&U_1).into_iter(),
+        let p_final_another_way = recursively_compute_final_check::<_, 4>(
+            VerifierValues(to_field(&U_1).into_iter().chunk_array::<4>()),
             &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
@@ -396,15 +507,15 @@ mod test {
 
         // final iteration
         let p_final =
-            recurse_u_or_v::<_, _, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
+            recurse_u_or_v::<_, 4>(u_or_v_3_masked.into_iter(), &tables[2]).collect::<Vec<_>>();
 
         assert_eq!(p_final[0].as_u128(), EXPECTED_Q_FINAL);
 
         // uv values in input format
         let v_1 = to_field(&V_1);
 
-        let q_final_another_way = recursively_compute_final_check::<Fp31, _, 4, 4>(
-            v_1.into_iter(),
+        let q_final_another_way = recursively_compute_final_check::<Fp31, 4>(
+            VerifierValues(v_1.into_iter().chunk_array::<4>()),
             &CHALLENGES
                 .map(|x| Fp31::try_from(x).unwrap())
                 .into_iter()
@@ -446,5 +557,62 @@ mod test {
             .collect::<Vec<_>>();
 
         assert_eq!(Fp31::ZERO, g_differences[0]);
+    }
+
+    #[test]
+    fn verifier_table_indices_equivalence() {
+        run_random(|mut rng| async move {
+            // This generates all the intermediates except _z_ randomly, and calculates
+            // _z_ from the others.
+            let block = rng.gen::<MultiplicationInputsBlock>();
+
+            let denominator = CanonicalLagrangeDenominator::new();
+            let r = rng.gen();
+            let lagrange_table_r = LagrangeTable::new(&denominator, &r);
+
+            // Test equivalence for _u_ values
+            assert!(VerifierTableIndices {
+                input: block
+                    .rotate_right()
+                    .table_indices_from_right_prover()
+                    .into_iter(),
+                table: &TABLE_U,
+            }
+            .eval_at_r(&lagrange_table_r)
+            .eq(VerifierValues((0..BIT_ARRAY_LEN).map(|i| {
+                reference_convert(
+                    block.x_left[i],
+                    block.x_right[i],
+                    block.y_left[i],
+                    block.y_right[i],
+                    block.prss_left[i],
+                    block.prss_right[i],
+                )
+                .0
+            }))
+            .eval_at_r(&lagrange_table_r)));
+
+            // Test equivalence for _v_ values
+            assert!(VerifierTableIndices {
+                input: block
+                    .rotate_left()
+                    .table_indices_from_left_prover()
+                    .into_iter(),
+                table: &TABLE_V,
+            }
+            .eval_at_r(&lagrange_table_r)
+            .eq(VerifierValues((0..BIT_ARRAY_LEN).map(|i| {
+                reference_convert(
+                    block.x_left[i],
+                    block.x_right[i],
+                    block.y_left[i],
+                    block.y_right[i],
+                    block.prss_left[i],
+                    block.prss_right[i],
+                )
+                .1
+            }))
+            .eval_at_r(&lagrange_table_r)));
+        });
     }
 }
