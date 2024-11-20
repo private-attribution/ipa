@@ -116,7 +116,7 @@ pub struct Accumulator<F, A, const REDUCE_INTERVAL: usize> {
     phantom_data: PhantomData<F>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 impl<F, A, const REDUCE_INTERVAL: usize> Accumulator<F, A, REDUCE_INTERVAL> {
     /// Return the raw accumulator value, which may not directly correspond to
     /// a valid value for `F`. This is intended for tests.
