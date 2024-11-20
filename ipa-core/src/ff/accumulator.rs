@@ -125,6 +125,12 @@ impl<F, A, const REDUCE_INTERVAL: usize> Accumulator<F, A, REDUCE_INTERVAL> {
     }
 }
 
+/// Create a new accumulator containing the specified value.
+///
+/// This is currently used only by tests, and for that purpose it is sufficient to
+/// access it via the concrete `Accumulator` type. To use it more generally, it would
+/// need to be made part of the trait (either by adding a `From` supertrait bound, or by
+/// adding a method in the trait to perform the operation).
 impl<F, A, const REDUCE_INTERVAL: usize> From<F> for Accumulator<F, A, REDUCE_INTERVAL>
 where
     A: Default + From<u128>,
@@ -228,6 +234,7 @@ where
 
 // Unoptimized implementation usable for any field.
 impl<F: Field> MultiplyAccumulator<F> for F {
+    #[inline]
     fn new() -> Self
     where
         Self: Sized,
@@ -235,10 +242,12 @@ impl<F: Field> MultiplyAccumulator<F> for F {
         F::ZERO
     }
 
+    #[inline]
     fn multiply_accumulate(&mut self, lhs: F, rhs: F) {
         *self += lhs * rhs;
     }
 
+    #[inline]
     fn take(self) -> F {
         self
     }
@@ -251,6 +260,7 @@ impl<F: Field> MultiplyAccumulator<F> for F {
 
 // Unoptimized implementation usable for any field. This version operates on arrays.
 impl<F: Field, const N: usize> MultiplyAccumulatorArray<F, N> for [F; N] {
+    #[inline]
     fn new() -> Self
     where
         Self: Sized,
@@ -258,12 +268,14 @@ impl<F: Field, const N: usize> MultiplyAccumulatorArray<F, N> for [F; N] {
         [F::ZERO; N]
     }
 
+    #[inline]
     fn multiply_accumulate(&mut self, lhs: &[F; N], rhs: &[F; N]) {
         for i in 0..N {
             self[i] += lhs[i] * rhs[i];
         }
     }
 
+    #[inline]
     fn take(self) -> [F; N] {
         self
     }
