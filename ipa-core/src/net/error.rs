@@ -4,7 +4,7 @@ use axum::{
 };
 
 use crate::{
-    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId, query::QueryStatus,
+    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId,
     sharding::ShardIndex,
 };
 
@@ -62,8 +62,6 @@ pub enum Error {
     },
     #[error("{error}")]
     Application { code: StatusCode, error: BoxError },
-    #[error("Peer is in an invalid state: {peer_state:?}")]
-    PeerState { peer_state: QueryStatus },
 }
 
 impl Error {
@@ -142,7 +140,6 @@ impl From<axum::extract::rejection::PathRejection> for Error {
 #[error("Error in shard {shard_index}: {source}")]
 pub struct ShardError {
     pub shard_index: ShardIndex,
-    pub status: Option<QueryStatus>,
     pub source: Error,
 }
 
@@ -167,8 +164,6 @@ impl IntoResponse for Error {
             | Self::FailedHttpRequest { .. }
             | Self::InvalidUri(_)
             | Self::MissingExtension(_) => StatusCode::INTERNAL_SERVER_ERROR,
-
-            Self::PeerState { .. } => StatusCode::PRECONDITION_FAILED,
 
             Self::Application { code, .. } => code,
         };

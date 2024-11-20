@@ -28,7 +28,6 @@ use crate::{
         Transport, TransportIdentity,
     },
     protocol::{Gate, QueryId},
-    query::{QueryStatus, QueryStatusError},
     sharding::ShardIndex,
     sync::{Arc, Weak},
 };
@@ -60,8 +59,6 @@ pub enum Error<I> {
         #[from]
         inner: serde_json::Error,
     },
-    #[error("Peer is in an invalid state: {peer_state:?}")]
-    PeerState { peer_state: QueryStatus },
 }
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
@@ -222,19 +219,9 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
                 dest,
                 inner: "channel closed".into(),
             })?
-            .map_err(|e: ApiError| {
-                if let ApiError::QueryStatus(QueryStatusError::DifferentStatus {
-                    my_status, ..
-                }) = e
-                {
-                    return Error::PeerState {
-                        peer_state: my_status,
-                    };
-                }
-                Error::Rejected {
+            .map_err(|e| Error::Rejected {
                     dest,
                     inner: e.into(),
-                }
             })?;
 
         Ok(())

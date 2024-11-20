@@ -352,16 +352,10 @@ impl Transport for ShardHttpTransport {
     {
         self.inner_transport
             .send(dest, route, data)
-            .map_err(|source: Error| {
-                let mut status = None;
-                if let Error::PeerState { peer_state } = source {
-                    status = Some(peer_state);
-                }
-                ShardError {
+            .map_err(|source| ShardError {
                     shard_index: self.identity(),
                     status,
                     source,
-                }
             })
             .await
     }
