@@ -183,6 +183,7 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
     let shard_index = ShardIndex::from(args.shard_index.expect("enforced by clap"));
     let shard_count = ShardIndex::from(args.shard_count.expect("enforced by clap"));
     assert!(shard_index < shard_count);
+    assert_eq!(args.tls_cert.is_some(), !args.disable_https);
 
     let (identity, server_tls) =
         create_client_identity(my_identity, args.tls_cert.clone(), args.tls_key.clone())?;
@@ -223,8 +224,13 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
 
     let network_config_path = args.network.as_deref().unwrap();
     let network_config_string = &fs::read_to_string(network_config_path)?;
-    let (mut mpc_network, mut shard_network) =
-        sharded_server_from_toml_str(network_config_string, my_identity, shard_index, shard_count)?;
+    let (mut mpc_network, mut shard_network) = sharded_server_from_toml_str(
+        network_config_string,
+        my_identity,
+        shard_index,
+        shard_count,
+        args.shard_port,
+    )?;
     mpc_network = mpc_network.override_scheme(&scheme);
     shard_network = shard_network.override_scheme(&scheme);
 
