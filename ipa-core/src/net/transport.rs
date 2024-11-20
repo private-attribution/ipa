@@ -493,12 +493,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        // let mpc_clients = IpaHttpClient::from_conf(
-        //     &IpaRuntime::current(),
-        //     &conf.leaders_ring().network,
-        //     &ClientIdentity::None,
-        // );
-
         let _helpers = make_helpers(conf).await;
         test_multiply_single_shard(&clients).await;
     }
