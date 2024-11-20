@@ -352,22 +352,6 @@ pub trait Transport: Clone + Send + Sync + 'static {
         S: StepBinding,
         R: RouteParams<RouteId, Q, S> + Clone,
     {
-        let errs = self.broadcast_with_errors(route).await;
-        if errs.is_empty() {
-            Ok(())
-        } else {
-            Err(errs.into())
-        }
-    }
-
-    async fn broadcast_with_errors<Q, S, R>(&self, route: R) -> Vec<(Self::Identity, Self::Error)>
-    where
-        Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
-        Q: QueryIdBinding,
-        S: StepBinding,
-        R: RouteParams<RouteId, Q, S> + Clone,
-    {
         let mut futs = FuturesUnordered::new();
         for peer_identity in self.peers() {
             futs.push(
@@ -383,7 +367,11 @@ pub trait Transport: Clone + Send + Sync + 'static {
             }
         }
 
-        errs
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs.into())
+        }
     }
 
     /// Alias for `Clone::clone`.

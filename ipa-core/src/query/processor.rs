@@ -377,7 +377,7 @@ impl Processor {
         None
     }
 
-    /// This helper is used by the in-memory stack to obtain the state of other shards via a 
+    /// This helper is used by the in-memory stack to obtain the state of other shards via a
     /// [`QueryStatusError::DifferentStatus`] error.
     /// TODO: Ideally broadcast should return a value, that we could use to parse the state instead
     /// of relying on errors.
@@ -391,7 +391,7 @@ impl Processor {
         None
     }
 
-    /// This helper is used by the HTTP stack to obtain the state of other shards via a 
+    /// This helper is used by the HTTP stack to obtain the state of other shards via a
     /// [`QueryStatusError::DifferentStatus`] error.
     /// TODO: Ideally broadcast should return a value, that we could use to parse the state instead
     /// of relying on errors.
