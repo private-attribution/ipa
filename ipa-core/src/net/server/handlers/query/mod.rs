@@ -19,9 +19,12 @@ use futures_util::{
 use hyper::{Request, StatusCode};
 use tower::{layer::layer_fn, Service};
 
-use crate::net::{
-    server::ClientIdentity, transport::MpcHttpTransport, ConnectionFlavor, Helper, Shard,
-    ShardHttpTransport,
+use crate::{
+    net::{
+        server::ClientIdentity, transport::MpcHttpTransport, ConnectionFlavor, Helper, Shard,
+        ShardHttpTransport,
+    },
+    sync::Arc,
 };
 
 /// Construct router for IPA query web service
@@ -32,10 +35,10 @@ use crate::net::{
 pub fn query_router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .merge(create::router(transport.clone()))
-        .merge(input::router(transport.clone()))
+        .merge(input::router(Arc::clone(&transport.inner_transport)))
         .merge(status::router(transport.clone()))
         .merge(kill::router(transport.clone()))
-        .merge(results::router(transport))
+        .merge(results::router(transport.inner_transport))
 }
 
 /// Construct router for helper-to-helper communications
@@ -55,8 +58,16 @@ pub fn h2h_router(transport: MpcHttpTransport) -> Router {
 /// Construct router for shard-to-shard communications similar to [`h2h_router`].
 pub fn s2s_router(transport: ShardHttpTransport) -> Router {
     Router::new()
-        .merge(prepare::router(transport.inner_transport))
+        .merge(prepare::router(Arc::clone(&transport.inner_transport)))
+        .merge(results::router(transport.inner_transport))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
+}
+
+/// Client-to-shard routes. There are only a few cases where we expect parties
+/// to talk to individual shards. Input submission is one of them. This path does
+/// not require cert authentication.
+pub fn c2s_router(transport: &ShardHttpTransport) -> Router {
+    Router::new().merge(input::router(Arc::clone(&transport.inner_transport)))
 }
 
 /// Returns HTTP 401 Unauthorized if the request does not have valid authentication.

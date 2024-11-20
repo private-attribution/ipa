@@ -106,10 +106,14 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
                 self.clients[client_ix].prepare_query(req).await
             }
+            RouteId::CompleteQuery => {
+                let query_id = <Option<QueryId>>::from(route.query_id())
+                    .expect("query_id is required to call complete query API");
+                self.clients[client_ix].complete_query(query_id).await
+            }
             evt @ (RouteId::QueryInput
             | RouteId::ReceiveQuery
             | RouteId::QueryStatus
-            | RouteId::CompleteQuery
             | RouteId::KillQuery) => {
                 unimplemented!(
                     "attempting to send client-specific request {evt:?} to another helper"
@@ -478,13 +482,15 @@ mod tests {
     }
 
     async fn test_make_helpers(conf: TestConfig) {
-        let clients = IpaHttpClient::from_conf(
+        let mpc_clients = IpaHttpClient::from_conf(
             &IpaRuntime::current(),
             &conf.leaders_ring().network,
             &ClientIdentity::None,
         );
+        let shard_clients = conf.shard_clients();
+
         let _helpers = make_helpers(conf).await;
-        test_multiply(&clients).await;
+        test_multiply_single_shard(&mpc_clients, shard_clients.each_ref().map(AsRef::as_ref)).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -495,13 +501,26 @@ mod tests {
             &conf.leaders_ring().network,
             &ClientIdentity::None,
         );
+        let shard_clients = conf.shard_clients();
+        let shard_clients_ref = shard_clients.each_ref().map(AsRef::as_ref);
         let _helpers = make_helpers(conf).await;
 
-        test_multiply(&clients).await;
-        test_multiply(&clients).await;
+        test_multiply_single_shard(&clients, shard_clients_ref).await;
+        test_multiply_single_shard(&clients, shard_clients_ref).await;
     }
 
-    async fn test_multiply(clients: &[IpaHttpClient<Helper>; 3]) {
+    /// This executes test multiplication protocol by running it exclusively on the leader shards.
+    /// If there is more than one shard in the system, they receive no inputs but still participate
+    /// by doing the full query cycle. It is backward compatible with traditional 3-party MPC with
+    /// no shards.
+    ///
+    /// The sharding requires some amendments to the test multiplication protocol that are
+    /// currently in progress. Once completed, this test can be fixed by fully utilizing all
+    /// shards in the system.
+    async fn test_multiply_single_shard(
+        clients: &[IpaHttpClient<Helper>; 3],
+        shard_clients: [&[IpaHttpClient<Shard>]; 3],
+    ) {
         const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
 
         // send a create query command
@@ -531,6 +550,19 @@ mod tests {
             handle_resps.push(clients[i].query_input(data));
         }
         try_join_all(handle_resps).await.unwrap();
+
+        // shards receive their own input - in this case empty
+        try_join_all(shard_clients.each_ref().map(|helper_shard_clients| {
+            // convention - first client is shard leader, and we submitted the inputs to it.
+            try_join_all(helper_shard_clients.iter().skip(1).map(|shard_client| {
+                shard_client.query_input(QueryInput {
+                    query_id,
+                    input_stream: BodyStream::empty(),
+                })
+            }))
+        }))
+        .await
+        .unwrap();
 
         let result: [_; 3] = join_all(clients.clone().map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();

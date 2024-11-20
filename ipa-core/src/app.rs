@@ -177,7 +177,7 @@ impl RequestHandler<ShardIndex> for Inner {
     async fn handle(
         &self,
         req: Addr<ShardIndex>,
-        _data: BodyStream,
+        data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
         let qp = &self.query_processor;
 
@@ -185,6 +185,13 @@ impl RequestHandler<ShardIndex> for Inner {
             RouteId::PrepareQuery => {
                 let req = req.into::<PrepareQuery>()?;
                 HelperResponse::from(qp.prepare_shard(&self.shard_transport, req)?)
+            }
+            RouteId::QueryInput | RouteId::CompleteQuery => {
+                // The processing flow for this API is exactly the same, regardless
+                // whether it was received from a peer shard or from report collector.
+                // Authentication is handled on the layer above, so we erase the identity
+                // and pass it down to the MPC handler.
+                RequestHandler::<HelperIdentity>::handle(self, req.erase_origin(), data).await?
             }
             r => {
                 return Err(ApiError::BadRequest(

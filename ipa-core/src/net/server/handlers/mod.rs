@@ -17,6 +17,8 @@ pub fn mpc_router(transport: MpcHttpTransport) -> Router {
 pub fn shard_router(transport: ShardHttpTransport) -> Router {
     echo::router().nest(
         http_serde::query::BASE_AXUM_PATH,
-        Router::new().merge(query::s2s_router(transport)),
+        Router::new()
+            .merge(query::c2s_router(&transport))
+            .merge(query::s2s_router(transport)),
     )
 }

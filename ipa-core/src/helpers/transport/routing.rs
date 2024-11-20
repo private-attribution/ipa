@@ -49,6 +49,18 @@ impl<I: TransportIdentity> Addr<I> {
         }
     }
 
+    /// Drop the origin value and convert this into a request for a different identity type.
+    /// Useful when we need to handle this request in both shard and MPC handlers.
+    pub fn erase_origin<T: TransportIdentity>(self) -> Addr<T> {
+        Addr {
+            route: self.route,
+            origin: None,
+            query_id: self.query_id,
+            gate: self.gate,
+            params: self.params,
+        }
+    }
+
     /// Deserializes JSON-encoded request parameters into a client-supplied type `T`.
     ///
     /// ## Errors

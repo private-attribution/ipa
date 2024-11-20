@@ -305,6 +305,19 @@ impl TestConfig {
         }
     }
 
+    /// Returns full set of clients to talk to each individual shard in the MPC.
+    #[must_use]
+    pub fn shard_clients(&self) -> [Vec<IpaHttpClient<Shard>>; 3] {
+        let shard_clients = HelperIdentity::make_three().map(|id| {
+            IpaHttpClient::shards_from_conf(
+                &IpaRuntime::current(),
+                &self.get_shards_for_helper(id).network,
+                &ClientIdentity::None,
+            )
+        });
+        shard_clients
+    }
+
     /// Transforms this easy to modify configuration into an easy to run [`TestApp`].
     #[must_use]
     pub fn into_apps(self) -> Vec<TestApp> {
