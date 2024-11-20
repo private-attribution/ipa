@@ -169,25 +169,16 @@ impl MultiplicationInputsBlock {
 #[cfg(any(test, feature = "enable-benches"))]
 impl rand::prelude::Distribution<MultiplicationInputsBlock> for rand::distributions::Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> MultiplicationInputsBlock {
-        // Generate a random valid block of muliplication intermediates. "Valid" means
-        // that the _z_ intermediate is computed from the other intermediates as an
-        // honest helper would.
         let sample = <Self as rand::prelude::Distribution<[u8; 32]>>::sample;
-        let mut block = MultiplicationInputsBlock {
+        MultiplicationInputsBlock {
             x_left: sample(self, rng).into(),
             x_right: sample(self, rng).into(),
             y_left: sample(self, rng).into(),
             y_right: sample(self, rng).into(),
             prss_left: sample(self, rng).into(),
             prss_right: sample(self, rng).into(),
-            z_right: [0u8; 32].into(),
-        };
-        block.z_right = (block.x_left & block.y_left)
-            ^ (block.x_left & block.y_right)
-            ^ (block.x_right & block.y_left)
-            ^ block.prss_left
-            ^ block.prss_right;
-        block
+            z_right: sample(self, rng).into(),
+        }
     }
 }
 

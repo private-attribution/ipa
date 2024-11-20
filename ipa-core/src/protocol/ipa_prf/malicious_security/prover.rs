@@ -815,8 +815,6 @@ mod test {
             const FPL: usize = FirstProofGenerator::PROOF_LENGTH;
             const FLL: usize = FirstProofGenerator::LAGRANGE_LENGTH;
 
-            // This generates all the intermediates except _z_ randomly, and calculates
-            // _z_ from the others.
             let block = rng.gen::<MultiplicationInputsBlock>();
 
             // Test equivalence for extrapolate_y_values

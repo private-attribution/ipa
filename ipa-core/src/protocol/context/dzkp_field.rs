@@ -421,9 +421,9 @@ pub mod tests {
 
     impl MultiplicationInputsBlock {
         /// Rotate the "right" values into the "left" values, setting the right values
-        /// to zero. _z_ is not modified. If the input represents a prover's block of
-        /// intermediates, the output represents the intermediates that the verifier on
-        /// the right shares with that prover.
+        /// to zero. If the input represents a prover's block of intermediates, the
+        /// output represents the intermediates that the verifier on the prover's right
+        /// shares with it.
         #[must_use]
         pub fn rotate_left(&self) -> Self {
             Self {
@@ -433,16 +433,22 @@ pub mod tests {
                 x_right: [0u8; 32].into(),
                 y_right: [0u8; 32].into(),
                 prss_right: [0u8; 32].into(),
-                z_right: self.z_right,
+                z_right: [0u8; 32].into(),
             }
         }
 
         /// Rotate the "left" values into the "right" values, setting the left values to
-        /// zero. _z_ is not modified. If the input represents a prover's block of
-        /// intermediates, the output represents the intermediates that the verifier on
-        /// the left shares with that prover.
+        /// zero. `z_right` is calculated to be consistent with the other values. If the
+        /// input represents a prover's block of intermediates, the output represents
+        /// the intermediates that the verifier on the prover's left shares with it.
         #[must_use]
         pub fn rotate_right(&self) -> Self {
+            let z_right = (self.x_left & self.y_left)
+                ^ (self.x_left & self.y_right)
+                ^ (self.x_right & self.y_left)
+                ^ self.prss_left
+                ^ self.prss_right;
+
             Self {
                 x_right: self.x_left,
                 y_right: self.y_left,
@@ -450,7 +456,7 @@ pub mod tests {
                 x_left: [0u8; 32].into(),
                 y_left: [0u8; 32].into(),
                 prss_left: [0u8; 32].into(),
-                z_right: self.z_right,
+                z_right,
             }
         }
     }
@@ -458,17 +464,13 @@ pub mod tests {
     #[test]
     fn batch_convert() {
         run_random(|mut rng| async move {
-            // This generates all the intermediates except _z_ randomly, and calculates
-            // _z_ from the others.
             let block = rng.gen::<MultiplicationInputsBlock>();
 
-            // check consistency of the polynomials
+            // When verifying, we rotate the intermediates to match what each prover
+            // would have. `rotate_right` also calculates z_right from the others.
             assert_convert(
                 block.table_indices_prover(),
-                // flip inputs right to left since it is checked against itself and not party on the left
-                // z_right is set to match z_left
                 block.rotate_right().table_indices_from_right_prover(),
-                // flip inputs right to left since it is checked against itself and not party on the left
                 block.rotate_left().table_indices_from_left_prover(),
             );
         });

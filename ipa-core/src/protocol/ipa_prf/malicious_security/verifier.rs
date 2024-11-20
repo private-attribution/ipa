@@ -562,8 +562,6 @@ mod test {
     #[test]
     fn verifier_table_indices_equivalence() {
         run_random(|mut rng| async move {
-            // This generates all the intermediates except _z_ randomly, and calculates
-            // _z_ from the others.
             let block = rng.gen::<MultiplicationInputsBlock>();
 
             let denominator = CanonicalLagrangeDenominator::new();
