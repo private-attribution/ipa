@@ -122,6 +122,7 @@ impl ShardConfiguration for &Gateway {
     }
 
     fn shard_count(&self) -> ShardIndex {
+        // total number of shards include this instance and all its peers, so we add 1.
         ShardIndex::from(self.transports.shard.peer_count() + 1)
     }
 }

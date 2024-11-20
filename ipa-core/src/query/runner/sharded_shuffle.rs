@@ -18,6 +18,9 @@ use crate::{
     sync::Arc,
 };
 
+/// This executes the sharded shuffle protocol that consists of only one step:
+/// permute the private inputs using a permutation that is not known to any helper
+/// and client.
 pub async fn execute_sharded_shuffle<'a>(
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
