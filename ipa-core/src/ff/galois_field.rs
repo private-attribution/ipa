@@ -13,7 +13,7 @@ use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use crate::{
     error::LengthError,
-    ff::{boolean_array::NonZeroPadding, Field, Serializable, U128Conversions},
+    ff::{boolean_array::NonZeroPadding, Field, MultiplyAccumulate, Serializable, U128Conversions},
     impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -178,6 +178,12 @@ macro_rules! bit_array_impl {
                 const NAME: &'static str = stringify!($field);
 
                 const ONE: Self = Self($one);
+            }
+
+            // Note: The multiply-accumulate tests are not currently instantiated for Galois fields.
+            impl MultiplyAccumulate for $name {
+                type Accumulator = $name;
+                type AccumulatorArray<const N: usize> = [$name; N];
             }
 
             impl U128Conversions for $name {
