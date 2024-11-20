@@ -1,4 +1,4 @@
-//! Benchmark for the convert_prover function in dzkp_field.rs.
+//! Benchmark for the table_indices_prover function in dzkp_field.rs.
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use ipa_core::protocol::context::dzkp_validator::MultiplicationInputsBlock;
@@ -9,7 +9,7 @@ fn convert_prover_benchmark(c: &mut Criterion) {
     group.bench_function("convert", |b| {
         b.iter_batched_ref(
             || thread_rng().gen(),
-            |input| input.table_indices_prover(),
+            |input: &mut MultiplicationInputsBlock| input.table_indices_prover(),
             BatchSize::SmallInput,
         )
     });

@@ -166,7 +166,7 @@ impl MultiplicationInputsBlock {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "enable-benches"))]
 impl rand::prelude::Distribution<MultiplicationInputsBlock> for rand::distributions::Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> MultiplicationInputsBlock {
         // Generate a random valid block of muliplication intermediates. "Valid" means
