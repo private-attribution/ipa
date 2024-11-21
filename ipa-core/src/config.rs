@@ -331,11 +331,13 @@ pub fn sharded_server_from_toml_str(
         // and modify the port.
         let mut myself = ShardedPeerConfigToml::to_mpc_peer(all_network.peers.get(mpc_id).unwrap());
         let url = myself.url.to_string();
-        let new_url = format!(
-            "{}{}",
-            &url[..=url.find(':').unwrap()],
-            shard_port.expect("Shard port should be set")
-        );
+        let pos = url.rfind(':');
+        let port = shard_port.expect("Shard port should be set");
+        let new_url = if pos.is_some() {
+            format!("{}{port}", &url[..=pos.unwrap()])
+        } else {
+            format!("{}:{port}", &url)
+        };
         myself.url = Uri::from_str(&new_url).expect("Problem creating uri with sharded port");
         let shard_network = NetworkConfig {
             peers: vec![myself],
@@ -886,6 +888,26 @@ mod tests {
     fn parse_sharded_without_shard_urls() {
         let (mpc, mut shard) = sharded_server_from_toml_str(
             &NON_SHARDED_COMPAT,
+            HelperIdentity::ONE,
+            ShardIndex::FIRST,
+            ShardIndex::from(1),
+            Some(666),
+        )
+        .unwrap();
+        assert_eq!(1, shard.peers.len());
+        assert_eq!(3, mpc.peers.len());
+        assert_eq!(
+            "helper1.org:666",
+            shard.peers.pop().unwrap().url.to_string()
+        );
+    }
+
+    /// Check that [`sharded_server_from_toml_str`] can work in the previous format, even when the
+    /// given MPC URL doesn't have a port (NOTE: helper 2 doesn't specify it).
+    #[test]
+    fn parse_sharded_without_shard_urls_no_port() {
+        let (mpc, mut shard) = sharded_server_from_toml_str(
+            &NON_SHARDED_COMPAT,
             HelperIdentity::TWO,
             ShardIndex::FIRST,
             ShardIndex::from(1),
@@ -988,6 +1010,7 @@ a6L0t1Ug8i2RcequSo21x319Tvs5nUbGwzMFSS5wKA==
 url = "helper1.org:443""#;
 
     /// The rest of a configuration
+    /// Note the second helper doesn't provide a port as part of its url
     const REST: &str = r#"
 [peers.hpke]
 public_key = "f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756"
@@ -1006,7 +1029,7 @@ zj0EAwIDSAAwRQIhAI4G5ICVm+v5KK5Y8WVetThtNCXGykUBAM1eE973FBOUAiAS
 XXgJe9q9hAfHf0puZbv0j0tGY3BiqCkJJaLvK7ba+g==
 -----END CERTIFICATE-----
 """
-url = "helper2.org:443"
+url = "helper2.org"
 
 [peers.hpke]
 public_key = "62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22"
