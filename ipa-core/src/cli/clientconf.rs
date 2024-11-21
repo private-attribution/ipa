@@ -17,6 +17,9 @@ pub struct ConfGenArgs {
     #[arg(short, long, num_args = 3, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
     ports: Vec<u16>,
 
+    #[arg(short, long, num_args = 3, value_name = "SHARD_PORTS", default_values = vec!["6000", "6001", "6002"])]
+    shard_ports: Vec<u16>,
+
     #[arg(long, num_args = 3, default_values = vec!["localhost", "localhost", "localhost"])]
     hosts: Vec<String>,
 
@@ -54,13 +57,14 @@ pub struct ConfGenArgs {
 /// [`ConfGenArgs`]: ConfGenArgs
 /// [`Paths`]: crate::cli::paths::PathExt
 pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
-    let clients_conf: [_; 3] = zip(args.hosts.iter(), args.ports)
+    let clients_conf: [_; 3] = zip(args.hosts.iter(), zip(args.ports, args.shard_ports))
         .enumerate()
-        .map(|(id, (host, port))| {
+        .map(|(id, (host, (port, shard_port)))| {
             let id: u8 = u8::try_from(id).unwrap() + 1;
             HelperClientConf {
                 host,
                 port,
+                shard_port,
                 tls_cert_file: args.keys_dir.helper_tls_cert(id),
                 mk_public_key_file: args.keys_dir.helper_mk_public_key(id),
             }
@@ -96,6 +100,7 @@ pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
 pub struct HelperClientConf<'a> {
     pub(crate) host: &'a str,
     pub(crate) port: u16,
+    pub(crate) shard_port: u16,
     pub(crate) tls_cert_file: PathBuf,
     pub(crate) mk_public_key_file: PathBuf,
 }
@@ -131,6 +136,14 @@ pub fn gen_client_config<'a>(
                 "{host}:{port}",
                 host = client_conf.host,
                 port = client_conf.port
+            )),
+        );
+        peer.insert(
+            String::from("shard_url"),
+            Value::String(format!(
+                "{host}:{port}",
+                host = client_conf.host,
+                port = client_conf.shard_port
             )),
         );
         peer.insert(String::from("certificate"), Value::String(certificate));
