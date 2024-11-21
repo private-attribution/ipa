@@ -28,7 +28,7 @@ use crate::{
         ShardChannelId, TotalRecords, Transport,
     },
     protocol::QueryId,
-    sharding::ShardIndex,
+    sharding::{ShardConfiguration, ShardIndex},
     sync::{Arc, Mutex},
     utils::NonZeroU32PowerOfTwo,
 };
@@ -104,6 +104,27 @@ pub struct GatewayConfig {
     /// send/receive requests
     #[cfg(feature = "stall-detection")]
     pub progress_check_interval: std::time::Duration,
+}
+
+impl ShardConfiguration for Gateway {
+    fn shard_id(&self) -> ShardIndex {
+        ShardConfiguration::shard_id(&self)
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        ShardConfiguration::shard_count(&self)
+    }
+}
+
+impl ShardConfiguration for &Gateway {
+    fn shard_id(&self) -> ShardIndex {
+        self.transports.shard.identity()
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        // total number of shards include this instance and all its peers, so we add 1.
+        ShardIndex::from(self.transports.shard.peer_count() + 1)
+    }
 }
 
 impl Gateway {

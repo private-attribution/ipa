@@ -314,6 +314,13 @@ pub trait Transport: Clone + Send + Sync + 'static {
     /// Returns all the other identities, besides me, in this network.
     fn peers(&self) -> impl Iterator<Item = Self::Identity>;
 
+    /// The number of peers on the network. Default implementation may not be efficient,
+    /// because it uses [`Self::peers`] to count, so implementations are encouraged to
+    /// override it
+    fn peer_count(&self) -> u32 {
+        u32::try_from(self.peers().count()).expect("Number of peers is less than 4B")
+    }
+
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
     /// party

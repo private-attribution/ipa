@@ -270,6 +270,10 @@ impl Transport for MpcHttpTransport {
             .filter(move |&id| id != this)
     }
 
+    fn peer_count(&self) -> u32 {
+        2
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
@@ -338,6 +342,10 @@ impl Transport for ShardHttpTransport {
     fn peers(&self) -> impl Iterator<Item = Self::Identity> {
         let this = self.identity();
         self.shard_count.iter().filter(move |&v| v != this)
+    }
+
+    fn peer_count(&self) -> u32 {
+        u32::from(self.shard_count).saturating_sub(1)
     }
 
     async fn send<D, Q, S, R>(
@@ -601,5 +609,34 @@ mod tests {
             .with_disable_https_option(true)
             .build();
         test_make_helpers(conf).await;
+    }
+
+    #[tokio::test]
+    async fn peer_count() {
+        fn new_transport<F: ConnectionFlavor>(identity: F::Identity) -> Arc<HttpTransport<F>> {
+            Arc::new(HttpTransport {
+                http_runtime: IpaRuntime::current(),
+                identity,
+                clients: Vec::new(),
+                handler: None,
+                record_streams: StreamCollection::default(),
+            })
+        }
+
+        assert_eq!(
+            2,
+            MpcHttpTransport {
+                inner_transport: new_transport(HelperIdentity::ONE)
+            }
+            .peer_count()
+        );
+        assert_eq!(
+            9,
+            ShardHttpTransport {
+                inner_transport: new_transport(ShardIndex::FIRST),
+                shard_count: 10.into()
+            }
+            .peer_count()
+        );
     }
 }

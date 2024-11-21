@@ -46,7 +46,8 @@ use crate::{
 };
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 use crate::{
-    ff::Fp32BitPrime, query::runner::execute_test_multiply, query::runner::test_add_in_prime_field,
+    ff::Fp32BitPrime, query::runner::execute_sharded_shuffle, query::runner::execute_test_multiply,
+    query::runner::test_add_in_prime_field,
 };
 
 pub trait Result: Send + Debug {
@@ -108,7 +109,7 @@ pub fn execute<R: PrivateKeyRegistry>(
             config,
             gateway,
             input,
-            |_prss, _gateway, _config, _input| unimplemented!(),
+            |prss, gateway, _config, input| Box::pin(execute_sharded_shuffle(prss, gateway, input)),
         ),
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::TestAddInPrimeField, FieldType::Fp31) => do_query(

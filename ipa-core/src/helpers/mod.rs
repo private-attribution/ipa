@@ -56,6 +56,7 @@ mod gateway_exports {
     pub type ShardReceivingEnd<M> = gateway::ShardReceivingEnd<M>;
 }
 
+pub use cross_shard_prss::gen_and_distribute as setup_cross_shard_prss;
 pub use gateway::GatewayConfig;
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
