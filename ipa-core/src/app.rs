@@ -166,7 +166,7 @@ impl HelperApp {
         Ok(self
             .inner
             .query_processor
-            .complete(query_id)
+            .complete(query_id, self.inner.shard_transport.clone_ref())
             .await?
             .to_bytes())
     }
@@ -182,7 +182,7 @@ impl RequestHandler<ShardIndex> for Inner {
     async fn handle(
         &self,
         req: Addr<ShardIndex>,
-        _data: BodyStream,
+        data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
         let qp = &self.query_processor;
 
@@ -194,6 +194,13 @@ impl RequestHandler<ShardIndex> for Inner {
             RouteId::QueryStatus => {
                 let req = req.into::<CompareStatusRequest>()?;
                 HelperResponse::from(qp.shard_status(&self.shard_transport, &req)?)
+            }
+            RouteId::CompleteQuery => {
+                // The processing flow for this API is exactly the same, regardless
+                // whether it was received from a peer shard or from report collector.
+                // Authentication is handled on the layer above, so we erase the identity
+                // and pass it down to the MPC handler.
+                RequestHandler::<HelperIdentity>::handle(self, req.erase_origin(), data).await?
             }
             r => {
                 return Err(ApiError::BadRequest(
@@ -262,7 +269,10 @@ impl RequestHandler<HelperIdentity> for Inner {
             }
             RouteId::CompleteQuery => {
                 let query_id = ext_query_id(&req)?;
-                HelperResponse::from(qp.complete(query_id).await?)
+                HelperResponse::from(
+                    qp.complete(query_id, self.shard_transport.clone_ref())
+                        .await?,
+                )
             }
             RouteId::KillQuery => {
                 let query_id = ext_query_id(&req)?;
