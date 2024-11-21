@@ -137,7 +137,7 @@ where
 
     // validate everything before reveal
     ctx.validate_record(record_id).await?;
-    let (gr, z): (
+    let (gr, mut z): (
         <RP25519 as Vectorizable<N>>::Array,
         <Fp25519 as Vectorizable<N>>::Array,
     ) = try_join(
@@ -146,12 +146,13 @@ where
     )
     .await?;
 
-    //compute R^(1/z) to u64
-    Ok(zip(gr, z)
-        .map(|(gr, z)| u64::from(gr * z.invert()))
-        .collect::<Vec<_>>()
-        .try_into()
-        .expect("iteration over arrays"))
+     //compute R^(1/z) to u64
+     let inv_z = crate::ff::ec_prime_field::batch_invert::<N>(&mut z);
+     Ok(zip(gr, inv_z)
+         .map(|(gr, inv_z)| u64::from(gr * inv_z))
+         .collect::<Vec<_>>()
+         .try_into()
+         .expect("iteration over arrays"))
 }
 
 #[cfg(all(test, unit_test))]

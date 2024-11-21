@@ -14,7 +14,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare},
-        Block, FieldVectorizable, SharedValue, StdArray, Vectorizable,
+        Block, FieldVectorizable, SharedValue, StdArray, Vectorizable, SharedValueArray,
     },
 };
 
@@ -266,6 +266,30 @@ macro_rules! impl_share_from_random {
 }
 
 impl_share_from_random!(PRF_CHUNK);
+
+/*pub fn batch_invert<const N: usize>(inputs: &mut [Fp25519; N]){
+    let mut conv_input = inputs.iter().map(|x| x.0).collect::<Vec<Scalar>>();
+    Scalar::batch_invert(&mut conv_input);
+    for i in 0..N{
+        inputs[i] = Fp25519(conv_input[i]);
+    }
+}*/
+
+/*pub fn batch_invert(inputs: &mut [Fp25519]){
+    let mut conv_input = inputs.iter().map(|x| x.0).collect::<Vec<Scalar>>();
+    Scalar::batch_invert(&mut conv_input);
+    for i in 0..inputs.len(){
+        inputs[i] = Fp25519(conv_input[i]);
+    }
+}*/
+
+pub fn batch_invert<const N: usize>(inputs: &<Fp25519 as Vectorizable<N>>::Array) -> <Fp25519 as Vectorizable<N>>::Array
+where Fp25519: Vectorizable<N>,{
+    let mut inverted = inputs.clone().into_iter().map(|x| x.0).collect::<Vec<Scalar>>();
+    Scalar::batch_invert(&mut inverted);
+    <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| Fp25519(inverted[i]))
+}
+
 
 #[cfg(all(test, unit_test))]
 mod test {
