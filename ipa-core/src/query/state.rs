@@ -48,6 +48,11 @@ impl From<&QueryState> for QueryStatus {
     }
 }
 
+/// This function is used, among others, by the [`Processor`] to return a unified response when
+/// queried about the state of a sharded helper. In such scenarios, there will be many different
+/// [`QueryStatus`] and the [`Processor`] needs to return a single one that describes the entire
+/// helper. With this function we're saying that the minimum state across all shards is the one
+/// that describes the helper.
 #[must_use]
 pub fn min_status(a: QueryStatus, b: QueryStatus) -> QueryStatus {
     match (a, b) {
@@ -248,17 +253,22 @@ mod tests {
 
     #[test]
     fn test_order() {
-        assert_eq!(
-            min_status(QueryStatus::Preparing, QueryStatus::Preparing),
-            QueryStatus::Preparing
-        );
-        assert_eq!(
-            min_status(QueryStatus::Preparing, QueryStatus::Completed),
-            QueryStatus::Preparing
-        );
-        assert_eq!(
-            min_status(QueryStatus::AwaitingCompletion, QueryStatus::AwaitingInputs),
-            QueryStatus::AwaitingInputs
-        );
+        // this list sorted in priority order. Preparing is the lowest possible value,
+        // while Completed is the highest.
+        let all = [
+            QueryStatus::Preparing,
+            QueryStatus::AwaitingInputs,
+            QueryStatus::Running,
+            QueryStatus::AwaitingCompletion,
+            QueryStatus::Completed,
+        ];
+
+        for i in 0..all.len() {
+            let this = all[i];
+            for other in all.into_iter().skip(i) {
+                assert_eq!(this, min_status(this, other));
+                assert_eq!(this, min_status(other, this));
+            }
+        }
     }
 }

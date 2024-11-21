@@ -365,12 +365,11 @@ impl Processor {
     /// This helper function is used to transform a [`BoxError`] into a
     /// [`QueryStatusError::DifferentStatus`] and retrieve it's internal state. Returns [`None`]
     /// if not possible.
-    fn downcast_state_error(be: BoxError) -> Option<QueryStatus> {
-        let ae = be.downcast::<crate::helpers::ApiError>().ok()?;
-        if let crate::helpers::ApiError::QueryStatus(QueryStatusError::DifferentStatus {
-            my_status,
-            ..
-        }) = *ae
+    fn downcast_state_error(box_error: BoxError) -> Option<QueryStatus> {
+        use crate::helpers::ApiError;
+        let api_error = box_error.downcast::<ApiError>().ok()?;
+        if let ApiError::QueryStatus(QueryStatusError::DifferentStatus { my_status, .. }) =
+            *api_error
         {
             return Some(my_status);
         }
@@ -383,9 +382,9 @@ impl Processor {
     /// of relying on errors.
     #[cfg(feature = "in-memory-infra")]
     fn get_state_from_error(
-        be: crate::helpers::InMemoryTransportError<ShardIndex>,
+        error: crate::helpers::InMemoryTransportError<ShardIndex>,
     ) -> Option<QueryStatus> {
-        if let crate::helpers::InMemoryTransportError::Rejected { inner, .. } = be {
+        if let crate::helpers::InMemoryTransportError::Rejected { inner, .. } = error {
             return Self::downcast_state_error(inner);
         }
         None
@@ -396,8 +395,8 @@ impl Processor {
     /// TODO: Ideally broadcast should return a value, that we could use to parse the state instead
     /// of relying on errors.
     #[cfg(feature = "real-world-infra")]
-    fn get_state_from_error(se: crate::net::ShardError) -> Option<QueryStatus> {
-        if let crate::net::Error::Application { error, .. } = se.source {
+    fn get_state_from_error(shard_error: crate::net::ShardError) -> Option<QueryStatus> {
+        if let crate::net::Error::Application { error, .. } = shard_error.source {
             return Self::downcast_state_error(error);
         }
         None
@@ -428,8 +427,7 @@ impl Processor {
 
         let shard_responses = shard_transport.broadcast(shard_query_status_req).await;
         if let Err(e) = shard_responses {
-            // The following silently ignores the cases where the query isn't found because those
-            // errors return `None` for [`BroadcasteableError::peer_state()`]
+            // The following silently ignores the cases where the query isn't found.
             let states: Vec<_> = e
                 .failures
                 .into_iter()
@@ -1290,12 +1288,7 @@ mod tests {
                 .start_query(vec![a, b].into_iter(), test_multiply_config())
                 .await?;
 
-            while !app
-                .query_status(query_id)
-                .await?
-                .into_iter()
-                .all(|s| s == QueryStatus::Completed)
-            {
+            while !(app.query_status(query_id).await? == QueryStatus::Completed) {
                 sleep(Duration::from_millis(1)).await;
             }
 
