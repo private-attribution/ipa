@@ -122,7 +122,7 @@ pub fn recursively_compute_final_check<F: PrimeField, const L: usize>(
     challenges: &[F],
     p_or_q_0: F,
 ) -> F {
-    // This function requires MIN_PROOF_RECURSION be at least 3.
+    // This function requires MIN_PROOF_RECURSION be at least 2.
     assert!(challenges.len() >= MIN_PROOF_RECURSION && challenges.len() <= MAX_PROOF_RECURSION);
     let recursions_after_first = challenges.len() - 1;
 
@@ -179,9 +179,9 @@ pub fn recursively_compute_final_check<F: PrimeField, const L: usize>(
 /// `VerifierValues` implementation, which represents actual _u_ and _v_ values, is used
 /// by the remaining recursive proofs.
 ///
-/// There is a similar trait `ProverLagrangeInput` in `prover.rs`. The prover operates
-/// on _u_ and _v_ values simultaneously (i.e. iterators of tuples). The verifier
-/// operates on only one of _u_ or _v_ at a time.
+/// There is a similar trait `ProverLagrangeInput` in `prover.rs`. The difference is
+/// that the prover operates on _u_ and _v_ values simultaneously (i.e. iterators of
+/// tuples). The verifier operates on only one of _u_ or _v_ at a time.
 pub trait VerifierLagrangeInput<F: PrimeField, const L: usize> {
     fn eval_at_r<'a>(
         self,
@@ -197,7 +197,7 @@ pub struct VerifierTableIndices<'a, F: PrimeField, I: Iterator<Item = u8>> {
     pub table: &'a UVTable<F>,
 }
 
-/// Iterator producted by `VerifierTableIndices::eval_at_r`.
+/// Iterator returned by `VerifierTableIndices::eval_at_r`.
 struct TableIndicesIterator<F: PrimeField, I: Iterator<Item = u8>> {
     input: I,
     table: [F; 8],

@@ -106,7 +106,7 @@ where
 ///
 /// Lagrange interpolation is used in the prover in two ways:
 ///
-/// 1. To extrapolate an additional λ - 1 y-values of degree-λ polynomials so that the
+/// 1. To extrapolate an additional λ - 1 y-values of degree-(λ-1) polynomials so that the
 ///    total 2λ - 1 y-values can be multiplied to obtain a representation of the product of
 ///    the polynomials.
 /// 2. To evaluate polynomials at the randomly chosen challenge point _r_.
@@ -122,9 +122,9 @@ where
 /// `ProverValues` implementation, which represents actual _u_ and _v_ values, is used
 /// by the remaining recursive proofs.
 ///
-/// There is a similar trait `VerifierLagrangeInput` in `verifier.rs`. The prover
-/// operates on _u_ and _v_ values simultaneously (i.e. iterators of tuples). The
-/// verifier operates on only one of _u_ or _v_ at a time.
+/// There is a similar trait `VerifierLagrangeInput` in `verifier.rs`. The difference is
+/// that the prover operates on _u_ and _v_ values simultaneously (i.e. iterators of
+/// tuples). The verifier operates on only one of _u_ or _v_ at a time.
 pub trait ProverLagrangeInput<F: PrimeField, const L: usize> {
     fn extrapolate_y_values<'a, const P: usize, const M: usize>(
         self,
@@ -145,7 +145,7 @@ pub trait ProverLagrangeInput<F: PrimeField, const L: usize> {
 #[derive(Clone)]
 pub struct ProverTableIndices<I: Iterator<Item = (u8, u8)>>(pub I);
 
-/// Iterator producted by `ProverTableIndices::extrapolate_y_values` and
+/// Iterator returned by `ProverTableIndices::extrapolate_y_values` and
 /// `ProverTableIndices::eval_at_r`.
 struct TableIndicesIterator<T, I: Iterator<Item = (u8, u8)>> {
     input: I,

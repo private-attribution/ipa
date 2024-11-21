@@ -63,7 +63,7 @@ pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 ///
 /// This minimum avoids special cases in the implementation that would be otherwise
 /// required when the initial and final recursion steps overlap.
-pub const MIN_PROOF_RECURSION: usize = 3;
+pub const MIN_PROOF_RECURSION: usize = 2;
 
 /// Maximum proof recursion depth.
 //

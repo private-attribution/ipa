@@ -535,7 +535,7 @@ pub mod test {
 
         // check for consistency
         // only check first R::USIZE field elements
-        assert_eq!(simple_proof.to_vec(), proof_computed[0..FRF].to_vec(),);
+        assert_eq!(simple_proof.to_vec(), proof_computed[0..FRF].to_vec());
     }
 
     #[test]
@@ -949,9 +949,8 @@ pub mod test {
         // `verify_batch` to generate test data, generates `len` chunks of u/v values of
         // length `FRF`. We want the input u/v values to compress to exactly one
         // u/v pair after some number of proof steps.
-        let num_inputs = FirstProofGenerator::RECURSION_FACTOR
-            * CompressedProofGenerator::RECURSION_FACTOR
-            * CompressedProofGenerator::RECURSION_FACTOR;
+        let num_inputs =
+            FirstProofGenerator::RECURSION_FACTOR * CompressedProofGenerator::RECURSION_FACTOR;
         assert!(num_inputs % FRF == 0);
         verify_batch(num_inputs / FRF);
     }

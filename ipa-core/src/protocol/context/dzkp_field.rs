@@ -214,7 +214,6 @@ pub static TABLE_V: LazyLock<UVTable<Fp61BitPrime>> = LazyLock::new(|| {
 /// as the same order is used on all three helpers. We preserve the order anyways
 /// to simplify the end-to-end dataflow, even though it makes this routine slightly
 /// more complicated.
-#[allow(clippy::missing_panics_doc)]
 fn intermediates_to_table_indices<'a>(
     i0: &Array256Bit,
     i1: &Array256Bit,
@@ -271,13 +270,13 @@ impl MultiplicationInputsBlock {
     //
     // We use the conversion logic from https://eprint.iacr.org/2023/909.pdf
     //
-    // Prover and left compute:
+    // Prover and the verifier on its left compute:
     // g1=-2ac(1-2e),
     // g2=c(1-2e),
     // g3=a(1-2e),
     // g4=-1/2(1-2e),
     //
-    // Prover and right compute:
+    // Prover and the verifier on its right compute:
     // h1=bd(1-2f),
     // h2=d(1-2f),
     // h3=b(1-2f),
@@ -316,7 +315,7 @@ impl MultiplicationInputsBlock {
     //
     // We use the conversion logic from https://eprint.iacr.org/2023/909.pdf
     //
-    // Prover and left can compute:
+    // Prover and the verifier on its left compute:
     // g1=-2ac(1-2e),
     // g2=c(1-2e),
     // g3=a(1-2e),
@@ -346,7 +345,7 @@ impl MultiplicationInputsBlock {
     //
     // We use the conversion logic from https://eprint.iacr.org/2023/909.pdf
     //
-    // The prover and the verifier on its left compute:
+    // The prover and the verifier on its right compute:
     // h1=bd(1-2f),
     // h2=d(1-2f),
     // h3=b(1-2f),
