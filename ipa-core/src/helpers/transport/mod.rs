@@ -27,7 +27,9 @@ pub use handler::{
     make_owned_handler, Error as ApiError, HandlerBox, HandlerRef, HelperResponse, RequestHandler,
 };
 #[cfg(feature = "in-memory-infra")]
-pub use in_memory::{config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
+pub use in_memory::{
+    config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport, InMemoryTransportError,
+};
 use ipa_metrics::LabelValue;
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
@@ -304,7 +306,7 @@ impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> 
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
     type RecordsStream: BytesStream;
-    type Error: std::fmt::Debug + Send;
+    type Error: Debug + Send;
 
     /// Return my identity in the network (MPC or Sharded)
     fn identity(&self) -> Self::Identity;

@@ -48,6 +48,26 @@ impl From<&QueryState> for QueryStatus {
     }
 }
 
+/// This function is used, among others, by the [`Processor`] to return a unified response when
+/// queried about the state of a sharded helper. In such scenarios, there will be many different
+/// [`QueryStatus`] and the [`Processor`] needs to return a single one that describes the entire
+/// helper. With this function we're saying that the minimum state across all shards is the one
+/// that describes the helper.
+#[must_use]
+pub fn min_status(a: QueryStatus, b: QueryStatus) -> QueryStatus {
+    match (a, b) {
+        (QueryStatus::Preparing, _) | (_, QueryStatus::Preparing) => QueryStatus::Preparing,
+        (QueryStatus::AwaitingInputs, _) | (_, QueryStatus::AwaitingInputs) => {
+            QueryStatus::AwaitingInputs
+        }
+        (QueryStatus::Running, _) | (_, QueryStatus::Running) => QueryStatus::Running,
+        (QueryStatus::AwaitingCompletion, _) | (_, QueryStatus::AwaitingCompletion) => {
+            QueryStatus::AwaitingCompletion
+        }
+        (QueryStatus::Completed, _) => QueryStatus::Completed,
+    }
+}
+
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
 pub enum QueryState {
     Empty,
@@ -222,6 +242,32 @@ impl Drop for RemoveQuery<'_> {
                     "{q} query is not registered, but attempted to terminate",
                     q = inner.query_id
                 );
+            }
+        }
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use crate::query::{state::min_status, QueryStatus};
+
+    #[test]
+    fn test_order() {
+        // this list sorted in priority order. Preparing is the lowest possible value,
+        // while Completed is the highest.
+        let all = [
+            QueryStatus::Preparing,
+            QueryStatus::AwaitingInputs,
+            QueryStatus::Running,
+            QueryStatus::AwaitingCompletion,
+            QueryStatus::Completed,
+        ];
+
+        for i in 0..all.len() {
+            let this = all[i];
+            for other in all.into_iter().skip(i) {
+                assert_eq!(this, min_status(this, other));
+                assert_eq!(this, min_status(other, this));
             }
         }
     }
