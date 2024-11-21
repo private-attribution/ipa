@@ -373,18 +373,6 @@ impl<F: ConnectionFlavor> IpaHttpClient<F> {
         resp_ok(resp).await
     }
 
-    /// Intended to be called externally, e.g. by the report collector. After the report collector
-    /// calls "create query", it must then send the data for the query to each of the clients. This
-    /// query input contains the data intended for a helper.
-    /// # Errors
-    /// If the request has illegal arguments, or fails to deliver to helper
-    pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
-        let req = http_serde::query::input::Request::new(data);
-        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.request(req).await?;
-        resp_ok(resp).await
-    }
-
     /// Complete query API can be called on the leader shard by the report collector or
     /// by the leader shard to other shards.
     ///
@@ -440,6 +428,18 @@ impl IpaHttpClient<Helper> {
         } else {
             Err(Error::from_failed_resp(resp).await)
         }
+    }
+
+    /// Intended to be called externally, e.g. by the report collector. After the report collector
+    /// calls "create query", it must then send the data for the query to each of the clients. This
+    /// query input contains the data intended for a helper.
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
+        let req = http_serde::query::input::Request::new(data);
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
+        let resp = self.request(req).await?;
+        resp_ok(resp).await
     }
 
     /// Retrieve the status of a query.
