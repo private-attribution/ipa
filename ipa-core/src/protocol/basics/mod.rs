@@ -23,7 +23,7 @@ use crate::{
     protocol::{
         context::{
             Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext,
+            ShardedUpgradedMaliciousContext, UpgradedMaliciousContext, UpgradedSemiHonestContext,
         },
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
         prss::FromPrss,
@@ -59,6 +59,14 @@ impl<'a, B: ShardBinding>
 }
 
 impl<'a, const N: usize> BasicProtocols<UpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>
+    for malicious::AdditiveShare<Fp25519, N>
+where
+    Fp25519: FieldSimd<N>,
+    AdditiveShare<Fp25519, N>: FromPrss,
+{
+}
+
+impl<'a, const N: usize> BasicProtocols<ShardedUpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>
     for malicious::AdditiveShare<Fp25519, N>
 where
     Fp25519: FieldSimd<N>,

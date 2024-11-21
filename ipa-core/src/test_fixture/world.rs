@@ -240,9 +240,10 @@ impl<const SHARDS: usize, D: Distribute> TestWorld<WithShards<SHARDS, D>> {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn malicious_contexts(&self) -> [Vec<ShardedMaliciousContext<'_>>; 3] {
+        let gate = &self.next_gate();
         self.shards()
             .iter()
-            .map(|shard| shard.malicious_contexts(&self.next_gate()))
+            .map(|shard| shard.malicious_contexts(gate))
             .fold([Vec::new(), Vec::new(), Vec::new()], |mut acc, contexts| {
                 // Distribute contexts into the respective vectors.
                 for (vec, context) in acc.iter_mut().zip(contexts.iter()) {

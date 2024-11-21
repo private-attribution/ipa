@@ -21,7 +21,8 @@ use crate::{
         context::{
             dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
             reshard_try_stream, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext,
-            UpgradableContext, Validator,
+            ShardedUpgradedMaliciousContext, UpgradableContext, UpgradedMaliciousContext,
+            Validator,
         },
         hybrid::step::HybridStep,
         ipa_prf::{
@@ -29,12 +30,12 @@ use crate::{
             prf_eval::{eval_dy_prf, PrfSharing},
         },
         prss::{FromPrss, SharedRandomness},
-        RecordId,
+        BasicProtocols, RecordId,
     },
     report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
-        Vectorizable,
+        replicated::{malicious, semi_honest::AdditiveShare as Replicated},
+        BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
     utils::non_zero_prev_power_of_two,
@@ -79,6 +80,20 @@ pub const PRF_CHUNK: usize = 16;
 /// of zero when `TARGET_PROOF_SIZE` is smaller for tests.
 fn conv_proof_chunk() -> usize {
     non_zero_prev_power_of_two(max(2, TARGET_PROOF_SIZE / CONV_CHUNK / 512))
+}
+
+/// Allow MAC-malicious shares to be used for PRF generation with shards
+impl<'a, const N: usize> PrfSharing<ShardedUpgradedMaliciousContext<'a, Fp25519>, N>
+    for Replicated<Fp25519, N>
+where
+    Fp25519: FieldSimd<N>,
+    RP25519: Vectorizable<N>,
+    malicious::AdditiveShare<Fp25519, N>:
+        BasicProtocols<UpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>,
+    Replicated<Fp25519, N>: FromPrss,
+{
+    type Field = Fp25519;
+    type UpgradedSharing = malicious::AdditiveShare<Fp25519, N>;
 }
 
 /// This computes the Dodis-Yampolsky PRF value on every match key from input,
@@ -233,9 +248,8 @@ mod test {
                 },
             ];
 
-            // TODO: we need to use malicious circuits here
             let reports_per_shard = world
-                .semi_honest(records.clone().into_iter(), |ctx, reports| async move {
+                .malicious(records.clone().into_iter(), |ctx, reports| async move {
                     let ind_reports = reports
                         .into_iter()
                         .map(IndistinguishableHybridReport::from)
