@@ -3,8 +3,8 @@ mod sharding;
 mod transport;
 
 pub use sharding::InMemoryShardNetwork;
-pub use transport::Setup;
 use transport::TransportConfigBuilder;
+pub use transport::{Error as InMemoryTransportError, Setup};
 
 use crate::{
     helpers::{

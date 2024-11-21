@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use typenum::{U1, U4, U8};
 
 use crate::{
+    ff::MultiplyAccumulate,
     protocol::prss::FromRandom,
     secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
 };
@@ -30,6 +31,7 @@ pub trait Field:
     SharedValue
     + Mul<Self, Output = Self>
     + MulAssign<Self>
+    + MultiplyAccumulate
     + FromRandom
     + Into<Self::Storage>
     + Vectorizable<1>

@@ -381,7 +381,7 @@ mod tests {
         helpers::stream::process_slice_by_chunks,
         protocol::{
             context::{dzkp_validator::DZKPValidator, UpgradableContext, TEST_DZKP_STEPS},
-            ipa_prf::{CONV_CHUNK, CONV_PROOF_CHUNK, PRF_CHUNK},
+            ipa_prf::{conv_proof_chunk, CONV_CHUNK, PRF_CHUNK},
         },
         rand::thread_rng,
         secret_sharing::SharedValue,
@@ -415,7 +415,7 @@ mod tests {
             let [res0, res1, res2] = world
                 .semi_honest(records.into_iter(), |ctx, records| async move {
                     let c_ctx = ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
-                    let validator = &c_ctx.dzkp_validator(TEST_DZKP_STEPS, CONV_PROOF_CHUNK);
+                    let validator = &c_ctx.dzkp_validator(TEST_DZKP_STEPS, conv_proof_chunk());
                     let m_ctx = validator.context();
                     seq_join(
                         m_ctx.active_work(),

@@ -17,7 +17,7 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::{BooleanProtocols, Reveal},
+        basics::{BooleanArrayMul, BooleanProtocols, Reveal},
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
             hybrid_protocol,
@@ -73,6 +73,8 @@ where
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(

@@ -71,6 +71,7 @@ pub use transport::WrappedAxumBodyStream;
 #[cfg(feature = "in-memory-infra")]
 pub use transport::{
     config as in_memory_config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport,
+    InMemoryTransportError,
 };
 pub use transport::{
     make_owned_handler, query, routing, ApiError, BodyStream, BroadcastError, BytesStream,

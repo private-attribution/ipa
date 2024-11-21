@@ -1,6 +1,9 @@
 pub(crate) mod agg;
+pub(crate) mod breakdown_reveal;
 pub(crate) mod oprf;
 pub(crate) mod step;
+
+use std::convert::Infallible;
 
 use tracing::{info_span, Instrument};
 
@@ -12,10 +15,11 @@ use crate::{
     },
     helpers::query::DpMechanism,
     protocol::{
-        basics::Reveal,
+        basics::{BooleanArrayMul, Reveal},
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
             agg::aggregate_reports,
+            breakdown_reveal::breakdown_reveal_aggregation,
             oprf::{compute_prf_and_reshard, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
             step::HybridStep as Step,
         },
@@ -28,7 +32,10 @@ use crate::{
         BooleanProtocols,
     },
     report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
+        TransposeFrom, Vectorizable,
+    },
 };
 
 /// The Hybrid Protocol
@@ -67,6 +74,7 @@ where
     BK: BreakdownKey<B>,
     V: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
+    Boolean: FieldSimd<B>,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
@@ -74,6 +82,11 @@ where
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
     PrfHybridReport<BK, V>: Serializable,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
+    Replicated<BK>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
@@ -95,7 +108,13 @@ where
 
     let sharded_reports = compute_prf_and_reshard(ctx.clone(), shuffled_input_rows).await?;
 
-    let _aggregated_reports = aggregate_reports::<BK, V, C>(ctx.clone(), sharded_reports);
+    let aggregated_reports = aggregate_reports::<BK, V, C>(ctx.clone(), sharded_reports).await?;
+
+    let _historgram = breakdown_reveal_aggregation::<C, BK, V, HV, B>(
+        ctx.clone(),
+        aggregated_reports,
+        &dp_padding_params,
+    );
 
     unimplemented!("protocol::hybrid::hybrid_protocol is not fully implemented")
 }

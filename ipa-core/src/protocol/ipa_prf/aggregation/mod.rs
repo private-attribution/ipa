@@ -25,6 +25,7 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
         SharedValue, TransposeFrom, Vectorizable,
     },
+    utils::non_zero_prev_power_of_two,
 };
 
 pub(crate) mod breakdown_reveal;
@@ -96,8 +97,14 @@ pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>
 /// saturating the output) is:
 ///
 /// $\sum_{i = 1}^k 2^{k - i} (b + i - 1) \approx 2^k (b + 1) = N (b + 1)$
+///
+/// We set a floor of 2 to avoid computing a chunk of zero when `TARGET_PROOF_SIZE` is
+/// smaller for tests.
 pub fn aggregate_values_proof_chunk(input_width: usize, input_item_bits: usize) -> usize {
-    max(2, TARGET_PROOF_SIZE / input_width / (input_item_bits + 1)).next_power_of_two()
+    non_zero_prev_power_of_two(max(
+        2,
+        TARGET_PROOF_SIZE / input_width / (input_item_bits + 1),
+    ))
 }
 
 // This is the step count for AggregateChunkStep. We need it to size RecordId arrays.

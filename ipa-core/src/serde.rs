@@ -13,6 +13,27 @@ pub mod uri {
     }
 }
 
+#[cfg(feature = "web-app")]
+pub mod option {
+    pub mod uri {
+        use hyper::Uri;
+        use serde::{de::Error, Deserialize, Deserializer};
+
+        /// # Errors
+        /// if deserializing from string fails, or if string is not a [`Uri`]
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<Uri>, D::Error> {
+            let opt_s: Option<String> = Deserialize::deserialize(deserializer)?;
+            if let Some(s) = opt_s {
+                s.parse().map(Some).map_err(D::Error::custom)
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
 pub mod duration {
     use std::time::Duration;
 
