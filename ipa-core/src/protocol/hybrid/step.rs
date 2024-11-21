@@ -3,7 +3,7 @@ use ipa_step_derive::CompactStep;
 #[derive(CompactStep)]
 pub(crate) enum HybridStep {
     ReshardByTag,
-    #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="padding_dp")]
+    #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="report_padding_dp")]
     PaddingDp,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     InputShuffle,
