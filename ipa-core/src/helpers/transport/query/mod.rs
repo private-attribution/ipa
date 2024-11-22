@@ -233,7 +233,7 @@ pub enum QueryType {
     TestShardedShuffle,
     SemiHonestOprfIpa(IpaQueryConfig),
     MaliciousOprfIpa(IpaQueryConfig),
-    SemiHonestHybrid(HybridQueryParams),
+    MaliciousHybrid(HybridQueryParams),
 }
 
 impl QueryType {
@@ -243,7 +243,7 @@ impl QueryType {
     pub const TEST_SHARDED_SHUFFLE_STR: &'static str = "test-sharded-shuffle";
     pub const SEMI_HONEST_OPRF_IPA_STR: &'static str = "semi-honest-oprf-ipa";
     pub const MALICIOUS_OPRF_IPA_STR: &'static str = "malicious-oprf-ipa";
-    pub const SEMI_HONEST_HYBRID_STR: &'static str = "semi-honest-hybrid";
+    pub const MALICIOUS_HYBRID_STR: &'static str = "malicious-hybrid";
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
@@ -258,7 +258,7 @@ impl AsRef<str> for QueryType {
             QueryType::TestShardedShuffle => Self::TEST_SHARDED_SHUFFLE_STR,
             QueryType::SemiHonestOprfIpa(_) => Self::SEMI_HONEST_OPRF_IPA_STR,
             QueryType::MaliciousOprfIpa(_) => Self::MALICIOUS_OPRF_IPA_STR,
-            QueryType::SemiHonestHybrid(_) => Self::SEMI_HONEST_HYBRID_STR,
+            QueryType::MaliciousHybrid(_) => Self::MALICIOUS_HYBRID_STR,
         }
     }
 }

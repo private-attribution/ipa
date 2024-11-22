@@ -165,7 +165,7 @@ pub fn execute<R: PrivateKeyRegistry>(
                 )
             },
         ),
-        (QueryType::SemiHonestHybrid(_), _) => todo!(),
+        (QueryType::MaliciousHybrid(_), _) => todo!(),
     }
 }
 
