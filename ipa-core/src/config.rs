@@ -3,7 +3,6 @@ use std::{
     fmt::{Debug, Formatter},
     iter::zip,
     path::PathBuf,
-    str::FromStr,
     time::Duration,
 };
 
@@ -17,7 +16,7 @@ use tokio::fs;
 
 use crate::{
     error::BoxError,
-    helpers::{HelperIdentity, TransportIdentity},
+    helpers::HelperIdentity,
     hpke::{
         Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyRegistry, PrivateKeyOnly,
         PublicKeyOnly, Serializable as _,
@@ -29,19 +28,7 @@ use crate::{
 pub type OwnedCertificate = CertificateDer<'static>;
 pub type OwnedPrivateKey = PrivateKeyDer<'static>;
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error(transparent)]
-    ParseError(#[from] config::ConfigError),
-    #[error("Invalid uri: {0}")]
-    InvalidUri(#[from] hyper::http::uri::InvalidUri),
-    #[error("Invalid network size {0}")]
-    InvalidNetworkSize(usize),
-    #[error(transparent)]
-    IOError(#[from] std::io::Error),
-    #[error("Missing shard URLs for peers {0:?}")]
-    MissingShardUrls(Vec<usize>),
-}
+
 
 /// Configuration describing either 3 peers in a Ring or N shard peers. In a non-sharded case a
 /// single [`NetworkConfig`] represents the entire network. In a sharded case, each host should
@@ -49,18 +36,15 @@ pub enum Error {
 ///
 /// The most important thing this contains is discovery information for each of the participating
 /// peers.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct NetworkConfig<F: ConnectionFlavor = Helper> {
-    peers: Vec<PeerConfig>,
+    pub peers: Vec<PeerConfig>,
 
     /// HTTP client configuration.
-    #[serde(default)]
     pub client: ClientConfig,
 
-    /// The identities of the index-matching peers. Separating this from [`Self::peers`](field) so
-    /// that parsing is easy to implement.
-    #[serde(skip)]
-    identities: Vec<F::Identity>,
+    /// The identities of the index-matching peers.
+    pub identities: Vec<F::Identity>,
 }
 
 impl<F: ConnectionFlavor> NetworkConfig<F> {
@@ -159,24 +143,6 @@ impl NetworkConfig<Helper> {
         }
     }
 
-    /// Reads config from string. Expects config to be toml format.
-    /// To read file, use `fs::read_to_string`
-    ///
-    /// # Errors
-    /// if `input` is in an invalid format
-    pub fn from_toml_str(input: &str) -> Result<Self, Error> {
-        use config::{Config, File, FileFormat};
-
-        let mut conf: Self = Config::builder()
-            .add_source(File::from_str(input, FileFormat::Toml))
-            .build()?
-            .try_deserialize()?;
-
-        conf.identities = HelperIdentity::make_three().to_vec();
-
-        Ok(conf)
-    }
-
     /// Clones the internal configs and returns them as an array.
     /// # Panics
     /// If the internal vector isn't of size 3.
@@ -186,167 +152,6 @@ impl NetworkConfig<Helper> {
             .clone()
             .try_into()
             .unwrap_or_else(|v: Vec<_>| panic!("Expected a Vec of length 3 but it was {}", v.len()))
-    }
-}
-
-/// This struct is only used by [`parse_sharded_network_toml`] to parse the entire network.
-/// Unlike [`NetworkConfig`], this one doesn't have identities.
-#[derive(Clone, Debug, Deserialize)]
-struct ShardedNetworkToml {
-    pub peers: Vec<ShardedPeerConfigToml>,
-
-    /// HTTP client configuration.
-    #[serde(default)]
-    pub client: ClientConfig,
-}
-
-impl ShardedNetworkToml {
-    fn missing_shard_urls(&self) -> Vec<usize> {
-        self.peers
-            .iter()
-            .enumerate()
-            .filter_map(|(i, peer)| {
-                if peer.shard_url.is_some() {
-                    None
-                } else {
-                    Some(i)
-                }
-            })
-            .collect()
-    }
-}
-
-/// This struct is only used by [`parse_sharded_network_toml`] to generate [`PeerConfig`]. It
-/// contains an optional `shard_url`.
-#[derive(Clone, Debug, Deserialize)]
-struct ShardedPeerConfigToml {
-    #[serde(flatten)]
-    pub config: PeerConfig,
-
-    #[serde(default, with = "crate::serde::option::uri")]
-    pub shard_url: Option<Uri>,
-}
-
-impl ShardedPeerConfigToml {
-    /// Clones the inner Peer.
-    fn to_mpc_peer(&self) -> PeerConfig {
-        self.config.clone()
-    }
-
-    /// Create a new Peer but its url using [`ShardedPeerConfigToml::shard_url`].
-    fn to_shard_peer(&self) -> PeerConfig {
-        let mut shard_peer = self.config.clone();
-        shard_peer.url = self.shard_url.clone().expect("Shard URL should be set");
-        shard_peer
-    }
-}
-
-/// Parses a [`ShardedNetworkToml`] from a network.toml file. Validates that sharding urls are set
-///  if necessary. The number of peers needs to be a multiple of 3.
-fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> {
-    use config::{Config, File, FileFormat};
-
-    let parsed: ShardedNetworkToml = Config::builder()
-        .add_source(File::from_str(input, FileFormat::Toml))
-        .build()?
-        .try_deserialize()?;
-
-    if parsed.peers.len() % 3 != 0 {
-        return Err(Error::InvalidNetworkSize(parsed.peers.len()));
-    }
-
-    // Validate sharding config is set
-    let any_shard_url_set = parsed.peers.iter().any(|peer| peer.shard_url.is_some());
-    if any_shard_url_set || parsed.peers.len() > 3 {
-        let missing_urls = parsed.missing_shard_urls();
-        if !missing_urls.is_empty() {
-            return Err(Error::MissingShardUrls(missing_urls));
-        }
-    }
-
-    Ok(parsed)
-}
-
-/// Reads a the config for a specific, single, sharded server from string. Expects config to be
-/// toml format. The server in the network is specified via `id`, `shard_index` and
-/// `shard_count`. This function expects shard urls to be set for all peers.
-///
-/// The first 3 peers corresponds to the leaders Ring. H1 shard 0, H2 shard 0, and H3 shard 0.
-/// The next 3 correspond to the next ring with `shard_index` equals 1 and so on.
-///
-/// Other methods to read the network.toml exist depending on the use, for example
-/// [`NetworkConfig::from_toml_str`] reads a non-sharded config.
-/// TODO: There will be one to read the information relevant for the RC (doesn't need shard
-/// info)
-///
-/// # Errors
-/// if `input` is in an invalid format
-///
-/// # Panics
-/// If you somehow provide an invalid non-sharded network toml
-pub fn sharded_server_from_toml_str(
-    input: &str,
-    id: HelperIdentity,
-    shard_index: ShardIndex,
-    shard_count: ShardIndex,
-    shard_port: Option<u16>,
-) -> Result<(NetworkConfig<Helper>, NetworkConfig<Shard>), Error> {
-    let all_network = parse_sharded_network_toml(input)?;
-
-    let ix: usize = shard_index.as_index();
-    let ix_count: usize = shard_count.as_index();
-    // assert ix < count
-    let mpc_id: usize = id.as_index();
-
-    let mpc_network = NetworkConfig {
-        peers: all_network
-            .peers
-            .iter()
-            .map(ShardedPeerConfigToml::to_mpc_peer)
-            .skip(ix * 3)
-            .take(3)
-            .collect(),
-        client: all_network.client.clone(),
-        identities: HelperIdentity::make_three().to_vec(),
-    };
-    let missing_urls = all_network.missing_shard_urls();
-    if missing_urls.is_empty() {
-        let shard_network = NetworkConfig {
-            peers: all_network
-                .peers
-                .iter()
-                .map(ShardedPeerConfigToml::to_shard_peer)
-                .skip(mpc_id)
-                .step_by(3)
-                .take(ix_count)
-                .collect(),
-            client: all_network.client,
-            identities: shard_count.iter().collect(),
-        };
-        Ok((mpc_network, shard_network))
-    } else if missing_urls == [0, 1, 2] && shard_count == ShardIndex(1) {
-        // This is the special case we're dealing with a non-sharded, single ring MPC.
-        // Since the shard network will be of size 1, it can't really communicate with anyone else.
-        // Hence we just create a config where I'm the only shard. We take the MPC configuration
-        // and modify the port.
-        let mut myself = ShardedPeerConfigToml::to_mpc_peer(all_network.peers.get(mpc_id).unwrap());
-        let url = myself.url.to_string();
-        let pos = url.rfind(':');
-        let port = shard_port.expect("Shard port should be set");
-        let new_url = if pos.is_some() {
-            format!("{}{port}", &url[..=pos.unwrap()])
-        } else {
-            format!("{}:{port}", &url)
-        };
-        myself.url = Uri::from_str(&new_url).expect("Problem creating uri with sharded port");
-        let shard_network = NetworkConfig {
-            peers: vec![myself],
-            client: all_network.client,
-            identities: shard_count.iter().collect(),
-        };
-        Ok((mpc_network, shard_network))
-    } else {
-        return Err(Error::MissingShardUrls(missing_urls));
     }
 }
 

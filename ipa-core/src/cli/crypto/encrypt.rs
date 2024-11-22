@@ -9,6 +9,7 @@ use clap::Parser;
 use rand::thread_rng;
 
 use crate::{
+    cli::config_parse::HelperNetworkConfigParseExt,
     cli::playbook::{BreakdownKey, InputSource, Timestamp, TriggerValue},
     config::{KeyRegistries, NetworkConfig},
     error::BoxError,

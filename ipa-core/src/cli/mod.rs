@@ -1,5 +1,7 @@
 #[cfg(feature = "web-app")]
 mod clientconf;
+#[cfg(feature = "web-app")]
+mod config_parse;
 #[cfg(all(feature = "test-fixture", feature = "web-app", feature = "cli",))]
 pub mod crypto;
 mod csv;
@@ -14,7 +16,9 @@ pub mod playbook;
 mod test_setup;
 mod verbosity;
 #[cfg(feature = "web-app")]
-pub use clientconf::{setup as client_config_setup, ConfGenArgs};
+pub use clientconf::{setup as client_config_setup, ConfGenArgs, sharded_setup as sharded_client_config_setup, ShardedConfGenArgs};
+#[cfg(feature = "web-app")]
+pub use config_parse::sharded_server_from_toml_str;
 pub use csv::Serializer as CsvSerializer;
 pub use ipa_output::QueryResult as IpaQueryResult;
 #[cfg(feature = "web-app")]

@@ -12,11 +12,10 @@ use futures::future::join;
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, LoggingHandle,
-        TestSetupArgs, Verbosity,
+        client_config_setup, keygen, sharded_client_config_setup, sharded_server_from_toml_str, test_setup, ConfGenArgs, KeygenArgs, LoggingHandle, ShardedConfGenArgs, TestSetupArgs, Verbosity
     },
     config::{
-        hpke_registry, sharded_server_from_toml_str, HpkeServerConfig, ServerConfig, TlsConfig,
+        hpke_registry, HpkeServerConfig, ServerConfig, TlsConfig,
     },
     error::BoxError,
     executor::IpaRuntime,
@@ -123,6 +122,7 @@ struct ServerArgs {
 
 #[derive(Debug, Subcommand)]
 enum HelperCommand {
+    ShardedConfgen(ShardedConfGenArgs),
     Confgen(ConfGenArgs),
     Keygen(KeygenArgs),
     TestSetup(TestSetupArgs),
@@ -366,6 +366,7 @@ pub async fn main() {
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
         Some(HelperCommand::Confgen(args)) => client_config_setup(args),
+        Some(HelperCommand::ShardedConfgen(args)) => sharded_client_config_setup(args),
     };
 
     if let Err(e) = res {

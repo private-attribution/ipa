@@ -8,7 +8,7 @@ use clap::Args;
 
 use crate::{
     cli::{
-        clientconf::{gen_client_config, HelperClientConf},
+        config_parse::{gen_client_config, HelperClientConf},
         keygen,
         paths::PathExt,
         KeygenArgs,
@@ -73,7 +73,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
             keygen(&keygen_args)?;
 
             Ok(HelperClientConf {
-                host: &localhost,
+                host: localhost.to_string(),
                 port,
                 shard_port,
                 tls_cert_file: keygen_args.tls_cert,
@@ -85,5 +85,5 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
         .unwrap();
 
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
-    gen_client_config(clients_config, args.use_http1, &mut conf_file)
+    gen_client_config(clients_config.into_iter(), args.use_http1, &mut conf_file)
 }
