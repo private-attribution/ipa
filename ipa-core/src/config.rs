@@ -28,8 +28,6 @@ use crate::{
 pub type OwnedCertificate = CertificateDer<'static>;
 pub type OwnedPrivateKey = PrivateKeyDer<'static>;
 
-
-
 /// Configuration describing either 3 peers in a Ring or N shard peers. In a non-sharded case a
 /// single [`NetworkConfig`] represents the entire network. In a sharded case, each host should
 /// have one Ring and one Sharded configuration to know how to reach its peers.

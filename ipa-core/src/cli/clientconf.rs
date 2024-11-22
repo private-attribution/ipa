@@ -3,8 +3,12 @@ use std::{fs, fs::File, iter::zip, path::PathBuf};
 use clap::Args;
 
 use crate::{
-    cli::{config_parse::{gen_client_config, HelperClientConf}, paths::PathExt},
-    error::BoxError, helpers::HelperIdentity,
+    cli::{
+        config_parse::{gen_client_config, HelperClientConf},
+        paths::PathExt,
+    },
+    error::BoxError,
+    helpers::HelperIdentity,
 };
 
 #[derive(Debug, Args)]
@@ -68,13 +72,18 @@ pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
-    gen_conf_from_args(args.output_dir, args.overwrite, args.keys_dir, clients_conf.into_iter())
+    gen_conf_from_args(
+        args.output_dir,
+        args.overwrite,
+        args.keys_dir,
+        clients_conf.into_iter(),
+    )
 }
 
 #[derive(Debug, Args)]
 #[clap(about = "Generate client config for a sharded MPC")]
 pub struct ShardedConfGenArgs {
-    /// Base directory containing the host keys. `scripts/create-sharded-conf.py` generates the 
+    /// Base directory containing the host keys. `scripts/create-sharded-conf.py` generates the
     /// expected structure. Here's an example:
     /// ```cli
     /// ├── helper1
@@ -97,7 +106,7 @@ pub struct ShardedConfGenArgs {
     /// ```
     #[arg(long)]
     pub keys_dir: PathBuf,
-    
+
     /// Number of shards per helper
     #[arg(long)]
     pub shard_count: u32,
@@ -119,14 +128,25 @@ pub struct ShardedConfGenArgs {
     pub(crate) overwrite: bool,
 }
 
-
+/// Similar to [`setup`] but for a sharded setup.
 pub fn sharded_setup(args: ShardedConfGenArgs) -> Result<(), BoxError> {
-    let clients_conf = create_sharded_conf_from_files(args.shard_count, args.mpc_port, args.shards_port, args.keys_dir.clone());
+    let clients_conf = create_sharded_conf_from_files(
+        args.shard_count,
+        args.mpc_port,
+        args.shards_port,
+        args.keys_dir.clone(),
+    );
     gen_conf_from_args(args.output_dir, args.overwrite, args.keys_dir, clients_conf)
 }
 
-/// Obtains the host name from the cert file.
-fn create_sharded_conf_from_files(shard_count: u32, port: u16, shard_port: u16, keys_dir: PathBuf) -> impl Iterator<Item=HelperClientConf> {
+/// this helper function creates [`HelperClientConf`] for a sharded configuration. We go ring by
+/// ring as expected by helper binary.
+fn create_sharded_conf_from_files(
+    shard_count: u32,
+    port: u16,
+    shard_port: u16,
+    keys_dir: PathBuf,
+) -> impl Iterator<Item = HelperClientConf> {
     (0..shard_count).flat_map(move |ix| {
         let base_dir = keys_dir.clone();
         HelperIdentity::make_three().into_iter().map(move |id| {
@@ -134,7 +154,7 @@ fn create_sharded_conf_from_files(shard_count: u32, port: u16, shard_port: u16, 
             let id_nr: u8 = id.into();
             shard_dir.push(format!("helper{id_nr}"));
             shard_dir.push(format!("shard{ix}"));
-            
+
             let host_name = find_file_with_extension(&shard_dir, "pem").unwrap();
             let tls_cert_file = shard_dir.join(format!("{host_name}.pem"));
             let mk_public_key_file = shard_dir.join(format!("{host_name}_mk.pub"));
@@ -152,24 +172,41 @@ fn create_sharded_conf_from_files(shard_count: u32, port: u16, shard_port: u16, 
     })
 }
 
+/// Finds a file with the specified extension in the given directory.
+///
+/// # Arguments
+/// * `path`: The path to the directory to search in.
+/// * `extension`: The file extension to search for.
+///
+/// # Returns
+/// An `Option` containing the name of the first file found with the specified extension, or `None`
 fn find_file_with_extension(path: &PathBuf, extension: &str) -> Option<String> {
     for entry in fs::read_dir(path).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.is_file() && path.extension().map_or(false, |ext| ext.to_str().unwrap() == extension) {
+        if path.is_file()
+            && path
+                .extension()
+                .map_or(false, |ext| ext.to_str().unwrap() == extension)
+        {
             return Some(path.file_stem().unwrap().to_str().unwrap().to_string());
         }
     }
     None
 }
 
-fn gen_conf_from_args(output_dir: Option<PathBuf>, overwrite: bool, keys_dir: PathBuf, clients_conf: impl Iterator<Item=HelperClientConf>) -> Result<(), BoxError> {
+/// Creates output files depending on the configuration given in args. Calls [`gen_client_config`]
+/// to generate and validate the configuration.
+fn gen_conf_from_args(
+    output_dir: Option<PathBuf>,
+    overwrite: bool,
+    keys_dir: PathBuf,
+    clients_conf: impl Iterator<Item = HelperClientConf>,
+) -> Result<(), BoxError> {
     if let Some(ref dir) = output_dir {
         fs::create_dir_all(dir)?;
     }
-    let conf_file_path = output_dir
-        .unwrap_or(keys_dir)
-        .join("network.toml");
+    let conf_file_path = output_dir.unwrap_or(keys_dir).join("network.toml");
     let mut conf_file = File::options()
         .write(true)
         .create(true)

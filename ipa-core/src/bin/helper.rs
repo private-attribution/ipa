@@ -12,11 +12,11 @@ use futures::future::join;
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        client_config_setup, keygen, sharded_client_config_setup, sharded_server_from_toml_str, test_setup, ConfGenArgs, KeygenArgs, LoggingHandle, ShardedConfGenArgs, TestSetupArgs, Verbosity
+        client_config_setup, keygen, sharded_client_config_setup, sharded_server_from_toml_str,
+        test_setup, ConfGenArgs, KeygenArgs, LoggingHandle, ShardedConfGenArgs, TestSetupArgs,
+        Verbosity,
     },
-    config::{
-        hpke_registry, HpkeServerConfig, ServerConfig, TlsConfig,
-    },
+    config::{hpke_registry, HpkeServerConfig, ServerConfig, TlsConfig},
     error::BoxError,
     executor::IpaRuntime,
     helpers::HelperIdentity,

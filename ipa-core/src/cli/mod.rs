@@ -16,7 +16,10 @@ pub mod playbook;
 mod test_setup;
 mod verbosity;
 #[cfg(feature = "web-app")]
-pub use clientconf::{setup as client_config_setup, ConfGenArgs, sharded_setup as sharded_client_config_setup, ShardedConfGenArgs};
+pub use clientconf::{
+    setup as client_config_setup, sharded_setup as sharded_client_config_setup, ConfGenArgs,
+    ShardedConfGenArgs,
+};
 #[cfg(feature = "web-app")]
 pub use config_parse::sharded_server_from_toml_str;
 pub use csv::Serializer as CsvSerializer;

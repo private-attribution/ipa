@@ -1,4 +1,9 @@
-use std::{fs::{self, File}, io::Write, path::PathBuf, str::FromStr};
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::PathBuf,
+    str::FromStr,
+};
 
 use config::Map;
 use hpke::Serializable as _;
@@ -7,7 +12,11 @@ use serde::Deserialize;
 use toml::{Table, Value};
 
 use crate::{
-    config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig}, error::BoxError, helpers::{HelperIdentity, TransportIdentity}, net::{Helper, Shard}, sharding::ShardIndex
+    config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig},
+    error::BoxError,
+    helpers::{HelperIdentity, TransportIdentity},
+    net::{Helper, Shard},
+    sharding::ShardIndex,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -114,7 +123,7 @@ fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> 
 /// Generates client configuration file at the requested destination. The destination must exist
 /// before this function is called
 pub fn gen_client_config(
-    clients_conf: impl Iterator<Item=HelperClientConf>,
+    clients_conf: impl Iterator<Item = HelperClientConf>,
     use_http1: bool,
     conf_file: &mut File,
 ) -> Result<(), BoxError> {
@@ -196,8 +205,7 @@ fn encode_hpke(public_key: String) -> Table {
 ///
 /// [`NetworkConfig`]: NetworkConfig
 fn assert_network_config(config_toml: &Map<String, Value>, config_str: &str) {
-    let nw_config =
-    parse_sharded_network_toml(config_str).expect("Can deserialize network config");
+    let nw_config = parse_sharded_network_toml(config_str).expect("Can deserialize network config");
 
     let Value::Array(peer_config_expected) = config_toml
         .get("peers")
@@ -242,6 +250,7 @@ fn assert_hpke_config(expected: &Value, actual: Option<&HpkeClientConfig>) {
     );
 }
 
+/// Extension to enable [`NetworkConfig<Helper>`] to read a deprecated non-sharded network.toml.
 pub trait HelperNetworkConfigParseExt {
     fn from_toml_str(input: &str) -> Result<NetworkConfig<Helper>, Error>;
 }
@@ -254,8 +263,14 @@ pub trait HelperNetworkConfigParseExt {
 impl HelperNetworkConfigParseExt for NetworkConfig<Helper> {
     fn from_toml_str(input: &str) -> Result<NetworkConfig<Helper>, Error> {
         let all_network = parse_sharded_network_toml(input)?;
-        Ok(NetworkConfig::new_mpc(all_network.peers.iter()
-        .map(ShardedPeerConfigToml::to_mpc_peer).collect(), all_network.client.clone()))
+        Ok(NetworkConfig::new_mpc(
+            all_network
+                .peers
+                .iter()
+                .map(ShardedPeerConfigToml::to_mpc_peer)
+                .collect(),
+            all_network.client.clone(),
+        ))
     }
 }
 
@@ -340,4 +355,9 @@ pub fn sharded_server_from_toml_str(
     } else {
         return Err(Error::MissingShardUrls(missing_urls));
     }
+}
+
+#[cfg(test)]
+mod tests {
+
 }
