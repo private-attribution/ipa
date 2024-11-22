@@ -2,7 +2,7 @@ use std::{future::Future, marker::PhantomData, ops::Add};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use generic_array::ArrayLength;
-use ipa_step::Step;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::{Error, LengthError},
@@ -16,7 +16,7 @@ use crate::{
             ShardedMaliciousContext, ShardedSemiHonestContext, UpgradableContext,
         },
         ipa_prf::boolean_ops::addition_sequential::integer_sat_add,
-        BooleanProtocols, RecordId,
+        BooleanProtocols, Gate, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd, TransposeFrom,
@@ -47,7 +47,9 @@ trait FinalizerContext: ShardedContext + UpgradableContext {
         self,
         step: Self::Step<S>,
         inputs: R,
-    ) -> impl Future<Output = Result<R, Error>> + Send;
+    ) -> impl Future<Output = Result<R, Error>> + Send
+    where
+        Gate: StepNarrow<S>;
 }
 
 /// Trait for results obtained by running sharded MPC protocols. Many shards run MPC
@@ -98,7 +100,10 @@ impl<'a> FinalizerContext for ShardedMaliciousContext<'a> {
         self,
         step: Self::Step<S>,
         inputs: R,
-    ) -> impl Future<Output = Result<R, Error>> + Send {
+    ) -> impl Future<Output = Result<R, Error>> + Send
+    where
+        Gate: StepNarrow<S>,
+    {
         async move {
             // We use a single batch here because the whole assumption of this protocol to be
             // small and simple. If it is not the case, it requires adjustments.
@@ -120,7 +125,10 @@ impl<'a> FinalizerContext for ShardedSemiHonestContext<'a> {
         self,
         step: Self::Step<S>,
         inputs: R,
-    ) -> impl Future<Output = Result<R, Error>> + Send {
+    ) -> impl Future<Output = Result<R, Error>> + Send
+    where
+        Gate: StepNarrow<S>,
+    {
         let v = self.dzkp_validator(step, usize::MAX);
         semi_honest(v.context(), inputs)
     }
