@@ -86,7 +86,7 @@ where
     /// The "x coordinate" of the output point is `x_output`.
     pub fn new(denominator: &CanonicalLagrangeDenominator<F, N>, x_output: &F) -> Self {
         // assertion that table is not too large for the stack
-        assert!(<F as Serializable>::Size::USIZE * N < 2024);
+        debug_assert!(<F as Serializable>::Size::USIZE * N < 2024);
 
         let table = Self::compute_table_row(x_output, denominator);
         LagrangeTable::<F, N, 1> { table: [table; 1] }
