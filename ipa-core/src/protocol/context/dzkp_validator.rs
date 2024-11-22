@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         context::{
             batcher::Batcher,
-            dzkp_field::{DZKPBaseField, UVTupleBlock},
+            dzkp_field::{DZKPBaseField, TABLE_U, TABLE_V},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             step::DzkpValidationProtocolStep as Step,
@@ -20,7 +20,8 @@ use crate::{
         },
         ipa_prf::{
             validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
-            LargeProofGenerator, SmallProofGenerator,
+            CompressedProofGenerator, FirstProofGenerator, ProverTableIndices,
+            VerifierTableIndices,
         },
         Gate, RecordId, RecordIdRange,
     },
@@ -33,7 +34,7 @@ pub type Array256Bit = BitArray<[u8; 32], Lsb0>;
 
 type BitSliceType = BitSlice<u8, Lsb0>;
 
-const BIT_ARRAY_LEN: usize = 256;
+pub const BIT_ARRAY_LEN: usize = 256;
 const BIT_ARRAY_MASK: usize = BIT_ARRAY_LEN - 1;
 const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 
@@ -50,10 +51,19 @@ const BIT_ARRAY_SHIFT: usize = BIT_ARRAY_LEN.ilog2() as usize;
 // A smaller value is used for tests, to enable covering some corner cases with a
 // reasonable runtime. Some of these tests use TARGET_PROOF_SIZE directly, so for tests
 // it does need to be a power of two.
+//
+// TARGET_PROOF_SIZE is closely related to MAX_PROOF_RECURSION; see the assertion that
+// `uv_values.len() <= max_uv_values` in `ProofBatch` for more detail.
 #[cfg(test)]
 pub const TARGET_PROOF_SIZE: usize = 8192;
 #[cfg(not(test))]
 pub const TARGET_PROOF_SIZE: usize = 50_000_000;
+
+/// Minimum proof recursion depth.
+///
+/// This minimum avoids special cases in the implementation that would be otherwise
+/// required when the initial and final recursion steps overlap.
+pub const MIN_PROOF_RECURSION: usize = 2;
 
 /// Maximum proof recursion depth.
 //
@@ -71,9 +81,7 @@ pub const TARGET_PROOF_SIZE: usize = 50_000_000;
 // Because the number of records in a proof batch is often rounded up to a power of two
 // (and less significantly, because multiplication intermediate storage gets rounded up
 // to blocks of 256), leaving some margin is advised.
-//
-// The implementation requires that MAX_PROOF_RECURSION is at least 2.
-pub const MAX_PROOF_RECURSION: usize = 9;
+pub const MAX_PROOF_RECURSION: usize = 14;
 
 /// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
 /// that occur duringa multiplication.
@@ -156,34 +164,21 @@ impl MultiplicationInputsBlock {
 
         Ok(())
     }
+}
 
-    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
-    /// This is the convert function called by the prover.
-    fn convert_prover<DF: DZKPBaseField>(&self) -> Vec<UVTupleBlock<DF>> {
-        DF::convert_prover(
-            &self.x_left,
-            &self.x_right,
-            &self.y_left,
-            &self.y_right,
-            &self.prss_right,
-        )
-    }
-
-    /// `convert_values_from_right_prover` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
-    /// This is the convert function called by the verifier on the left.
-    fn convert_values_from_right_prover<DF: DZKPBaseField>(&self) -> Vec<DF> {
-        DF::convert_value_from_right_prover(
-            &self.x_right,
-            &self.y_right,
-            &self.prss_right,
-            &self.z_right,
-        )
-    }
-
-    /// `convert_values_from_left_prover` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
-    /// This is the convert function called by the verifier on the right.
-    fn convert_values_from_left_prover<DF: DZKPBaseField>(&self) -> Vec<DF> {
-        DF::convert_value_from_left_prover(&self.x_left, &self.y_left, &self.prss_left)
+#[cfg(any(test, feature = "enable-benches"))]
+impl rand::prelude::Distribution<MultiplicationInputsBlock> for rand::distributions::Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> MultiplicationInputsBlock {
+        let sample = <Self as rand::prelude::Distribution<[u8; 32]>>::sample;
+        MultiplicationInputsBlock {
+            x_left: sample(self, rng).into(),
+            x_right: sample(self, rng).into(),
+            y_left: sample(self, rng).into(),
+            y_right: sample(self, rng).into(),
+            prss_left: sample(self, rng).into(),
+            prss_right: sample(self, rng).into(),
+            z_right: sample(self, rng).into(),
+        }
     }
 }
 
@@ -469,34 +464,30 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// `get_field_values_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
-    /// values used by the prover of the DZKPs
-    fn get_field_values_prover<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = UVTupleBlock<DF>> + Clone + '_ {
+    /// `get_field_values_prover` converts a `MultiplicationInputsBatch` into an
+    /// iterator over pairs of indices for `TABLE_U` and `TABLE_V`.
+    fn get_field_values_prover(&self) -> impl Iterator<Item = (u8, u8)> + Clone + '_ {
         self.vec
             .iter()
-            .flat_map(MultiplicationInputsBlock::convert_prover::<DF>)
+            .flat_map(MultiplicationInputsBlock::table_indices_prover)
     }
 
-    /// `get_field_values_from_right_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
-    /// values used by the verifier of the DZKPs on the left side of the prover, i.e. the `u` values.
-    fn get_field_values_from_right_prover<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = DF> + '_ {
+    /// `get_field_values_from_right_prover` converts a `MultiplicationInputsBatch` into
+    /// an iterator over table indices for `TABLE_U`, which is used by the verifier of
+    /// the DZKPs on the left side of the prover.
+    fn get_field_values_from_right_prover(&self) -> impl Iterator<Item = u8> + '_ {
         self.vec
             .iter()
-            .flat_map(MultiplicationInputsBlock::convert_values_from_right_prover::<DF>)
+            .flat_map(MultiplicationInputsBlock::table_indices_from_right_prover)
     }
 
-    /// `get_field_values_from_left_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
-    /// values used by the verifier of the DZKPs on the right side of the prover, i.e. the `v` values.
-    fn get_field_values_from_left_prover<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = DF> + '_ {
+    /// `get_field_values_from_left_prover` converts a `MultiplicationInputsBatch` into
+    /// an iterator over table indices for `TABLE_V`, which is used by the verifier of
+    /// the DZKPs on the right side of the prover.
+    fn get_field_values_from_left_prover(&self) -> impl Iterator<Item = u8> + '_ {
         self.vec
             .iter()
-            .flat_map(MultiplicationInputsBlock::convert_values_from_left_prover::<DF>)
+            .flat_map(MultiplicationInputsBlock::table_indices_from_left_prover)
     }
 }
 
@@ -562,36 +553,30 @@ impl Batch {
             .sum()
     }
 
-    /// `get_field_values_prover` converts a `Batch` into an iterator over field values
-    /// which is used by the prover of the DZKP
-    fn get_field_values_prover<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = UVTupleBlock<DF>> + Clone + '_ {
+    /// `get_field_values_prover` converts a `Batch` into an iterator over pairs of
+    /// indices for `TABLE_U` and `TABLE_V`.
+    fn get_field_values_prover(&self) -> impl Iterator<Item = (u8, u8)> + Clone + '_ {
         self.inner
             .values()
-            .flat_map(MultiplicationInputsBatch::get_field_values_prover::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_prover)
     }
 
-    /// `get_field_values_from_right_prover` converts a `Batch` into an iterator over field values
-    /// which is used by the verifier of the DZKP on the left side of the prover.
-    /// This produces the `u` values.
-    fn get_field_values_from_right_prover<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = DF> + '_ {
+    /// `get_field_values_from_right_prover` converts a `Batch` into an iterator over
+    /// table indices for `TABLE_U`, which is used by the verifier of the DZKP on the
+    /// left side of the prover.
+    fn get_field_values_from_right_prover(&self) -> impl Iterator<Item = u8> + '_ {
         self.inner
             .values()
-            .flat_map(MultiplicationInputsBatch::get_field_values_from_right_prover::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_from_right_prover)
     }
 
-    /// `get_field_values_from_left_prover` converts a `Batch` into an iterator over field values
-    /// which is used by the verifier of the DZKP on the right side of the prover.
-    /// This produces the `v` values.
-    fn get_field_values_from_left_prover<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = DF> + '_ {
+    /// `get_field_values_from_left_prover` converts a `Batch` into an iterator over
+    /// table indices for `TABLE_V`, which is used by the verifier of the DZKP on the
+    /// right side of the prover.
+    fn get_field_values_from_left_prover(&self) -> impl Iterator<Item = u8> + '_ {
         self.inner
             .values()
-            .flat_map(MultiplicationInputsBatch::get_field_values_from_left_prover::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_from_left_prover)
     }
 
     /// ## Panics
@@ -601,8 +586,8 @@ impl Batch {
         ctx: Base<'_, B>,
         batch_index: usize,
     ) -> Result<(), Error> {
-        const PRSS_RECORDS_PER_BATCH: usize = LargeProofGenerator::PROOF_LENGTH
-            + (MAX_PROOF_RECURSION - 1) * SmallProofGenerator::PROOF_LENGTH
+        const PRSS_RECORDS_PER_BATCH: usize = FirstProofGenerator::PROOF_LENGTH
+            + (MAX_PROOF_RECURSION - 1) * CompressedProofGenerator::PROOF_LENGTH
             + 2; // P and Q masks
 
         let proof_ctx = ctx.narrow(&Step::GenerateProof);
@@ -623,7 +608,11 @@ impl Batch {
             q_mask_from_left_prover,
         ) = {
             // generate BatchToVerify
-            ProofBatch::generate(&proof_ctx, prss_record_ids, self.get_field_values_prover())
+            ProofBatch::generate(
+                &proof_ctx,
+                prss_record_ids,
+                ProverTableIndices(self.get_field_values_prover()),
+            )
         };
 
         let chunk_batch = BatchToVerify::generate_batch_to_verify(
@@ -647,12 +636,7 @@ impl Batch {
             tracing::info!("validating {m} multiplications");
             debug_assert_eq!(
                 m,
-                self.get_field_values_prover::<Fp61BitPrime>()
-                    .flat_map(|(u_array, v_array)| {
-                        u_array.into_iter().zip(v_array).map(|(u, v)| u * v)
-                    })
-                    .count()
-                    / 4,
+                self.get_field_values_prover().count(),
                 "Number of multiplications is counted incorrectly"
             );
             let sum_of_uv = Fp61BitPrime::truncate_from(u128::try_from(m).unwrap())
@@ -661,8 +645,14 @@ impl Batch {
             let (p_r_right_prover, q_r_left_prover) = chunk_batch.compute_p_and_q_r(
                 &challenges_for_left_prover,
                 &challenges_for_right_prover,
-                self.get_field_values_from_right_prover(),
-                self.get_field_values_from_left_prover(),
+                VerifierTableIndices {
+                    input: self.get_field_values_from_right_prover(),
+                    table: &TABLE_U,
+                },
+                VerifierTableIndices {
+                    input: self.get_field_values_from_left_prover(),
+                    table: &TABLE_V,
+                },
             );
 
             (sum_of_uv, p_r_right_prover, q_r_left_prover)
@@ -962,12 +952,11 @@ mod tests {
         ff::{
             boolean::Boolean,
             boolean_array::{BooleanArray, BA16, BA20, BA256, BA3, BA32, BA64, BA8},
-            Fp61BitPrime,
         },
         protocol::{
             basics::{select, BooleanArrayMul, SecureMul},
             context::{
-                dzkp_field::{DZKPCompatibleField, BLOCK_SIZE},
+                dzkp_field::DZKPCompatibleField,
                 dzkp_validator::{
                     Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
                 },
@@ -1811,16 +1800,16 @@ mod tests {
 
     fn assert_batch_convert(batch_prover: &Batch, batch_left: &Batch, batch_right: &Batch) {
         batch_prover
-            .get_field_values_prover::<Fp61BitPrime>()
+            .get_field_values_prover()
             .zip(
                 batch_left
-                    .get_field_values_from_right_prover::<Fp61BitPrime>()
-                    .collect::<Vec<[Fp61BitPrime; BLOCK_SIZE]>>(),
+                    .get_field_values_from_right_prover()
+                    .collect::<Vec<_>>(),
             )
             .zip(
                 batch_right
-                    .get_field_values_from_left_prover::<Fp61BitPrime>()
-                    .collect::<Vec<[Fp61BitPrime; BLOCK_SIZE]>>(),
+                    .get_field_values_from_left_prover()
+                    .collect::<Vec<_>>(),
             )
             .for_each(|((prover, verifier_left), verifier_right)| {
                 assert_eq!(prover.0, verifier_left);

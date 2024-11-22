@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{extract::Path, routing::get, Extension, Router};
 use hyper::StatusCode;
 
@@ -6,27 +8,30 @@ use crate::{
     net::{
         http_serde::{self, query::results::Request},
         server::Error,
-        transport::MpcHttpTransport,
+        ConnectionFlavor, HttpTransport,
     },
     protocol::QueryId,
 };
 
 /// Handles the completion of the query by blocking the sender until query is completed.
-async fn handler(
-    transport: Extension<MpcHttpTransport>,
+async fn handler<F: ConnectionFlavor>(
+    transport: Extension<Arc<HttpTransport<F>>>,
     Path(query_id): Path<QueryId>,
 ) -> Result<Vec<u8>, Error> {
     let req = Request { query_id };
     // TODO: we may be able to stream the response
-    match transport.dispatch(req, BodyStream::empty()).await {
+    match Arc::clone(&transport)
+        .dispatch(req, BodyStream::empty())
+        .await
+    {
         Ok(resp) => Ok(resp.into_body()),
         Err(e) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
 
-pub fn router(transport: MpcHttpTransport) -> Router {
+pub fn router<F: ConnectionFlavor>(transport: Arc<HttpTransport<F>>) -> Router {
     Router::new()
-        .route(http_serde::query::results::AXUM_PATH, get(handler))
+        .route(http_serde::query::results::AXUM_PATH, get(handler::<F>))
         .layer(Extension(transport))
 }
 

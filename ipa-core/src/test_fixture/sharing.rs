@@ -155,6 +155,15 @@ where
     }
 }
 
+impl<I, T> Reconstruct<Vec<Vec<T>>> for Vec<[Vec<I>; 3]>
+where
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+{
+    fn reconstruct(&self) -> Vec<Vec<T>> {
+        self.iter().map(Reconstruct::reconstruct).collect()
+    }
+}
+
 impl<I, T> Reconstruct<BitDecomposed<T>> for [BitDecomposed<I>; 3]
 where
     for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,

@@ -279,7 +279,7 @@ pub trait MaliciousShuffleable:
     ///
     /// Having an alias here makes it easier to reference in the code, because the
     /// shuffle routines have an `S: MaliciousShuffleable` type parameter.
-    type ShareAndTag: ShuffleShare + SharedValue;
+    type ShareAndTag: ShuffleShare;
 
     /// Same as `Self::MaliciousShare::TAG_OFFSET`.
     ///
@@ -316,11 +316,7 @@ where
 /// automatically.
 pub trait MaliciousShuffleShare: TryInto<Vec<Gf32Bit>, Error = LengthError> {
     /// A type that can hold `<Self as Shuffleable>::Share` along with a 32-bit MAC.
-    ///
-    /// The `SharedValue` bound is required because some of the malicious shuffle
-    /// routines use `AdditiveShare<ShareAndTag>`. It might be possible to refactor
-    /// those routines to avoid the `SharedValue` bound.
-    type ShareAndTag: ShuffleShare + SharedValue;
+    type ShareAndTag: ShuffleShare;
 
     /// The offset to the MAC in `ShareAndTag`.
     const TAG_OFFSET: usize;

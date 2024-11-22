@@ -10,7 +10,8 @@ use crate::{
     },
     rand::Rng,
     report::hybrid::{
-        HybridConversionReport, HybridImpressionReport, HybridReport, IndistinguishableHybridReport,
+        AggregateableHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
+        IndistinguishableHybridReport,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::sharing::Reconstruct,
@@ -22,12 +23,14 @@ pub enum TestHybridRecord {
     TestConversion { match_key: u64, value: u32 },
 }
 
-#[derive(PartialEq, Eq)]
-pub struct TestIndistinguishableHybridReport {
-    pub match_key: u64,
+#[derive(PartialEq, Eq, Debug)]
+pub struct TestIndistinguishableHybridReport<MK = u64> {
+    pub match_key: MK,
     pub value: u32,
     pub breakdown_key: u32,
 }
+
+pub type TestAggregateableHybridReport = TestIndistinguishableHybridReport<()>;
 
 impl<BK, V> Reconstruct<TestIndistinguishableHybridReport>
     for [&IndistinguishableHybridReport<BK, V>; 3]
@@ -57,6 +60,54 @@ where
             breakdown_key: breakdown_key.try_into().unwrap(),
             value: value.try_into().unwrap(),
         }
+    }
+}
+
+impl<BK, V> Reconstruct<TestAggregateableHybridReport>
+    for [&IndistinguishableHybridReport<BK, V, ()>; 3]
+where
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    V: BooleanArray + U128Conversions + IntoShares<Replicated<V>>,
+{
+    fn reconstruct(&self) -> TestAggregateableHybridReport {
+        let breakdown_key = self
+            .each_ref()
+            .map(|v| v.breakdown_key.clone())
+            .reconstruct()
+            .as_u128();
+        let value = self
+            .each_ref()
+            .map(|v| v.value.clone())
+            .reconstruct()
+            .as_u128();
+
+        TestAggregateableHybridReport {
+            match_key: (),
+            breakdown_key: breakdown_key.try_into().unwrap(),
+            value: value.try_into().unwrap(),
+        }
+    }
+}
+
+impl<BK, V> IntoShares<AggregateableHybridReport<BK, V>> for TestAggregateableHybridReport
+where
+    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
+    V: BooleanArray + U128Conversions + IntoShares<Replicated<V>>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [AggregateableHybridReport<BK, V>; 3] {
+        let ba_breakdown_key = BK::try_from(u128::from(self.breakdown_key))
+            .unwrap()
+            .share_with(rng);
+        let ba_value = V::try_from(u128::from(self.value)).unwrap().share_with(rng);
+        zip(ba_breakdown_key, ba_value)
+            .map(|(breakdown_key, value)| AggregateableHybridReport {
+                match_key: (),
+                breakdown_key,
+                value,
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 }
 

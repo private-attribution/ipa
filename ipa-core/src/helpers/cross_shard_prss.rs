@@ -18,7 +18,7 @@ use crate::{
 /// ## Errors
 /// If shard communication channels fail
 #[allow(dead_code)] // until this is used in real sharded protocol
-async fn gen_and_distribute<R: SharedRandomness, C: ShardConfiguration>(
+pub async fn gen_and_distribute<R: SharedRandomness, C: ShardConfiguration>(
     gateway: &Gateway,
     gate: &Gate,
     prss: R,

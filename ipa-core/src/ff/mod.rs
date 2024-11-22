@@ -2,6 +2,7 @@
 //
 // This is where we store arithmetic shared secret data models.
 
+mod accumulator;
 pub mod boolean;
 pub mod boolean_array;
 pub mod curve_points;
@@ -15,6 +16,7 @@ use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 
+pub use accumulator::{MultiplyAccumulate, MultiplyAccumulator, MultiplyAccumulatorArray};
 pub use field::{Field, FieldType};
 pub use galois_field::{GaloisField, Gf2, Gf20Bit, Gf32Bit, Gf3Bit, Gf40Bit, Gf8Bit, Gf9Bit};
 use generic_array::{ArrayLength, GenericArray};

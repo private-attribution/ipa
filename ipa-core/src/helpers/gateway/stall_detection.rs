@@ -78,7 +78,7 @@ mod gateway {
             Role, RoleAssignment, SendingEnd, ShardChannelId, ShardReceivingEnd, TotalRecords,
         },
         protocol::QueryId,
-        sharding::ShardIndex,
+        sharding::{ShardConfiguration, ShardIndex},
         sync::Arc,
         utils::NonZeroU32PowerOfTwo,
     };
@@ -204,6 +204,16 @@ mod gateway {
                 Weak::clone(self.get_sn()),
                 Arc::downgrade(&self.inner().gateway.inner),
             )
+        }
+    }
+
+    impl ShardConfiguration for &Observed<InstrumentedGateway> {
+        fn shard_id(&self) -> ShardIndex {
+            self.inner().gateway.shard_id()
+        }
+
+        fn shard_count(&self) -> ShardIndex {
+            self.inner().gateway.shard_count()
         }
     }
 

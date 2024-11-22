@@ -279,6 +279,10 @@ impl TestConfig {
         &self.rings[0]
     }
 
+    pub fn rings(&self) -> impl Iterator<Item = &TestNetwork<Helper>> {
+        self.rings.iter()
+    }
+
     /// Gets a ref to the entire shard network for a specific helper.
     #[must_use]
     pub fn get_shards_for_helper(&self, id: HelperIdentity) -> &TestNetwork<Shard> {
@@ -304,7 +308,6 @@ impl TestConfig {
             shards,
         }
     }
-
     /// Transforms this easy to modify configuration into an easy to run [`TestApp`].
     #[must_use]
     pub fn into_apps(self) -> Vec<TestApp> {

@@ -11,4 +11,4 @@ pub use processor::{
     QueryInputError, QueryKillStatus, QueryKilled, QueryStatusError,
 };
 pub use runner::OprfIpaQuery;
-pub use state::QueryStatus;
+pub use state::{min_status, QueryStatus};

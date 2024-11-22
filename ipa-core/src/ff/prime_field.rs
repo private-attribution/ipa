@@ -1,11 +1,15 @@
 use std::{fmt::Display, mem};
 
 use generic_array::GenericArray;
+use subtle::{Choice, ConstantTimeEq};
 
 use super::Field;
 use crate::{
     const_assert,
-    ff::{Serializable, U128Conversions},
+    ff::{
+        accumulator::{Accumulator, MultiplyAccumulate},
+        Serializable, U128Conversions,
+    },
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -265,6 +269,15 @@ macro_rules! field_impl {
             }
         }
 
+        // If the field value fits in a machine word, a naive comparison should be fine.
+        // But this impl is important for `[T]`, and useful to document where a
+        // constant-time compare is intended.
+        impl ConstantTimeEq for $field {
+            fn ct_eq(&self, other: &Self) -> Choice {
+                self.0.ct_eq(&other.0)
+            }
+        }
+
         impl rand::distributions::Distribution<$field> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $field {
                 <$field>::truncate_from(rng.gen::<u128>())
@@ -427,9 +440,17 @@ mod fp31 {
     field_impl! { Fp31, u8, u16, 8, 31 }
     rem_modulo_impl! { Fp31, u16 }
 
+    impl MultiplyAccumulate for Fp31 {
+        type Accumulator = Fp31;
+        type AccumulatorArray<const N: usize> = [Fp31; N];
+    }
+
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
         use super::*;
+        use crate::accum_tests;
+
+        accum_tests!(Fp31);
 
         #[test]
         fn fp31() {
@@ -459,9 +480,17 @@ mod fp32bit {
         type ArrayAlias = StdArray<Fp32BitPrime, 32>;
     }
 
+    impl MultiplyAccumulate for Fp32BitPrime {
+        type Accumulator = Fp32BitPrime;
+        type AccumulatorArray<const N: usize> = [Fp32BitPrime; N];
+    }
+
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
         use super::*;
+        use crate::accum_tests;
+
+        accum_tests!(Fp32BitPrime);
 
         #[test]
         fn thirty_two_bit_prime() {
@@ -507,6 +536,14 @@ mod fp32bit {
 
 mod fp61bit {
     field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951 }
+
+    // For multiply-accumulate of `Fp61BitPrime` using `u128` as the accumulator, we can add 64
+    // products onto an original field element before reduction is necessary. i.e., 64 * (2^61 - 2)^2 +
+    // (2^61 - 2) < 2^128.
+    impl MultiplyAccumulate for Fp61BitPrime {
+        type Accumulator = Accumulator<Fp61BitPrime, u128, 64>;
+        type AccumulatorArray<const N: usize> = Accumulator<Fp61BitPrime, [u128; N], 64>;
+    }
 
     impl Fp61BitPrime {
         #[must_use]
@@ -555,6 +592,12 @@ mod fp61bit {
         use proptest::proptest;
 
         use super::*;
+        use crate::accum_tests;
+
+        // Note: besides the tests generated with this macro, there are some additional
+        // tests for the optimized accumulator for `Fp61BitPrime` in the `accumulator`
+        // module.
+        accum_tests!(Fp61BitPrime);
 
         // copied from 32 bit prime field, adjusted wrap arounds, computed using wolframalpha.com
         #[test]

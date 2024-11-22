@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use futures::{stream, StreamExt, TryStreamExt};
 use typenum::Const;
 
@@ -17,8 +19,10 @@ use crate::{
     protocol::{
         basics::{BooleanProtocols, Reveal},
         context::{
-            dzkp_validator::DZKPValidator, reshard_try_stream, DZKPUpgraded, MacUpgraded,
-            MaliciousProtocolSteps, ShardedContext, UpgradableContext, Validator,
+            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
+            reshard_try_stream, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext,
+            ShardedUpgradedMaliciousContext, UpgradableContext, UpgradedMaliciousContext,
+            Validator,
         },
         hybrid::step::HybridStep,
         ipa_prf::{
@@ -26,15 +30,17 @@ use crate::{
             prf_eval::{eval_dy_prf, PrfSharing},
         },
         prss::{FromPrss, SharedRandomness},
-        RecordId,
+        BasicProtocols, RecordId,
     },
     report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
-        Vectorizable,
+        replicated::{malicious, semi_honest::AdditiveShare as Replicated},
+        BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
     seq_join::seq_join,
+    utils::non_zero_prev_power_of_two,
 };
+
 // In theory, we could support (runtime-configured breakdown count) ≤ (compile-time breakdown count)
 // ≤ 2^|bk|, with all three values distinct, but at present, there is no runtime configuration and
 // the latter two must be equal. The implementation of `move_single_value_to_bucket` does support a
@@ -64,13 +70,31 @@ pub const CONV_CHUNK: usize = 256;
 /// Vectorization dimension for PRF
 pub const PRF_CHUNK: usize = 16;
 
-// We expect 2*256 = 512 gates in total for two additions per conversion. The vectorization factor
-// is CONV_CHUNK. Let `len` equal the number of converted shares. The total amount of
-// multiplications is CONV_CHUNK*512*len. We want CONV_CHUNK*512*len ≈ 50M, or len ≈ 381, for a
-// reasonably-sized proof. There is also a constraint on proof chunks to be powers of two, so
-// we pick the closest power of two close to 381 but less than that value. 256 gives us around 33M
-// multiplications per batch
-const CONV_PROOF_CHUNK: usize = 256;
+/// Returns a suitable proof chunk size (in records) for use with `convert_to_fp25519`.
+///
+/// We expect 2*256 = 512 gates in total for two additions per conversion. The
+/// vectorization factor is `CONV_CHUNK`. Let `len` equal the number of converted
+/// shares. The total amount of multiplications is `CONV_CHUNK`*512*len. We want
+/// `CONV_CHUNK`*512*len ≈ 50M for a reasonably-sized proof. There is also a constraint
+/// on proof chunks to be powers of two, and we don't want to compute a proof chunk
+/// of zero when `TARGET_PROOF_SIZE` is smaller for tests.
+fn conv_proof_chunk() -> usize {
+    non_zero_prev_power_of_two(max(2, TARGET_PROOF_SIZE / CONV_CHUNK / 512))
+}
+
+/// Allow MAC-malicious shares to be used for PRF generation with shards
+impl<'a, const N: usize> PrfSharing<ShardedUpgradedMaliciousContext<'a, Fp25519>, N>
+    for Replicated<Fp25519, N>
+where
+    Fp25519: FieldSimd<N>,
+    RP25519: Vectorizable<N>,
+    malicious::AdditiveShare<Fp25519, N>:
+        BasicProtocols<UpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>,
+    Replicated<Fp25519, N>: FromPrss,
+{
+    type Field = Fp25519;
+    type UpgradedSharing = malicious::AdditiveShare<Fp25519, N>;
+}
 
 /// This computes the Dodis-Yampolsky PRF value on every match key from input,
 /// and reshards the reports according to the computed PRF. At the end, reports with the
@@ -101,7 +125,7 @@ where
             protocol: &HybridStep::ConvertFp25519,
             validate: &HybridStep::ConvertFp25519Validate,
         },
-        CONV_PROOF_CHUNK,
+        conv_proof_chunk(),
     );
     let m_ctx = validator.context();
 
@@ -224,9 +248,8 @@ mod test {
                 },
             ];
 
-            // TODO: we need to use malicious circuits here
             let reports_per_shard = world
-                .semi_honest(records.clone().into_iter(), |ctx, reports| async move {
+                .malicious(records.clone().into_iter(), |ctx, reports| async move {
                     let ind_reports = reports
                         .into_iter()
                         .map(IndistinguishableHybridReport::from)

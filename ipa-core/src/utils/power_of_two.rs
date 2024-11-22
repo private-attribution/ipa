@@ -68,9 +68,19 @@ impl NonZeroU32PowerOfTwo {
     }
 }
 
+/// Returns the largest power of two less than or equal to `target`.
+///
+/// Returns 1 if `target` is zero.
+pub fn non_zero_prev_power_of_two(target: usize) -> usize {
+    let bits = usize::BITS - target.leading_zeros();
+
+    1 << (std::cmp::max(1, bits) - 1)
+}
+
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::{ConvertError, NonZeroU32PowerOfTwo};
+    use crate::utils::power_of_two::non_zero_prev_power_of_two;
 
     #[test]
     fn rejects_invalid_values() {
@@ -106,5 +116,20 @@ mod tests {
             ConvertError("3".to_owned()),
             "3".parse::<NonZeroU32PowerOfTwo>().unwrap_err()
         );
+    }
+
+    #[test]
+    fn test_prev_power_of_two() {
+        const TWO_EXP_62: usize = 1usize << (usize::BITS - 2);
+        const TWO_EXP_63: usize = 1usize << (usize::BITS - 1);
+        assert_eq!(non_zero_prev_power_of_two(0), 1usize);
+        assert_eq!(non_zero_prev_power_of_two(1), 1usize);
+        assert_eq!(non_zero_prev_power_of_two(2), 2usize);
+        assert_eq!(non_zero_prev_power_of_two(3), 2usize);
+        assert_eq!(non_zero_prev_power_of_two(4), 4usize);
+        assert_eq!(non_zero_prev_power_of_two(TWO_EXP_63 - 1), TWO_EXP_62);
+        assert_eq!(non_zero_prev_power_of_two(TWO_EXP_63), TWO_EXP_63);
+        assert_eq!(non_zero_prev_power_of_two(TWO_EXP_63 + 1), TWO_EXP_63);
+        assert_eq!(non_zero_prev_power_of_two(usize::MAX), TWO_EXP_63);
     }
 }

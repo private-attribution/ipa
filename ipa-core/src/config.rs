@@ -3,6 +3,7 @@ use std::{
     fmt::{Debug, Formatter},
     iter::zip,
     path::PathBuf,
+    str::FromStr,
     time::Duration,
 };
 
@@ -280,20 +281,21 @@ fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> 
 ///
 /// # Errors
 /// if `input` is in an invalid format
+///
+/// # Panics
+/// If you somehow provide an invalid non-sharded network toml
 pub fn sharded_server_from_toml_str(
     input: &str,
     id: HelperIdentity,
     shard_index: ShardIndex,
     shard_count: ShardIndex,
+    shard_port: Option<u16>,
 ) -> Result<(NetworkConfig<Helper>, NetworkConfig<Shard>), Error> {
     let all_network = parse_sharded_network_toml(input)?;
-    let missing_urls = all_network.missing_shard_urls();
-    if !missing_urls.is_empty() {
-        return Err(Error::MissingShardUrls(missing_urls));
-    }
 
     let ix: usize = shard_index.as_index();
     let ix_count: usize = shard_count.as_index();
+    // assert ix < count
     let mpc_id: usize = id.as_index();
 
     let mpc_network = NetworkConfig {
@@ -307,21 +309,45 @@ pub fn sharded_server_from_toml_str(
         client: all_network.client.clone(),
         identities: HelperIdentity::make_three().to_vec(),
     };
-
-    let shard_network = NetworkConfig {
-        peers: all_network
-            .peers
-            .iter()
-            .map(ShardedPeerConfigToml::to_shard_peer)
-            .skip(mpc_id)
-            .step_by(3)
-            .take(ix_count)
-            .collect(),
-        client: all_network.client,
-        identities: shard_count.iter().collect(),
-    };
-
-    Ok((mpc_network, shard_network))
+    let missing_urls = all_network.missing_shard_urls();
+    if missing_urls.is_empty() {
+        let shard_network = NetworkConfig {
+            peers: all_network
+                .peers
+                .iter()
+                .map(ShardedPeerConfigToml::to_shard_peer)
+                .skip(mpc_id)
+                .step_by(3)
+                .take(ix_count)
+                .collect(),
+            client: all_network.client,
+            identities: shard_count.iter().collect(),
+        };
+        Ok((mpc_network, shard_network))
+    } else if missing_urls == [0, 1, 2] && shard_count == ShardIndex(1) {
+        // This is the special case we're dealing with a non-sharded, single ring MPC.
+        // Since the shard network will be of size 1, it can't really communicate with anyone else.
+        // Hence we just create a config where I'm the only shard. We take the MPC configuration
+        // and modify the port.
+        let mut myself = ShardedPeerConfigToml::to_mpc_peer(all_network.peers.get(mpc_id).unwrap());
+        let url = myself.url.to_string();
+        let pos = url.rfind(':');
+        let port = shard_port.expect("Shard port should be set");
+        let new_url = if pos.is_some() {
+            format!("{}{port}", &url[..=pos.unwrap()])
+        } else {
+            format!("{}:{port}", &url)
+        };
+        myself.url = Uri::from_str(&new_url).expect("Problem creating uri with sharded port");
+        let shard_network = NetworkConfig {
+            peers: vec![myself],
+            client: all_network.client,
+            identities: shard_count.iter().collect(),
+        };
+        Ok((mpc_network, shard_network))
+    } else {
+        return Err(Error::MissingShardUrls(missing_urls));
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -788,6 +814,7 @@ mod tests {
             HelperIdentity::TWO,
             ShardIndex::from(1),
             ShardIndex::from(3),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -856,19 +883,43 @@ mod tests {
         ));
     }
 
-    /// Check that shard urls are given for [`sharded_server_from_toml_str`] or error is returned.
+    /// Check that [`sharded_server_from_toml_str`] can work in the previous format.
     #[test]
     fn parse_sharded_without_shard_urls() {
-        // Second, I test the networkconfig parsing
-        assert!(matches!(
-            sharded_server_from_toml_str(
-                &NON_SHARDED_COMPAT,
-                HelperIdentity::TWO,
-                ShardIndex::FIRST,
-                ShardIndex::from(1)
-            ),
-            Err(Error::MissingShardUrls(_))
-        ));
+        let (mpc, mut shard) = sharded_server_from_toml_str(
+            &NON_SHARDED_COMPAT,
+            HelperIdentity::ONE,
+            ShardIndex::FIRST,
+            ShardIndex::from(1),
+            Some(666),
+        )
+        .unwrap();
+        assert_eq!(1, shard.peers.len());
+        assert_eq!(3, mpc.peers.len());
+        assert_eq!(
+            "helper1.org:666",
+            shard.peers.pop().unwrap().url.to_string()
+        );
+    }
+
+    /// Check that [`sharded_server_from_toml_str`] can work in the previous format, even when the
+    /// given MPC URL doesn't have a port (NOTE: helper 2 doesn't specify it).
+    #[test]
+    fn parse_sharded_without_shard_urls_no_port() {
+        let (mpc, mut shard) = sharded_server_from_toml_str(
+            &NON_SHARDED_COMPAT,
+            HelperIdentity::TWO,
+            ShardIndex::FIRST,
+            ShardIndex::from(1),
+            Some(666),
+        )
+        .unwrap();
+        assert_eq!(1, shard.peers.len());
+        assert_eq!(3, mpc.peers.len());
+        assert_eq!(
+            "helper2.org:666",
+            shard.peers.pop().unwrap().url.to_string()
+        );
     }
 
     /// Testing happy case of a sharded network config
@@ -959,6 +1010,7 @@ a6L0t1Ug8i2RcequSo21x319Tvs5nUbGwzMFSS5wKA==
 url = "helper1.org:443""#;
 
     /// The rest of a configuration
+    /// Note the second helper doesn't provide a port as part of its url
     const REST: &str = r#"
 [peers.hpke]
 public_key = "f458d5e1989b2b8f5dacd4143276aa81eaacf7449744ab1251ff667c43550756"
@@ -977,7 +1029,7 @@ zj0EAwIDSAAwRQIhAI4G5ICVm+v5KK5Y8WVetThtNCXGykUBAM1eE973FBOUAiAS
 XXgJe9q9hAfHf0puZbv0j0tGY3BiqCkJJaLvK7ba+g==
 -----END CERTIFICATE-----
 """
-url = "helper2.org:443"
+url = "helper2.org"
 
 [peers.hpke]
 public_key = "62357179868e5594372b801ddf282c8523806a868a2bff2685f66aa05ffd6c22"

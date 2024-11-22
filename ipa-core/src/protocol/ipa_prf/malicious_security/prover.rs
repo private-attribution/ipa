@@ -1,17 +1,25 @@
-use std::{borrow::Borrow, iter::zip, marker::PhantomData};
+use std::{array, borrow::Borrow, marker::PhantomData};
 
-#[cfg(all(test, unit_test))]
-use crate::ff::Fp31;
 use crate::{
     error::Error::{self, DZKPMasks},
-    ff::{Fp61BitPrime, PrimeField},
+    ff::{Fp61BitPrime, MultiplyAccumulate, MultiplyAccumulatorArray, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
-        context::Context,
-        ipa_prf::malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+        context::{
+            dzkp_field::{TABLE_U, TABLE_V},
+            Context,
+        },
+        ipa_prf::{
+            malicious_security::{
+                lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+                FIRST_RECURSION_FACTOR as FRF,
+            },
+            CompressedProofGenerator,
+        },
         prss::SharedRandomness,
         RecordId, RecordIdRange,
     },
+    secret_sharing::SharedValue,
 };
 
 /// This struct stores intermediate `uv` values.
@@ -84,13 +92,220 @@ where
         // compute final uv values
         let (u_values, v_values) = &mut self.uv_chunks[0];
         // shift first element to last position
-        u_values[SmallProofGenerator::RECURSION_FACTOR - 1] = u_values[0];
-        v_values[SmallProofGenerator::RECURSION_FACTOR - 1] = v_values[0];
+        u_values[CompressedProofGenerator::RECURSION_FACTOR - 1] = u_values[0];
+        v_values[CompressedProofGenerator::RECURSION_FACTOR - 1] = v_values[0];
         // set masks in first position
         u_values[0] = my_p_mask;
         v_values[0] = my_q_mask;
 
         Ok(())
+    }
+}
+
+/// Trait for inputs to Lagrange interpolation on the prover.
+///
+/// Lagrange interpolation is used in the prover in two ways:
+///
+/// 1. To extrapolate an additional λ - 1 y-values of degree-(λ-1) polynomials so that the
+///    total 2λ - 1 y-values can be multiplied to obtain a representation of the product of
+///    the polynomials.
+/// 2. To evaluate polynomials at the randomly chosen challenge point _r_.
+///
+/// The two methods in this trait correspond to those two uses.
+///
+/// There are two implementations of this trait: `ProverTableIndices`, and
+/// `ProverValues`. `ProverTableIndices` is used for the input to the first proof.  Each
+/// set of 4 _u_ or _v_ values input to the first proof has one of eight possible
+/// values, determined by the values of the 3 associated multiplication intermediates.
+/// The `ProverTableIndices` implementation uses a lookup table containing the output of
+/// the Lagrange interpolation for each of these eight possible values. The
+/// `ProverValues` implementation, which represents actual _u_ and _v_ values, is used
+/// by the remaining recursive proofs.
+///
+/// There is a similar trait `VerifierLagrangeInput` in `verifier.rs`. The difference is
+/// that the prover operates on _u_ and _v_ values simultaneously (i.e. iterators of
+/// tuples). The verifier operates on only one of _u_ or _v_ at a time.
+pub trait ProverLagrangeInput<F: PrimeField, const L: usize> {
+    fn extrapolate_y_values<'a, const P: usize, const M: usize>(
+        self,
+        lagrange_table: &'a LagrangeTable<F, L, M>,
+    ) -> impl Iterator<Item = ([F; P], [F; P])> + 'a
+    where
+        Self: 'a;
+
+    fn eval_at_r<'a>(
+        self,
+        lagrange_table: &'a LagrangeTable<F, L, 1>,
+    ) -> impl Iterator<Item = (F, F)> + 'a
+    where
+        Self: 'a;
+}
+
+/// Implementation of `ProverLagrangeInput` for table indices, used for the first proof.
+#[derive(Clone)]
+pub struct ProverTableIndices<I: Iterator<Item = (u8, u8)>>(pub I);
+
+/// Iterator returned by `ProverTableIndices::extrapolate_y_values` and
+/// `ProverTableIndices::eval_at_r`.
+struct TableIndicesIterator<T, I: Iterator<Item = (u8, u8)>> {
+    input: I,
+    u_table: [T; 8],
+    v_table: [T; 8],
+}
+
+impl<I: Iterator<Item = (u8, u8)>> ProverLagrangeInput<Fp61BitPrime, FRF>
+    for ProverTableIndices<I>
+{
+    fn extrapolate_y_values<'a, const P: usize, const M: usize>(
+        self,
+        lagrange_table: &'a LagrangeTable<Fp61BitPrime, FRF, M>,
+    ) -> impl Iterator<Item = ([Fp61BitPrime; P], [Fp61BitPrime; P])> + 'a
+    where
+        Self: 'a,
+    {
+        TableIndicesIterator {
+            input: self.0,
+            u_table: array::from_fn(|i| {
+                let mut result = [Fp61BitPrime::ZERO; P];
+                let u = &TABLE_U[i];
+                result[0..FRF].copy_from_slice(u);
+                result[FRF..].copy_from_slice(&lagrange_table.eval(u));
+                result
+            }),
+            v_table: array::from_fn(|i| {
+                let mut result = [Fp61BitPrime::ZERO; P];
+                let v = &TABLE_V[i];
+                result[0..FRF].copy_from_slice(v);
+                result[FRF..].copy_from_slice(&lagrange_table.eval(v));
+                result
+            }),
+        }
+    }
+
+    fn eval_at_r<'a>(
+        self,
+        lagrange_table: &'a LagrangeTable<Fp61BitPrime, FRF, 1>,
+    ) -> impl Iterator<Item = (Fp61BitPrime, Fp61BitPrime)> + 'a
+    where
+        Self: 'a,
+    {
+        TableIndicesIterator {
+            input: self.0,
+            u_table: array::from_fn(|i| lagrange_table.eval(&TABLE_U[i])[0]),
+            v_table: array::from_fn(|i| lagrange_table.eval(&TABLE_V[i])[0]),
+        }
+    }
+}
+
+impl<T: Clone, I: Iterator<Item = (u8, u8)>> Iterator for TableIndicesIterator<T, I> {
+    type Item = (T, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.input.next().map(|(u_index, v_index)| {
+            (
+                self.u_table[usize::from(u_index)].clone(),
+                self.v_table[usize::from(v_index)].clone(),
+            )
+        })
+    }
+}
+
+/// Implementation of `ProverLagrangeInput` for _u_ and _v_ values, used for subsequent
+/// recursive proofs.
+#[derive(Clone)]
+pub struct ProverValues<F: PrimeField, const L: usize, I: Iterator<Item = ([F; L], [F; L])>>(pub I);
+
+/// Iterator returned by `ProverValues::extrapolate_y_values`.
+struct ValuesExtrapolateIterator<
+    'a,
+    F: PrimeField,
+    const L: usize,
+    const P: usize,
+    const M: usize,
+    I: Iterator<Item = ([F; L], [F; L])>,
+> {
+    input: I,
+    lagrange_table: &'a LagrangeTable<F, L, M>,
+}
+
+impl<
+        'a,
+        F: PrimeField,
+        const L: usize,
+        const P: usize,
+        const M: usize,
+        I: Iterator<Item = ([F; L], [F; L])>,
+    > Iterator for ValuesExtrapolateIterator<'a, F, L, P, M, I>
+{
+    type Item = ([F; P], [F; P]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.input.next().map(|(u_values, v_values)| {
+            let mut u = [F::ZERO; P];
+            u[0..L].copy_from_slice(&u_values);
+            u[L..].copy_from_slice(&self.lagrange_table.eval(&u_values));
+            let mut v = [F::ZERO; P];
+            v[0..L].copy_from_slice(&v_values);
+            v[L..].copy_from_slice(&self.lagrange_table.eval(&v_values));
+            (u, v)
+        })
+    }
+}
+
+/// Iterator returned by `ProverValues::eval_at_r`.
+struct ValuesEvalAtRIterator<
+    'a,
+    F: PrimeField,
+    const L: usize,
+    I: Iterator<Item = ([F; L], [F; L])>,
+> {
+    input: I,
+    lagrange_table: &'a LagrangeTable<F, L, 1>,
+}
+
+impl<'a, F: PrimeField, const L: usize, I: Iterator<Item = ([F; L], [F; L])>> Iterator
+    for ValuesEvalAtRIterator<'a, F, L, I>
+{
+    type Item = (F, F);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.input.next().map(|(u_values, v_values)| {
+            (
+                self.lagrange_table.eval(&u_values)[0],
+                self.lagrange_table.eval(&v_values)[0],
+            )
+        })
+    }
+}
+
+impl<F: PrimeField, const L: usize, I: Iterator<Item = ([F; L], [F; L])>> ProverLagrangeInput<F, L>
+    for ProverValues<F, L, I>
+{
+    fn extrapolate_y_values<'a, const P: usize, const M: usize>(
+        self,
+        lagrange_table: &'a LagrangeTable<F, L, M>,
+    ) -> impl Iterator<Item = ([F; P], [F; P])> + 'a
+    where
+        Self: 'a,
+    {
+        debug_assert_eq!(L + M, P);
+        ValuesExtrapolateIterator {
+            input: self.0,
+            lagrange_table,
+        }
+    }
+
+    fn eval_at_r<'a>(
+        self,
+        lagrange_table: &'a LagrangeTable<F, L, 1>,
+    ) -> impl Iterator<Item = (F, F)> + 'a
+    where
+        Self: 'a,
+    {
+        ValuesEvalAtRIterator {
+            input: self.0,
+            lagrange_table,
+        }
     }
 }
 
@@ -105,15 +320,11 @@ pub struct ProofGenerator<F: PrimeField, const L: usize, const P: usize, const M
     phantom_data: PhantomData<F>,
 }
 
-#[cfg(all(test, unit_test))]
-pub type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
-
 // Compression Factor is L
 // P, Proof size is 2*L - 1
 // M, the number of interpolated points is L - 1
 // The reason we need these is that Rust doesn't support basic math operations on const generics
-pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 8, 15, 7>;
-pub type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
+pub type SmallProofGenerator = ProofGenerator<Fp61BitPrime, 4, 7, 3>;
 
 impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerator<F, L, P, M> {
     // define constants such that they can be used externally
@@ -122,40 +333,47 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
     pub const PROOF_LENGTH: usize = P;
     pub const LAGRANGE_LENGTH: usize = M;
 
+    pub fn compute_proof_from_uv<J>(uv: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
+    where
+        J: Iterator,
+        J::Item: Borrow<([F; L], [F; L])>,
+    {
+        Self::compute_proof(uv.map(|uv| {
+            let (u, v) = uv.borrow();
+            let mut u_ex = [F::ZERO; P];
+            let mut v_ex = [F::ZERO; P];
+            u_ex[0..L].copy_from_slice(u);
+            v_ex[0..L].copy_from_slice(v);
+            u_ex[L..].copy_from_slice(&lagrange_table.eval(u));
+            v_ex[L..].copy_from_slice(&lagrange_table.eval(v));
+            (u_ex, v_ex)
+        }))
+    }
+
     ///
     /// Distributed Zero Knowledge Proofs algorithm drawn from
     /// `https://eprint.iacr.org/2023/909.pdf`
-    pub fn compute_proof<J>(uv_iterator: J, lagrange_table: &LagrangeTable<F, L, M>) -> [F; P]
+    pub fn compute_proof<J>(pq_iterator: J) -> [F; P]
     where
         J: Iterator,
-        J::Item: Borrow<([F; L], [F; L])>,
+        J::Item: Borrow<([F; P], [F; P])>,
     {
-        let mut proof = [F::ZERO; P];
-        for uv_polynomial in uv_iterator {
-            for (i, proof_part) in proof.iter_mut().enumerate().take(L) {
-                *proof_part += uv_polynomial.borrow().0[i] * uv_polynomial.borrow().1[i];
-            }
-            let p_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().0);
-            let q_extrapolated = lagrange_table.eval(&uv_polynomial.borrow().1);
-
-            for (i, (x, y)) in
-                zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
-            {
-                proof[L + i] += x * y;
-            }
-        }
-        proof
+        pq_iterator
+            .fold(
+                <F as MultiplyAccumulate>::AccumulatorArray::<P>::new(),
+                |mut proof, pq| {
+                    proof.multiply_accumulate(&pq.borrow().0, &pq.borrow().1);
+                    proof
+                },
+            )
+            .take()
     }
 
-    fn gen_challenge_and_recurse<J, const N: usize>(
+    fn gen_challenge_and_recurse<I: ProverLagrangeInput<F, L>, const N: usize>(
         proof_left: &[F; P],
         proof_right: &[F; P],
-        uv_iterator: J,
-    ) -> UVValues<F, N>
-    where
-        J: Iterator,
-        J::Item: Borrow<([F; L], [F; L])>,
-    {
+        uv_iterator: I,
+    ) -> UVValues<F, N> {
         let r: F = hash_to_field(
             &compute_hash(proof_left),
             &compute_hash(proof_right),
@@ -165,17 +383,8 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         let denominator = CanonicalLagrangeDenominator::<F, L>::new();
         let lagrange_table_r = LagrangeTable::<F, L, 1>::new(&denominator, &r);
 
-        // iter and interpolate at x coordinate r
         uv_iterator
-            .map(|polynomial| {
-                let (u_chunk, v_chunk) = polynomial.borrow();
-                (
-                    // new u value
-                    lagrange_table_r.eval(u_chunk)[0],
-                    // new v value
-                    lagrange_table_r.eval(v_chunk)[0],
-                )
-            })
+            .eval_at_r(&lagrange_table_r)
             .collect::<UVValues<F, N>>()
     }
 
@@ -205,29 +414,23 @@ impl<F: PrimeField, const L: usize, const P: usize, const M: usize> ProofGenerat
         proof_other_share
     }
 
-    /// This function is a helper function that computes the next proof
-    /// from an iterator over uv values
-    /// It also computes the next uv values
+    /// This function is a helper function that, given the computed proof, computes the shares of
+    /// the proof, the challenge, and the next uv values.
     ///
     /// It output `(uv values, share_of_proof_from_prover_left, my_proof_left_share)`
     /// where
     /// `share_of_proof_from_prover_left` from left has type `Vec<[F; P]>`,
     /// `my_proof_left_share` has type `Vec<[F; P]>`,
-    pub fn gen_artefacts_from_recursive_step<C, J, const N: usize>(
+    pub fn gen_artefacts_from_recursive_step<C, I, const N: usize>(
         ctx: &C,
         record_ids: &mut RecordIdRange,
-        lagrange_table: &LagrangeTable<F, L, M>,
-        uv_iterator: J,
+        my_proof: [F; P],
+        uv_iterator: I,
     ) -> (UVValues<F, N>, [F; P], [F; P])
     where
         C: Context,
-        J: Iterator + Clone,
-        J::Item: Borrow<([F; L], [F; L])>,
+        I: ProverLagrangeInput<F, L>,
     {
-        // generate next proof
-        // from iterator
-        let my_proof = Self::compute_proof(uv_iterator.clone(), lagrange_table);
-
         // generate proof shares from prss
         let (share_of_proof_from_prover_left, my_proof_right_share) =
             Self::gen_proof_shares_from_prss(ctx, record_ids);
@@ -257,22 +460,31 @@ mod test {
     use std::iter::zip;
 
     use futures::future::try_join;
+    use rand::Rng;
 
+    use super::*;
     use crate::{
         ff::{Fp31, Fp61BitPrime, PrimeField, U128Conversions},
         helpers::{Direction, Role},
         protocol::{
-            context::Context,
-            ipa_prf::malicious_security::{
-                lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-                prover::{LargeProofGenerator, SmallProofGenerator, TestProofGenerator, UVValues},
+            context::{
+                dzkp_field::tests::reference_convert,
+                dzkp_validator::{MultiplicationInputsBlock, BIT_ARRAY_LEN},
+                Context,
+            },
+            ipa_prf::{
+                malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+                FirstProofGenerator,
             },
             RecordId, RecordIdRange,
         },
         seq_join::SeqJoin,
-        test_executor::run,
+        test_executor::{run, run_random},
         test_fixture::{Runner, TestWorld},
     };
+
+    type TestProofGenerator = ProofGenerator<Fp31, 4, 7, 3>;
+    type LargeProofGenerator = ProofGenerator<Fp61BitPrime, 32, 63, 31>;
 
     fn zip_chunks<F: PrimeField, const U: usize, I, J>(a: I, b: J) -> UVValues<F, U>
     where
@@ -316,7 +528,7 @@ mod test {
         let uv_1 = zip_chunks(U_1, V_1);
 
         // first iteration
-        let proof_1 = TestProofGenerator::compute_proof(uv_1.iter(), &lagrange_table);
+        let proof_1 = TestProofGenerator::compute_proof_from_uv(uv_1.iter(), &lagrange_table);
         assert_eq!(
             proof_1.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_1,
@@ -335,12 +547,12 @@ mod test {
         let uv_2 = TestProofGenerator::gen_challenge_and_recurse(
             &proof_left_1,
             &proof_right_1,
-            uv_1.iter(),
+            ProverValues(uv_1.iter().copied()),
         );
         assert_eq!(uv_2, zip_chunks(U_2, V_2));
 
         // next iteration
-        let proof_2 = TestProofGenerator::compute_proof(uv_2.iter(), &lagrange_table);
+        let proof_2 = TestProofGenerator::compute_proof_from_uv(uv_2.iter(), &lagrange_table);
         assert_eq!(
             proof_2.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_2,
@@ -359,7 +571,7 @@ mod test {
         let uv_3 = TestProofGenerator::gen_challenge_and_recurse::<_, 4>(
             &proof_left_2,
             &proof_right_2,
-            uv_2.iter(),
+            ProverValues(uv_2.iter().copied()),
         );
         assert_eq!(uv_3, zip_chunks(U_3, V_3));
 
@@ -369,7 +581,8 @@ mod test {
         );
 
         // final iteration
-        let proof_3 = TestProofGenerator::compute_proof(masked_uv_3.iter(), &lagrange_table);
+        let proof_3 =
+            TestProofGenerator::compute_proof_from_uv(masked_uv_3.iter(), &lagrange_table);
         assert_eq!(
             proof_3.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             PROOF_3,
@@ -397,11 +610,12 @@ mod test {
             // first iteration
             let world = TestWorld::default();
             let mut record_ids = RecordIdRange::ALL;
+            let proof = TestProofGenerator::compute_proof_from_uv(uv_1.iter(), &lagrange_table);
             let (uv_values, _, _) = TestProofGenerator::gen_artefacts_from_recursive_step::<_, _, 4>(
                 &world.contexts()[0],
                 &mut record_ids,
-                &lagrange_table,
-                uv_1.iter(),
+                proof,
+                ProverValues(uv_1.iter().copied()),
             );
 
             assert_eq!(7, uv_values.len());
@@ -436,14 +650,14 @@ mod test {
         >::from(denominator);
 
         // compute proof
-        let proof = SmallProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+        let proof = SmallProofGenerator::compute_proof_from_uv(uv_before.iter(), &lagrange_table);
 
         assert_eq!(proof.len(), SmallProofGenerator::PROOF_LENGTH);
 
         let uv_after = SmallProofGenerator::gen_challenge_and_recurse::<_, 8>(
             &proof,
             &proof,
-            uv_before.iter(),
+            ProverValues(uv_before.iter().copied()),
         );
 
         assert_eq!(
@@ -472,14 +686,14 @@ mod test {
         >::from(denominator);
 
         // compute proof
-        let proof = LargeProofGenerator::compute_proof(uv_before.iter(), &lagrange_table);
+        let proof = LargeProofGenerator::compute_proof_from_uv(uv_before.iter(), &lagrange_table);
 
         assert_eq!(proof.len(), LargeProofGenerator::PROOF_LENGTH);
 
         let uv_after = LargeProofGenerator::gen_challenge_and_recurse::<_, 8>(
             &proof,
             &proof,
-            uv_before.iter(),
+            ProverValues(uv_before.iter().copied()),
         );
 
         assert_eq!(
@@ -593,5 +807,52 @@ mod test {
         assert_two_part_secret_sharing(PROOF_1, h3_proof_right, h2_proof_left);
         assert_two_part_secret_sharing(PROOF_2, h1_proof_right, h3_proof_left);
         assert_two_part_secret_sharing(PROOF_3, h2_proof_right, h1_proof_left);
+    }
+
+    #[test]
+    fn prover_table_indices_equivalence() {
+        run_random(|mut rng| async move {
+            const FPL: usize = FirstProofGenerator::PROOF_LENGTH;
+            const FLL: usize = FirstProofGenerator::LAGRANGE_LENGTH;
+
+            let block = rng.gen::<MultiplicationInputsBlock>();
+
+            // Test equivalence for extrapolate_y_values
+            let denominator = CanonicalLagrangeDenominator::new();
+            let lagrange_table = LagrangeTable::from(denominator);
+
+            assert!(ProverTableIndices(block.table_indices_prover().into_iter())
+                .extrapolate_y_values::<FPL, FLL>(&lagrange_table)
+                .eq(ProverValues((0..BIT_ARRAY_LEN).map(|i| {
+                    reference_convert(
+                        block.x_left[i],
+                        block.x_right[i],
+                        block.y_left[i],
+                        block.y_right[i],
+                        block.prss_left[i],
+                        block.prss_right[i],
+                    )
+                }))
+                .extrapolate_y_values::<FPL, FLL>(&lagrange_table)));
+
+            // Test equivalence for eval_at_r
+            let denominator = CanonicalLagrangeDenominator::new();
+            let r = rng.gen();
+            let lagrange_table_r = LagrangeTable::new(&denominator, &r);
+
+            assert!(ProverTableIndices(block.table_indices_prover().into_iter())
+                .eval_at_r(&lagrange_table_r)
+                .eq(ProverValues((0..BIT_ARRAY_LEN).map(|i| {
+                    reference_convert(
+                        block.x_left[i],
+                        block.x_right[i],
+                        block.y_left[i],
+                        block.y_right[i],
+                        block.prss_left[i],
+                        block.prss_right[i],
+                    )
+                }))
+                .eval_at_r(&lagrange_table_r)));
+        });
     }
 }

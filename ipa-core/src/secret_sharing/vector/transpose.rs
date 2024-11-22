@@ -100,7 +100,7 @@ pub trait TransposeFrom<T> {
 //
 // From Hacker's Delight (2nd edition), Figure 7-6.
 //
-// There are comments on `dzkp_field::convert_values_table_indices`, which implements a
+// There are comments on `dzkp_field::bits_to_table_indices`, which implements a
 // similar transformation, that may help to understand how this works.
 #[inline]
 pub fn transpose_8x8<B: Borrow<[u8; 8]>>(x: B) -> [u8; 8] {
@@ -125,7 +125,7 @@ pub fn transpose_8x8<B: Borrow<[u8; 8]>>(x: B) -> [u8; 8] {
 //
 // Loosely based on Hacker's Delight (2nd edition), Figure 7-6.
 //
-// There are comments on `dzkp_field::convert_values_table_indices`, which implements a
+// There are comments on `dzkp_field::bits_to_table_indices`, which implements a
 // similar transformation, that may help to understand how this works.
 #[inline]
 pub fn transpose_16x16(src: &[u8; 32]) -> [u8; 32] {

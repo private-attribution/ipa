@@ -2,10 +2,11 @@ use std::convert::Infallible;
 
 use curve25519_dalek::scalar::Scalar;
 use generic_array::GenericArray;
+use subtle::{Choice, ConstantTimeEq};
 use typenum::{U2, U32};
 
 use crate::{
-    ff::{boolean_array::BA256, Field, Serializable},
+    ff::{boolean_array::BA256, Field, MultiplyAccumulate, Serializable},
     impl_shared_value_common,
     protocol::{
         ipa_prf::PRF_CHUNK,
@@ -72,6 +73,12 @@ impl Serializable for Fp25519 {
     /// Deserialized values are reduced modulo the field order.
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         Ok(Fp25519(Scalar::from_bytes_mod_order((*buf).into())))
+    }
+}
+
+impl ConstantTimeEq for Fp25519 {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.0.ct_eq(&other.0)
     }
 }
 
@@ -217,6 +224,12 @@ impl ExtendableField for Fp25519 {
     fn to_extended(&self) -> Self::ExtendedField {
         *self
     }
+}
+
+// Note: The multiply-accumulate tests are not currently instantiated for `Boolean`.
+impl MultiplyAccumulate for Fp25519 {
+    type Accumulator = Fp25519;
+    type AccumulatorArray<const N: usize> = [Fp25519; N];
 }
 
 impl FromRandom for Fp25519 {

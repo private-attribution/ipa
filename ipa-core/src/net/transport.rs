@@ -106,10 +106,14 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
                 self.clients[client_ix].prepare_query(req).await
             }
+            RouteId::CompleteQuery => {
+                let query_id = <Option<QueryId>>::from(route.query_id())
+                    .expect("query_id is required to call complete query API");
+                self.clients[client_ix].complete_query(query_id).await
+            }
             evt @ (RouteId::QueryInput
             | RouteId::ReceiveQuery
             | RouteId::QueryStatus
-            | RouteId::CompleteQuery
             | RouteId::KillQuery) => {
                 unimplemented!(
                     "attempting to send client-specific request {evt:?} to another helper"
@@ -266,6 +270,10 @@ impl Transport for MpcHttpTransport {
             .filter(move |&id| id != this)
     }
 
+    fn peer_count(&self) -> u32 {
+        2
+    }
+
     async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
@@ -334,6 +342,10 @@ impl Transport for ShardHttpTransport {
     fn peers(&self) -> impl Iterator<Item = Self::Identity> {
         let this = self.identity();
         self.shard_count.iter().filter(move |&v| v != this)
+    }
+
+    fn peer_count(&self) -> u32 {
+        u32::from(self.shard_count).saturating_sub(1)
     }
 
     async fn send<D, Q, S, R>(
@@ -478,34 +490,54 @@ mod tests {
     }
 
     async fn test_make_helpers(conf: TestConfig) {
-        let clients = IpaHttpClient::from_conf(
-            &IpaRuntime::current(),
-            &conf.leaders_ring().network,
-            &ClientIdentity::None,
-        );
+        let clients = conf
+            .rings()
+            .map(|test_network| {
+                IpaHttpClient::from_conf(
+                    &IpaRuntime::current(),
+                    &test_network.network,
+                    &ClientIdentity::None,
+                )
+            })
+            .collect::<Vec<_>>();
+
         let _helpers = make_helpers(conf).await;
-        test_multiply(&clients).await;
+        test_multiply_single_shard(&clients).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn happy_case_twice() {
         let conf = TestConfigBuilder::default().build();
-        let clients = IpaHttpClient::from_conf(
-            &IpaRuntime::current(),
-            &conf.leaders_ring().network,
-            &ClientIdentity::None,
-        );
+        let clients = conf
+            .rings()
+            .map(|test_network| {
+                IpaHttpClient::from_conf(
+                    &IpaRuntime::current(),
+                    &test_network.network,
+                    &ClientIdentity::None,
+                )
+            })
+            .collect::<Vec<_>>();
         let _helpers = make_helpers(conf).await;
 
-        test_multiply(&clients).await;
-        test_multiply(&clients).await;
+        test_multiply_single_shard(&clients).await;
+        test_multiply_single_shard(&clients).await;
     }
 
-    async fn test_multiply(clients: &[IpaHttpClient<Helper>; 3]) {
+    /// This executes test multiplication protocol by running it exclusively on the leader shards.
+    /// If there is more than one shard in the system, they receive no inputs but still participate
+    /// by doing the full query cycle. It is backward compatible with traditional 3-party MPC with
+    /// no shards.
+    ///
+    /// The sharding requires some amendments to the test multiplication protocol that are
+    /// currently in progress. Once completed, this test can be fixed by fully utilizing all
+    /// shards in the system.
+    async fn test_multiply_single_shard(clients: &[[IpaHttpClient<Helper>; 3]]) {
         const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
+        let leader_ring_clients = &clients[0];
 
         // send a create query command
-        let leader_client = &clients[0];
+        let leader_client = &leader_ring_clients[0];
         let create_data = QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap();
 
         // create query
@@ -528,11 +560,24 @@ mod tests {
                 query_id,
                 input_stream,
             };
-            handle_resps.push(clients[i].query_input(data));
+            handle_resps.push(leader_ring_clients[i].query_input(data));
         }
         try_join_all(handle_resps).await.unwrap();
 
-        let result: [_; 3] = join_all(clients.clone().map(|client| async move {
+        // shards receive their own input - in this case empty.
+        // convention - first client is shard leader, and we submitted the inputs to it.
+        try_join_all(clients.iter().skip(1).map(|ring| {
+            try_join_all(ring.each_ref().map(|shard_client| {
+                shard_client.query_input(QueryInput {
+                    query_id,
+                    input_stream: BodyStream::empty(),
+                })
+            }))
+        }))
+        .await
+        .unwrap();
+
+        let result: [_; 3] = join_all(leader_ring_clients.each_ref().map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();
             AdditiveShare::<Fp31>::from_byte_slice_unchecked(&r).collect::<Vec<_>>()
         }))
@@ -564,5 +609,34 @@ mod tests {
             .with_disable_https_option(true)
             .build();
         test_make_helpers(conf).await;
+    }
+
+    #[tokio::test]
+    async fn peer_count() {
+        fn new_transport<F: ConnectionFlavor>(identity: F::Identity) -> Arc<HttpTransport<F>> {
+            Arc::new(HttpTransport {
+                http_runtime: IpaRuntime::current(),
+                identity,
+                clients: Vec::new(),
+                handler: None,
+                record_streams: StreamCollection::default(),
+            })
+        }
+
+        assert_eq!(
+            2,
+            MpcHttpTransport {
+                inner_transport: new_transport(HelperIdentity::ONE)
+            }
+            .peer_count()
+        );
+        assert_eq!(
+            9,
+            ShardHttpTransport {
+                inner_transport: new_transport(ShardIndex::FIRST),
+                shard_count: 10.into()
+            }
+            .peer_count()
+        );
     }
 }
