@@ -8,18 +8,20 @@ use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
-    helpers::{MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
+    helpers::{
+        Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd, ShardReceivingEnd, TotalRecords,
+    },
     protocol::{
         context::{
             dzkp_validator::{Batch, MaliciousDZKPValidatorInner, Segment},
             prss::InstrumentedIndexedSharedRandomness,
             Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
-            MaliciousContext,
+            MaliciousContext, ShardedContext,
         },
         Gate, RecordId,
     },
     seq_join::SeqJoin,
-    sharding::ShardBinding,
+    sharding::{ShardBinding, ShardConfiguration, ShardIndex, Sharded},
     sync::{Arc, Weak},
 };
 
@@ -166,5 +168,29 @@ impl<'a, B: ShardBinding> SeqJoin for DZKPUpgraded<'a, B> {
 impl<B: ShardBinding> Debug for DZKPUpgraded<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "DZKPMaliciousContext")
+    }
+}
+
+impl ShardConfiguration for DZKPUpgraded<'_, Sharded> {
+    fn shard_id(&self) -> ShardIndex {
+        self.base_ctx.shard_id()
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.base_ctx.shard_count()
+    }
+}
+
+impl ShardedContext for DZKPUpgraded<'_, Sharded> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.base_ctx.shard_send_channel(dest_shard)
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.base_ctx.shard_recv_channel(origin)
+    }
+
+    fn cross_shard_prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
+        self.base_ctx.cross_shard_prss()
     }
 }
