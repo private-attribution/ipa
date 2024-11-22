@@ -36,6 +36,7 @@ pub type OwnedPrivateKey = PrivateKeyDer<'static>;
 /// peers.
 #[derive(Clone, Debug)]
 pub struct NetworkConfig<F: ConnectionFlavor = Helper> {
+    // Here peers means all the hosts in a either a shard-to-shard or helper-to-helper network.
     pub peers: Vec<PeerConfig>,
 
     /// HTTP client configuration.
@@ -499,13 +500,9 @@ mod tests {
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
 
-    use super::{
-        NetworkConfig, PeerConfig,
-    };
+    use super::{NetworkConfig, PeerConfig};
     use crate::{
-        config::{
-            ClientConfig, HpkeClientConfig, Http2Configurator, HttpClientConfigurator,
-        },
+        config::{ClientConfig, HpkeClientConfig, Http2Configurator, HttpClientConfigurator},
         helpers::HelperIdentity,
         net::test::TestConfigBuilder,
         sharding::ShardIndex,
@@ -607,5 +604,4 @@ mod tests {
         let conf = NetworkConfig::new_shards(vec![pc1.clone()], client);
         assert_eq!(conf.peers[ShardIndex(0)].url, pc1.url);
     }
-
 }

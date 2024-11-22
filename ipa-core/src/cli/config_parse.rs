@@ -19,6 +19,7 @@ use crate::{
     sharding::ShardIndex,
 };
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -359,10 +360,13 @@ pub fn sharded_server_from_toml_str(
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::{config_parse::{parse_sharded_network_toml, Error}, sharded_server_from_toml_str};
-
     use once_cell::sync::Lazy;
+
     use crate::{
+        cli::{
+            config_parse::{parse_sharded_network_toml, Error},
+            sharded_server_from_toml_str,
+        },
         config::HttpClientConfigurator,
         helpers::HelperIdentity,
         sharding::ShardIndex,

@@ -129,6 +129,10 @@ pub struct ShardedConfGenArgs {
 }
 
 /// Similar to [`setup`] but for a sharded setup.
+///
+/// # Errors
+/// If the files aren't in the expected locations, or if the parameters like shard count don't
+/// match.
 pub fn sharded_setup(args: ShardedConfGenArgs) -> Result<(), BoxError> {
     let clients_conf = create_sharded_conf_from_files(
         args.shard_count,
