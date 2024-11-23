@@ -252,6 +252,7 @@ fn assert_hpke_config(expected: &Value, actual: Option<&HpkeClientConfig>) {
 }
 
 /// Extension to enable [`NetworkConfig<Helper>`] to read a deprecated non-sharded network.toml.
+#[allow(dead_code)]
 pub trait HelperNetworkConfigParseExt {
     fn from_toml_str(input: &str) -> Result<NetworkConfig<Helper>, Error>;
 }
