@@ -3,6 +3,8 @@ mod if_else;
 pub(crate) mod mul;
 mod reshare;
 mod reveal;
+#[allow(dead_code)]
+mod shard_fin;
 mod share_known_value;
 pub mod share_validation;
 pub mod step;
