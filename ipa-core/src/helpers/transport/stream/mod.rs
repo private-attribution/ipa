@@ -16,9 +16,10 @@ use bytes::Bytes;
 pub use collection::{StreamCollection, StreamKey};
 use futures::{stream::iter, Stream};
 use futures_util::StreamExt;
+use generic_array::GenericArray;
 pub use input::{LengthDelimitedStream, RecordsStream, SingleRecordStream};
 
-use crate::{const_assert, error::BoxError};
+use crate::{const_assert, error::BoxError, ff::Serializable};
 
 pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
     /// Collects the entire stream into a vec; only intended for use in tests
@@ -74,6 +75,21 @@ impl BodyStream {
     }
 
     pub fn from_bytes_stream(stream: impl BytesStream + 'static) -> Self {
+        Self {
+            inner: BodyStreamInner::from_bytes_stream(stream),
+        }
+    }
+
+    pub fn from_serializable_iter<I: IntoIterator<Item: Serializable, IntoIter: Send + 'static>>(
+        input: I,
+    ) -> Self {
+        let stream = iter(input.into_iter().map(|item| {
+            let mut buf = GenericArray::default();
+            item.serialize(&mut buf);
+            let bytes = Bytes::copy_from_slice(buf.as_slice());
+            Ok::<_, BoxError>(bytes)
+        }));
+
         Self {
             inner: BodyStreamInner::from_bytes_stream(stream),
         }
