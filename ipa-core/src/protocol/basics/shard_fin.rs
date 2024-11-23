@@ -27,7 +27,7 @@ use crate::{
 
 /// This is just a step trait with thread safety bounds. Those make sense
 /// on a generic [`Step`] trait so maybe we can change it later.
-trait FinalizerStep: Step + Sync + 'static {}
+pub trait FinalizerStep: Step + Sync + 'static {}
 impl<S: Step + Sync + 'static> FinalizerStep for S {}
 
 /// Context to finalize sharded MPC executions. The finalization protocol
@@ -39,13 +39,12 @@ impl<S: Step + Sync + 'static> FinalizerStep for S {}
 ///
 /// This trait provides a generic way to write protocols that require
 /// shard aggregation step. It only supports ZKP.
-trait FinalizerContext: ShardedContext + UpgradableContext {
+pub trait FinalizerContext: ShardedContext + UpgradableContext {
     type FinalizingContext: ShardedContext + DZKPContext;
-    type Step<S: FinalizerStep>;
 
     fn finalize<S: FinalizerStep, R: ShardAssembledResult<Self::FinalizingContext>>(
         self,
-        step: Self::Step<S>,
+        steps: MaliciousProtocolSteps<S>,
         inputs: R,
     ) -> impl Future<Output = Result<R, Error>> + Send
     where
@@ -63,7 +62,7 @@ trait FinalizerContext: ShardedContext + UpgradableContext {
 ///
 /// Based on that interaction, shard final results need to be mergeable and communicated
 /// over shard channels as well as they need to have a default value.
-trait ShardAssembledResult<C: ShardedContext>: Send + Sized {
+pub trait ShardAssembledResult<C: ShardedContext>: Send + Sized {
     /// Type of messages used to communicate the entire result over the network. Often, shards
     /// hold a collection of shares, so this type will indicate the share type.
     type SingleMessage: Message;
@@ -93,12 +92,11 @@ trait ShardAssembledResult<C: ShardedContext>: Send + Sized {
 
 impl<'a> FinalizerContext for ShardedMaliciousContext<'a> {
     type FinalizingContext = DZKPUpgradedMaliciousContext<'a, Sharded>;
-    type Step<S: FinalizerStep> = MaliciousProtocolSteps<'a, S>;
 
     #[allow(clippy::manual_async_fn)] // good luck with `Send` is not general enough, clippy
     fn finalize<S: FinalizerStep, R: ShardAssembledResult<Self::FinalizingContext>>(
         self,
-        step: Self::Step<S>,
+        steps: MaliciousProtocolSteps<S>,
         inputs: R,
     ) -> impl Future<Output = Result<R, Error>> + Send
     where
@@ -107,7 +105,7 @@ impl<'a> FinalizerContext for ShardedMaliciousContext<'a> {
         async move {
             // We use a single batch here because the whole assumption of this protocol to be
             // small and simple. If it is not the case, it requires adjustments.
-            let validator = self.dzkp_validator(step, usize::MAX);
+            let validator = self.dzkp_validator(steps, usize::MAX);
             let ctx = validator.context();
             let r = semi_honest(ctx, inputs).await?;
             validator.validate().await?;
@@ -119,17 +117,16 @@ impl<'a> FinalizerContext for ShardedMaliciousContext<'a> {
 
 impl<'a> FinalizerContext for ShardedSemiHonestContext<'a> {
     type FinalizingContext = DZKPUpgradedSemiHonestContext<'a, Sharded>;
-    type Step<S: FinalizerStep> = MaliciousProtocolSteps<'a, S>;
 
     fn finalize<S: FinalizerStep, R: ShardAssembledResult<Self::FinalizingContext>>(
         self,
-        step: Self::Step<S>,
+        steps: MaliciousProtocolSteps<S>,
         inputs: R,
     ) -> impl Future<Output = Result<R, Error>> + Send
     where
         Gate: StepNarrow<S>,
     {
-        let v = self.dzkp_validator(step, usize::MAX);
+        let v = self.dzkp_validator(steps, usize::MAX);
         semi_honest(v.context(), inputs)
     }
 }
@@ -158,7 +155,6 @@ async fn semi_honest<C: ShardedContext, R: ShardAssembledResult<C>>(
                 // we merge elements into a single accumulator one by one, thus
                 // record count is indeterminate. A better strategy would be to do
                 // tree-based merge
-                println!("we are in {:?}", ctx.gate());
                 let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
                 async move {
                     assert_send(acc.merge(ctx, RecordId::from(record_id), r)).await?;
