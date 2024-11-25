@@ -43,13 +43,11 @@ pub struct MaliciousProtocolSteps<'a, S: Step + ?Sized> {
 }
 
 #[cfg(all(feature = "in-memory-infra", any(test, feature = "test-fixture")))]
-pub(crate) const TEST_DZKP_STEPS: MaliciousProtocolSteps<
-    'static,
-    super::step::MaliciousProtocolStep,
-> = MaliciousProtocolSteps {
-    protocol: &super::step::MaliciousProtocolStep::MaliciousProtocol,
-    validate: &super::step::MaliciousProtocolStep::Validate,
-};
+pub const TEST_DZKP_STEPS: MaliciousProtocolSteps<'static, super::step::MaliciousProtocolStep> =
+    MaliciousProtocolSteps {
+        protocol: &super::step::MaliciousProtocolStep::MaliciousProtocol,
+        validate: &super::step::MaliciousProtocolStep::Validate,
+    };
 
 #[derive(Clone)]
 pub struct Context<'a, B: ShardBinding> {
