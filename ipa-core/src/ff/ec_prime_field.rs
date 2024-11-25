@@ -276,11 +276,15 @@ pub fn batch_invert<const N: usize>(
 where
     Fp25519: Vectorizable<N>,
 {
+    // TODO: This can be made more memory-efficient if we can manage to pass
+    // the input as a mutable reference to `Scalar::batch_invert`
+    // We can also create our own version of `Scalar::batch_invert` that avoids Vecs,
+    // but this would require forking the crate.
     let mut inverted: [Scalar; N] = inputs
         .clone()
         .into_iter()
         .map(|x| x.0)
-        .collect::<Vec<Scalar>>()
+        .collect::<Vec<Scalar>>() // Relying on the compiler to optimize this out
         .try_into()
         .unwrap(); // Safe, the length will always be N
     Scalar::batch_invert(&mut inverted);
