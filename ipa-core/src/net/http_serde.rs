@@ -122,6 +122,8 @@ pub mod query {
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::TEST_SHARDED_SHUFFLE_STR => Ok(QueryType::TestShardedShuffle),
                 QueryType::SEMI_HONEST_OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::SemiHonestOprfIpa(q))

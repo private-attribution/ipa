@@ -12,7 +12,7 @@ pub enum ProtocolStep {
     Hybrid,
     Multiply,
     PrimeFieldAddition,
-    #[step(child = crate::protocol::ipa_prf::shuffle::step::ShardedShuffleStep)]
+    #[step(child = TestShardedShuffleStep)]
     ShardedShuffle,
     /// Steps used in unit tests are grouped under this one. Ideally it should be
     /// gated behind test configuration, but it does not work with build.rs that
@@ -41,6 +41,15 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
     Multiplication,
+}
+
+#[derive(CompactStep)]
+pub enum TestShardedShuffleStep {
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::ShardedShuffleStep)]
+    Shuffle,
+    Finalize,
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    FinalizeValidate,
 }
 
 /// Provides a unique per-iteration context in tests.
