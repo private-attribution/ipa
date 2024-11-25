@@ -104,8 +104,10 @@ fn keygen_matchkey<R: Rng + CryptoRng>(args: &KeygenArgs, mut rng: &mut R) -> Re
     let keypair = KeyPair::gen(&mut rng);
 
     if args.mk_public_key.is_some() && args.mk_private_key.is_some() {
-        create_new(args.mk_public_key.as_ref().unwrap())?.write_all(hex::encode(keypair.pk_bytes()).as_bytes())?;
-        create_new(args.mk_private_key.as_ref().unwrap())?.write_all(hex::encode(keypair.sk_bytes()).as_bytes())?;
+        create_new(args.mk_public_key.as_ref().unwrap())?
+            .write_all(hex::encode(keypair.pk_bytes()).as_bytes())?;
+        create_new(args.mk_private_key.as_ref().unwrap())?
+            .write_all(hex::encode(keypair.sk_bytes()).as_bytes())?;
     }
 
     Ok(())
