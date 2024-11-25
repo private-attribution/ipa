@@ -1,11 +1,15 @@
 use std::{fmt::Display, mem};
 
 use generic_array::GenericArray;
+use subtle::{Choice, ConstantTimeEq};
 
 use super::Field;
 use crate::{
     const_assert,
-    ff::{Serializable, U128Conversions},
+    ff::{
+        accumulator::{Accumulator, MultiplyAccumulate},
+        Serializable, U128Conversions,
+    },
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -51,6 +55,30 @@ pub trait PrimeField: Field + U128Conversions {
         // unwrap is safe
         Self::try_from((1 - sign) * t + sign * (Self::PRIME.into() - t)).unwrap()
     }
+}
+
+/// Performs multiple field inversions at once for a lower cost
+/// Follows the "multiple inverses" algorithm in
+/// <https://en.wikipedia.org/wiki/Modular_multiplicative_inverse>
+/// ## Panics
+/// If any element is 0
+pub fn batch_invert<const N: usize, P>(field_elements: &mut [P; N])
+where
+    P: PrimeField,
+{
+    let mut prefix_products = *field_elements;
+    for i in 1..N {
+        let temp = prefix_products[i] * prefix_products[i - 1];
+        prefix_products[i] = temp;
+    }
+    prefix_products[N - 1] = prefix_products[N - 1].invert();
+    for i in (1..N).rev() {
+        let inv_i = prefix_products[i] * prefix_products[i - 1];
+        let temp = prefix_products[i] * field_elements[i];
+        prefix_products[i - 1] = temp;
+        field_elements[i] = inv_i;
+    }
+    field_elements[0] = prefix_products[0];
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -241,6 +269,15 @@ macro_rules! field_impl {
             }
         }
 
+        // If the field value fits in a machine word, a naive comparison should be fine.
+        // But this impl is important for `[T]`, and useful to document where a
+        // constant-time compare is intended.
+        impl ConstantTimeEq for $field {
+            fn ct_eq(&self, other: &Self) -> Choice {
+                self.0.ct_eq(&other.0)
+            }
+        }
+
         impl rand::distributions::Distribution<$field> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $field {
                 <$field>::truncate_from(rng.gen::<u128>())
@@ -309,7 +346,7 @@ macro_rules! field_impl {
 
         #[cfg(all(test, unit_test))]
         mod common_tests {
-            use std::ops::Range;
+            use std::{array::from_fn, ops::Range};
 
             use generic_array::GenericArray;
             use proptest::{
@@ -318,7 +355,10 @@ macro_rules! field_impl {
             };
 
             use super::*;
-            use crate::ff::Serializable;
+            use crate::{
+                ff::Serializable,
+                rand::{thread_rng, Rng},
+            };
 
             impl Arbitrary for $field {
                 type Parameters = ();
@@ -345,6 +385,21 @@ macro_rules! field_impl {
                     $field::ZERO - $field::ONE
                 );
                 assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
+            }
+
+            #[test]
+            fn batch_invert_test() {
+                let mut rng = thread_rng();
+                let mut elements: [$field; 100] = from_fn(|_| {
+                    let mut element = $field::truncate_from(rng.gen::<u128>());
+                    while (element == $field::ZERO) {
+                        element = $field::truncate_from(rng.gen::<u128>());
+                    }
+                    element
+                });
+                let ground_truth: [$field; 100] = from_fn(|i| elements[i].invert());
+                batch_invert(&mut elements);
+                assert_eq!(ground_truth, elements);
             }
 
             proptest! {
@@ -385,9 +440,17 @@ mod fp31 {
     field_impl! { Fp31, u8, u16, 8, 31 }
     rem_modulo_impl! { Fp31, u16 }
 
+    impl MultiplyAccumulate for Fp31 {
+        type Accumulator = Fp31;
+        type AccumulatorArray<const N: usize> = [Fp31; N];
+    }
+
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
         use super::*;
+        use crate::accum_tests;
+
+        accum_tests!(Fp31);
 
         #[test]
         fn fp31() {
@@ -417,9 +480,17 @@ mod fp32bit {
         type ArrayAlias = StdArray<Fp32BitPrime, 32>;
     }
 
+    impl MultiplyAccumulate for Fp32BitPrime {
+        type Accumulator = Fp32BitPrime;
+        type AccumulatorArray<const N: usize> = [Fp32BitPrime; N];
+    }
+
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
         use super::*;
+        use crate::accum_tests;
+
+        accum_tests!(Fp32BitPrime);
 
         #[test]
         fn thirty_two_bit_prime() {
@@ -465,6 +536,14 @@ mod fp32bit {
 
 mod fp61bit {
     field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951 }
+
+    // For multiply-accumulate of `Fp61BitPrime` using `u128` as the accumulator, we can add 64
+    // products onto an original field element before reduction is necessary. i.e., 64 * (2^61 - 2)^2 +
+    // (2^61 - 2) < 2^128.
+    impl MultiplyAccumulate for Fp61BitPrime {
+        type Accumulator = Accumulator<Fp61BitPrime, u128, 64>;
+        type AccumulatorArray<const N: usize> = Accumulator<Fp61BitPrime, [u128; N], 64>;
+    }
 
     impl Fp61BitPrime {
         #[must_use]
@@ -513,6 +592,12 @@ mod fp61bit {
         use proptest::proptest;
 
         use super::*;
+        use crate::accum_tests;
+
+        // Note: besides the tests generated with this macro, there are some additional
+        // tests for the optimized accumulator for `Fp61BitPrime` in the `accumulator`
+        // module.
+        accum_tests!(Fp61BitPrime);
 
         // copied from 32 bit prime field, adjusted wrap arounds, computed using wolframalpha.com
         #[test]

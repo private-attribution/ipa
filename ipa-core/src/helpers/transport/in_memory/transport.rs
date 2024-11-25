@@ -373,10 +373,11 @@ mod tests {
                 },
                 routing::RouteId,
             },
-            HandlerBox, HelperIdentity, HelperResponse, OrderingSender, Role, RoleAssignment,
-            Transport, TransportIdentity,
+            HandlerBox, HelperIdentity, HelperResponse, InMemoryShardNetwork, OrderingSender, Role,
+            RoleAssignment, Transport, TransportIdentity,
         },
         protocol::{Gate, QueryId},
+        sharding::ShardIndex,
         sync::Arc,
     };
 
@@ -624,6 +625,27 @@ mod tests {
 
         // must be received by now
         assert_eq!(vec![vec![0, 1]], recv.collect::<Vec<_>>().await);
+    }
+
+    #[tokio::test]
+    async fn peer_count() {
+        let mpc_network = InMemoryMpcNetwork::default();
+        assert_eq!(2, mpc_network.transport(HelperIdentity::ONE).peer_count());
+        assert_eq!(2, mpc_network.transport(HelperIdentity::TWO).peer_count());
+
+        let shard_network = InMemoryShardNetwork::with_shards(5);
+        assert_eq!(
+            4,
+            shard_network
+                .transport(HelperIdentity::ONE, ShardIndex::FIRST)
+                .peer_count()
+        );
+        assert_eq!(
+            4,
+            shard_network
+                .transport(HelperIdentity::TWO, ShardIndex::from(4))
+                .peer_count()
+        );
     }
 }
 

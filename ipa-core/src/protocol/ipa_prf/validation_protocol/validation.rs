@@ -4,7 +4,8 @@ use std::{
 };
 
 use futures_util::future::{try_join, try_join4};
-use typenum::{Unsigned, U288, U80};
+use subtle::ConstantTimeEq;
+use typenum::{Unsigned, U120, U448};
 
 use crate::{
     const_assert_eq,
@@ -20,10 +21,13 @@ use crate::{
         },
         ipa_prf::{
             malicious_security::{
-                prover::{LargeProofGenerator, SmallProofGenerator},
-                verifier::{compute_g_differences, recursively_compute_final_check},
+                verifier::{
+                    compute_g_differences, recursively_compute_final_check, VerifierLagrangeInput,
+                },
+                FIRST_RECURSION_FACTOR as FRF,
             },
             validation_protocol::proof_generation::ProofBatch,
+            CompressedProofGenerator, FirstProofGenerator,
         },
         RecordId,
     },
@@ -44,10 +48,10 @@ use crate::{
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct BatchToVerify {
-    first_proof_from_left_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
-    first_proof_from_right_prover: [Fp61BitPrime; LargeProofGenerator::PROOF_LENGTH],
-    proofs_from_left_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
-    proofs_from_right_prover: Vec<[Fp61BitPrime; SmallProofGenerator::PROOF_LENGTH]>,
+    first_proof_from_left_prover: [Fp61BitPrime; FirstProofGenerator::PROOF_LENGTH],
+    first_proof_from_right_prover: [Fp61BitPrime; FirstProofGenerator::PROOF_LENGTH],
+    proofs_from_left_prover: Vec<[Fp61BitPrime; CompressedProofGenerator::PROOF_LENGTH]>,
+    proofs_from_right_prover: Vec<[Fp61BitPrime; CompressedProofGenerator::PROOF_LENGTH]>,
     p_mask_from_right_prover: Fp61BitPrime,
     q_mask_from_left_prover: Fp61BitPrime,
 }
@@ -104,13 +108,12 @@ impl BatchToVerify {
     where
         C: Context,
     {
-        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
-        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+        const CRF: usize = CompressedProofGenerator::RECURSION_FACTOR;
 
         // exclude for first proof
-        let exclude_large = u128::try_from(LRF).unwrap();
+        let exclude_large = u128::try_from(FRF).unwrap();
         // exclude for other proofs
-        let exclude_small = u128::try_from(SRF).unwrap();
+        let exclude_small = u128::try_from(CRF).unwrap();
 
         // generate hashes
         let my_hashes_prover_left = ProofHashes::generate_hashes(self, Direction::Left);
@@ -171,21 +174,20 @@ impl BatchToVerify {
         v_from_left_prover: V,  // Prover P_i and verifier P_{i+1} both compute `v` and `q(x)`
     ) -> (Fp61BitPrime, Fp61BitPrime)
     where
-        U: Iterator<Item = Fp61BitPrime> + Send,
-        V: Iterator<Item = Fp61BitPrime> + Send,
+        U: VerifierLagrangeInput<Fp61BitPrime, FRF> + Send,
+        V: VerifierLagrangeInput<Fp61BitPrime, FRF> + Send,
     {
-        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
-        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+        const CRF: usize = CompressedProofGenerator::RECURSION_FACTOR;
 
         // compute p_r
-        let p_r_right_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
-            u_from_right_prover.into_iter(),
+        let p_r_right_prover = recursively_compute_final_check::<_, CRF>(
+            u_from_right_prover,
             challenges_for_right_prover,
             self.p_mask_from_right_prover,
         );
         // compute q_r
-        let q_r_left_prover = recursively_compute_final_check::<_, _, LRF, SRF>(
-            v_from_left_prover.into_iter(),
+        let q_r_left_prover = recursively_compute_final_check::<_, CRF>(
+            v_from_left_prover,
             challenges_for_left_prover,
             self.q_mask_from_left_prover,
         );
@@ -241,11 +243,10 @@ impl BatchToVerify {
     where
         C: Context,
     {
-        const LRF: usize = LargeProofGenerator::RECURSION_FACTOR;
-        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
+        const CRF: usize = CompressedProofGenerator::RECURSION_FACTOR;
 
-        const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
-        const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
+        const FPL: usize = FirstProofGenerator::PROOF_LENGTH;
+        const CPL: usize = CompressedProofGenerator::PROOF_LENGTH;
 
         let p_times_q_right = Self::compute_p_times_q(
             ctx.narrow(&Step::PTimesQ),
@@ -256,7 +257,7 @@ impl BatchToVerify {
         .await?;
 
         // add Zero for p_times_q and sum since they are not secret shared
-        let diff_left = compute_g_differences::<_, SPL, SRF, LPL, LRF>(
+        let diff_left = compute_g_differences::<_, CPL, CRF, FPL, FRF>(
             &self.first_proof_from_left_prover,
             &self.proofs_from_left_prover,
             challenges_for_left_prover,
@@ -264,7 +265,7 @@ impl BatchToVerify {
             Fp61BitPrime::ZERO,
         );
 
-        let diff_right = compute_g_differences::<_, SPL, SRF, LPL, LRF>(
+        let diff_right = compute_g_differences::<_, CPL, CRF, FPL, FRF>(
             &self.first_proof_from_right_prover,
             &self.proofs_from_right_prover,
             challenges_for_right_prover,
@@ -293,11 +294,13 @@ impl BatchToVerify {
         .await?;
         let diff_right_from_other_verifier = receive_data[0..length].to_vec();
 
-        // compare recombined dif to zero
-        for i in 0..length {
-            if diff_right[i] + diff_right_from_other_verifier[i] != Fp61BitPrime::ZERO {
-                return Err(Error::DZKPValidationFailed);
-            }
+        // compare recombined diff to zero
+        let diff = zip(diff_right, diff_right_from_other_verifier)
+            .map(|(a, b)| a + b)
+            .collect::<Vec<_>>();
+
+        if diff.ct_ne(&vec![Fp61BitPrime::ZERO; length]).into() {
+            return Err(Error::DZKPValidationFailed);
         }
 
         Ok(())
@@ -372,12 +375,12 @@ impl ProofHashes {
 
 const_assert_eq!(
     MAX_PROOF_RECURSION,
-    9,
-    "following impl valid only for MAX_PROOF_RECURSION = 9"
+    14,
+    "following impl valid only for MAX_PROOF_RECURSION = 14"
 );
 
 impl Serializable for [Hash; MAX_PROOF_RECURSION] {
-    type Size = U288;
+    type Size = U448;
 
     type DeserializationError = <Hash as Serializable>::DeserializationError;
 
@@ -406,14 +409,14 @@ impl MpcMessage for [Hash; MAX_PROOF_RECURSION] {}
 
 const_assert_eq!(
     MAX_PROOF_RECURSION,
-    9,
-    "following impl valid only for MAX_PROOF_RECURSION = 9"
+    14,
+    "following impl valid only for MAX_PROOF_RECURSION = 14"
 );
 
 type ProofDiff = [Fp61BitPrime; MAX_PROOF_RECURSION + 1];
 
 impl Serializable for ProofDiff {
-    type Size = U80;
+    type Size = U120;
 
     type DeserializationError = <Fp61BitPrime as Serializable>::DeserializationError;
 
@@ -442,38 +445,43 @@ impl MpcMessage for ProofDiff {}
 
 #[cfg(all(test, unit_test))]
 pub mod test {
+    use std::iter::repeat_with;
+
     use futures_util::future::try_join;
-    use rand::{thread_rng, Rng};
+    use rand::Rng;
 
     use crate::{
-        ff::{Fp61BitPrime, U128Conversions},
+        ff::Fp61BitPrime,
         helpers::Direction,
         protocol::{
-            context::{
-                dzkp_field::{UVTupleBlock, BLOCK_SIZE},
-                Context,
-            },
+            context::Context,
             ipa_prf::{
                 malicious_security::{
                     lagrange::CanonicalLagrangeDenominator,
-                    prover::{LargeProofGenerator, SmallProofGenerator},
-                    verifier::{compute_sum_share, interpolate_at_r},
+                    prover::{ProverValues, UVValues},
+                    verifier::{compute_sum_share, interpolate_at_r, VerifierValues},
+                    FIRST_RECURSION_FACTOR as FRF,
                 },
                 validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
+                CompressedProofGenerator, FirstProofGenerator,
             },
             prss::SharedRandomness,
             RecordId, RecordIdRange,
         },
-        secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
+        secret_sharing::SharedValue,
         test_executor::run,
         test_fixture::{Runner, TestWorld},
+        utils::arraychunks::ArrayChunkIterator,
     };
 
-    /// ## Panics
-    /// When proof is not generated correctly.
-    // todo: deprecate once validation protocol is implemented
-    pub fn simple_proof_check(
-        h: Fp61BitPrime,
+    // This is a helper for a test in `proof_generation.rs`, but is located here so it
+    // can access the internals of `BatchToVerify`.
+    //
+    // Possibly this (and the associated test) can be removed now that the validation
+    // protocol is implemented? (There was an old todo to that effect.) But it seems
+    // useful to keep around as a unit test.
+    pub(in crate::protocol::ipa_prf::validation_protocol) fn simple_proof_check<'a>(
+        uv_values: impl Iterator<Item = &'a ([Fp61BitPrime; FRF], [Fp61BitPrime; FRF])>,
         left_verifier: &BatchToVerify,
         right_verifier: &BatchToVerify,
     ) {
@@ -481,7 +489,7 @@ pub mod test {
         // first proof has correct length
         assert_eq!(
             left_verifier.first_proof_from_left_prover.len(),
-            LargeProofGenerator::PROOF_LENGTH
+            FirstProofGenerator::PROOF_LENGTH
         );
         assert_eq!(
             left_verifier.first_proof_from_left_prover.len(),
@@ -491,7 +499,7 @@ pub mod test {
         for i in 0..left_verifier.proofs_from_left_prover.len() {
             assert_eq!(
                 (i, left_verifier.proofs_from_left_prover[i].len()),
-                (i, SmallProofGenerator::PROOF_LENGTH)
+                (i, CompressedProofGenerator::PROOF_LENGTH)
             );
             assert_eq!(
                 (i, left_verifier.proofs_from_left_prover[i].len()),
@@ -509,36 +517,12 @@ pub mod test {
 
         // check first proof,
         // compute simple proof without lagrange interpolated points
-        let simple_proof = {
-            let block_to_polynomial = BLOCK_SIZE / LargeProofGenerator::RECURSION_FACTOR;
-            let simple_proof_uv = (0usize..100 * block_to_polynomial)
-                .map(|i| {
-                    (
-                        (LargeProofGenerator::RECURSION_FACTOR * i
-                            ..LargeProofGenerator::RECURSION_FACTOR * (i + 1))
-                            .map(|j| Fp61BitPrime::truncate_from(u128::try_from(j).unwrap()) * h)
-                            .collect::<[Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR]>(),
-                        (LargeProofGenerator::RECURSION_FACTOR * i
-                            ..LargeProofGenerator::RECURSION_FACTOR * (i + 1))
-                            .map(|j| Fp61BitPrime::truncate_from(u128::try_from(j).unwrap()) * h)
-                            .collect::<[Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR]>(),
-                    )
-                })
-                .collect::<Vec<(
-                    [Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR],
-                    [Fp61BitPrime; LargeProofGenerator::RECURSION_FACTOR],
-                )>>();
-
-            simple_proof_uv.iter().fold(
-                [Fp61BitPrime::ZERO; LargeProofGenerator::RECURSION_FACTOR],
-                |mut acc, (left, right)| {
-                    for i in 0..LargeProofGenerator::RECURSION_FACTOR {
-                        acc[i] += left[i] * right[i];
-                    }
-                    acc
-                },
-            )
-        };
+        let simple_proof = uv_values.fold([Fp61BitPrime::ZERO; FRF], |mut acc, (left, right)| {
+            for i in 0..FRF {
+                acc[i] += left[i] * right[i];
+            }
+            acc
+        });
 
         // reconstruct computed proof
         // by adding shares left and right
@@ -551,13 +535,7 @@ pub mod test {
 
         // check for consistency
         // only check first R::USIZE field elements
-        assert_eq!(
-            (h.as_u128(), simple_proof.to_vec()),
-            (
-                h.as_u128(),
-                proof_computed[0..LargeProofGenerator::RECURSION_FACTOR].to_vec()
-            )
-        );
+        assert_eq!(simple_proof.to_vec(), proof_computed[0..FRF].to_vec());
     }
 
     #[test]
@@ -565,39 +543,17 @@ pub mod test {
         run(|| async move {
             let world = TestWorld::default();
 
-            let mut rng = thread_rng();
+            let mut rng = world.rng();
 
-            // each helper samples a random value h
-            // which is later used to generate distinct values across helpers
-            let h = Fp61BitPrime::truncate_from(rng.gen_range(0u128..100));
+            let uv_values = repeat_with(|| (rng.gen(), rng.gen()))
+                .take(100)
+                .collect::<UVValues<_, FRF>>();
+            let uv_values_iter = uv_values.iter().copied();
+            let uv_values_iter_ref = &uv_values_iter;
 
             let [(helper_1_left, helper_1_right), (helper_2_left, helper_2_right), (helper_3_left, helper_3_right)] =
                 world
-                    .semi_honest(h, |ctx, h| async move {
-                        let h = Fp61BitPrime::truncate_from(h.left().as_u128() % 100);
-                        // generate blocks of UV values
-                        // generate u values as (1h,2h,3h,....,10h*BlockSize) split into Blocksize chunks
-                        // where BlockSize = 32
-                        // v values are identical to u
-                        let uv_tuple_vec = (0usize..100)
-                            .map(|i| {
-                                (
-                                    (BLOCK_SIZE * i..BLOCK_SIZE * (i + 1))
-                                        .map(|j| {
-                                            Fp61BitPrime::truncate_from(u128::try_from(j).unwrap())
-                                                * h
-                                        })
-                                        .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
-                                    (BLOCK_SIZE * i..BLOCK_SIZE * (i + 1))
-                                        .map(|j| {
-                                            Fp61BitPrime::truncate_from(u128::try_from(j).unwrap())
-                                                * h
-                                        })
-                                        .collect::<[Fp61BitPrime; BLOCK_SIZE]>(),
-                                )
-                            })
-                            .collect::<Vec<_>>();
-
+                    .semi_honest((), |ctx, ()| async move {
                         // generate and output VerifierBatch together with h value
                         let (
                             my_batch_left_shares,
@@ -607,7 +563,7 @@ pub mod test {
                         ) = ProofBatch::generate(
                             &ctx.narrow("generate_batch"),
                             RecordIdRange::ALL,
-                            uv_tuple_vec.into_iter(),
+                            ProverValues(uv_values_iter_ref.clone()),
                         );
 
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
@@ -641,31 +597,32 @@ pub mod test {
     /// Prover `P_i` and verifier `P_{i+1}` both generate `u`
     /// Prover `P_i` and verifier `P_{i-1}` both generate `v`
     ///
-    /// outputs `(my_u_and_v, u_from_right_prover, v_from_left_prover)`
+    /// outputs `(my_u_and_v, sum_of_uv, u_from_right_prover, v_from_left_prover)`
+    #[allow(clippy::type_complexity)]
     fn generate_u_v<C: Context>(
         ctx: &C,
         len: usize,
     ) -> (
-        Vec<UVTupleBlock<Fp61BitPrime>>,
+        Vec<([Fp61BitPrime; FRF], [Fp61BitPrime; FRF])>,
         Fp61BitPrime,
         Vec<Fp61BitPrime>,
         Vec<Fp61BitPrime>,
     ) {
         // outputs
-        let mut vec_u_from_right_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * len);
-        let mut vec_v_from_left_prover = Vec::<Fp61BitPrime>::with_capacity(BLOCK_SIZE * len);
+        let mut vec_u_from_right_prover = Vec::<Fp61BitPrime>::with_capacity(FRF * len);
+        let mut vec_v_from_left_prover = Vec::<Fp61BitPrime>::with_capacity(FRF * len);
 
         let mut vec_my_u_and_v =
-            Vec::<([Fp61BitPrime; BLOCK_SIZE], [Fp61BitPrime; BLOCK_SIZE])>::with_capacity(len);
+            Vec::<([Fp61BitPrime; FRF], [Fp61BitPrime; FRF])>::with_capacity(len);
         let mut sum_of_uv = Fp61BitPrime::ZERO;
 
         // generate random u, v values using PRSS
         let mut counter = RecordId::FIRST;
 
         for _ in 0..len {
-            let mut my_u_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
-            let mut my_v_array = [Fp61BitPrime::ZERO; BLOCK_SIZE];
-            for i in 0..BLOCK_SIZE {
+            let mut my_u_array = [Fp61BitPrime::ZERO; FRF];
+            let mut my_v_array = [Fp61BitPrime::ZERO; FRF];
+            for i in 0..FRF {
                 let (my_u, u_from_right_prover) = ctx.prss().generate_fields(counter);
                 counter += 1;
                 let (v_from_left_prover, my_v) = ctx.prss().generate_fields(counter);
@@ -722,7 +679,7 @@ pub mod test {
                         ) = ProofBatch::generate(
                             &ctx.narrow("generate_batch"),
                             RecordIdRange::ALL,
-                            vec_my_u_and_v.into_iter(),
+                            ProverValues(vec_my_u_and_v.into_iter()),
                         );
 
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
@@ -774,9 +731,9 @@ pub mod test {
     }
 
     fn assert_batch(left: &BatchToVerify, right: &BatchToVerify, challenges: &[Fp61BitPrime]) {
-        const SRF: usize = SmallProofGenerator::RECURSION_FACTOR;
-        const SPL: usize = SmallProofGenerator::PROOF_LENGTH;
-        const LPL: usize = LargeProofGenerator::PROOF_LENGTH;
+        const CRF: usize = CompressedProofGenerator::RECURSION_FACTOR;
+        const CPL: usize = CompressedProofGenerator::PROOF_LENGTH;
+        const FPL: usize = FirstProofGenerator::PROOF_LENGTH;
 
         let first = recombine(
             &left.first_proof_from_left_prover,
@@ -788,19 +745,19 @@ pub mod test {
             .zip(right.proofs_from_right_prover.iter())
             .map(|(left, right)| recombine(left, right))
             .collect::<Vec<_>>();
-        let denominator_first = CanonicalLagrangeDenominator::<_, LPL>::new();
-        let denominator = CanonicalLagrangeDenominator::<_, SPL>::new();
+        let denominator_first = CanonicalLagrangeDenominator::<_, FPL>::new();
+        let denominator = CanonicalLagrangeDenominator::<_, CPL>::new();
 
         let length = others.len();
 
         let mut out = interpolate_at_r(&first, &challenges[0], &denominator_first);
         for (i, proof) in others.iter().take(length - 1).enumerate() {
-            assert_eq!((i, out), (i, compute_sum_share::<_, SRF, SPL>(proof)));
+            assert_eq!((i, out), (i, compute_sum_share::<_, CRF, CPL>(proof)));
             out = interpolate_at_r(proof, &challenges[i + 1], &denominator);
         }
         // last sum without masks
         let masks = others[length - 1][0];
-        let last_sum = compute_sum_share::<_, SRF, SPL>(&others[length - 1]);
+        let last_sum = compute_sum_share::<_, CRF, CPL>(&others[length - 1]);
         assert_eq!(out, last_sum - masks);
     }
 
@@ -828,7 +785,7 @@ pub mod test {
                         ) = ProofBatch::generate(
                             &ctx.narrow("generate_batch"),
                             RecordIdRange::ALL,
-                            vec_my_u_and_v.into_iter(),
+                            ProverValues(vec_my_u_and_v.into_iter()),
                         );
 
                         let batch_to_verify = BatchToVerify::generate_batch_to_verify(
@@ -855,8 +812,10 @@ pub mod test {
                         let (p, q) = batch_to_verify.compute_p_and_q_r(
                             &challenges_for_left_prover,
                             &challenges_for_right_prover,
-                            vec_u_from_right_prover.into_iter(),
-                            vec_v_from_left_prover.into_iter(),
+                            VerifierValues(
+                                vec_u_from_right_prover.into_iter().chunk_array::<FRF>(),
+                            ),
+                            VerifierValues(vec_v_from_left_prover.into_iter().chunk_array::<FRF>()),
                         );
 
                         let p_times_q =
@@ -866,7 +825,7 @@ pub mod test {
 
                         let denominator = CanonicalLagrangeDenominator::<
                             Fp61BitPrime,
-                            { SmallProofGenerator::PROOF_LENGTH },
+                            { CompressedProofGenerator::PROOF_LENGTH },
                         >::new();
 
                         let g_r_left = interpolate_at_r(
@@ -918,7 +877,7 @@ pub mod test {
                     ) = ProofBatch::generate(
                         &ctx.narrow("generate_batch"),
                         RecordIdRange::ALL,
-                        vec_my_u_and_v.into_iter(),
+                        ProverValues(vec_my_u_and_v.into_iter()),
                     );
 
                     let batch_to_verify = BatchToVerify::generate_batch_to_verify(
@@ -958,8 +917,8 @@ pub mod test {
                     let (p, q) = batch_to_verify.compute_p_and_q_r(
                         &challenges_for_left_prover,
                         &challenges_for_right_prover,
-                        vec_u_from_right_prover.into_iter(),
-                        vec_v_from_left_prover.into_iter(),
+                        VerifierValues(vec_u_from_right_prover.into_iter().chunk_array::<FRF>()),
+                        VerifierValues(vec_v_from_left_prover.into_iter().chunk_array::<FRF>()),
                     );
 
                     batch_to_verify
@@ -985,9 +944,14 @@ pub mod test {
 
         // Test a batch that exercises the case where `uv_values.len() == 1` but `did_set_masks =
         // false` in `ProofBatch::generate`.
-        verify_batch(
-            LargeProofGenerator::RECURSION_FACTOR * SmallProofGenerator::RECURSION_FACTOR
-                / BLOCK_SIZE,
-        );
+        //
+        // We divide by `FRF` here because `generate_u_v`, which is used by
+        // `verify_batch` to generate test data, generates `len` chunks of u/v values of
+        // length `FRF`. We want the input u/v values to compress to exactly one
+        // u/v pair after some number of proof steps.
+        let num_inputs =
+            FirstProofGenerator::RECURSION_FACTOR * CompressedProofGenerator::RECURSION_FACTOR;
+        assert!(num_inputs % FRF == 0);
+        verify_batch(num_inputs / FRF);
     }
 }

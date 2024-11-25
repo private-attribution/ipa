@@ -8,7 +8,7 @@ use crate::{
 };
 
 // The type of request made to an MPC helper.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RouteId {
     Records,
     ReceiveQuery,
@@ -46,6 +46,18 @@ impl<I: TransportIdentity> Addr<I> {
             query_id: route.query_id().into(),
             gate: route.gate().into(),
             params: route.extra().borrow().to_string(),
+        }
+    }
+
+    /// Drop the origin value and convert this into a request for a different identity type.
+    /// Useful when we need to handle this request in both shard and MPC handlers.
+    pub fn erase_origin<T: TransportIdentity>(self) -> Addr<T> {
+        Addr {
+            route: self.route,
+            origin: None,
+            query_id: self.query_id,
+            gate: self.gate,
+            params: self.params,
         }
     }
 

@@ -17,7 +17,7 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::{BooleanProtocols, Reveal},
+        basics::{BooleanArrayMul, BooleanProtocols, Reveal},
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
             hybrid_protocol,
@@ -72,6 +72,9 @@ where
         PrfSharing<MacUpgraded<C, Fp25519>, PRF_CHUNK, Field = Fp25519> + FromPrss,
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
+    Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
+        + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
@@ -273,7 +276,7 @@ mod tests {
     #[should_panic(
         expected = "not implemented: protocol::hybrid::hybrid_protocol is not fully implemented"
     )]
-    fn encrypted_hybrid_reports() {
+    fn encrypted_hybrid_reports_happy() {
         // While this test currently checks for an unimplemented panic it is
         // designed to test for a correct result for a complete implementation.
         run(|| async {
@@ -290,7 +293,7 @@ mod tests {
             } = build_buffers_from_records(&records, SHARDS, &hybrid_info);
 
             let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
-            let contexts = world.contexts();
+            let contexts = world.malicious_contexts();
 
             #[allow(clippy::large_futures)]
             let results = flatten3v(buffers.into_iter().zip(contexts).map(
@@ -381,7 +384,7 @@ mod tests {
 
         let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
             TestWorld::with_shards(TestWorldConfig::default());
-        let contexts = world.contexts();
+        let contexts = world.malicious_contexts();
 
         #[allow(clippy::large_futures)]
         let results = flatten3v(buffers.into_iter().zip(contexts).map(
@@ -434,7 +437,7 @@ mod tests {
 
         let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
             TestWorld::with_shards(TestWorldConfig::default());
-        let contexts = world.contexts();
+        let contexts = world.malicious_contexts();
 
         #[allow(clippy::large_futures)]
         let results = flatten3v(buffers.into_iter().zip(contexts).map(

@@ -147,6 +147,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
+subtle = "2.6"
 thiserror = "1.0"
 time = { version = "0.3", optional = true }
 tokio = { version = "1.35", features = ["fs", "rt", "rt-multi-thread", "macros"] }

@@ -5,7 +5,7 @@ use generic_array::GenericArray;
 use typenum::U1;
 
 use crate::{
-    ff::{ArrayAccess, Field, PrimeField, Serializable, U128Conversions},
+    ff::{ArrayAccess, Field, MultiplyAccumulate, PrimeField, Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::{
         context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
@@ -56,6 +56,13 @@ impl ArrayAccess for Boolean {
 impl PrimeField for Boolean {
     type PrimeInteger = u8;
     const PRIME: Self::PrimeInteger = 2;
+}
+
+// Note: The multiply-accumulate tests are not currently instantiated for `Boolean`.
+impl MultiplyAccumulate for Boolean {
+    type Accumulator = Boolean;
+    // This could be specialized with a bit vector type if it ever mattered.
+    type AccumulatorArray<const N: usize> = [Boolean; N];
 }
 
 impl SharedValue for Boolean {

@@ -40,7 +40,7 @@ use crate::{
     error::{BoxError, Error},
     ff::{
         boolean_array::{
-            BooleanArray, BooleanArrayReader, BooleanArrayWriter, BA112, BA3, BA64, BA8,
+            BooleanArray, BooleanArrayReader, BooleanArrayWriter, BA112, BA3, BA32, BA64, BA8,
         },
         Serializable,
     },
@@ -48,7 +48,7 @@ use crate::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
         PublicKeyRegistry, TagSize,
     },
-    protocol::ipa_prf::shuffle::Shuffleable,
+    protocol::ipa_prf::{boolean_ops::expand_shared_array_in_place, shuffle::Shuffleable},
     report::hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
@@ -681,6 +681,57 @@ where
 /// Converted report where shares of match key are replaced with OPRF value
 pub type PrfHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, u64>;
 
+/// After grouping `IndistinguishableHybridReport`s by the OPRF of thier `match_key`,
+/// that OPRF value is no longer required.
+pub type AggregateableHybridReport<BK, V> = IndistinguishableHybridReport<BK, V, ()>;
+
+impl<BK, V> IndistinguishableHybridReport<BK, V, ()>
+where
+    BK: BooleanArray,
+    V: BooleanArray,
+{
+    pub const ZERO: Self = Self {
+        match_key: (),
+        value: Replicated::<V>::ZERO,
+        breakdown_key: Replicated::<BK>::ZERO,
+    };
+
+    fn join_fields(value: V, breakdown_key: BK) -> <Self as Shuffleable>::Share {
+        let mut share = <Self as Shuffleable>::Share::ZERO;
+
+        BooleanArrayWriter::new(&mut share)
+            .write(&value)
+            .write(&breakdown_key);
+
+        share
+    }
+
+    fn split_fields(share: &<Self as Shuffleable>::Share) -> (V, BK) {
+        let bits = BooleanArrayReader::new(share);
+        let (value, bits) = bits.read();
+        let (breakdown_key, _) = bits.read();
+        (value, breakdown_key)
+    }
+}
+
+/// When aggregating reports, we need to lift the value from `V` to `HV`.
+impl<BK, V, HV> From<PrfHybridReport<BK, V>> for AggregateableHybridReport<BK, HV>
+where
+    BK: SharedValue + BooleanArray,
+    V: SharedValue + BooleanArray,
+    HV: SharedValue + BooleanArray,
+{
+    fn from(report: PrfHybridReport<BK, V>) -> Self {
+        let mut value = Replicated::<HV>::ZERO;
+        expand_shared_array_in_place(&mut value, &report.value, 0);
+        Self {
+            match_key: (),
+            breakdown_key: report.breakdown_key,
+            value,
+        }
+    }
+}
+
 /// This struct is designed to fit both `HybridConversionReport`s
 /// and `HybridImpressionReport`s so that they can be made indistingushable.
 /// Note: these need to be shuffled (and secret shares need to be rerandomized)
@@ -826,6 +877,41 @@ where
             match_key: ReplicatedSecretSharing::new(left.0, right.0),
             value: ReplicatedSecretSharing::new(left.1, right.1),
             breakdown_key: ReplicatedSecretSharing::new(left.2, right.2),
+        }
+    }
+}
+
+impl<BK, V> Shuffleable for IndistinguishableHybridReport<BK, V, ()>
+where
+    BK: BooleanArray,
+    V: BooleanArray,
+{
+    // this requires BK:BAXX + V:BAYY  such that XX + YY <= 32
+    // this is checked in a debud_assert call in ::new below
+    type Share = BA32;
+
+    fn left(&self) -> Self::Share {
+        Self::join_fields(self.value.left(), self.breakdown_key.left())
+    }
+
+    fn right(&self) -> Self::Share {
+        Self::join_fields(self.value.right(), self.breakdown_key.right())
+    }
+
+    fn new(l: Self::Share, r: Self::Share) -> Self {
+        debug_assert!(
+            BK::BITS + V::BITS <= Self::Share::BITS,
+            "share type {} is too small",
+            std::any::type_name::<Self::Share>(),
+        );
+
+        let left = Self::split_fields(&l);
+        let right = Self::split_fields(&r);
+
+        Self {
+            match_key: (),
+            value: ReplicatedSecretSharing::new(left.0, right.0),
+            breakdown_key: ReplicatedSecretSharing::new(left.1, right.1),
         }
     }
 }

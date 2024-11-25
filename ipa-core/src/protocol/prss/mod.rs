@@ -209,6 +209,26 @@ impl SharedRandomness for IndexedSharedRandomness {
     }
 }
 
+impl SharedRandomness for Arc<IndexedSharedRandomness> {
+    type ChunkIter<'a, Z: ArrayLength> =
+        <IndexedSharedRandomness as SharedRandomness>::ChunkIter<'a, Z>;
+
+    fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+        direction: Direction,
+    ) -> Self::ChunkIter<'_, Z> {
+        IndexedSharedRandomness::generate_chunks_one_side(self, index, direction)
+    }
+
+    fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+    ) -> impl Iterator<Item = (GenericArray<u128, Z>, GenericArray<u128, Z>)> {
+        IndexedSharedRandomness::generate_chunks_iter(self, index)
+    }
+}
+
 /// Specialized implementation for chunks that are generated using both left and right
 /// randomness. The functionality is the same as [`std::iter::zip`], but it does not use
 /// `Iterator` trait to call `left` and `right` next. It uses inlined method calls to

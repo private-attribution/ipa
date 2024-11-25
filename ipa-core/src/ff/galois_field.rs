@@ -8,11 +8,12 @@ use bitvec::{
     prelude::{bitarr, BitArr, Lsb0},
 };
 use generic_array::GenericArray;
+use subtle::{Choice, ConstantTimeEq};
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use crate::{
     error::LengthError,
-    ff::{boolean_array::NonZeroPadding, Field, Serializable, U128Conversions},
+    ff::{boolean_array::NonZeroPadding, Field, MultiplyAccumulate, Serializable, U128Conversions},
     impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -179,6 +180,12 @@ macro_rules! bit_array_impl {
                 const ONE: Self = Self($one);
             }
 
+            // Note: The multiply-accumulate tests are not currently instantiated for Galois fields.
+            impl MultiplyAccumulate for $name {
+                type Accumulator = $name;
+                type AccumulatorArray<const N: usize> = [$name; N];
+            }
+
             impl U128Conversions for $name {
                 fn as_u128(&self) -> u128 {
                     (*self).into()
@@ -225,6 +232,18 @@ macro_rules! bit_array_impl {
 
             impl GaloisField for $name {
                 const POLYNOMIAL: u128 = $polynomial;
+            }
+
+            // If the field value fits in a machine word, a naive comparison should be fine.
+            // But this impl is important for `[T]`, and useful to document where a
+            // constant-time compare is intended.
+            impl ConstantTimeEq for $name {
+                fn ct_eq(&self, other: &Self) -> Choice {
+                    // Note that this will compare the padding bits. That should not be
+                    // a problem, because we should not allow the padding bits to become
+                    // non-zero.
+                    self.0.as_raw_slice().ct_eq(&other.0.as_raw_slice())
+                }
             }
 
             impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
