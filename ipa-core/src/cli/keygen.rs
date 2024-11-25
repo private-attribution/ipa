@@ -39,13 +39,13 @@ pub struct KeygenArgs {
     #[arg(long, visible_alias("tls-valid-days"), default_value = "91")]
     pub(crate) tls_expire_after: u16,
 
-    /// Writes the generated report public key to the file
+    /// Optional: Writes the generated report public key to the file
     #[arg(long)]
-    pub(crate) mk_public_key: PathBuf,
+    pub(crate) mk_public_key: Option<PathBuf>,
 
-    /// Writes the generated report private key to the file
+    /// Optional: Writes the generated report private key to the file
     #[arg(long)]
-    pub(crate) mk_private_key: PathBuf,
+    pub(crate) mk_private_key: Option<PathBuf>,
 }
 
 fn create_new<P: AsRef<Path>>(path: P) -> io::Result<File> {
@@ -103,8 +103,10 @@ pub fn keygen_tls<R: Rng + CryptoRng>(args: &KeygenArgs, rng: &mut R) -> Result<
 fn keygen_matchkey<R: Rng + CryptoRng>(args: &KeygenArgs, mut rng: &mut R) -> Result<(), BoxError> {
     let keypair = KeyPair::gen(&mut rng);
 
-    create_new(&args.mk_public_key)?.write_all(hex::encode(keypair.pk_bytes()).as_bytes())?;
-    create_new(&args.mk_private_key)?.write_all(hex::encode(keypair.sk_bytes()).as_bytes())?;
+    if args.mk_public_key.is_some() && args.mk_private_key.is_some() {
+        create_new(args.mk_public_key.as_ref().unwrap())?.write_all(hex::encode(keypair.pk_bytes()).as_bytes())?;
+        create_new(args.mk_private_key.as_ref().unwrap())?.write_all(hex::encode(keypair.sk_bytes()).as_bytes())?;
+    }
 
     Ok(())
 }

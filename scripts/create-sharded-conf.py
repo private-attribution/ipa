@@ -1,6 +1,7 @@
 import os
 import subprocess
 import argparse
+import shutil
 
 def generate_keys(base_dir, shard_count, helper_name_format):
     # Create the base directory if it doesn't exist
@@ -21,12 +22,27 @@ def generate_keys(base_dir, shard_count, helper_name_format):
                 f"{dir_path}/{helper_name}.pem",
                 "--tls-key",
                 f"{dir_path}/{helper_name}.key",
-                "--mk-public-key",
-                f"{dir_path}/{helper_name}_mk.pub",
-                "--mk-private-key",
-                f"{dir_path}/{helper_name}_mk.key",
             ]
+            if j == 0:  # Only add mk-public-key and mk-private-key params for the first shard
+                keygen_cmd.extend([
+                    "--mk-public-key",
+                    f"{dir_path}/{helper_name}_mk.pub",
+                    "--mk-private-key",
+                    f"{dir_path}/{helper_name}_mk.key",
+                ])
             subprocess.run(keygen_cmd)
+
+            # Copy mk public and private keys from the first shard to other shards
+            if j != 0:
+                src_dir = f"{base_dir}/helper{i}/shard{0}"
+                dst_dir = dir_path
+                src_mk_pub_key = f"{src_dir}/{helper_name_format.format(i, 0)}_mk.pub"
+                src_mk_priv_key = f"{src_dir}/{helper_name_format.format(i, 0)}_mk.key"
+                dst_mk_pub_key = f"{dst_dir}/{helper_name}_mk.pub"
+                dst_mk_priv_key = f"{dst_dir}/{helper_name}_mk.key"
+                shutil.copy(src_mk_pub_key, dst_mk_pub_key)
+                shutil.copy(src_mk_priv_key, dst_mk_priv_key)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate keys for MPC setup")

@@ -162,9 +162,6 @@ fn create_sharded_conf_from_files(
             let host_name = find_file_with_extension(&shard_dir, "pem").unwrap();
             let tls_cert_file = shard_dir.join(format!("{host_name}.pem"));
             let mk_public_key_file = shard_dir.join(format!("{host_name}_mk.pub"));
-            println!("Found {host_name} for helper {id_nr} shard {ix}:");
-            println!("\ttls_cert_file: {tls_cert_file:?}");
-            println!("\tmk_public_key_file: {mk_public_key_file:?}");
             HelperClientConf {
                 host: host_name,
                 port,

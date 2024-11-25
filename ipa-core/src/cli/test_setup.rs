@@ -66,8 +66,8 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
                 tls_cert: args.output_dir.helper_tls_cert(id),
                 tls_key: args.output_dir.helper_tls_key(id),
                 tls_expire_after: 365,
-                mk_public_key: args.output_dir.helper_mk_public_key(id),
-                mk_private_key: args.output_dir.helper_mk_private_key(id),
+                mk_public_key: Some(args.output_dir.helper_mk_public_key(id)),
+                mk_private_key: Some(args.output_dir.helper_mk_private_key(id)),
             };
 
             keygen(&keygen_args)?;
@@ -77,7 +77,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
                 port,
                 shard_port,
                 tls_cert_file: keygen_args.tls_cert,
-                mk_public_key_file: keygen_args.mk_public_key,
+                mk_public_key_file: keygen_args.mk_public_key.unwrap(),
             })
         })
         .collect::<Result<Vec<_>, BoxError>>()?
