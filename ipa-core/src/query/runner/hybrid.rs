@@ -1,10 +1,12 @@
 use std::{
     convert::{Infallible, Into},
     marker::PhantomData,
+    ops::Add,
     sync::Arc,
 };
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
+use generic_array::ArrayLength;
 
 use crate::{
     error::{Error, LengthError},
@@ -13,7 +15,7 @@ use crate::{
         boolean_array::{BooleanArray, BA3, BA8},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
-        U128Conversions,
+        Serializable, U128Conversions,
     },
     helpers::{
         query::{DpMechanism, HybridQueryParams, QuerySize},
@@ -21,7 +23,7 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, Reveal},
+        basics::{shard_fin::FinalizerContext, BooleanArrayMul, BooleanProtocols, Reveal},
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
             hybrid_protocol,
@@ -71,8 +73,12 @@ impl<'a, C, HV, R: PrivateKeyRegistry> Query<'a, C, HV, R> {
 
 impl<'a, C, HV, R> Query<'a, C, HV, R>
 where
-    C: UpgradableContext + Shuffle + ShardedContext,
+    C: UpgradableContext
+        + Shuffle
+        + ShardedContext
+        + FinalizerContext<FinalizingContext = DZKPUpgraded<C>>,
     HV: BooleanArray + U128Conversions,
+    <HV as Serializable>::Size: Add<<HV as Serializable>::Size, Output: ArrayLength>,
     R: PrivateKeyRegistry,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
@@ -80,12 +86,16 @@ where
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<HV>: Serializable,
     Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
         + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
     BitDecomposed<Replicated<Boolean, 256>>:
-        for<'b> TransposeFrom<&'b [Replicated<HV>; 256], Error = Infallible>,
+        for<'bt> TransposeFrom<&'bt Vec<Replicated<HV>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, 256>>:
+        for<'bt> TransposeFrom<&'bt [Replicated<HV>; 256], Error = Infallible>,
     Vec<Replicated<HV>>:
-        for<'b> TransposeFrom<&'b BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+        for<'bt> TransposeFrom<&'bt BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+    DZKPUpgraded<C>: ShardedContext,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(

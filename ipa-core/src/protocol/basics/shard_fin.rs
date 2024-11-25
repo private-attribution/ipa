@@ -192,11 +192,11 @@ async fn semi_honest<C: ShardedContext, R: ShardAssembledResult<C>>(
 /// and vice versa. Decomposed view is used to perform additions,
 /// share is used to send data to other shards.
 #[derive(Debug, Default)]
-struct Histogram<HV: BooleanArray, const B: usize>
+pub struct Histogram<HV: BooleanArray, const B: usize>
 where
     Boolean: FieldSimd<B>,
 {
-    values: BitDecomposed<AdditiveShare<Boolean, B>>,
+    pub values: BitDecomposed<AdditiveShare<Boolean, B>>,
     _marker: PhantomData<HV>,
 }
 
@@ -222,6 +222,23 @@ where
             // unwrap here is safe because we converted values from a vector during
             // initialization, so it must have the value we need
             Vec::transposed_from(&self.values).unwrap()
+        }
+    }
+}
+
+impl<HV: BooleanArray, const B: usize> From<BitDecomposed<AdditiveShare<Boolean, B>>>
+    for Histogram<HV, B>
+where
+    BitDecomposed<AdditiveShare<Boolean, B>>:
+        for<'a> TransposeFrom<&'a Vec<AdditiveShare<HV>>, Error = LengthError>,
+    Vec<AdditiveShare<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, B>>, Error = LengthError>,
+    Boolean: FieldSimd<B>,
+{
+    fn from(values: BitDecomposed<AdditiveShare<Boolean, B>>) -> Self {
+        Self {
+            values,
+            _marker: PhantomData,
         }
     }
 }
