@@ -16,6 +16,7 @@ use tokio::time::sleep;
 
 pub use self::ipa::{playbook_oprf_ipa, run_query_and_validate};
 use crate::{
+    cli::config_parse::HelperNetworkConfigParseExt,
     config::{ClientConfig, NetworkConfig, PeerConfig},
     executor::IpaRuntime,
     ff::boolean_array::{BA20, BA3, BA8},
