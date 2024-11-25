@@ -63,7 +63,7 @@ use crate::{
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const SS_BITS: usize, const B: usize>(
+pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const B: usize>(
     ctx: C,
     input_rows: Vec<IndistinguishableHybridReport<BK, V>>,
     _dp_params: DpMechanism,
