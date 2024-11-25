@@ -17,7 +17,6 @@ fn test_hybrid() {
     const INPUT_SIZE: usize = 100;
     const MAX_CONVERSION_VALUE: usize = 5;
     const MAX_BREAKDOWN_KEY: usize = 20;
-    const MAX_CONVS_PER_IMP: usize = 10;
 
     let dir = TempDir::new_delete_on_drop();
 
@@ -32,7 +31,6 @@ fn test_hybrid() {
         .args(["--count", &INPUT_SIZE.to_string()])
         .args(["--max-conversion-value", &MAX_CONVERSION_VALUE.to_string()])
         .args(["--max-breakdown-key", &MAX_BREAKDOWN_KEY.to_string()])
-        .args(["--max-convs-per-imp", &MAX_CONVS_PER_IMP.to_string()])
         .args(["--seed", &thread_rng().next_u64().to_string()])
         .silent()
         .stdin(Stdio::piped());
