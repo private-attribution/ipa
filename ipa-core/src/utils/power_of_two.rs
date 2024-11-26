@@ -71,6 +71,7 @@ impl NonZeroU32PowerOfTwo {
 /// Returns the largest power of two less than or equal to `target`.
 ///
 /// Returns 1 if `target` is zero.
+#[must_use]
 pub fn non_zero_prev_power_of_two(target: usize) -> usize {
     let bits = usize::BITS - target.leading_zeros();
 
