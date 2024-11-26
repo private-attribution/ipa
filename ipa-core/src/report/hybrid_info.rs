@@ -49,6 +49,27 @@ impl HybridImpressionInfo {
 
         r.into_boxed_slice()
     }
+
+    pub(super) fn from_bytes(bytes: &[u8]) -> Self {
+        let mut pos = 0;
+
+        let domain = std::str::from_utf8(&bytes[pos..pos + DOMAIN.len()]).unwrap();
+        assert!(domain == DOMAIN, "HPKE Info domain does not match hardcoded domain");
+        pos += DOMAIN.len() + 1;
+
+        let delimiter_pos = bytes[pos..].iter().position(|&b| b == 0).unwrap();
+        let helper_origin_str = String::from_utf8(bytes[pos..pos + delimiter_pos].to_vec()).unwrap();
+        let helper_origin = helper_origin_str.as_str();
+
+        pos += delimiter_pos + 1;
+
+        let key_id = bytes[pos];
+
+        Self {
+            key_id,
+            helper_origin,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -156,5 +177,18 @@ impl HybridInfo<'_> {
             impression,
             conversion,
         })
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_hybrid_impression_serialization() {
+        let info = HybridImpressionInfo::new(0, "https://www.example.com").unwrap();
+        let bytes = info.to_bytes();
+        let info2 = HybridImpressionInfo::from_bytes(&bytes);
+        assert_eq!(info.to_bytes(), info2.to_bytes());
     }
 }

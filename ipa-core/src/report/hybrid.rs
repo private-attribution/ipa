@@ -29,6 +29,7 @@
 
 use std::{collections::HashSet, convert::Infallible, iter::once, marker::PhantomData, ops::Add};
 
+use bitvec::vec;
 use bytes::{Buf, BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
@@ -123,27 +124,27 @@ where
     pub breakdown_key: Replicated<BK>,
 }
 
-impl<BK: SharedValue> Serializable for HybridImpressionReport<BK>
+impl<BK> HybridImpressionReport<BK>
 where
     BK: SharedValue,
     Replicated<BK>: Serializable,
     <Replicated<BK> as Serializable>::Size: Add<U16>,
     <<Replicated<BK> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
 {
-    type Size = <<Replicated<BK> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output;
-    type DeserializationError = InvalidHybridReportError;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+    pub fn serialize<B: BufMut>(&self, buf: &mut B) {
         let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
 
-        self.match_key
-            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
+        let mut plaintext_mk = vec![0u8; mk_sz];
+        self.match_key.serialize(GenericArray::from_mut_slice(&mut plaintext_mk));
+        let mut plaintext_bk = vec![0u8; bk_sz];
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(&mut plaintext_bk));
 
-        self.breakdown_key
-            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + bk_sz]));
+        buf.put_slice(&plaintext_mk);
+        buf.put_slice(&plaintext_bk);
     }
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+
+    pub fn deserialize(buf: &Bytes) -> Result<Self, InvalidHybridReportError> {
         let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let match_key =
@@ -152,6 +153,10 @@ where
             Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + bk_sz]))
             .map_err(|e| InvalidHybridReportError::DeserializationError("breakdown_key", e.into()))?;
         Ok(Self { match_key, breakdown_key })
+    }
+
+    pub fn serialized_len() -> usize {
+        Replicated::<BK>::size() + Replicated::<BA64>::size()
     }
 }
 
@@ -255,36 +260,39 @@ where
     pub value: Replicated<V>,
 }
 
-impl<V: SharedValue> Serializable for HybridConversionReport<V>
+impl<V> HybridConversionReport<V>
 where
     V: SharedValue,
     Replicated<V>: Serializable,
     <Replicated<V> as Serializable>::Size: Add<U16>,
     <<Replicated<V> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output: ArrayLength,
 {
-    type Size = <<Replicated<V> as Serializable>::Size as Add<<Replicated<BA64> as Serializable>::Size>>:: Output;
-    type DeserializationError = InvalidHybridReportError;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+    pub fn serialize<B: BufMut>(&self, buf: &mut B) {
         let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
         let v_sz = <Replicated<V> as Serializable>::Size::USIZE;
 
-        self.match_key
-            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
+        let mut plaintext_mk = vec![0u8; mk_sz];
+        self.match_key.serialize(GenericArray::from_mut_slice(&mut plaintext_mk));
+        let mut plaintext_v = vec![0u8; v_sz];
+        self.value.serialize(GenericArray::from_mut_slice(&mut plaintext_v));
 
-        self.value
-            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + v_sz]));
+        buf.put_slice(&plaintext_mk);
+        buf.put_slice(&plaintext_v);
     }
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+
+    pub fn deserialize(buf: &Bytes) -> Result<Self, InvalidHybridReportError> {
         let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
         let v_sz = <Replicated<V> as Serializable>::Size::USIZE;
         let match_key =
-            Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
-            .map_err(|e| InvalidHybridReportError::DeserializationError("match_key", e.into()))?;
+            Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(&buf[..mk_sz]));
         let value =
             Replicated::<V>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + v_sz]))
             .map_err(|e| InvalidHybridReportError::DeserializationError("breakdown_key", e.into()))?;
         Ok(Self { match_key, value })
+    }
+
+    pub fn serialized_len() -> usize {
+        Replicated::<V>::size() + Replicated::<BA64>::size()
     }
 }
 
@@ -1197,8 +1205,10 @@ impl UniqueTagValidator {
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use futures::SinkExt;
     use rand::Rng;
     use typenum::Unsigned;
+    use bytes::{Bytes, BytesMut};
 
     use super::{
         EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
@@ -1344,14 +1354,11 @@ mod test {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
             };
-            let mut hybrid_impression_report_bytes =
-                [0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
-            hybrid_impression_report.serialize(GenericArray::from_mut_slice(
-                &mut hybrid_impression_report_bytes[..],
-            ));
+            let mut hybrid_impression_report_bytes = Vec::with_capacity(HybridImpressionReport::<BA8>::serialized_len());
+                hybrid_impression_report.serialize(&mut hybrid_impression_report_bytes);
             let hybrid_impression_report2 = HybridImpressionReport::<BA8>::deserialize(
-                GenericArray::from_mut_slice(&mut hybrid_impression_report_bytes[..]),
-            )
+                &Bytes::copy_from_slice(&mut hybrid_impression_report_bytes[..]
+            ))
             .unwrap();
             assert_eq!(hybrid_impression_report, hybrid_impression_report2);
         });
@@ -1364,13 +1371,12 @@ mod test {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
             };
-            let mut hybrid_conversion_report_bytes =
-                [0u8; <HybridConversionReport<BA3> as Serializable>::Size::USIZE];
-            hybrid_conversion_report.serialize(GenericArray::from_mut_slice(
-                &mut hybrid_conversion_report_bytes[..],
-            ));
+            let mut hybrid_conversion_report_bytes = Vec::with_capacity(HybridImpressionReport::<BA8>::serialized_len());
+            hybrid_conversion_report.serialize(
+                &mut hybrid_conversion_report_bytes,
+            );
             let hybrid_conversion_report2 = HybridConversionReport::<BA3>::deserialize(
-                GenericArray::from_mut_slice(&mut hybrid_conversion_report_bytes[..]),
+                &Bytes::copy_from_slice(&mut hybrid_conversion_report_bytes[..]),
             )
             .unwrap();
             assert_eq!(hybrid_conversion_report, hybrid_conversion_report2);
@@ -1379,7 +1385,7 @@ mod test {
 
     #[test]
     fn constant_serialization_hybrid_impression() {
-        let hybrid_report = HybridImpressionReport::<BA8>::deserialize(GenericArray::from_slice(
+        let hybrid_report = HybridImpressionReport::<BA8>::deserialize(&Bytes::copy_from_slice(
             &hex::decode("4123a6e38ef1d6d9785c948797cb744d38f4").unwrap(),
         ))
         .unwrap();
@@ -1401,11 +1407,8 @@ mod test {
             }
         );
 
-        let mut hybrid_impression_report_bytes =
-            [0u8; <HybridImpressionReport<BA8> as Serializable>::Size::USIZE];
-        hybrid_report.serialize(GenericArray::from_mut_slice(
-            &mut hybrid_impression_report_bytes[..],
-        ));
+        let mut hybrid_impression_report_bytes = Vec::with_capacity(HybridImpressionReport::<BA8>::serialized_len());
+        hybrid_report.serialize(&mut hybrid_impression_report_bytes);
 
         assert_eq!(
             hybrid_impression_report_bytes.to_vec(),
@@ -1415,7 +1418,7 @@ mod test {
 
     #[test]
     fn constant_serialization_hybrid_conversion() {
-        let hybrid_report = HybridConversionReport::<BA3>::deserialize(GenericArray::from_slice(
+        let hybrid_report = HybridConversionReport::<BA3>::deserialize(&Bytes::copy_from_slice(
             &hex::decode("4123a6e38ef1d6d9785c948797cb744d0203").unwrap(),
         ))
         .unwrap();
@@ -1434,11 +1437,8 @@ mod test {
             HybridConversionReport::<BA3> { match_key, value }
         );
 
-        let mut hybrid_conversion_report_bytes =
-            [0u8; <HybridConversionReport<BA3> as Serializable>::Size::USIZE];
-        hybrid_report.serialize(GenericArray::from_mut_slice(
-            &mut hybrid_conversion_report_bytes[..],
-        ));
+        let mut hybrid_conversion_report_bytes = Vec::with_capacity(HybridConversionReport::<BA3>::serialized_len());
+        hybrid_report.serialize(&mut hybrid_conversion_report_bytes);
 
         assert_eq!(
             hybrid_conversion_report_bytes.to_vec(),
