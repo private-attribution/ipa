@@ -1,11 +1,14 @@
-use std::fmt::{Debug, Formatter};
+use std::{
+    fmt::{Debug, Formatter},
+    iter::repeat_with,
+};
 
 use bitvec::{
     prelude::{BitArr, BitSlice, Lsb0},
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{U12, U14, U18, U2, U32, U8};
+use typenum::{Unsigned, U12, U14, U18, U2, U32, U8};
 
 use crate::{
     error::LengthError,
@@ -917,40 +920,34 @@ macro_rules! boolean_array_impl {
 }
 
 macro_rules! boolean_array_impl_large {
-    ($modname:ident, $name:ident, $bits:tt, $deser_type:tt, $arraylength:ty) => {
+    ($modname:ident, $name:ident, $bits:tt, $deser_type:tt, $bytelength:ty, $wordlength:ty) => {
         boolean_array_impl!($modname, $name, $bits, $deser_type);
 
         $crate::const_assert!(
-            $bits <= 256,
-            "Large BooleanArrays only support up to 256 bits."
+            $bits % 8 == 0,
+            "Large BooleanArrays only support whole bytes."
         );
 
-        // used to convert into Fp25519
-        impl From<(u128, u128)> for $name {
-            fn from(value: (u128, u128)) -> Self {
-                use typenum::Unsigned;
-                let iter = value
-                    .0
-                    .to_le_bytes()
-                    .into_iter()
-                    .chain(value.1.to_le_bytes())
-                    .take(<$arraylength>::USIZE);
-                let arr = GenericArray::<u8, $arraylength>::try_from_iter(iter).unwrap();
-                $name::deserialize_infallible(&arr)
-            }
-        }
-
         impl FromRandom for $name {
-            type SourceLength = U2;
+            type SourceLength = $wordlength;
 
-            fn from_random(src: GenericArray<u128, U2>) -> Self {
-                (src[0], src[1]).into()
+            fn from_random(src: GenericArray<u128, $wordlength>) -> Self {
+                let iter = src
+                    .into_iter()
+                    .flat_map(u128::to_le_bytes)
+                    .take(<$bytelength>::USIZE);
+                let arr = GenericArray::<u8, $bytelength>::try_from_iter(iter).unwrap();
+                Self::deserialize_infallible(&arr)
             }
         }
 
         impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
-                (rng.gen(), rng.gen()).into()
+                <$name>::from_random(
+                    repeat_with(|| rng.gen())
+                        .take(<$wordlength>::USIZE)
+                        .collect(),
+                )
             }
         }
     };
@@ -994,8 +991,8 @@ boolean_array_impl_small!(boolean_array_32, BA32, 32, infallible);
 boolean_array_impl_small!(boolean_array_64, BA64, 64, infallible);
 boolean_array_impl_small!(boolean_array_96, BA96, 96, infallible);
 boolean_array_impl_small!(boolean_array_112, BA112, 112, infallible);
-boolean_array_impl_large!(boolean_array_144, BA144, 144, infallible, U18);
-boolean_array_impl_large!(boolean_array_256, BA256, 256, infallible, U32);
+boolean_array_impl_large!(boolean_array_144, BA144, 144, infallible, U18, U2);
+boolean_array_impl_large!(boolean_array_256, BA256, 256, infallible, U32, U2);
 
 impl Vectorizable<256> for BA64 {
     type Array = StdArray<BA64, 256>;
