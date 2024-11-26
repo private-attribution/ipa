@@ -51,7 +51,7 @@ pub fn query_router(transport: MpcHttpTransport) -> Router {
 // It might make sense to split the query and h2h handlers into two modules.
 pub fn h2h_router(transport: MpcHttpTransport) -> Router {
     Router::new()
-        .merge(step::router(transport.clone()))
+        .merge(step::router(Arc::clone(&transport.inner_transport)))
         .merge(prepare::router(transport.inner_transport))
         .layer(layer_fn(HelperAuthentication::<_, Helper>::new))
 }
@@ -59,6 +59,7 @@ pub fn h2h_router(transport: MpcHttpTransport) -> Router {
 /// Construct router for shard-to-shard communications similar to [`h2h_router`].
 pub fn s2s_router(transport: ShardHttpTransport) -> Router {
     Router::new()
+        .merge(step::router(Arc::clone(&transport.inner_transport)))
         .merge(prepare::router(Arc::clone(&transport.inner_transport)))
         .merge(results::router(transport.inner_transport))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))

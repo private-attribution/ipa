@@ -8,7 +8,7 @@ use clap::Args;
 
 use crate::{
     cli::{
-        clientconf::{gen_client_config, HelperClientConf},
+        config_parse::{gen_client_config, HelperClientConf},
         keygen,
         paths::PathExt,
         KeygenArgs,
@@ -66,18 +66,18 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
                 tls_cert: args.output_dir.helper_tls_cert(id),
                 tls_key: args.output_dir.helper_tls_key(id),
                 tls_expire_after: 365,
-                mk_public_key: args.output_dir.helper_mk_public_key(id),
-                mk_private_key: args.output_dir.helper_mk_private_key(id),
+                mk_public_key: Some(args.output_dir.helper_mk_public_key(id)),
+                mk_private_key: Some(args.output_dir.helper_mk_private_key(id)),
             };
 
             keygen(&keygen_args)?;
 
             Ok(HelperClientConf {
-                host: &localhost,
+                host: localhost.to_string(),
                 port,
                 shard_port,
                 tls_cert_file: keygen_args.tls_cert,
-                mk_public_key_file: keygen_args.mk_public_key,
+                mk_public_key_file: keygen_args.mk_public_key.unwrap(),
             })
         })
         .collect::<Result<Vec<_>, BoxError>>()?
@@ -85,5 +85,5 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
         .unwrap();
 
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
-    gen_client_config(clients_config, args.use_http1, &mut conf_file)
+    gen_client_config(clients_config.into_iter(), args.use_http1, &mut conf_file)
 }

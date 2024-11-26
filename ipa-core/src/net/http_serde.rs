@@ -132,6 +132,8 @@ pub mod query {
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::TEST_SHARDED_SHUFFLE_STR => Ok(QueryType::TestShardedShuffle),
                 QueryType::SEMI_HONEST_OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::SemiHonestOprfIpa(q))
@@ -184,14 +186,11 @@ pub mod query {
 
                     Ok(())
                 }
-                QueryType::SemiHonestHybrid(config) => {
+                QueryType::MaliciousHybrid(config) => {
                     write!(
                         f,
-                        "&per_user_credit_cap={}&max_breakdown_key={}&with_dp={}&epsilon={}",
-                        config.per_user_credit_cap,
-                        config.max_breakdown_key,
-                        config.with_dp,
-                        config.epsilon,
+                        "&max_breakdown_key={}&with_dp={}&epsilon={}",
+                        config.max_breakdown_key, config.with_dp, config.epsilon,
                     )?;
 
                     if config.plaintext_match_keys {

@@ -1,3 +1,6 @@
+use std::future::Future;
+
+use futures::{FutureExt, Stream};
 use futures_util::TryStreamExt;
 use ipa_step::StepNarrow;
 
@@ -6,17 +9,56 @@ use crate::{
     ff::boolean_array::BA64,
     helpers::{setup_cross_shard_prss, BodyStream, Gateway, SingleRecordStream},
     protocol::{
-        context::{Context, ShardedContext, ShardedSemiHonestContext},
-        ipa_prf::Shuffle,
+        basics::{FinalizerContext, ShardAssembledResult},
+        context::{Context, MaliciousProtocolSteps, ShardedContext, ShardedSemiHonestContext},
+        ipa_prf::shuffle::ShardedShuffle,
         prss::Endpoint as PrssEndpoint,
-        step::ProtocolStep,
-        Gate,
+        step::{ProtocolStep, TestShardedShuffleStep},
+        Gate, RecordId,
     },
     query::runner::QueryResult,
     secret_sharing::replicated::semi_honest::AdditiveShare,
     sharding::{ShardConfiguration, Sharded},
     sync::Arc,
 };
+
+/// This holds the result of executing the test version of
+/// the sharded shuffle protocol.
+struct ShardedShuffleOutput(Vec<AdditiveShare<BA64>>);
+
+/// Finalization protocol for sharded shuffle. All shares sent from followers
+/// to the leader shard get bundled together into a single vector.
+impl<C: ShardedContext> ShardAssembledResult<C> for ShardedShuffleOutput {
+    type SingleMessage = AdditiveShare<BA64>;
+
+    fn empty() -> Self {
+        Self(Vec::new())
+    }
+
+    fn merge<'a>(
+        &'a mut self,
+        _ctx: C,
+        _record_id: RecordId,
+        other: Self,
+    ) -> impl Future<Output = Result<(), Error>> + Send + 'a
+    where
+        C: 'a,
+    {
+        self.0.extend(other.0);
+        futures::future::ok(())
+    }
+
+    fn into_messages(self) -> impl ExactSizeIterator<Item = Self::SingleMessage> + Send {
+        self.0.into_iter()
+    }
+
+    fn from_message_stream<S>(stream: S) -> impl Future<Output = Result<Self, Error>> + Send
+    where
+        S: Stream<Item = Result<Self::SingleMessage, Error>> + Send,
+    {
+        stream.try_collect::<Vec<_>>().map(|v| v.map(Self))
+    }
+}
 
 /// This executes the sharded shuffle protocol that consists of only one step:
 /// permute the private inputs using a permutation that is not known to any helper
@@ -46,12 +88,25 @@ pub async fn execute_sharded_shuffle<'a>(
 #[tracing::instrument("sharded_shuffle", skip_all)]
 pub async fn execute<C>(ctx: C, input_stream: BodyStream) -> Result<Vec<AdditiveShare<BA64>>, Error>
 where
-    C: ShardedContext + Shuffle,
+    C: ShardedContext + ShardedShuffle + FinalizerContext,
 {
     let input = SingleRecordStream::<AdditiveShare<BA64>, _>::new(input_stream)
         .try_collect::<Vec<_>>()
         .await?;
-    ctx.shuffle(input).await
+    let shuffle_ctx = ctx.narrow(&TestShardedShuffleStep::Shuffle);
+
+    let output = ShardedShuffleOutput(shuffle_ctx.sharded_shuffle(input).await?);
+
+    Ok(ctx
+        .finalize(
+            MaliciousProtocolSteps {
+                protocol: &TestShardedShuffleStep::Finalize,
+                validate: &TestShardedShuffleStep::FinalizeValidate,
+            },
+            output,
+        )
+        .await?
+        .0)
 }
 
 #[cfg(all(test, unit_test))]

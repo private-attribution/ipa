@@ -134,6 +134,20 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
         )
     }
 
+    /// Connect an inbound stream of record data.
+    ///
+    /// This is called by peer entities (shards or helpers) via the HTTP server.
+    pub fn receive_stream(
+        &self,
+        query_id: QueryId,
+        gate: Gate,
+        from: F::Identity,
+        stream: BodyStream,
+    ) {
+        self.record_streams
+            .add_stream((query_id, from, gate), stream);
+    }
+
     /// Dispatches the given request to the [`RequestHandler`] connected to this transport.
     ///
     /// ## Errors
@@ -230,8 +244,7 @@ impl MpcHttpTransport {
         stream: BodyStream,
     ) {
         self.inner_transport
-            .record_streams
-            .add_stream((query_id, from, gate), stream);
+            .receive_stream(query_id, gate, from, stream);
     }
 
     /// Dispatches the given request to the [`RequestHandler`] connected to this transport.
@@ -383,7 +396,7 @@ impl Transport for ShardHttpTransport {
 
 #[cfg(all(test, web_test, descriptive_gate))]
 mod tests {
-    use std::task::Poll;
+    use std::{iter::repeat, task::Poll};
 
     use bytes::Bytes;
     use futures::stream::{poll_immediate, StreamExt};
@@ -396,10 +409,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::{FieldType, Fp31, Serializable},
+        ff::{boolean_array::BA64, FieldType, Fp31, Serializable},
         helpers::{
             make_owned_handler,
-            query::{QueryInput, QueryType::TestMultiply},
+            query::{
+                QueryInput,
+                QueryType::{TestMultiply, TestShardedShuffle},
+            },
         },
         net::{
             client::ClientIdentity,
@@ -490,7 +506,9 @@ mod tests {
         .await
     }
 
-    async fn test_make_helpers(conf: TestConfig) {
+    async fn make_clients_and_helpers(
+        conf: TestConfig,
+    ) -> (Vec<[IpaHttpClient<Helper>; 3]>, Vec<HelperApp>) {
         let clients = conf
             .rings()
             .map(|test_network| {
@@ -502,24 +520,20 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let _helpers = make_helpers(conf).await;
+        let helpers = make_helpers(conf).await;
+
+        (clients, helpers)
+    }
+
+    async fn test_make_helpers(conf: TestConfig) {
+        let (clients, _helpers) = make_clients_and_helpers(conf).await;
         test_multiply_single_shard(&clients).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn happy_case_twice() {
         let conf = TestConfigBuilder::default().build();
-        let clients = conf
-            .rings()
-            .map(|test_network| {
-                IpaHttpClient::from_conf(
-                    &IpaRuntime::current(),
-                    &test_network.network,
-                    &ClientIdentity::None,
-                )
-            })
-            .collect::<Vec<_>>();
-        let _helpers = make_helpers(conf).await;
+        let (clients, _helpers) = make_clients_and_helpers(conf).await;
 
         test_multiply_single_shard(&clients).await;
         test_multiply_single_shard(&clients).await;
@@ -589,6 +603,62 @@ mod tests {
         assert_eq!(Fp31::try_from(20u128).unwrap(), res[0]);
     }
 
+    /// Sharded shuffle protocol that runs on multiple shards.
+    async fn test_sharded_shuffle(clients: &[[IpaHttpClient<Helper>; 3]]) {
+        // Sharded shuffle only works with boolean shares and hardcodes BA64 as the only
+        // type it supports
+        const ROWS: usize = 20;
+        let shards = clients.len();
+        let leader_ring_clients = &clients[0];
+
+        // send a create query command
+        let leader_client = &leader_ring_clients[0];
+        let create_data = QueryConfig::new(TestShardedShuffle, FieldType::Fp31, ROWS).unwrap();
+
+        let query_id = leader_client.create_query(create_data).await.unwrap();
+
+        // send input
+        let data = repeat(())
+            .enumerate()
+            .map(|(i, _)| BA64::try_from(i as u128).unwrap())
+            .take(ROWS)
+            .collect::<Vec<_>>();
+        let helper_shares = data.clone().into_iter().share().map(|helper_shares| {
+            helper_shares
+                .chunks(ROWS / shards)
+                .map(|chunk| BodyStream::from_serializable_iter(chunk.to_vec()))
+                .collect::<Vec<_>>()
+        });
+
+        let _ =
+            try_join_all(helper_shares.into_iter().enumerate().map(
+                |(helper, shard_streams)| async move {
+                    try_join_all(shard_streams.into_iter().enumerate().map(
+                        |(shard, input_stream)| {
+                            clients[shard][helper].query_input(QueryInput {
+                                query_id,
+                                input_stream,
+                            })
+                        },
+                    ))
+                    .await
+                },
+            ))
+            .await
+            .unwrap();
+
+        let result: [_; 3] = join_all(leader_ring_clients.each_ref().map(|client| async move {
+            let r = client.query_results(query_id).await.unwrap();
+            AdditiveShare::<BA64>::from_byte_slice_unchecked(&r).collect::<Vec<_>>()
+        }))
+        .await
+        .try_into()
+        .unwrap();
+        let res = result.reconstruct();
+        assert_eq!(res.len(), data.len());
+        assert_ne!(res, data);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn three_helpers_http() {
         let conf = TestConfigBuilder::default()
@@ -610,6 +680,16 @@ mod tests {
             .with_disable_https_option(true)
             .build();
         test_make_helpers(conf).await;
+    }
+
+    #[tokio::test]
+    async fn four_shards_http_sharded_shuffle() {
+        let conf = TestConfigBuilder::default()
+            .with_shard_count(4)
+            .with_disable_https_option(true)
+            .build();
+        let (clients, _helpers) = make_clients_and_helpers(conf).await;
+        test_sharded_shuffle(&clients).await;
     }
 
     #[tokio::test]

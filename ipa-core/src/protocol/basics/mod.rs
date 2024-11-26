@@ -3,7 +3,6 @@ mod if_else;
 pub(crate) mod mul;
 mod reshare;
 mod reveal;
-#[allow(dead_code)]
 mod shard_fin;
 mod share_known_value;
 pub mod share_validation;
@@ -17,6 +16,7 @@ pub use reshare::Reshare;
 pub use reveal::{
     malicious_reveal, partial_reveal, reveal, semi_honest_reveal, validated_partial_reveal, Reveal,
 };
+pub use shard_fin::{FinalizerContext, ShardAssembledResult};
 pub use share_known_value::ShareKnownValue;
 
 use crate::{

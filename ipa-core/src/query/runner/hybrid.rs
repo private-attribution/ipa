@@ -144,19 +144,13 @@ where
         #[cfg(not(feature = "relaxed-dp"))]
         let padding_params = PaddingParameters::default();
 
-        match config.per_user_credit_cap {
-            1 => hybrid_protocol::<_, BA8, BA3, HV, 1, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
-            2 | 4 => hybrid_protocol::<_, BA8, BA3, HV, 2, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
-            8 => hybrid_protocol::<_, BA8, BA3, HV, 3, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
-            16 => hybrid_protocol::<_, BA8, BA3, HV, 4, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
-            32 => hybrid_protocol::<_, BA8, BA3, HV, 5, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
-            64 => hybrid_protocol::<_, BA8, BA3, HV, 6, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
-            128 => hybrid_protocol::<_, BA8, BA3, HV, 7, 256>(ctx, indistinguishable_reports, dp_params, padding_params).await,
-            _ => panic!(
-                "Invalid value specified for per-user cap: {:?}. Must be one of 1, 2, 4, 8, 16, 32, 64, or 128.",
-                config.per_user_credit_cap
-            ),
-        }
+        hybrid_protocol::<_, BA8, BA3, HV, 256>(
+            ctx,
+            indistinguishable_reports,
+            dp_params,
+            padding_params,
+        )
+        .await
     }
 }
 
@@ -303,13 +297,7 @@ mod tests {
                         .zip(helper_ctxs)
                         .zip(query_sizes.clone())
                         .map(|((buffer, ctx), query_size)| {
-                            let query_params = HybridQueryParams {
-                                per_user_credit_cap: 8,
-                                max_breakdown_key: 3,
-                                with_dp: 0,
-                                epsilon: 5.0,
-                                plaintext_match_keys: false,
-                            };
+                            let query_params = HybridQueryParams::default();
                             let input = BodyStream::from(buffer);
 
                             HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
@@ -394,13 +382,7 @@ mod tests {
                     .zip(helper_ctxs)
                     .zip(query_sizes.clone())
                     .map(|((buffer, ctx), query_size)| {
-                        let query_params = HybridQueryParams {
-                            per_user_credit_cap: 8,
-                            max_breakdown_key: 3,
-                            with_dp: 0,
-                            epsilon: 5.0,
-                            plaintext_match_keys: false,
-                        };
+                        let query_params = HybridQueryParams::default();
                         let input = BodyStream::from(buffer);
 
                         HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
@@ -448,11 +430,8 @@ mod tests {
                     .zip(query_sizes.clone())
                     .map(|((buffer, ctx), query_size)| {
                         let query_params = HybridQueryParams {
-                            per_user_credit_cap: 8,
-                            max_breakdown_key: 3,
-                            with_dp: 0,
-                            epsilon: 5.0,
                             plaintext_match_keys: true,
+                            ..Default::default()
                         };
                         let input = BodyStream::from(buffer);
 
