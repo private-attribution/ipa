@@ -3,13 +3,14 @@ use std::{io, thread, thread::JoinHandle};
 use ipa_metrics::{
     MetricChannelType, MetricsCollectorController, MetricsCurrentThreadContext, MetricsProducer,
 };
+use ipa_metrics_prometheus::PrometheusMetricsExporter;
 use tokio::runtime::Builder;
 
 /// Holds a reference to metrics controller and producer
 pub struct CollectorHandle {
     thread_handle: JoinHandle<()>,
     /// This will be used once we start consuming metrics
-    _controller: MetricsCollectorController,
+    controller: MetricsCollectorController,
     producer: MetricsProducer,
 }
 
@@ -26,7 +27,7 @@ pub fn install_collector() -> io::Result<CollectorHandle> {
 
     Ok(CollectorHandle {
         thread_handle: handle,
-        _controller: controller,
+        controller,
         producer,
     })
 }
@@ -52,5 +53,18 @@ impl CollectorHandle {
             })
             .on_thread_stop(flush_fn)
             .on_thread_park(flush_fn)
+    }
+
+    /// Export the metrics to be consumed by metrics scraper, e.g. Prometheus
+    ///
+    /// # Panics
+    /// If metrics is not initialized
+    #[must_use]
+    pub fn scrape_metrics(&self) -> Vec<u8> {
+        let mut store = self.controller.snapshot().expect("Metrics must be set up");
+        let mut buff = Vec::new();
+        store.export(&mut buff);
+
+        buff
     }
 }

@@ -69,42 +69,11 @@ pub mod echo {
 }
 
 pub mod metrics {
-    use std::collections::HashMap;
 
-    use axum::body::Body;
-    use hyper::http::uri;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct Request {
-        // pub headers: HashMap<String, String>,
-    }
-
-    impl Request {
-        pub fn new(// headers: HashMap<String, String>,
-        ) -> Self {
-            Self {
-                // headers,
-            }
-        }
-        pub fn try_into_http_request(
-            self,
-            scheme: uri::Scheme,
-            authority: uri::Authority,
-        ) -> crate::net::http_serde::OutgoingRequest {
-            let uri = uri::Uri::builder()
-                .scheme(scheme)
-                .authority(authority)
-                .build()?;
-
-            // let req = self
-            // .headers
-            // .into_iter()
-            // .fold(hyper::Request::get(uri), |req, (k, v)| req.header(k, v));
-            let req = hyper::Request::get(uri);
-            Ok(req.body(Body::empty())?)
-        }
-    }
+    pub struct Request {}
 
     pub const AXUM_PATH: &str = "/metrics";
 }

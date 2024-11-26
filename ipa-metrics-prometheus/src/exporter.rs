@@ -1,11 +1,9 @@
 use std::io;
 
-use opentelemetry::metrics::{Meter, MeterProvider};
-use opentelemetry::KeyValue;
+use ipa_metrics::MetricsStore;
+use opentelemetry::{metrics::MeterProvider, KeyValue};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::{self, Encoder, TextEncoder};
-
-use ipa_metrics::MetricsStore;
 
 pub trait PrometheusMetricsExporter {
     fn export<W: io::Write>(&mut self, w: &mut W);

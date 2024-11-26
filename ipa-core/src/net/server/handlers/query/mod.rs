@@ -65,8 +65,8 @@ pub fn s2s_router(transport: ShardHttpTransport) -> Router {
 }
 
 /// Construct router for exporting metrics to metrics backend (e.g. Prometheus scraper)
-pub fn metric_router() -> Router {
-    Router::new().merge(metrics::router())
+pub fn metric_router(transport: MpcHttpTransport) -> Router {
+    Router::new().merge(metrics::router(transport))
 }
 
 /// Returns HTTP 401 Unauthorized if the request does not have valid authentication.

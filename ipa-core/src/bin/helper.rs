@@ -264,7 +264,7 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
         Some(shard_handler),
     );
 
-    let _app = setup.connect(transport.clone(), shard_transport.clone());
+    let _app = setup.connect(transport.clone(), shard_transport.clone(), logging_handle);
 
     let listener = create_listener(args.server_socket_fd)?;
     let shard_listener = create_listener(args.shard_server_socket_fd)?;
