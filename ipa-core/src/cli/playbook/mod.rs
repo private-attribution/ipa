@@ -3,6 +3,7 @@ mod generator;
 mod input;
 mod ipa;
 mod multiply;
+mod sharded_shuffle;
 
 use core::fmt::Debug;
 use std::{fs, path::Path, time::Duration};
@@ -12,6 +13,7 @@ use comfy_table::{Cell, Color, Table};
 use hyper::http::uri::Scheme;
 pub use input::InputSource;
 pub use multiply::secure_mul;
+pub use sharded_shuffle::secure_shuffle;
 use tokio::time::sleep;
 
 pub use self::ipa::{playbook_oprf_ipa, run_query_and_validate};

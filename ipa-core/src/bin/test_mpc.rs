@@ -16,6 +16,9 @@ use ipa_core::{
     net::{Helper, IpaHttpClient},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
 };
+use ipa_core::cli::playbook::secure_shuffle;
+use ipa_core::ff::boolean_array::BA64;
+use ipa_core::helpers::query::QueryType::TestShardedShuffle;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -166,6 +169,20 @@ async fn add(args: &Args, helper_clients: &[IpaHttpClient<Helper>; 3]) {
     };
 }
 
-async fn sharded_shuffle(_args: &Args, _helper_clients: &[IpaHttpClient<Helper>; 3]) {
-    unimplemented!()
+async fn sharded_shuffle(args: &Args, helper_clients: Vec<[IpaHttpClient<Helper>; 3]>) {
+    let input = InputSource::from(&args.input);
+    let input_rows = input
+        .iter::<u64>()
+        .map(|x| BA64::truncate_from(x))
+        .collect::<Vec<_>>();
+    let query_config =
+        QueryConfig::new(TestShardedShuffle, args.input.field, input_rows.len()).unwrap();
+    let query_id = helper_clients[0][0]
+        .create_query(query_config)
+        .await
+        .unwrap();
+    let shuffled = secure_shuffle(input_rows.clone(), &helper_clients, query_id).await;
+
+    assert_eq!(shuffled.len(), input_rows.len());
+    assert_ne!(shuffled, input_rows);
 }
