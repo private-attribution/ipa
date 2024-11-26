@@ -34,9 +34,13 @@ pub struct TestSetupArgs {
     #[arg(long, default_value_t = false)]
     use_http1: bool,
 
+    /// A list of ALL the MPC ports for all servers. If you have a server with shard count 4, you 
+    /// will have to provide 12 ports.
     #[arg(short, long, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
     ports: Vec<u16>,
 
+    /// A list of ALL the sharding ports for all servers. If you have a server with shard count 4, 
+    /// you will have to provide 12 ports.
     #[arg(short, long, value_name = "SHARD_PORT", default_values = vec!["6000", "6001", "6002"])]
     shard_ports: Vec<u16>,
 }
@@ -51,6 +55,7 @@ pub struct TestSetupArgs {
 pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
     assert_eq!(args.ports.len(), args.shard_ports.len(), "number of mpc ports and shard ports don't match");
     assert_eq!(args.ports.len() % 3, 0, "Number of ports must be a multiple of 3");
+    let shard_count = args.ports.len() % 3;
 
     if args.output_dir.exists() {
         if !args.output_dir.is_dir() || args.output_dir.read_dir()?.next().is_some() {
@@ -62,7 +67,8 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
 
     let localhost = String::from("localhost");
 
-    let clients_config: [_; 3] = zip([1, 2, 3], zip(args.ports, args.shard_ports))
+    // Create the leaders ring with MK keys
+    let clients_config: Vec<_> = zip([1, 2, 3], zip(args.ports, args.shard_ports))
         .map(|(id, (port, shard_port))| {
             let keygen_args = KeygenArgs {
                 name: localhost.clone(),
@@ -86,6 +92,9 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
         .collect::<Result<Vec<_>, BoxError>>()?
         .try_into()
         .unwrap();
+
+    // Create the rest of the shards
+
 
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
     gen_client_config(clients_config.into_iter(), args.use_http1, &mut conf_file)
