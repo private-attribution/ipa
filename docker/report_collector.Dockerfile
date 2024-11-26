@@ -15,10 +15,6 @@ ENV RC_BIN_PATH=/usr/local/bin/report_collector
 ENV CONF_DIR=/etc/ipa
 ARG SOURCES_DIR
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-
-# Adding a few utilities
-RUN apt-get update && apt-get install -y curl procps
+RUN apt-get update && apt-get install -y curl procps ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder ${SOURCES_DIR}/target/release/report_collector $RC_BIN_PATH
-
