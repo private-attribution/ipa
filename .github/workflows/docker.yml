@@ -22,12 +22,23 @@ jobs:
     - name: "Checkout"
       uses: actions/checkout@v4
 
-    - name: Docker meta
-      id: meta
+    - name: Docker meta helper
+      id: meta-helper
       uses: docker/metadata-action@v5
       with:
         images: |
           ghcr.io/${{ github.repository }}/ipa-helper
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha
+    
+    - name: Docker meta helper
+      id: meta-rc
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ghcr.io/${{ github.repository }}/rc
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -51,6 +62,16 @@ jobs:
         context: .
         file: ./docker/helper.Dockerfile
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ steps.meta-helper.outputs.tags }}
+        labels: ${{ steps.meta-helper.outputs.labels }}
+        platforms: linux/amd64
+
+    - name: "Build and Publish Report Collector Image"
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./docker/report_collector.Dockerfile
+        push: true
+        tags: ${{ steps.meta-rc.outputs.tags }}
+        labels: ${{ steps.meta-rc.outputs.labels }}
         platforms: linux/amd64

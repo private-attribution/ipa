@@ -82,6 +82,12 @@ Note that if you want to build for a specific platform, different than the one y
 docker build -t ipa:latest --platform=linux/amd64 -f docker/helper.Dockerfile .
 ```
 
+The following command is used to build the report collector:
+
+```
+docker build -t ipa-rc:latest --platform=linux/amd64 -f docker/report_collector.Dockerfile .
+```
+
 ### Pushing Docker to ghcr.io
 
 First, follow the instructions [here](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry) to get your Token.
