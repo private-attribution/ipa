@@ -36,12 +36,12 @@ pub struct TestSetupArgs {
 
     /// A list of ALL the MPC ports for all servers. If you have a server with shard count 4, you
     /// will have to provide 12 ports.
-    #[arg(short, long, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
+    #[arg(short, long, value_name = "PORT", num_args = 1.., default_values = vec!["3000", "3001", "3002"])]
     ports: Vec<u16>,
 
     /// A list of ALL the sharding ports for all servers. If you have a server with shard count 4,
     /// you will have to provide 12 ports.
-    #[arg(short, long, value_name = "SHARD_PORT", default_values = vec!["6000", "6001", "6002"])]
+    #[arg(short, long, value_name = "SHARD_PORT", num_args = 1.., default_values = vec!["6000", "6001", "6002"])]
     shard_ports: Vec<u16>,
 }
 
