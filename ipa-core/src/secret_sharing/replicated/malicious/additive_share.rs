@@ -165,8 +165,8 @@ impl<V: ExtendableFieldSimd<N>, const N: usize> AdditiveShare<V, N> {
     };
 }
 
-impl<'a, 'b, V: ExtendableFieldSimd<N>, const N: usize> Add<&'b AdditiveShare<V, N>>
-    for &'a AdditiveShare<V, N>
+impl<'b, V: ExtendableFieldSimd<N>, const N: usize> Add<&'b AdditiveShare<V, N>>
+    for &AdditiveShare<V, N>
 {
     type Output = AdditiveShare<V, N>;
 
@@ -274,7 +274,7 @@ impl<V: ExtendableFieldSimd<N>, const N: usize> SubAssign<Self> for AdditiveShar
     }
 }
 
-impl<'a, 'b, V: ExtendableFieldSimd<N>, const N: usize> Mul<&'b V> for &'a AdditiveShare<V, N> {
+impl<'b, V: ExtendableFieldSimd<N>, const N: usize> Mul<&'b V> for &AdditiveShare<V, N> {
     type Output = AdditiveShare<V, N>;
 
     fn mul(self, rhs: &'b V) -> Self::Output {

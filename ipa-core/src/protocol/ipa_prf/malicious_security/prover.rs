@@ -229,13 +229,12 @@ struct ValuesExtrapolateIterator<
 }
 
 impl<
-        'a,
         F: PrimeField,
         const L: usize,
         const P: usize,
         const M: usize,
         I: Iterator<Item = ([F; L], [F; L])>,
-    > Iterator for ValuesExtrapolateIterator<'a, F, L, P, M, I>
+    > Iterator for ValuesExtrapolateIterator<'_, F, L, P, M, I>
 {
     type Item = ([F; P], [F; P]);
 
@@ -263,8 +262,8 @@ struct ValuesEvalAtRIterator<
     lagrange_table: &'a LagrangeTable<F, L, 1>,
 }
 
-impl<'a, F: PrimeField, const L: usize, I: Iterator<Item = ([F; L], [F; L])>> Iterator
-    for ValuesEvalAtRIterator<'a, F, L, I>
+impl<F: PrimeField, const L: usize, I: Iterator<Item = ([F; L], [F; L])>> Iterator
+    for ValuesEvalAtRIterator<'_, F, L, I>
 {
     type Item = (F, F);
 

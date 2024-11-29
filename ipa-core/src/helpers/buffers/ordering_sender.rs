@@ -474,7 +474,7 @@ pub struct Close<'s> {
     sender: &'s OrderingSender,
 }
 
-impl<'s> Future for Close<'s> {
+impl Future for Close<'_> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

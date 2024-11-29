@@ -195,8 +195,8 @@ where
     }
 }
 
-impl<'a, 'b, V: SharedValue + Vectorizable<N>, const N: usize> Add<&'b AdditiveShare<V, N>>
-    for &'a AdditiveShare<V, N>
+impl<'b, V: SharedValue + Vectorizable<N>, const N: usize> Add<&'b AdditiveShare<V, N>>
+    for &AdditiveShare<V, N>
 {
     type Output = AdditiveShare<V, N>;
 
@@ -315,7 +315,7 @@ impl<V: SharedValue + Vectorizable<N>, const N: usize> SubAssign<Self> for Addit
     }
 }
 
-impl<'a, 'b, F, const N: usize> Mul<&'b F> for &'a AdditiveShare<F, N>
+impl<'b, F, const N: usize> Mul<&'b F> for &AdditiveShare<F, N>
 where
     F: Field + FieldSimd<N>,
 {
@@ -337,7 +337,7 @@ where
     }
 }
 
-impl<'a, F: Field + FieldSimd<N>, const N: usize> Mul<&'a F> for AdditiveShare<F, N> {
+impl<F: Field + FieldSimd<N>, const N: usize> Mul<&F> for AdditiveShare<F, N> {
     type Output = Self;
 
     fn mul(self, rhs: &F) -> Self::Output {
@@ -447,7 +447,7 @@ where
     }
 }
 
-impl<'a, S: BooleanArray> Iterator for BAASIterator<'a, S> {
+impl<S: BooleanArray> Iterator for BAASIterator<'_, S> {
     type Item = AdditiveShare<Boolean>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -460,7 +460,7 @@ impl<'a, S: BooleanArray> Iterator for BAASIterator<'a, S> {
     }
 }
 
-impl<'a, S: BooleanArray> ExactSizeIterator for BAASIterator<'a, S> {
+impl<S: BooleanArray> ExactSizeIterator for BAASIterator<'_, S> {
     fn len(&self) -> usize {
         self.range.len()
     }

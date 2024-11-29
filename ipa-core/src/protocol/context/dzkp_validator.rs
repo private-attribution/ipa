@@ -913,7 +913,7 @@ impl<'a, B: ShardBinding> MaliciousDZKPValidator<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> Drop for MaliciousDZKPValidator<'a, B> {
+impl<B: ShardBinding> Drop for MaliciousDZKPValidator<'_, B> {
     fn drop(&mut self) {
         // If `validate` has not been called, and we are not unwinding, check that the
         // validator is not holding unverified multiplies.

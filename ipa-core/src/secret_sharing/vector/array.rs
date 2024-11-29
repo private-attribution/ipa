@@ -139,7 +139,7 @@ impl<V: SharedValue, const N: usize> IntoIterator for StdArray<V, N> {
     }
 }
 
-impl<'a, 'b, V: SharedValue, const N: usize> Add<&'b StdArray<V, N>> for &'a StdArray<V, N> {
+impl<'b, V: SharedValue, const N: usize> Add<&'b StdArray<V, N>> for &StdArray<V, N> {
     type Output = StdArray<V, N>;
 
     fn add(self, rhs: &'b StdArray<V, N>) -> Self::Output {
@@ -248,7 +248,7 @@ impl<V: SharedValue, const N: usize> SubAssign<Self> for StdArray<V, N> {
     }
 }
 
-impl<'a, 'b, F: Field, const N: usize> Mul<&'b F> for &'a StdArray<F, N> {
+impl<'b, F: Field, const N: usize> Mul<&'b F> for &StdArray<F, N> {
     type Output = StdArray<F, N>;
 
     fn mul(self, rhs: &'b F) -> Self::Output {
