@@ -39,10 +39,7 @@ use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
 
-use super::{
-    transport::{MpcHttpTransport, ShardHttpTransport},
-    Shard,
-};
+use super::{transport::MpcHttpTransport, HttpTransport, Shard};
 use crate::{
     config::{
         NetworkConfig, OwnedCertificate, OwnedPrivateKey, PeerConfig, ServerConfig, TlsConfig,
@@ -95,11 +92,13 @@ pub struct IpaHttpServer<F: ConnectionFlavor> {
 impl IpaHttpServer<Helper> {
     #[must_use]
     pub fn new_mpc(
-        transport: &MpcHttpTransport,
+        transport: Arc<HttpTransport<Helper>>,
         config: ServerConfig,
         network_config: NetworkConfig<Helper>,
     ) -> Self {
-        let router = handlers::mpc_router(transport.clone());
+        let router = handlers::mpc_router(MpcHttpTransport {
+            inner_transport: transport,
+        });
         IpaHttpServer {
             config,
             network_config,
@@ -111,11 +110,11 @@ impl IpaHttpServer<Helper> {
 impl IpaHttpServer<Shard> {
     #[must_use]
     pub fn new_shards(
-        transport: &ShardHttpTransport,
+        transport: Arc<HttpTransport<Shard>>,
         config: ServerConfig,
         network_config: NetworkConfig<Shard>,
     ) -> Self {
-        let router = handlers::shard_router(transport.clone());
+        let router = handlers::shard_router(transport);
         IpaHttpServer {
             config,
             network_config,
@@ -126,7 +125,10 @@ impl IpaHttpServer<Shard> {
 
 impl<F: ConnectionFlavor> IpaHttpServer<F> {
     #[cfg(all(test, unit_test))]
-    async fn handle_req(&self, req: hyper::Request<axum::body::Body>) -> axum::response::Response {
+    pub(crate) async fn handle_req(
+        &self,
+        req: hyper::Request<axum::body::Body>,
+    ) -> axum::response::Response {
         use tower::ServiceExt;
         self.router.clone().oneshot(req).await.unwrap()
     }

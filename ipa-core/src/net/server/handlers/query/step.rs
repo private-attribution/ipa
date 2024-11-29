@@ -40,7 +40,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        helpers::{HelperIdentity, Transport, MESSAGE_PAYLOAD_SIZE_BYTES},
+        helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
             server::handlers::query::test_helpers::{assert_fails_with, MaybeExtensionExt},
             test::TestServer,
@@ -66,7 +66,7 @@ mod tests {
 
         let mut stream = test_server
             .transport
-            .receive(HelperIdentity::TWO, (QueryId, step))
+            .receive(HelperIdentity::TWO, &(QueryId, step))
             .into_bytes_stream();
 
         assert_eq!(

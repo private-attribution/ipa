@@ -4,7 +4,8 @@ use axum::{
 };
 
 use crate::{
-    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId, sharding::ShardIndex,
+    error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId, query::QueryStatus,
+    sharding::ShardIndex,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -59,8 +60,13 @@ pub enum Error {
         #[source]
         inner: hyper_util::client::legacy::Error,
     },
-    #[error("{error}")]
+    #[error("{code}: {error}")]
     Application { code: StatusCode, error: BoxError },
+    #[error(transparent)]
+    ShardQueryStatusMismatch {
+        #[from]
+        error: ShardQueryStatusMismatchError,
+    },
 }
 
 impl Error {
@@ -142,6 +148,12 @@ pub struct ShardError {
     pub source: Error,
 }
 
+#[derive(Debug, thiserror::Error, serde::Deserialize, serde::Serialize)]
+#[error("Query status mismatch. Actual status: {actual}")]
+pub struct ShardQueryStatusMismatchError {
+    pub actual: QueryStatus,
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status_code = match self {
@@ -165,6 +177,13 @@ impl IntoResponse for Error {
             | Self::MissingExtension(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
             Self::Application { code, .. } => code,
+            Self::ShardQueryStatusMismatch { error } => {
+                return (
+                    StatusCode::PRECONDITION_FAILED,
+                    serde_json::to_string(&error).unwrap(),
+                )
+                    .into_response()
+            }
         };
         (status_code, self.to_string()).into_response()
     }

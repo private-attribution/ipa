@@ -28,11 +28,11 @@ use crate::{
 
 /// Shared implementation used by [`MpcHttpTransport`] and [`ShardHttpTransport`]
 pub struct HttpTransport<F: ConnectionFlavor> {
-    http_runtime: IpaRuntime,
-    identity: F::Identity,
-    clients: Vec<IpaHttpClient<F>>,
-    record_streams: StreamCollection<F::Identity, BodyStream>,
-    handler: Option<HandlerRef<F::Identity>>,
+    pub(super) http_runtime: IpaRuntime,
+    pub(super) identity: F::Identity,
+    pub(super) clients: Vec<IpaHttpClient<F>>,
+    pub(super) record_streams: StreamCollection<F::Identity, BodyStream>,
+    pub(super) handler: Option<HandlerRef<F::Identity>>,
 }
 
 /// HTTP transport for helper to helper traffic.
@@ -122,7 +122,7 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
         }
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
+    pub(crate) fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
         from: F::Identity,
         route: &R,
@@ -218,18 +218,17 @@ impl MpcHttpTransport {
         clients: &[IpaHttpClient<Helper>; 3],
         handler: Option<HandlerRef<HelperIdentity>>,
     ) -> (Self, IpaHttpServer<Helper>) {
-        let transport = Self {
-            inner_transport: Arc::new(HttpTransport {
-                http_runtime,
-                identity,
-                clients: clients.to_vec(),
-                handler,
-                record_streams: StreamCollection::default(),
-            }),
-        };
+        let inner_transport = Arc::new(HttpTransport {
+            http_runtime,
+            identity,
+            clients: clients.to_vec(),
+            handler,
+            record_streams: StreamCollection::default(),
+        });
 
-        let server = IpaHttpServer::new_mpc(&transport, server_config, network_config);
-        (transport, server)
+        let server =
+            IpaHttpServer::new_mpc(Arc::clone(&inner_transport), server_config, network_config);
+        (Self { inner_transport }, server)
     }
 
     /// Connect an inbound stream of record data.
@@ -326,19 +325,23 @@ impl ShardHttpTransport {
         clients: Vec<IpaHttpClient<Shard>>,
         handler: Option<HandlerRef<ShardIndex>>,
     ) -> (Self, IpaHttpServer<Shard>) {
-        let transport = Self {
-            inner_transport: Arc::new(HttpTransport {
-                http_runtime,
-                identity: shard_id,
-                clients,
-                handler,
-                record_streams: StreamCollection::default(),
-            }),
-            shard_count,
-        };
+        let inner_transport = Arc::new(HttpTransport {
+            http_runtime,
+            identity: shard_id,
+            clients,
+            handler,
+            record_streams: StreamCollection::default(),
+        });
 
-        let server = IpaHttpServer::new_shards(&transport, server_config, network_config);
-        (transport, server)
+        let server =
+            IpaHttpServer::new_shards(Arc::clone(&inner_transport), server_config, network_config);
+        (
+            Self {
+                inner_transport,
+                shard_count,
+            },
+            server,
+        )
     }
 }
 
