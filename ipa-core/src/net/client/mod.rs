@@ -562,7 +562,7 @@ pub(crate) mod tests {
         ff::{FieldType, Fp31},
         helpers::{
             make_owned_handler, query::QueryType::TestMultiply, BytesStream, HelperIdentity,
-            HelperResponse, RequestHandler, RoleAssignment, Transport, MESSAGE_PAYLOAD_SIZE_BYTES,
+            HelperResponse, RequestHandler, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::test::TestServer,
         protocol::step::TestExecutionStep,
@@ -759,7 +759,7 @@ pub(crate) mod tests {
         resp_ok(resp).await.unwrap();
 
         let mut stream = transport
-            .receive(HelperIdentity::ONE, (QueryId, expected_step.clone()))
+            .receive(HelperIdentity::ONE, &(QueryId, expected_step.clone()))
             .into_bytes_stream();
 
         assert_eq!(

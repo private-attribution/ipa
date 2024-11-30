@@ -136,7 +136,7 @@ mod tests {
     #[tokio::test]
     async fn other_query_error() {
         let handler = make_owned_handler(
-            move |addr: Addr<ShardIndex>, _data: BodyStream| async move {
+            move |_addr: Addr<ShardIndex>, _data: BodyStream| async move {
                 Err(ApiError::QueryStatus(QueryStatusError::NoSuchQuery(
                     QueryId,
                 )))

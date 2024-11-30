@@ -442,18 +442,18 @@ mod tests {
             .build()
             .await;
 
-        transport.inner_transport.record_streams.add_stream(
+        transport.record_streams.add_stream(
             (QueryId, HelperIdentity::ONE, Gate::default()),
             BodyStream::empty(),
         );
-        assert_eq!(1, transport.inner_transport.record_streams.len());
+        assert_eq!(1, transport.record_streams.len());
 
-        Transport::clone_ref(&transport)
+        Arc::clone(&transport)
             .dispatch((RouteId::KillQuery, QueryId), BodyStream::empty())
             .await
             .unwrap();
 
-        assert!(transport.inner_transport.record_streams.is_empty());
+        assert!(transport.record_streams.is_empty());
     }
 
     #[tokio::test]
@@ -471,7 +471,7 @@ mod tests {
 
         // Request step data reception (normally called by protocol)
         let mut stream = transport
-            .receive(HelperIdentity::TWO, (QueryId, STEP.clone()))
+            .receive(HelperIdentity::TWO, &(QueryId, STEP.clone()))
             .into_bytes_stream();
 
         // make sure it is not ready as it hasn't received any data yet.

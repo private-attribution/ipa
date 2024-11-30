@@ -15,7 +15,9 @@ use std::{
     ops::Index,
 };
 
+#[cfg(all(test, unit_test))]
 use http_body_util::BodyExt;
+#[cfg(all(test, unit_test))]
 use hyper::StatusCode;
 use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
@@ -231,7 +233,7 @@ impl TestApp {
             &self.mpc_network_config,
             &identities.helper,
         );
-        let (transport, server) = MpcHttpTransport::new(
+        let (transport, server) = crate::net::MpcHttpTransport::new(
             IpaRuntime::current(),
             sid.helper_identity,
             self.mpc_server.config,
@@ -509,6 +511,7 @@ impl TestServer<Helper> {
         TestServerBuilder::default()
     }
 
+    #[cfg(all(test, unit_test))]
     pub async fn oneshot_success(
         req: hyper::Request<axum::body::Body>,
         handler: Arc<dyn RequestHandler<HelperIdentity>>,
@@ -526,6 +529,7 @@ impl TestServer<Helper> {
 }
 
 impl TestServer<Shard> {
+    #[cfg(all(test, unit_test))]
     pub async fn oneshot(
         req: hyper::Request<axum::body::Body>,
         handler: Arc<dyn RequestHandler<ShardIndex>>,
@@ -537,6 +541,7 @@ impl TestServer<Shard> {
         test_server.server.handle_req(req).await
     }
 
+    #[cfg(all(test, unit_test))]
     pub async fn oneshot_success(
         req: hyper::Request<axum::body::Body>,
         handler: Arc<dyn RequestHandler<ShardIndex>>,
