@@ -60,7 +60,7 @@ pub struct BAOwnedIterator<S: IntoIterator> {
 }
 
 ///impl Iterator for all Boolean arrays
-impl<'a> Iterator for BAIterator<'a> {
+impl Iterator for BAIterator<'_> {
     type Item = Boolean;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -68,7 +68,7 @@ impl<'a> Iterator for BAIterator<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for BAIterator<'a> {
+impl ExactSizeIterator for BAIterator<'_> {
     fn len(&self) -> usize {
         self.iterator.len()
     }

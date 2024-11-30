@@ -71,10 +71,8 @@ impl From<BoxMuller> for RoundedBoxMuller {
 
 ///  What follows is the implementation of sampling from the Truncated Double Geometric distribution which in the
 ///  process samples from Double Geometric and Geometric distributions.
-
 ///  Geometric Distribution
 /// Generates a sample from a geometric distribution with the given success probability.
-
 #[derive(Debug, PartialEq)]
 pub struct Geometric {
     bernoulli: Bernoulli,

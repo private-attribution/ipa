@@ -17,7 +17,7 @@ pub struct Handle<'a> {
     inner: RunningQuery,
 }
 
-impl<'a> Future for Handle<'a> {
+impl Future for Handle<'_> {
     type Output = QueryResult;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

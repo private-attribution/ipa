@@ -414,7 +414,7 @@ mod tests {
 
             let [res0, res1, res2] = world
                 .semi_honest(records.into_iter(), |ctx, records| async move {
-                    let c_ctx = ctx.set_total_records((COUNT + CONV_CHUNK - 1) / CONV_CHUNK);
+                    let c_ctx = ctx.set_total_records(COUNT.div_ceil(CONV_CHUNK));
                     let validator = &c_ctx.dzkp_validator(TEST_DZKP_STEPS, conv_proof_chunk());
                     let m_ctx = validator.context();
                     seq_join(
@@ -455,7 +455,7 @@ mod tests {
             // Ideally PROOF_CHUNK could be more than 1, but the test is pretty slow.
             const PROOF_CHUNK: usize = 1;
             const COUNT: usize = CONV_CHUNK * PROOF_CHUNK * 2 + 1;
-            const TOTAL_RECORDS: usize = (COUNT + CONV_CHUNK - 1) / CONV_CHUNK;
+            const TOTAL_RECORDS: usize = COUNT.div_ceil(CONV_CHUNK);
 
             let world = TestWorld::default();
 

@@ -113,7 +113,7 @@ impl<'a, B: ShardBinding> Context<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
+impl<B: ShardBinding> super::Context for Context<'_, B> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -185,7 +185,7 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> SeqJoin for Context<'a, B> {
+impl<B: ShardBinding> SeqJoin for Context<'_, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
@@ -273,7 +273,7 @@ impl<'a, F: ExtendableField, B: ShardBinding> Upgraded<'a, F, B> {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField, B: ShardBinding> UpgradedContext for Upgraded<'a, F, B> {
+impl<F: ExtendableField, B: ShardBinding> UpgradedContext for Upgraded<'_, F, B> {
     type Field = F;
 
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
@@ -289,7 +289,7 @@ impl<'a, F: ExtendableField, B: ShardBinding> UpgradedContext for Upgraded<'a, F
     }
 }
 
-impl<'a, F: ExtendableField, B: ShardBinding> super::Context for Upgraded<'a, F, B> {
+impl<F: ExtendableField, B: ShardBinding> super::Context for Upgraded<'_, F, B> {
     fn role(&self) -> Role {
         self.base_ctx.role()
     }
@@ -341,7 +341,7 @@ impl<'a, F: ExtendableField, B: ShardBinding> super::Context for Upgraded<'a, F,
     }
 }
 
-impl<'a, F: ExtendableField, B: ShardBinding> SeqJoin for Upgraded<'a, F, B> {
+impl<F: ExtendableField, B: ShardBinding> SeqJoin for Upgraded<'_, F, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.base_ctx.active_work()
     }
@@ -410,7 +410,6 @@ where
 }
 
 /// Convenience trait implementations to upgrade test data.
-
 #[cfg(all(test, descriptive_gate))]
 #[async_trait]
 impl<'a, V: ExtendableFieldSimd<N>, B: ShardBinding, const N: usize> Upgradable<Upgraded<'a, V, B>>

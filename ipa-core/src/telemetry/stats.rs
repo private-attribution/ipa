@@ -171,7 +171,7 @@ pub struct MetricAssertion<'a> {
 }
 
 #[allow(clippy::return_self_not_must_use)]
-impl<'a> MetricAssertion<'a> {
+impl MetricAssertion<'_> {
     /// Validates metric total value (i.e. ignoring dimensionality)
     /// ## Panics
     /// Panics if value is not equal to expected
