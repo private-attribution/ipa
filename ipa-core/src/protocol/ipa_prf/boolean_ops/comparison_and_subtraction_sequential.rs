@@ -46,7 +46,6 @@ where
 }
 
 /// Comparison operation
-
 /// Outputs x>y for length(x) >= log2(y).
 /// # Errors
 /// propagates errors from multiply
@@ -557,7 +556,7 @@ mod test {
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
-            let expected = if y > x { 0u128 } else { x - y };
+            let expected = x.saturating_sub(y);
 
             let result = world
                 .dzkp_semi_honest(records.into_iter(), |ctx, x_y| async move {

@@ -40,7 +40,6 @@ use crate::{
 /// It's cricital that the functionality `F_mult` is secure up to an additive attack.
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
-
 /// Executes two parallel multiplications;
 /// `A * B`, and `rA * B`, yielding both `AB` and `rAB`
 /// both `AB` and `rAB` are provided to the security validator

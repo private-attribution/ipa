@@ -913,7 +913,7 @@ impl<'a, B: ShardBinding> MaliciousDZKPValidator<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> Drop for MaliciousDZKPValidator<'a, B> {
+impl<B: ShardBinding> Drop for MaliciousDZKPValidator<'_, B> {
     fn drop(&mut self) {
         // If `validate` has not been called, and we are not unwinding, check that the
         // validator is not holding unverified multiplies.
@@ -972,6 +972,7 @@ mod tests {
         },
         seq_join::{seq_join, SeqJoin},
         sharding::NotSharded,
+        test_executor::run_random,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 
@@ -1523,85 +1524,91 @@ mod tests {
 
     #[test]
     fn batch_fill_out_of_order() {
-        let mut batch = Batch::with_implicit_first_record(3);
-        let ba0 = BA256::from((0, 0));
-        let ba1 = BA256::from((0, 1));
-        let ba2 = BA256::from((0, 2));
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba0,
-        ));
-        batch.push(Gate::default(), RecordId::from(0), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba2,
-        ));
-        batch.push(Gate::default(), RecordId::from(2), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba1,
-        ));
-        batch.push(Gate::default(), RecordId::from(1), segment.clone());
-        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
-            ba0.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
-            ba1.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
-            ba2.as_bitslice()
-        );
+        run_random(|mut rng| async move {
+            let mut batch = Batch::with_implicit_first_record(3);
+            let ba0 = rng.gen::<BA256>();
+            let ba1 = rng.gen::<BA256>();
+            let ba2 = rng.gen::<BA256>();
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba0),
+            );
+            batch.push(Gate::default(), RecordId::from(0), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba2),
+            );
+            batch.push(Gate::default(), RecordId::from(2), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba1),
+            );
+            batch.push(Gate::default(), RecordId::from(1), segment.clone());
+            assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+                ba0.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+                ba1.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+                ba2.as_bitslice()
+            );
+        });
     }
 
     #[test]
     fn batch_fill_at_offset() {
-        const SIZE: usize = 3;
-        let mut batch = Batch::with_implicit_first_record(SIZE);
-        let ba0 = BA256::from((0, 0));
-        let ba1 = BA256::from((0, 1));
-        let ba2 = BA256::from((0, 2));
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba0,
-        ));
-        batch.push(Gate::default(), RecordId::from(4), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba1,
-        ));
-        batch.push(Gate::default(), RecordId::from(5), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba2,
-        ));
-        batch.push(Gate::default(), RecordId::from(6), segment.clone());
-        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
-            ba0.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
-            ba1.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
-            ba2.as_bitslice()
-        );
+        run_random(|mut rng| async move {
+            const SIZE: usize = 3;
+            let mut batch = Batch::with_implicit_first_record(SIZE);
+            let ba0 = rng.gen::<BA256>();
+            let ba1 = rng.gen::<BA256>();
+            let ba2 = rng.gen::<BA256>();
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba0),
+            );
+            batch.push(Gate::default(), RecordId::from(4), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba1),
+            );
+            batch.push(Gate::default(), RecordId::from(5), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba2),
+            );
+            batch.push(Gate::default(), RecordId::from(6), segment.clone());
+            assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+                ba0.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+                ba1.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+                ba2.as_bitslice()
+            );
+        });
     }
 
     #[test]
     fn batch_explicit_first_record() {
-        const SIZE: usize = 3;
-        let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
-        let ba6 = BA256::from((0, 6));
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba6,
-        ));
-        batch.push(Gate::default(), RecordId::from(6), segment.clone());
-        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
-            ba6.as_bitslice()
-        );
+        run_random(|mut rng| async move {
+            const SIZE: usize = 3;
+            let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
+            let ba6 = rng.gen::<BA256>();
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba6),
+            );
+            batch.push(Gate::default(), RecordId::from(6), segment.clone());
+            assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+                ba6.as_bitslice()
+            );
+        });
     }
 
     #[test]

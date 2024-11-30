@@ -250,7 +250,8 @@ harness = false
 required-features = ["enable-benches"]
 
 [[bench]]
-name = "dzkp_convert_prover"
+name = "dzkp"
+path = "benches/ct/dzkp.rs"
 harness = false
 required-features = ["enable-benches"]
 

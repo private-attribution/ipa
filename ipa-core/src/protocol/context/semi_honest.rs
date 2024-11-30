@@ -81,6 +81,7 @@ impl<'a> Context<'a, Sharded> {
     }
 }
 
+#[allow(clippy::needless_lifetimes)] // Lifetime may not live long enough, if lifetime is dropped
 impl<'a, B: ShardBinding> Context<'a, B> {
     #[cfg(test)]
     #[must_use]
@@ -103,7 +104,7 @@ impl ShardedContext for Context<'_, Sharded> {
     }
 }
 
-impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
+impl<B: ShardBinding> super::Context for Context<'_, B> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -175,7 +176,7 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> SeqJoin for Context<'a, B> {
+impl<B: ShardBinding> SeqJoin for Context<'_, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
@@ -228,7 +229,7 @@ impl<F: ExtendableField> ShardedContext for Upgraded<'_, Sharded, F> {
     }
 }
 
-impl<'a, B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'a, B, F> {
+impl<B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'_, B, F> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -274,14 +275,14 @@ impl<'a, B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'a, B,
     }
 }
 
-impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
+impl<B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'_, B, F> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext for Upgraded<'a, B, F> {
+impl<B: ShardBinding, F: ExtendableField> UpgradedContext for Upgraded<'_, B, F> {
     type Field = F;
 
     async fn validate_record(&self, _record_id: RecordId) -> Result<(), Error> {

@@ -241,7 +241,7 @@ struct ChunksIter<'a, Z: ArrayLength> {
     right: ChunkIter<'a, Z>,
 }
 
-impl<'a, Z: ArrayLength> Iterator for ChunksIter<'a, Z> {
+impl<Z: ArrayLength> Iterator for ChunksIter<'_, Z> {
     type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -258,7 +258,7 @@ pub struct ChunkIter<'a, Z: ArrayLength> {
     phantom_data: PhantomData<Z>,
 }
 
-impl<'a, Z: ArrayLength> Iterator for ChunkIter<'a, Z> {
+impl<Z: ArrayLength> Iterator for ChunkIter<'_, Z> {
     type Item = GenericArray<u128, Z>;
 
     /// Rustc 1.79 and below does not inline this call without an explicit hint, and it hurts

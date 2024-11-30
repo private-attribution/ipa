@@ -240,8 +240,8 @@ struct ValuesEvalAtRIterator<'a, F: PrimeField, const L: usize, I: Iterator<Item
     lagrange_table: &'a LagrangeTable<F, L, 1>,
 }
 
-impl<'a, F: PrimeField, const L: usize, I: Iterator<Item = [F; L]>> Iterator
-    for ValuesEvalAtRIterator<'a, F, L, I>
+impl<F: PrimeField, const L: usize, I: Iterator<Item = [F; L]>> Iterator
+    for ValuesEvalAtRIterator<'_, F, L, I>
 {
     type Item = F;
 

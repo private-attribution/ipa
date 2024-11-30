@@ -215,7 +215,7 @@ struct ModuleTokens<'p, 'm> {
     paths: &'m HashMap<ModulePath, String>,
 }
 
-impl<'p, 'm> ToTokens for ModuleTokens<'p, 'm> {
+impl ToTokens for ModuleTokens<'_, '_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         // If this is a leaf, then there will be a string value.
         if let Some(s) = self.paths.get(self.prefix) {
