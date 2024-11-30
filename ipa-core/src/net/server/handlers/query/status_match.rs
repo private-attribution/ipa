@@ -15,6 +15,7 @@ use crate::{
         HttpTransport, Shard,
     },
     protocol::QueryId,
+    query::QueryStatusError,
     sync::Arc,
 };
 
@@ -29,8 +30,8 @@ async fn handler(
         .await
     {
         Ok(_) => Ok(()),
-        Err(ApiError::QueryStatus(status)) => {
-            Err(Error::application(StatusCode::PRECONDITION_FAILED, status))
+        Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus { my_status, .. })) => {
+            Err(crate::net::error::ShardQueryStatusMismatchError { actual: my_status }.into())
         }
         Err(e) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
@@ -130,6 +131,21 @@ mod tests {
 
         let resp = TestServer::<Shard>::oneshot(req, handler).await;
         assert_eq!(StatusCode::PRECONDITION_FAILED, resp.status());
+    }
+
+    #[tokio::test]
+    async fn other_query_error() {
+        let handler = make_owned_handler(
+            move |addr: Addr<ShardIndex>, _data: BodyStream| async move {
+                Err(ApiError::QueryStatus(QueryStatusError::NoSuchQuery(
+                    QueryId,
+                )))
+            },
+        );
+        let req = authenticated(http_request(for_status(QueryStatus::Running)));
+
+        let resp = TestServer::<Shard>::oneshot(req, handler).await;
+        assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, resp.status());
     }
 
     #[tokio::test]
