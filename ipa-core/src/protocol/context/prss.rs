@@ -36,11 +36,10 @@ impl<'a> InstrumentedIndexedSharedRandomness<'a> {
 }
 
 impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
-    type ChunkIter<'a, Z: ArrayLength> = InstrumentedChunkIter<
-        'a,
-        <IndexedSharedRandomness as SharedRandomness>::ChunkIter<'a, Z>,
-    >
-    where Self: 'a;
+    type ChunkIter<'a, Z: ArrayLength>
+        = InstrumentedChunkIter<'a, <IndexedSharedRandomness as SharedRandomness>::ChunkIter<'a, Z>>
+    where
+        Self: 'a;
 
     fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,

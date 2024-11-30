@@ -23,7 +23,7 @@ pub enum TestHybridRecord {
     TestConversion { match_key: u64, value: u32 },
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestIndistinguishableHybridReport<MK = u64> {
     pub match_key: MK,
     pub value: u32,
