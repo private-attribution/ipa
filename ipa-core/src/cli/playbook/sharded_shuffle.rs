@@ -17,8 +17,12 @@ use crate::{
     test_fixture::Reconstruct,
 };
 
+/// Secure sharded shuffle protocol
+///
+/// ## Panics
+/// If the input size is empty or contains only one row.
 #[allow(clippy::disallowed_methods)] // allow try_join_all
-pub async fn secure_shuffle<V: BooleanArray>(
+pub async fn secure_shuffle<V>(
     inputs: Vec<V>,
     clients: &[[IpaHttpClient<Helper>; 3]],
     query_id: QueryId,
@@ -26,6 +30,7 @@ pub async fn secure_shuffle<V: BooleanArray>(
 where
     V: IntoShares<AdditiveShare<V>>,
     <V as Serializable>::Size: Add<<V as Serializable>::Size, Output: ArrayLength>,
+    V: BooleanArray,
 {
     assert!(
         inputs.len() > 1,
@@ -37,7 +42,7 @@ where
             .chunks(chunk_size)
             .zip(clients)
             .map(|(chunk, mpc_clients)| {
-                let shared = chunk.to_vec().into_iter().share();
+                let shared = chunk.iter().copied().share();
                 try_join_all(mpc_clients.each_ref().iter().zip(shared).map(
                     |(mpc_client, input)| {
                         mpc_client.query_input(QueryInput {

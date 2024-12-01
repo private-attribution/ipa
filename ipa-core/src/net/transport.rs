@@ -111,10 +111,11 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
                     .expect("query_id is required to call complete query API");
                 self.clients[client_ix].complete_query(query_id).await
             }
-            evt @ (RouteId::QueryInput
-            | RouteId::ReceiveQuery
-            | RouteId::QueryStatus
-            | RouteId::KillQuery) => {
+            RouteId::QueryStatus => {
+                let req = serde_json::from_str(route.extra().borrow())?;
+                self.clients[client_ix].status_match(req).await
+            }
+            evt @ (RouteId::QueryInput | RouteId::ReceiveQuery | RouteId::KillQuery) => {
                 unimplemented!(
                     "attempting to send client-specific request {evt:?} to another helper"
                 )

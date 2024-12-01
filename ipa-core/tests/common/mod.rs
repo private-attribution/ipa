@@ -162,7 +162,6 @@ pub fn test_sharded_setup<const SHARDS: usize>(config_path: &Path) -> Vec<[Shard
         .args(mpc_ports.iter().map(|p| p.to_string()))
         .arg("--shard-ports")
         .args(shard_ports.iter().map(|p| p.to_string()));
-    println!("Running command: {command:?}");
     command.status().unwrap_status();
 
     sockets.into_iter().collect()
@@ -181,7 +180,7 @@ pub fn spawn_shards(
     sockets
         .iter()
         .enumerate()
-        .map(|(shard_index, mpc_sockets)| {
+        .flat_map(|(shard_index, mpc_sockets)| {
             (1..=3)
                 .zip(mpc_sockets.each_ref().iter())
                 .map(|(id, ShardTcpListeners { mpc, shard })| {
@@ -208,7 +207,6 @@ pub fn spawn_shards(
                 })
                 .collect::<Vec<_>>()
         })
-        .flatten()
         .collect()
 }
 
@@ -219,7 +217,7 @@ pub fn spawn_helpers(
     https: bool,
 ) -> Vec<TerminateOnDrop> {
     sockets
-        .into_iter()
+        .iter()
         .enumerate()
         .map(|(id, ShardTcpListeners { mpc, shard })| {
             let id = id + 1;

@@ -182,7 +182,7 @@ impl IntoResponse for Error {
                     StatusCode::PRECONDITION_FAILED,
                     serde_json::to_string(&error).unwrap(),
                 )
-                    .into_response()
+                    .into_response();
             }
         };
         (status_code, self.to_string()).into_response()

@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use super::min_status;
 use crate::{
-    error::{BoxError, Error as ProtocolError},
+    error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
@@ -368,7 +368,8 @@ impl Processor {
     /// This helper function is used to transform a [`BoxError`] into a
     /// [`QueryStatusError::DifferentStatus`] and retrieve it's internal state. Returns [`None`]
     /// if not possible.
-    fn downcast_state_error(box_error: BoxError) -> Option<QueryStatus> {
+    #[cfg(feature = "in-memory-infra")]
+    fn downcast_state_error(box_error: crate::error::BoxError) -> Option<QueryStatus> {
         use crate::helpers::ApiError;
         let api_error = box_error.downcast::<ApiError>().ok()?;
         if let ApiError::QueryStatus(QueryStatusError::DifferentStatus { my_status, .. }) =
