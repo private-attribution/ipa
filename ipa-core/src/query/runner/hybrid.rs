@@ -313,8 +313,6 @@ mod tests {
             ))
             .await;
 
-            // TODO: after landing #1446, refactor this to only take the first 3
-            // vectors, then validate that all other vectors reconstruct to 0.
             let leader_results: Vec<u32> = [
                 results[0].as_ref().unwrap().clone(),
                 results[1].as_ref().unwrap().clone(),
