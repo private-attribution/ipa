@@ -315,30 +315,26 @@ mod tests {
 
             // TODO: after landing #1446, refactor this to only take the first 3
             // vectors, then validate that all other vectors reconstruct to 0.
-            let results: Vec<u128> = results
-                .chunks(3)
-                .map(|chunk| {
-                    [
-                        chunk[0].as_ref().unwrap().clone(),
-                        chunk[1].as_ref().unwrap().clone(),
-                        chunk[2].as_ref().unwrap().clone(),
-                    ]
-                    .reconstruct()
-                    .iter()
-                    .map(U128Conversions::as_u128)
-                    .collect::<Vec<u128>>()
-                })
-                .fold(([0_u128; 256]).to_vec(), |acc, v| {
-                    acc.into_iter().zip(v).map(|(a, b)| a + b).collect()
-                });
+            let leader_results: Vec<u32> = [
+                results[0].as_ref().unwrap().clone(),
+                results[1].as_ref().unwrap().clone(),
+                results[2].as_ref().unwrap().clone(),
+            ]
+            .reconstruct()
+            .iter()
+            .map(U128Conversions::as_u128)
+            .map(|x| u32::try_from(x).expect("test values constructed to fit in u32"))
+            .collect::<Vec<u32>>();
 
-            assert_eq!(
-                results
-                    .iter()
-                    .map(|&x| u32::try_from(x).expect("test values should fit in u32"))
-                    .collect::<Vec<u32>>(),
-                expected
-            );
+            assert_eq!(expected, leader_results);
+
+            let follower_results = [
+                results[3].as_ref().unwrap().clone(),
+                results[4].as_ref().unwrap().clone(),
+                results[5].as_ref().unwrap().clone(),
+            ]
+            .reconstruct();
+            assert_eq!(0, follower_results.len());
         });
     }
 
