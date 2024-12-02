@@ -943,7 +943,6 @@ mod tests {
     use proptest::{
         prelude::{Just, Strategy},
         prop_compose, prop_oneof, proptest,
-        test_runner::Config as ProptestConfig,
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
@@ -973,7 +972,9 @@ mod tests {
         seq_join::{seq_join, SeqJoin},
         sharding::NotSharded,
         test_executor::run_random,
-        test_fixture::{join3v, Reconstruct, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{
+            join3v, mpc_proptest_config, Reconstruct, Runner, TestWorld, TestWorldConfig,
+        },
     };
 
     async fn test_select_semi_honest<V>()
@@ -1329,34 +1330,26 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(20))]
+        #![proptest_config(mpc_proptest_config())]
         #[test]
-        fn batching_proptest((record_count, max_multiplications_per_gate) in batching()) {
-            println!("record_count {record_count} batch {max_multiplications_per_gate}");
-            // This condition is correct only for active_work = 16 and record size of 1 byte.
-            if max_multiplications_per_gate != 1 && max_multiplications_per_gate % 16 != 0 {
-                // TODO: #1300, read_size | batch_size.
-                // Note: for active work < 2048, read size matches active work.
-
-                // Besides read_size | batch_size, there is also a constraint
-                // something like active_work > read_size + batch_size - 1.
-                println!("skipping config due to read_size vs. batch_size constraints");
-            } else {
-                tokio::runtime::Runtime::new().unwrap().block_on(async {
-                    chained_multiplies_dzkp(record_count, max_multiplications_per_gate).await.unwrap();
-                    /*
-                    multi_select_malicious::<BA3>(record_count, max_multiplications_per_gate).await;
-                    multi_select_malicious::<BA8>(record_count, max_multiplications_per_gate).await;
-                    multi_select_malicious::<BA16>(record_count, max_multiplications_per_gate).await;
-                    */
-                    multi_select_malicious::<BA20>(record_count, max_multiplications_per_gate).await;
-                    /*
-                    multi_select_malicious::<BA32>(record_count, max_multiplications_per_gate).await;
-                    multi_select_malicious::<BA64>(record_count, max_multiplications_per_gate).await;
-                    multi_select_malicious::<BA256>(record_count, max_multiplications_per_gate).await;
-                    */
-                });
-            }
+        fn batching_proptest(
+            (record_count, max_multiplications_per_gate) in batching(),
+            protocol in 0..8,
+        ) {
+            println!("record_count {record_count} batch {max_multiplications_per_gate} protocol {protocol}");
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                match protocol {
+                    0 => chained_multiplies_dzkp(record_count, max_multiplications_per_gate).await.unwrap(),
+                    1 => multi_select_malicious::<BA3>(record_count, max_multiplications_per_gate).await,
+                    2 => multi_select_malicious::<BA8>(record_count, max_multiplications_per_gate).await,
+                    3 => multi_select_malicious::<BA16>(record_count, max_multiplications_per_gate).await,
+                    4 => multi_select_malicious::<BA20>(record_count, max_multiplications_per_gate).await,
+                    5 => multi_select_malicious::<BA32>(record_count, max_multiplications_per_gate).await,
+                    6 => multi_select_malicious::<BA64>(record_count, max_multiplications_per_gate).await,
+                    7 => multi_select_malicious::<BA256>(record_count, max_multiplications_per_gate).await,
+                    _ => unreachable!(),
+                }
+            });
         }
     }
 
