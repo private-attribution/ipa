@@ -114,7 +114,8 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
             evt @ (RouteId::QueryInput
             | RouteId::ReceiveQuery
             | RouteId::QueryStatus
-            | RouteId::KillQuery) => {
+            | RouteId::KillQuery
+            | RouteId::Metrics) => {
                 unimplemented!(
                     "attempting to send client-specific request {evt:?} to another helper"
                 )

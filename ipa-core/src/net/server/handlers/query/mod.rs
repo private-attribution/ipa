@@ -1,6 +1,7 @@
 mod create;
 mod input;
 mod kill;
+mod metrics;
 mod prepare;
 mod results;
 mod status;
@@ -62,6 +63,11 @@ pub fn s2s_router(transport: ShardHttpTransport) -> Router {
         .merge(prepare::router(Arc::clone(&transport.inner_transport)))
         .merge(results::router(transport.inner_transport))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
+}
+
+/// Construct router for exporting metrics to metrics backend (e.g. Prometheus scraper)
+pub fn metric_router(transport: MpcHttpTransport) -> Router {
+    Router::new().merge(metrics::router(transport))
 }
 
 /// Returns HTTP 401 Unauthorized if the request does not have valid authentication.
