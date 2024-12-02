@@ -45,6 +45,20 @@ pub struct TestSetupArgs {
     shard_ports: Vec<u16>,
 }
 
+impl TestSetupArgs {
+    /// Returns number of shards requested for setup.
+    fn shard_count(&self) -> usize {
+        self.ports.len() / 3
+    }
+
+    /// If the number of shards requested is greater than 1
+    /// then we configure a sharded environment, otherwise
+    /// a fixed 3-host MPC configuration is created
+    fn is_sharded(&self) -> bool {
+        self.shard_count() > 1
+    }
+}
+
 /// Prepare a test network of three helpers.
 ///
 /// # Errors
@@ -76,19 +90,24 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
         DirBuilder::new().create(&args.output_dir)?;
     }
 
-    let localhost = String::from("localhost");
+    if args.is_sharded() {
+        sharded_keygen(args)
+    } else {
+        non_sharded_keygen(args)
+    }
+}
 
+fn sharded_keygen(args: TestSetupArgs) -> Result<(), BoxError> {
+    let localhost = String::from("localhost");
     let keygen_args: Vec<_> = [1, 2, 3]
         .into_iter()
         .cycle()
         .take(args.ports.len())
         .enumerate()
         .map(|(i, id)| {
-            //let helper_dir = .join(format!("helper{}", id));
-            //DirBuilder::new().create(&helper_dir).unwrap();
             let shard_dir = args.output_dir.join(format!("shard{i}"));
-            DirBuilder::new().create(&shard_dir).unwrap();
-            if i < 3 {
+            DirBuilder::new().create(&shard_dir)?;
+            Ok::<_, BoxError>(if i < 3 {
                 // Only leader shards generate MK keys
                 KeygenArgs {
                     name: localhost.clone(),
@@ -107,9 +126,9 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
                     mk_public_key: None,
                     mk_private_key: None,
                 }
-            }
+            })
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     for ka in &keygen_args {
         keygen(ka)?;
@@ -132,6 +151,39 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
         },
     )
     .collect();
+
+    let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
+    gen_client_config(clients_config.into_iter(), args.use_http1, &mut conf_file)
+}
+
+/// This generates directories and files needed to run a non-sharded MPC.
+/// The directory structure is flattened and does not include per-shard configuration.
+fn non_sharded_keygen(args: TestSetupArgs) -> Result<(), BoxError> {
+    let localhost = String::from("localhost");
+    let clients_config: [_; 3] = zip([1, 2, 3], zip(args.ports, args.shard_ports))
+        .map(|(id, (port, shard_port))| {
+            let keygen_args = KeygenArgs {
+                name: localhost.clone(),
+                tls_cert: args.output_dir.helper_tls_cert(id),
+                tls_key: args.output_dir.helper_tls_key(id),
+                tls_expire_after: 365,
+                mk_public_key: Some(args.output_dir.helper_mk_public_key(id)),
+                mk_private_key: Some(args.output_dir.helper_mk_private_key(id)),
+            };
+
+            keygen(&keygen_args)?;
+
+            Ok(HelperClientConf {
+                host: localhost.to_string(),
+                port,
+                shard_port,
+                tls_cert_file: keygen_args.tls_cert,
+                mk_public_key_file: keygen_args.mk_public_key.unwrap(),
+            })
+        })
+        .collect::<Result<Vec<_>, BoxError>>()?
+        .try_into()
+        .unwrap();
 
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
     gen_client_config(clients_config.into_iter(), args.use_http1, &mut conf_file)
