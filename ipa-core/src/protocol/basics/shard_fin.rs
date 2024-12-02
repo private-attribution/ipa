@@ -9,7 +9,7 @@ use crate::{
     ff::{boolean::Boolean, boolean_array::BooleanArray, Serializable},
     helpers::{Message, TotalRecords},
     protocol::{
-        boolean::step::EightBitStep,
+        boolean::step::SixteenBitStep,
         context::{
             dzkp_validator::DZKPValidator, DZKPContext, DZKPUpgradedMaliciousContext,
             DZKPUpgradedSemiHonestContext, MaliciousProtocolSteps, ShardedContext,
@@ -288,11 +288,15 @@ where
         C: 'a,
     {
         async move {
-            // todo: EightBit only works for 256 breakdowns. EightBitStep will panic if we try
+            // todo: SixteenBit only works for values up to BA16. EightBitStep will panic if we try
             // to add larger values
-            self.values =
-                integer_sat_add::<_, EightBitStep, B>(ctx, record_id, &self.values, &other.values)
-                    .await?;
+            self.values = integer_sat_add::<_, SixteenBitStep, B>(
+                ctx,
+                record_id,
+                &self.values,
+                &other.values,
+            )
+            .await?;
 
             Ok(())
         }
