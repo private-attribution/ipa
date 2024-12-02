@@ -14,8 +14,8 @@ pub(crate) enum AggregationStep {
     RevealValidate, // only partly used -- see code
     #[step(count = 4, child = AggregateChunkStep, name = "chunks")]
     Aggregate(usize),
-    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
-    AggregateValidate,
+    #[step(count = 4, child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    AggregateValidate(usize),
 }
 
 // The step count here is duplicated as the AGGREGATE_DEPTH constant in the code.

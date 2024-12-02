@@ -174,19 +174,18 @@ where
     // Any real-world aggregation should be able to complete in two layers (two
     // iterations of the `while` loop below). Tests with small `TARGET_PROOF_SIZE`
     // may exceed that.
-    let mut chunk_counter = 0;
     let mut depth = 0;
     let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(TV::BITS).unwrap());
 
     while intermediate_results.len() > 1 {
         let mut record_ids = [RecordId::FIRST; AGGREGATE_DEPTH];
         let mut next_intermediate_results = Vec::new();
-        for chunk in intermediate_results.chunks(agg_proof_chunk) {
+        for (chunk_counter, chunk) in intermediate_results.chunks(agg_proof_chunk).enumerate() {
             let chunk_len = chunk.len();
             let validator = ctx.clone().dzkp_validator(
                 MaliciousProtocolSteps {
                     protocol: &Step::aggregate(depth),
-                    validate: &Step::AggregateValidate,
+                    validate: &Step::aggregate_validate(depth),
                 },
                 usize::MAX, // See note about batching above.
             );
@@ -198,7 +197,6 @@ where
             )
             .await?;
             validator.validate_indexed(chunk_counter).await?;
-            chunk_counter += 1;
             next_intermediate_results.push(result);
         }
         depth += 1;
