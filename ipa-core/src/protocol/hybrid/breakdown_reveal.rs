@@ -106,19 +106,18 @@ where
     // Any real-world aggregation should be able to complete in two layers (two
     // iterations of the `while` loop below). Tests with small `TARGET_PROOF_SIZE`
     // may exceed that.
-    let mut chunk_counter = 0;
     let mut depth = 0;
     let agg_proof_chunk = aggregate_values_proof_chunk(B, usize::try_from(V::BITS).unwrap());
 
     while intermediate_results.len() > 1 {
         let mut record_ids = [RecordId::FIRST; AGGREGATE_DEPTH];
         let mut next_intermediate_results = Vec::new();
-        for chunk in intermediate_results.chunks(agg_proof_chunk) {
+        for (chunk_counter, chunk) in intermediate_results.chunks(agg_proof_chunk).enumerate() {
             let chunk_len = chunk.len();
             let validator = ctx.clone().dzkp_validator(
                 MaliciousProtocolSteps {
                     protocol: &Step::aggregate(depth),
-                    validate: &Step::AggregateValidate,
+                    validate: &Step::aggregate_validate(depth),
                 },
                 usize::MAX, // See note about batching above.
             );
@@ -130,17 +129,21 @@ where
             )
             .await?;
             validator.validate_indexed(chunk_counter).await?;
-            chunk_counter += 1;
             next_intermediate_results.push(result);
         }
         depth += 1;
         intermediate_results = next_intermediate_results;
     }
 
-    Ok(intermediate_results
+    let mut result = intermediate_results
         .into_iter()
         .next()
-        .expect("aggregation input must not be empty"))
+        .expect("aggregation input must not be empty");
+    result.resize(
+        usize::try_from(HV::BITS).unwrap(),
+        Replicated::<Boolean, B>::ZERO,
+    );
+    Ok(result)
 }
 
 /// Transforms the Breakdown key from a secret share into a revealed `usize`.
@@ -266,6 +269,27 @@ pub mod tests {
         }
     }
 
+    fn inputs_and_expectation<R: Rng>(
+        mut rng: R,
+    ) -> (Vec<TestAggregateableHybridReport>, Vec<u128>) {
+        let mut expectation = Vec::new();
+        for _ in 0..32 {
+            expectation.push(rng.gen_range(0u128..256));
+        }
+        let mut inputs = Vec::new();
+        for (bk, expected_hv) in expectation.iter().enumerate() {
+            let mut remainder = *expected_hv;
+            while remainder > 7 {
+                let tv = rng.gen_range(0u128..8);
+                remainder -= tv;
+                inputs.push(input_row(bk, tv));
+            }
+            inputs.push(input_row(bk, remainder));
+        }
+        inputs.shuffle(&mut rng);
+        (inputs, expectation)
+    }
+
     #[test]
     fn breakdown_reveal_semi_honest_happy_path() {
         // if shuttle executor is enabled, run this test only once.
@@ -276,23 +300,7 @@ pub mod tests {
         const SHARDS: usize = 2;
         run_with::<_, _, 3>(|| async {
             let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
-            let mut rng = world.rng();
-            let mut expectation = Vec::new();
-            for _ in 0..32 {
-                expectation.push(rng.gen_range(0u128..256));
-            }
-            let expectation = expectation; // no more mutability for safety
-            let mut inputs = Vec::new();
-            for (bk, expected_hv) in expectation.iter().enumerate() {
-                let mut remainder = *expected_hv;
-                while remainder > 7 {
-                    let tv = rng.gen_range(0u128..8);
-                    remainder -= tv;
-                    inputs.push(input_row(bk, tv));
-                }
-                inputs.push(input_row(bk, remainder));
-            }
-            inputs.shuffle(&mut rng);
+            let (inputs, expectation) = inputs_and_expectation(world.rng());
             let result: Vec<_> = world
                 .semi_honest(inputs.into_iter(), |ctx, reports| async move {
                     breakdown_reveal_aggregation::<_, BA5, BA3, HV, 32>(
@@ -332,30 +340,7 @@ pub mod tests {
         const SHARDS: usize = 2;
         run(|| async {
             let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
-            let mut rng = world.rng();
-            let mut expectation = Vec::new();
-            for _ in 0..32 {
-                expectation.push(rng.gen_range(0u128..512));
-            }
-            // The size of input needed here to get complete coverage (more precisely,
-            // the size of input to the final aggregation using `aggregate_values`)
-            // depends on `TARGET_PROOF_SIZE`.
-            let expectation = expectation; // no more mutability for safety
-            let mut inputs = Vec::new();
-            // Builds out inputs with values for each breakdown_key that add up to
-            // the expectation. Expectation is ranomg (0..512). Each iteration
-            // generates a value (0..8) and subtracts from the expectation until a final
-            // remaninder in (0..8) remains to be added to the vec.
-            for (breakdown_key, expected_value) in expectation.iter().enumerate() {
-                let mut remainder = *expected_value;
-                while remainder > 7 {
-                    let value = rng.gen_range(0u128..8);
-                    remainder -= value;
-                    inputs.push(input_row(breakdown_key, value));
-                }
-                inputs.push(input_row(breakdown_key, remainder));
-            }
-            inputs.shuffle(&mut rng);
+            let (inputs, expectation) = inputs_and_expectation(world.rng());
 
             let result: Vec<_> = world
                 .malicious(inputs.into_iter(), |ctx, reports| async move {
@@ -385,6 +370,62 @@ pub mod tests {
                 .into_iter()
                 .collect::<Vec<_>>();
             assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
+    }
+
+    #[test]
+    #[cfg(not(feature = "shuttle"))] // too slow
+    fn breakdown_reveal_malicious_chunk_size_1() {
+        type HV = BA16;
+        const SHARDS: usize = 1;
+        run(|| async {
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
+
+            let mut inputs = vec![
+                input_row(1, 1),
+                input_row(1, 2),
+                input_row(1, 3),
+                input_row(1, 4),
+            ];
+            inputs.extend_from_within(..); // 8
+            inputs.extend_from_within(..); // 16
+            inputs.extend_from_within(..); // 32
+            inputs.extend_from_within(..); // 64
+            inputs.extend_from_within(..1); // 65
+
+            let expectation = [
+                0, 161, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0,
+            ];
+
+            let result: Vec<_> = world
+                .malicious(inputs.into_iter(), |ctx, reports| async move {
+                    breakdown_reveal_aggregation::<_, BA5, BA3, HV, 32>(
+                        ctx,
+                        reports,
+                        &PaddingParameters::no_padding(),
+                    )
+                    .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                        Vec::transposed_from(&d).unwrap()
+                    })
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+
+            let initial = vec![0_u128; 32];
+            let result = result
+                .iter()
+                .fold(initial, |mut acc, vec: &Vec<HV>| {
+                    acc.iter_mut()
+                        .zip(vec)
+                        .for_each(|(a, &b)| *a += b.as_u128());
+                    acc
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
             assert_eq!(result, expectation);
         });
     }

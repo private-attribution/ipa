@@ -8,7 +8,7 @@ use std::convert::Infallible;
 use tracing::{info_span, Instrument};
 
 use crate::{
-    error::Error,
+    error::{Error, LengthError},
     ff::{
         boolean::Boolean, boolean_array::BooleanArray, curve_points::RP25519,
         ec_prime_field::Fp25519, Serializable, U128Conversions,
@@ -17,6 +17,7 @@ use crate::{
     protocol::{
         basics::{BooleanArrayMul, Reveal},
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        dp::dp_for_histogram,
         hybrid::{
             agg::aggregate_reports,
             breakdown_reveal::breakdown_reveal_aggregation,
@@ -63,10 +64,10 @@ use crate::{
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const B: usize>(
+pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const SS_BITS: usize, const B: usize>(
     ctx: C,
     input_rows: Vec<IndistinguishableHybridReport<BK, V>>,
-    _dp_params: DpMechanism,
+    dp_params: DpMechanism,
     dp_padding_params: PaddingParameters,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
@@ -87,6 +88,10 @@ where
         + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<HV>; B], Error = Infallible>,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
@@ -110,11 +115,23 @@ where
 
     let aggregated_reports = aggregate_reports::<BK, V, C>(ctx.clone(), sharded_reports).await?;
 
-    let _historgram = breakdown_reveal_aggregation::<C, BK, V, HV, B>(
+    let histogram = breakdown_reveal_aggregation::<C, BK, V, HV, B>(
         ctx.clone(),
         aggregated_reports,
         &dp_padding_params,
-    );
+    )
+    .await?;
 
-    unimplemented!("protocol::hybrid::hybrid_protocol is not fully implemented")
+    let noisy_histogram = if ctx.is_leader() {
+        dp_for_histogram::<_, B, HV, SS_BITS>(ctx, histogram, dp_params).await?
+    } else {
+        // the following ZERO vec should be the result for
+        // all follow shards, but this won't work until
+        // #1446 is merged
+        // vec![Replicated::<HV>::ZERO; B]
+        // temporary hack, just return the histogram
+        Vec::transposed_from(&histogram)?
+    };
+
+    Ok(noisy_histogram)
 }
