@@ -32,10 +32,13 @@ pub(crate) enum ShardedShuffleStep {
     /// Depending on the helper position inside the MPC ring, generate Ã, B̃ or both.
     PseudoRandomTable,
     /// Permute the input according to the PRSS shared between H1 and H2.
+    #[step(child = ShardedShufflePermuteStep)]
     Permute12,
     /// Permute the input according to the PRSS shared between H2 and H3.
+    #[step(child = ShardedShufflePermuteStep)]
     Permute23,
     /// Permute the input according to the PRSS shared between H3 and H1.
+    #[step(child = ShardedShufflePermuteStep)]
     Permute31,
     /// Specific to H1 and H2 interaction - H2 informs H1 about |C|.
     Cardinality,
@@ -43,6 +46,10 @@ pub(crate) enum ShardedShuffleStep {
     TransferXY,
     /// H2 and H3 interaction - Exchange `C_1` and `C_2`.
     TransferC,
+}
+
+#[derive(CompactStep)]
+pub(crate) enum ShardedShufflePermuteStep {
     /// Apply a mask to the given set of shares. Masking values come from PRSS.
     Mask,
     /// Local per-shard shuffle, where each shard redistributes shares locally according to samples
