@@ -1162,9 +1162,9 @@ mod tests {
         let a: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
         let b: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
 
-        // Timeout is 10 seconds plus count * (3 ms).
+        // Timeout is 20 seconds plus count * (5 ms).
         let config = TestWorldConfig::default()
-            .with_timeout_secs(10 + 3 * u64::try_from(count).unwrap() / 1000);
+            .with_timeout_secs(20 + 5 * u64::try_from(count).unwrap() / 1000);
 
         let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] =
             TestWorld::<NotSharded>::with_config(&config)

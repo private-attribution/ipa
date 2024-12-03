@@ -110,7 +110,7 @@ pub struct TestWorld<S: ShardingScheme = NotSharded> {
     rng: Mutex<StdRng>,
     gate_vendor: Box<dyn TestGateVendor>,
     _shard_network: InMemoryShardNetwork,
-    timeout: Duration,
+    timeout: Option<Duration>,
 }
 
 #[derive(Clone)]
@@ -161,9 +161,11 @@ pub struct TestWorldConfig {
 
     /// Timeout for tests run by this `TestWorld`.
     ///
-    /// This timeout is implement using tokio, so it will only be able to terminate the test if the
+    /// If `None`, there is no timeout.
+    ///
+    /// The timeout is implemented using tokio, so it will only be able to terminate the test if the
     /// futures are yielding periodically.
-    pub timeout: Duration,
+    pub timeout: Option<Duration>,
 }
 
 impl ShardingScheme for NotSharded {
@@ -387,14 +389,19 @@ impl<S: ShardingScheme> TestWorld<S> {
     }
 
     async fn with_timeout<F: IntoFuture>(&self, fut: F) -> F::Output {
-        if cfg!(feature = "shuttle") {
-            fut.await
+        let timeout = if cfg!(feature = "shuttle") {
+            None
         } else {
-            let Ok(output) = tokio::time::timeout(self.timeout, fut).await else {
+            self.timeout
+        };
+        if let Some(timeout) = timeout {
+            let Ok(output) = tokio::time::timeout(timeout, fut).await else {
                 tracing::error!("timed out after {:?}", self.timeout);
                 panic!("timed out after {:?}", self.timeout);
             };
             output
+        } else {
+            fut.await
         }
     }
 }
@@ -414,7 +421,7 @@ impl Default for TestWorldConfig {
             seed: thread_rng().next_u64(),
             initial_gate: None,
             stream_interceptor: passthrough(),
-            timeout: Duration::from_secs(10),
+            timeout: Some(Duration::from_secs(10)),
         }
     }
 }
@@ -434,7 +441,13 @@ impl TestWorldConfig {
 
     #[must_use]
     pub fn with_timeout_secs(mut self, timeout_secs: u64) -> Self {
-        self.timeout = Duration::from_secs(timeout_secs);
+        self.timeout = Some(Duration::from_secs(timeout_secs));
+        self
+    }
+
+    #[must_use]
+    pub fn with_no_timeout(mut self) -> Self {
+        self.timeout = None;
         self
     }
 
