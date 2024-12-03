@@ -536,7 +536,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn aggregate_proptest(
+        fn aggregate_values_proptest(
             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN),
             seed in any::<u64>(),
         ) {

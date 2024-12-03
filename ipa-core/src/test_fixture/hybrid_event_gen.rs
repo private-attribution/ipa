@@ -8,7 +8,6 @@ use super::hybrid::TestHybridRecord;
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ConversionDistribution {
     Default,
-    LotsOfConversionsPerImpression,
     OnlyImpressions,
     OnlyConversions,
 }
@@ -20,8 +19,6 @@ pub struct Config {
     pub max_conversion_value: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "20"))]
     pub max_breakdown_key: NonZeroU32,
-    #[cfg_attr(feature = "clap", arg(long, default_value = "10"))]
-    pub max_convs_per_imp: NonZeroU32,
     /// Indicates the distribution of impression to conversion reports.
     #[cfg_attr(feature = "clap", arg(value_enum, long, default_value_t = ConversionDistribution::Default))]
     pub conversion_distribution: ConversionDistribution,
@@ -29,7 +26,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(5, 20, 10, ConversionDistribution::Default)
+        Self::new(5, 20, ConversionDistribution::Default)
     }
 }
 
@@ -42,13 +39,11 @@ impl Config {
     pub fn new(
         max_conversion_value: u32,
         max_breakdown_key: u32,
-        max_convs_per_imp: u32,
         conversion_distribution: ConversionDistribution,
     ) -> Self {
         Self {
             max_conversion_value: NonZeroU32::try_from(max_conversion_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
-            max_convs_per_imp: NonZeroU32::try_from(max_convs_per_imp).unwrap(),
             conversion_distribution,
         }
     }
@@ -70,7 +65,7 @@ impl<R: Rng> EventGenerator<R> {
     /// If the configuration is not valid.
     #[allow(dead_code)]
     pub fn with_config(rng: R, config: Config) -> Self {
-        let max_capacity = usize::try_from(config.max_convs_per_imp.get() + 1).unwrap();
+        let max_capacity = 2;
         Self {
             config,
             rng,
@@ -81,26 +76,18 @@ impl<R: Rng> EventGenerator<R> {
     fn gen_batch(&mut self) {
         match self.config.conversion_distribution {
             ConversionDistribution::OnlyImpressions => {
-                self.gen_batch_with_params(0.0, 1.0, 0.0);
+                self.gen_batch_with_params(0.0, 1.0);
             }
             ConversionDistribution::OnlyConversions => {
-                self.gen_batch_with_params(1.0, 0.0, 0.0);
+                self.gen_batch_with_params(1.0, 0.0);
             }
             ConversionDistribution::Default => {
-                self.gen_batch_with_params(0.1, 0.7, 0.15);
-            }
-            ConversionDistribution::LotsOfConversionsPerImpression => {
-                self.gen_batch_with_params(0.3, 0.4, 0.8);
+                self.gen_batch_with_params(0.1, 0.7);
             }
         }
     }
 
-    fn gen_batch_with_params(
-        &mut self,
-        unmatched_conversions: f32,
-        unmatched_impressions: f32,
-        subsequent_conversion_prob: f32,
-    ) {
+    fn gen_batch_with_params(&mut self, unmatched_conversions: f32, unmatched_impressions: f32) {
         assert!(unmatched_conversions + unmatched_impressions <= 1.0);
         let match_key = self.rng.gen::<u64>();
         let rand = self.rng.gen_range(0.0..1.0);
@@ -115,16 +102,6 @@ impl<R: Rng> EventGenerator<R> {
             let conv = self.gen_conversion(match_key);
             self.in_flight.push(imp);
             self.in_flight.push(conv);
-            let mut conv_count = 1;
-            // long-tailed distribution of # of conversions per impression
-            // will not exceed the configured maximum number of conversions per impression
-            while conv_count < self.config.max_convs_per_imp.get()
-                && self.rng.gen_range(0.0..1.0) < subsequent_conversion_prob
-            {
-                let conv = self.gen_conversion(match_key);
-                self.in_flight.push(conv);
-                conv_count += 1;
-            }
         }
     }
 
@@ -191,25 +168,21 @@ mod tests {
         // The "tolerance" is used to compute the allowable range of values.
         // It is multiplied by the expected value. So a tolerance of 0.05 means
         // we will accept a value within 5% of the expected value
-        const EXPECTED_HISTOGRAM_WITH_TOLERANCE: [(i32, f64); 12] = [
-            (0, 0.0),
-            (647_634, 0.01),
-            (137_626, 0.02),
-            (20_652, 0.03),
-            (3_085, 0.05),
-            (463, 0.12),
-            (70, 0.5),
-            (10, 1.0),
-            (2, 1.0),
-            (0, 1.0),
-            (0, 1.0),
-            (0, 1.0),
-        ];
-        const TEST_COUNT: usize = 1_000_000;
+        const UNMATCHED_CONVERSIONS: f64 = 0.1;
+        const UNMATCHED_IMPRESSIONS: f64 = 0.7;
+        const PROB_SINGLE: f64 = UNMATCHED_CONVERSIONS + UNMATCHED_IMPRESSIONS;
+        const PROB_DOUBLE: f64 = 1.0 - (UNMATCHED_CONVERSIONS + UNMATCHED_IMPRESSIONS);
+        const TEST_COUNT: i32 = 1_000_000;
+        const EXPECTED_MATCH_KEYS: f64 = TEST_COUNT as f64 / (PROB_SINGLE + 2.0 * PROB_DOUBLE);
+        const EXPECTED_SINGLE: f64 = EXPECTED_MATCH_KEYS * PROB_SINGLE;
+        const EXPECTED_DOUBLE: f64 = EXPECTED_MATCH_KEYS * PROB_DOUBLE;
+
+        const EXPECTED_HISTOGRAM_WITH_TOLERANCE: [(f64, f64); 3] =
+            [(0.0, 0.0), (EXPECTED_SINGLE, 0.01), (EXPECTED_DOUBLE, 0.02)];
+
         let gen = EventGenerator::with_default_config(thread_rng());
-        let max_convs_per_imp = gen.config.max_convs_per_imp.get();
         let mut match_key_to_event_count = HashMap::new();
-        for event in gen.take(TEST_COUNT) {
+        for event in gen.take(TEST_COUNT.try_into().unwrap()) {
             match event {
                 TestHybridRecord::TestImpression { match_key, .. } => {
                     match_key_to_event_count
@@ -225,7 +198,7 @@ mod tests {
                 }
             }
         }
-        let histogram_size = usize::try_from(max_convs_per_imp + 2).unwrap();
+        let histogram_size = 3;
         let mut histogram: Vec<i32> = vec![0; histogram_size];
         for (_, count) in match_key_to_event_count {
             histogram[count] += 1;
@@ -237,11 +210,12 @@ mod tests {
             // Adding a constant value of 10 is a way of dealing with the high variability small values
             // which will vary a lot more (as a percent). Because 10 is an increasingly large percentage of
             // A smaller and smaller expected value
-            let max_tolerance = f64::from(*expected) * tolerance + 10.0;
+            let max_tolerance = expected * tolerance + 10.0;
             assert!(
-                f64::from((expected - actual).abs()) <= max_tolerance,
+                (expected - f64::from(actual)).abs() <= max_tolerance,
                 "{:?} is outside of the expected range: ({:?}..{:?})",
                 actual,
+/*<<<<<<< hybrid_info
                 f64::from(*expected) - max_tolerance,
                 f64::from(*expected) + max_tolerance,
             );
@@ -306,6 +280,9 @@ mod tests {
                 actual,
                 f64::from(*expected) - max_tolerance,
                 f64::from(*expected) + max_tolerance,
+=======*/
+                expected - max_tolerance,
+                expected + max_tolerance,
             );
         }
     }
@@ -313,14 +290,12 @@ mod tests {
     #[test]
     fn only_impressions_config() {
         const NUM_EVENTS: usize = 100;
-        const MAX_CONVS_PER_IMP: u32 = 1;
         const MAX_BREAKDOWN_KEY: u32 = 10;
         let gen = EventGenerator::with_config(
             thread_rng(),
             Config::new(
                 10,
                 MAX_BREAKDOWN_KEY,
-                MAX_CONVS_PER_IMP,
                 ConversionDistribution::OnlyImpressions,
             ),
         );
@@ -346,16 +321,10 @@ mod tests {
     #[test]
     fn only_conversions_config() {
         const NUM_EVENTS: usize = 100;
-        const MAX_CONVS_PER_IMP: u32 = 1;
         const MAX_VALUE: u32 = 10;
         let gen = EventGenerator::with_config(
             thread_rng(),
-            Config::new(
-                MAX_VALUE,
-                10,
-                MAX_CONVS_PER_IMP,
-                ConversionDistribution::OnlyConversions,
-            ),
+            Config::new(MAX_VALUE, 10, ConversionDistribution::OnlyConversions),
         );
         let mut match_keys = HashSet::new();
         for event in gen.take(NUM_EVENTS) {

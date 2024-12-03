@@ -29,7 +29,10 @@ use crate::{
     helpers::{Direction, Error, Role, TotalRecords},
     protocol::{
         context::{reshard_iter, ShardedContext},
-        ipa_prf::shuffle::{step::ShardedShuffleStep as ShuffleStep, IntermediateShuffleMessages},
+        ipa_prf::shuffle::{
+            step::{ShardedShufflePermuteStep as PermuteStep, ShardedShuffleStep as ShuffleStep},
+            IntermediateShuffleMessages,
+        },
         prss::{FromRandom, SharedRandomness},
         RecordId,
     },
@@ -105,7 +108,7 @@ pub trait ShuffleContext: ShardedContext {
     {
         let data = data.into_iter();
         async move {
-            let masking_ctx = self.narrow(&ShuffleStep::Mask);
+            let masking_ctx = self.narrow(&PermuteStep::Mask);
             let mut resharded = assert_send(reshard_iter(
                 self.clone(),
                 data.enumerate().map(|(i, item)| {
@@ -118,7 +121,7 @@ pub trait ShuffleContext: ShardedContext {
             ))
             .await?;
 
-            let ctx = self.narrow(&ShuffleStep::LocalShuffle);
+            let ctx = self.narrow(&PermuteStep::LocalShuffle);
             resharded.shuffle(&mut match direction {
                 Direction::Left => ctx.prss_rng().0,
                 Direction::Right => ctx.prss_rng().1,

@@ -222,7 +222,7 @@ impl ShardedContext for Base<'_, Sharded> {
     }
 }
 
-impl<'a, B: ShardBinding> Context for Base<'a, B> {
+impl<B: ShardBinding> Context for Base<'_, B> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -346,7 +346,7 @@ impl ShardConfiguration for Base<'_, Sharded> {
     }
 }
 
-impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
+impl<B: ShardBinding> SeqJoin for Base<'_, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.active_work.to_non_zero_usize()
     }

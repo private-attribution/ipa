@@ -44,7 +44,7 @@ impl ShardConfiguration for DZKPUpgraded<'_, Sharded> {
     }
 }
 
-impl<'a> super::ShardedContext for DZKPUpgraded<'a, Sharded> {
+impl super::ShardedContext for DZKPUpgraded<'_, Sharded> {
     fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
         self.inner.shard_send_channel(dest_shard)
     }
@@ -58,7 +58,7 @@ impl<'a> super::ShardedContext for DZKPUpgraded<'a, Sharded> {
     }
 }
 
-impl<'a, B: ShardBinding> super::Context for DZKPUpgraded<'a, B> {
+impl<B: ShardBinding> super::Context for DZKPUpgraded<'_, B> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -104,14 +104,14 @@ impl<'a, B: ShardBinding> super::Context for DZKPUpgraded<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> SeqJoin for DZKPUpgraded<'a, B> {
+impl<B: ShardBinding> SeqJoin for DZKPUpgraded<'_, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
+impl<B: ShardBinding> DZKPContext for DZKPUpgraded<'_, B> {
     async fn validate_record(&self, _record_id: RecordId) -> Result<(), Error> {
         Ok(())
     }

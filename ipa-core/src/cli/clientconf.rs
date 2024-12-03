@@ -1,14 +1,14 @@
-use std::{fs, fs::File, io::Write, iter::zip, path::PathBuf};
+use std::{fs, fs::File, iter::zip, path::PathBuf};
 
 use clap::Args;
-use config::Map;
-use hpke::Serializable as _;
-use toml::{Table, Value};
 
 use crate::{
-    cli::paths::PathExt,
-    config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig},
+    cli::{
+        config_parse::{gen_client_config, HelperClientConf},
+        paths::PathExt,
+    },
     error::BoxError,
+    helpers::HelperIdentity,
 };
 
 #[derive(Debug, Args)]
@@ -62,7 +62,7 @@ pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
         .map(|(id, (host, (port, shard_port)))| {
             let id: u8 = u8::try_from(id).unwrap() + 1;
             HelperClientConf {
-                host,
+                host: host.to_string(),
                 port,
                 shard_port,
                 tls_cert_file: args.keys_dir.helper_tls_cert(id),
@@ -72,19 +72,147 @@ pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
+    gen_conf_from_args(
+        args.output_dir,
+        args.overwrite,
+        args.keys_dir,
+        clients_conf.into_iter(),
+    )
+}
 
-    if let Some(ref dir) = args.output_dir {
+#[derive(Debug, Args)]
+#[clap(about = "Generate client config for a sharded MPC")]
+pub struct ShardedConfGenArgs {
+    /// Base directory containing the host keys. `scripts/create-sharded-conf.py` generates the
+    /// expected structure. Here's an example:
+    /// ```cli
+    /// ├── helper1
+    /// │   ├── shard0
+    /// │   │   ├── helper1.shard0.prod.ipa-helper.dev.key
+    /// │   │   ├── helper1.shard0.prod.ipa-helper.dev.pem
+    /// │   │   ├── helper1.shard0.prod.ipa-helper.dev_mk.key
+    /// │   │   └── helper1.shard0.prod.ipa-helper.dev_mk.pub
+    /// │   ├── shard1
+    /// │   │   ├── helper1.shard1.prod.ipa-helper.dev.key
+    /// │   │   ├── helper1.shard1.prod.ipa-helper.dev.pem
+    /// │   │   ├── helper1.shard1.prod.ipa-helper.dev_mk.key
+    /// │   │   └── helper1.shard1.prod.ipa-helper.dev_mk.pub
+    /// ├── helper2
+    /// │   ├── shard0
+    /// │   │   ├── helper2.shard0.prod.ipa-helper.dev.key
+    /// │   │   ├── helper2.shard0.prod.ipa-helper.dev.pem
+    /// │   │   ├── helper2.shard0.prod.ipa-helper.dev_mk.key
+    /// ...
+    /// ```
+    #[arg(long)]
+    pub keys_dir: PathBuf,
+
+    /// Number of shards per helper
+    #[arg(long)]
+    pub shard_count: u32,
+
+    /// Shard port number to be used for all servers.
+    #[arg(long)]
+    pub shards_port: u16,
+
+    /// MPC port number  to be used for all servers.
+    #[arg(long)]
+    pub mpc_port: u16,
+
+    /// Destination folder for the config file. If not specified, `keys_folder` will be used.
+    #[arg(long)]
+    pub(crate) output_dir: Option<PathBuf>,
+
+    /// Overwrite configuration file if it exists at destination.
+    #[arg(long, default_value_t = false)]
+    pub(crate) overwrite: bool,
+}
+
+/// Similar to [`setup`] but for a sharded setup.
+///
+/// # Errors
+/// If the files aren't in the expected locations, or if the parameters like shard count don't
+/// match.
+pub fn sharded_setup(args: ShardedConfGenArgs) -> Result<(), BoxError> {
+    let clients_conf = create_sharded_conf_from_files(
+        args.shard_count,
+        args.mpc_port,
+        args.shards_port,
+        args.keys_dir.clone(),
+    );
+    gen_conf_from_args(args.output_dir, args.overwrite, args.keys_dir, clients_conf)
+}
+
+/// this helper function creates [`HelperClientConf`] for a sharded configuration. We go ring by
+/// ring as expected by helper binary.
+fn create_sharded_conf_from_files(
+    shard_count: u32,
+    port: u16,
+    shard_port: u16,
+    keys_dir: PathBuf,
+) -> impl Iterator<Item = HelperClientConf> {
+    (0..shard_count).flat_map(move |ix| {
+        let base_dir = keys_dir.clone();
+        HelperIdentity::make_three().into_iter().map(move |id| {
+            let mut shard_dir = base_dir.clone();
+            let id_nr: u8 = id.into();
+            shard_dir.push(format!("helper{id_nr}"));
+            shard_dir.push(format!("shard{ix}"));
+
+            let host_name = find_file_with_extension(&shard_dir, "pem").unwrap();
+            let tls_cert_file = shard_dir.join(format!("{host_name}.pem"));
+            let mk_public_key_file = shard_dir.join(format!("{host_name}_mk.pub"));
+            HelperClientConf {
+                host: host_name,
+                port,
+                shard_port,
+                tls_cert_file,
+                mk_public_key_file,
+            }
+        })
+    })
+}
+
+/// Finds a file with the specified extension in the given directory.
+///
+/// # Arguments
+/// * `path`: The path to the directory to search in.
+/// * `extension`: The file extension to search for.
+///
+/// # Returns
+/// An `Option` containing the name of the first file found with the specified extension, or `None`
+fn find_file_with_extension(path: &PathBuf, extension: &str) -> Option<String> {
+    for entry in fs::read_dir(path).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .extension()
+                .map_or(false, |ext| ext.to_str().unwrap() == extension)
+        {
+            return Some(path.file_stem().unwrap().to_str().unwrap().to_string());
+        }
+    }
+    None
+}
+
+/// Creates output files depending on the configuration given in args. Calls [`gen_client_config`]
+/// to generate and validate the configuration.
+fn gen_conf_from_args(
+    output_dir: Option<PathBuf>,
+    overwrite: bool,
+    keys_dir: PathBuf,
+    clients_conf: impl Iterator<Item = HelperClientConf>,
+) -> Result<(), BoxError> {
+    if let Some(ref dir) = output_dir {
         fs::create_dir_all(dir)?;
     }
-    let conf_file_path = args
-        .output_dir
-        .unwrap_or(args.keys_dir)
-        .join("network.toml");
+    let conf_file_path = output_dir.unwrap_or(keys_dir).join("network.toml");
     let mut conf_file = File::options()
         .write(true)
         .create(true)
-        .truncate(args.overwrite)
-        .create_new(!args.overwrite)
+        .truncate(overwrite)
+        .create_new(!overwrite)
         .open(&conf_file_path)
         .map_err(|e| format!("failed to create or open {}: {e}", conf_file_path.display()))?;
 
@@ -94,140 +222,4 @@ pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
         conf_file_path.display()
     );
     Ok(())
-}
-
-#[derive(Debug)]
-pub struct HelperClientConf<'a> {
-    pub(crate) host: &'a str,
-    pub(crate) port: u16,
-    pub(crate) shard_port: u16,
-    pub(crate) tls_cert_file: PathBuf,
-    pub(crate) mk_public_key_file: PathBuf,
-}
-
-/// Generates client configuration file at the requested destination. The destination must exist
-/// before this function is called
-pub fn gen_client_config<'a>(
-    clients_conf: [HelperClientConf<'a>; 3],
-    use_http1: bool,
-    conf_file: &'a mut File,
-) -> Result<(), BoxError> {
-    let mut peers = Vec::<Value>::with_capacity(3);
-    for client_conf in clients_conf {
-        let certificate = fs::read_to_string(&client_conf.tls_cert_file).map_err(|e| {
-            format!(
-                "Failed to open {}: {e}",
-                client_conf.tls_cert_file.display()
-            )
-        })?;
-        let mk_public_key = fs::read_to_string(&client_conf.mk_public_key_file).map_err(|e| {
-            format!(
-                "Failed to open {}: {e}",
-                client_conf.mk_public_key_file.display()
-            )
-        })?;
-
-        // Constructing toml directly because it avoids linking
-        // a PEM library to serialize the certificate.
-        let mut peer = Map::new();
-        peer.insert(
-            String::from("url"),
-            Value::String(format!(
-                "{host}:{port}",
-                host = client_conf.host,
-                port = client_conf.port
-            )),
-        );
-        peer.insert(
-            String::from("shard_url"),
-            Value::String(format!(
-                "{host}:{port}",
-                host = client_conf.host,
-                port = client_conf.shard_port
-            )),
-        );
-        peer.insert(String::from("certificate"), Value::String(certificate));
-        peer.insert(
-            String::from("hpke"),
-            Value::Table(encode_hpke(mk_public_key)),
-        );
-        peers.push(peer.into());
-    }
-
-    let client_config = if use_http1 {
-        ClientConfig::use_http1()
-    } else {
-        ClientConfig::default()
-    };
-    let mut network_config = Map::new();
-    network_config.insert(String::from("peers"), peers.into());
-    network_config.insert(
-        String::from("client"),
-        Table::try_from(client_config)?.into(),
-    );
-    let config_str = toml::to_string_pretty(&network_config)?;
-
-    // make sure network config is valid
-    if cfg!(debug_assertions) {
-        assert_network_config(&network_config, &config_str);
-    }
-
-    Ok(conf_file.write_all(config_str.as_bytes())?)
-}
-
-/// Creates a section in TOML that describes the HPKE configuration for match key encryption.
-fn encode_hpke(public_key: String) -> Table {
-    let mut hpke_table = Table::new();
-    // TODO: key registry requires a set of public keys with their "identifier". Right now
-    // we encode only one key
-    hpke_table.insert(String::from("public_key"), Value::String(public_key));
-
-    hpke_table
-}
-
-/// Validates that the resulting [`NetworkConfig`] can be read by helper binary correctly, i.e.
-/// all the values get serialized.
-///
-/// [`NetworkConfig`]: NetworkConfig
-fn assert_network_config(config_toml: &Map<String, Value>, config_str: &str) {
-    let nw_config =
-        NetworkConfig::from_toml_str(config_str).expect("Can deserialize network config");
-
-    let Value::Array(peer_config_expected) = config_toml
-        .get("peers")
-        .expect("peer section must be present")
-    else {
-        panic!("peers section in toml config is not a table");
-    };
-    for (i, peer_config_actual) in nw_config.peers().iter().enumerate() {
-        assert_peer_config(&peer_config_expected[i], peer_config_actual);
-    }
-}
-
-/// Validates that the resulting [`PeerConfig`] can be read by helper binary correctly.
-///
-/// [`PeerConfig`]: PeerConfig
-fn assert_peer_config(expected: &Value, actual: &PeerConfig) {
-    assert_eq!(
-        expected.get("url").unwrap().as_str(),
-        Some(actual.url.to_string()).as_deref()
-    );
-
-    assert_hpke_config(
-        expected.get("hpke").expect("hpke section must be present"),
-        actual.hpke_config.as_ref(),
-    );
-}
-
-/// Validates that the resulting [`HpkeClientConfig`] can be read by helper binary correctly.
-///
-/// [`HpkeClientConfig`]: HpkeClientConfig
-fn assert_hpke_config(expected: &Value, actual: Option<&HpkeClientConfig>) {
-    assert_eq!(
-        expected
-            .get("public_key")
-            .and_then(toml::Value::as_str)
-            .map(ToOwned::to_owned),
-        actual.map(|v| hex::encode(v.public_key.to_bytes()))
-    );
 }

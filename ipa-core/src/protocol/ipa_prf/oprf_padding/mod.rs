@@ -961,7 +961,6 @@ mod tests {
 
     /// ///////////////////////////////////////////////////////////////////
     /// Below tests are for more foundational components used in building padding.
-
     /// # Errors
     /// Will propogate errors from `OPRFPaddingDp`
     pub fn sample_shared_randomness<C>(ctx: &C) -> Result<u32, insecure::Error>

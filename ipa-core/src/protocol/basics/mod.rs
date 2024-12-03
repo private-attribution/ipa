@@ -3,8 +3,7 @@ mod if_else;
 pub(crate) mod mul;
 mod reshare;
 mod reveal;
-#[allow(dead_code)]
-mod shard_fin;
+pub(crate) mod shard_fin;
 mod share_known_value;
 pub mod share_validation;
 pub mod step;
@@ -17,6 +16,7 @@ pub use reshare::Reshare;
 pub use reveal::{
     malicious_reveal, partial_reveal, reveal, semi_honest_reveal, validated_partial_reveal, Reveal,
 };
+pub use shard_fin::{FinalizerContext, ShardAssembledResult};
 pub use share_known_value::ShareKnownValue;
 
 use crate::{
@@ -49,18 +49,17 @@ pub trait BasicProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N: 
 }
 
 // For PRF test
-impl<'a, B: ShardBinding> BasicProtocols<UpgradedSemiHonestContext<'a, B, Fp25519>, Fp25519>
+impl<B: ShardBinding> BasicProtocols<UpgradedSemiHonestContext<'_, B, Fp25519>, Fp25519>
     for AdditiveShare<Fp25519>
 {
 }
 
-impl<'a, B: ShardBinding>
-    BasicProtocols<UpgradedSemiHonestContext<'a, B, Fp25519>, Fp25519, PRF_CHUNK>
+impl<B: ShardBinding> BasicProtocols<UpgradedSemiHonestContext<'_, B, Fp25519>, Fp25519, PRF_CHUNK>
     for AdditiveShare<Fp25519, PRF_CHUNK>
 {
 }
 
-impl<'a, const N: usize> BasicProtocols<UpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>
+impl<const N: usize> BasicProtocols<UpgradedMaliciousContext<'_, Fp25519>, Fp25519, N>
     for malicious::AdditiveShare<Fp25519, N>
 where
     Fp25519: FieldSimd<N>,
@@ -68,7 +67,7 @@ where
 {
 }
 
-impl<'a, const N: usize> BasicProtocols<ShardedUpgradedMaliciousContext<'a, Fp25519>, Fp25519, N>
+impl<const N: usize> BasicProtocols<ShardedUpgradedMaliciousContext<'_, Fp25519>, Fp25519, N>
     for malicious::AdditiveShare<Fp25519, N>
 where
     Fp25519: FieldSimd<N>,
@@ -89,40 +88,40 @@ where
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'_, B>>
     for AdditiveShare<Boolean>
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'a, B>>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'_, B>>
     for AdditiveShare<Boolean>
 {
 }
 
 // Used for aggregation tests
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, 8>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'_, B>, 8>
     for AdditiveShare<Boolean, 8>
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, PRF_CHUNK>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'_, B>, PRF_CHUNK>
     for AdditiveShare<Boolean, PRF_CHUNK>
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'a, B>, PRF_CHUNK>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'_, B>, PRF_CHUNK>
     for AdditiveShare<Boolean, PRF_CHUNK>
 {
 }
 
 // These implementations also implement `BooleanProtocols` for `CONV_CHUNK`
 // since `CONV_CHUNK = AGG_CHUNK`
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, AGG_CHUNK>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'_, B>, AGG_CHUNK>
     for AdditiveShare<Boolean, AGG_CHUNK>
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'a, B>, AGG_CHUNK>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'_, B>, AGG_CHUNK>
     for AdditiveShare<Boolean, AGG_CHUNK>
 {
 }
@@ -142,17 +141,17 @@ const_assert_eq!(
     "Implementation for N = 16 required for num_breakdowns"
 );
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, 3>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'_, B>, 3>
     for AdditiveShare<Boolean, 3>
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'a, B>, 32>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedSemiHonestContext<'_, B>, 32>
     for AdditiveShare<Boolean, 32>
 {
 }
 
-impl<'a, B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'a, B>, 32>
+impl<B: ShardBinding> BooleanProtocols<DZKPUpgradedMaliciousContext<'_, B>, 32>
     for AdditiveShare<Boolean, 32>
 {
 }

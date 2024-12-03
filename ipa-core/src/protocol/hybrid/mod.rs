@@ -3,25 +3,32 @@ pub(crate) mod breakdown_reveal;
 pub(crate) mod oprf;
 pub(crate) mod step;
 
-use std::convert::Infallible;
+use std::{convert::Infallible, ops::Add};
 
+use generic_array::ArrayLength;
 use tracing::{info_span, Instrument};
 
 use crate::{
-    error::Error,
+    error::{Error, LengthError},
     ff::{
         boolean::Boolean, boolean_array::BooleanArray, curve_points::RP25519,
         ec_prime_field::Fp25519, Serializable, U128Conversions,
     },
     helpers::query::DpMechanism,
     protocol::{
-        basics::{BooleanArrayMul, Reveal},
-        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        basics::{
+            shard_fin::{FinalizerContext, Histogram},
+            BooleanArrayMul, Reveal,
+        },
+        context::{
+            DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext, UpgradableContext,
+        },
+        dp::dp_for_histogram,
         hybrid::{
             agg::aggregate_reports,
             breakdown_reveal::breakdown_reveal_aggregation,
             oprf::{compute_prf_and_reshard, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
-            step::HybridStep as Step,
+            step::{FinalizeSteps, HybridStep as Step},
         },
         ipa_prf::{
             oprf_padding::{apply_dp_padding, PaddingParameters},
@@ -63,17 +70,22 @@ use crate::{
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const B: usize>(
+pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const SS_BITS: usize, const B: usize>(
     ctx: C,
     input_rows: Vec<IndistinguishableHybridReport<BK, V>>,
-    _dp_params: DpMechanism,
+    dp_params: DpMechanism,
     dp_padding_params: PaddingParameters,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    C: UpgradableContext + 'ctx + Shuffle + ShardedContext,
+    C: UpgradableContext
+        + 'ctx
+        + Shuffle
+        + ShardedContext
+        + FinalizerContext<FinalizingContext = DZKPUpgraded<C>>,
     BK: BreakdownKey<B>,
     V: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
+    <HV as Serializable>::Size: Add<<HV as Serializable>::Size, Output: ArrayLength>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
@@ -87,6 +99,13 @@ where
         + Reveal<DZKPUpgraded<C>, Output = <BK as Vectorizable<1>>::Array>,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<HV>; B], Error = Infallible>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<HV>>, Error = LengthError>,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    DZKPUpgraded<C>: ShardedContext,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
@@ -110,11 +129,31 @@ where
 
     let aggregated_reports = aggregate_reports::<BK, V, C>(ctx.clone(), sharded_reports).await?;
 
-    let _historgram = breakdown_reveal_aggregation::<C, BK, V, HV, B>(
+    let histogram = breakdown_reveal_aggregation::<C, BK, V, HV, B>(
         ctx.clone(),
         aggregated_reports,
         &dp_padding_params,
-    );
+    )
+    .await?;
 
-    unimplemented!("protocol::hybrid::hybrid_protocol is not fully implemented")
+    let histogram: Histogram<HV, B> = Histogram::from(histogram);
+
+    let finalized_histogram = ctx
+        .narrow(&Step::Finalize)
+        .finalize(
+            MaliciousProtocolSteps {
+                protocol: &FinalizeSteps::Add,
+                validate: &FinalizeSteps::Validate,
+            },
+            histogram,
+        )
+        .await?;
+
+    let noisy_histogram = if ctx.is_leader() {
+        dp_for_histogram::<_, B, HV, SS_BITS>(ctx, finalized_histogram.values, dp_params).await?
+    } else {
+        finalized_histogram.compose()
+    };
+
+    Ok(noisy_histogram)
 }

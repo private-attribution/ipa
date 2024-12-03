@@ -12,12 +12,11 @@ use futures::future::join;
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, LoggingHandle,
-        TestSetupArgs, Verbosity,
+        client_config_setup, keygen, sharded_client_config_setup, sharded_server_from_toml_str,
+        test_setup, ConfGenArgs, KeygenArgs, LoggingHandle, ShardedConfGenArgs, TestSetupArgs,
+        Verbosity,
     },
-    config::{
-        hpke_registry, sharded_server_from_toml_str, HpkeServerConfig, ServerConfig, TlsConfig,
-    },
+    config::{hpke_registry, HpkeServerConfig, ServerConfig, TlsConfig},
     error::BoxError,
     executor::IpaRuntime,
     helpers::HelperIdentity,
@@ -61,10 +60,10 @@ struct ServerArgs {
     #[arg(short, long, required = true)]
     identity: Option<usize>,
 
-    #[arg(default_value = "0")]
+    #[arg(long, default_value = "0")]
     shard_index: Option<u32>,
 
-    #[arg(default_value = "1")]
+    #[arg(long, default_value = "1")]
     shard_count: Option<u32>,
 
     /// Port to listen on
@@ -72,7 +71,7 @@ struct ServerArgs {
     port: Option<u16>,
 
     /// Port to use for shard-to-shard communication, if sharded MPC is used
-    #[arg(default_value = "6000")]
+    #[arg(long, default_value = "6000")]
     shard_port: Option<u16>,
 
     /// Use the supplied prebound socket instead of binding a new socket for mpc
@@ -123,6 +122,7 @@ struct ServerArgs {
 
 #[derive(Debug, Subcommand)]
 enum HelperCommand {
+    ShardedConfgen(ShardedConfGenArgs),
     Confgen(ConfGenArgs),
     Keygen(KeygenArgs),
     TestSetup(TestSetupArgs),
@@ -182,8 +182,15 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
     let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
     let shard_index = ShardIndex::from(args.shard_index.expect("enforced by clap"));
     let shard_count = ShardIndex::from(args.shard_count.expect("enforced by clap"));
-    assert!(shard_index < shard_count);
-    assert_eq!(args.tls_cert.is_some(), !args.disable_https);
+    assert!(
+        shard_index < shard_count,
+        "Shard index should be lower than shard count"
+    );
+    assert_eq!(
+        args.tls_cert.is_some(),
+        !args.disable_https,
+        "Inconsistent configuration: TLS certs and disable_http"
+    );
 
     let (identity, server_tls) =
         create_client_identity(my_identity, args.tls_cert.clone(), args.tls_key.clone())?;
@@ -366,6 +373,7 @@ pub async fn main() {
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
         Some(HelperCommand::Confgen(args)) => client_config_setup(args),
+        Some(HelperCommand::ShardedConfgen(args)) => sharded_client_config_setup(args),
     };
 
     if let Err(e) = res {

@@ -4,6 +4,7 @@ mod kill;
 mod prepare;
 mod results;
 mod status;
+mod status_match;
 mod step;
 
 use std::marker::PhantomData;
@@ -21,8 +22,8 @@ use tower::{layer::layer_fn, Service};
 
 use crate::{
     net::{
-        server::ClientIdentity, transport::MpcHttpTransport, ConnectionFlavor, Helper, Shard,
-        ShardHttpTransport,
+        server::ClientIdentity, transport::MpcHttpTransport, ConnectionFlavor, Helper,
+        HttpTransport, Shard,
     },
     sync::Arc,
 };
@@ -48,18 +49,20 @@ pub fn query_router(transport: MpcHttpTransport) -> Router {
 /// particular query, to coordinate servicing that query.
 //
 // It might make sense to split the query and h2h handlers into two modules.
-pub fn h2h_router(transport: MpcHttpTransport) -> Router {
+pub fn h2h_router(transport: Arc<HttpTransport<Helper>>) -> Router {
     Router::new()
-        .merge(step::router(transport.clone()))
-        .merge(prepare::router(transport.inner_transport))
+        .merge(step::router(Arc::clone(&transport)))
+        .merge(prepare::router(transport))
         .layer(layer_fn(HelperAuthentication::<_, Helper>::new))
 }
 
 /// Construct router for shard-to-shard communications similar to [`h2h_router`].
-pub fn s2s_router(transport: ShardHttpTransport) -> Router {
+pub fn s2s_router(transport: Arc<HttpTransport<Shard>>) -> Router {
     Router::new()
-        .merge(prepare::router(Arc::clone(&transport.inner_transport)))
-        .merge(results::router(transport.inner_transport))
+        .merge(step::router(Arc::clone(&transport)))
+        .merge(prepare::router(Arc::clone(&transport)))
+        .merge(results::router(Arc::clone(&transport)))
+        .merge(status_match::router(transport))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
 }
 
@@ -124,12 +127,11 @@ pub mod test_helpers {
     use std::{any::Any, sync::Arc};
 
     use axum::body::Body;
-    use http_body_util::BodyExt;
     use hyper::{http::request, StatusCode};
 
     use crate::{
         helpers::{HelperIdentity, RequestHandler},
-        net::test::TestServer,
+        net::{test::TestServer, Helper},
     };
 
     /// Helper trait for optionally adding an extension to a request.
@@ -177,14 +179,6 @@ pub mod test_helpers {
         req: hyper::Request<Body>,
         handler: Arc<dyn RequestHandler<HelperIdentity>>,
     ) -> bytes::Bytes {
-        let test_server = TestServer::builder()
-            .with_request_handler(handler)
-            .build()
-            .await;
-        let resp = test_server.server.handle_req(req).await;
-        let status = resp.status();
-        assert_eq!(StatusCode::OK, status);
-
-        resp.into_body().collect().await.unwrap().to_bytes()
+        TestServer::<Helper>::oneshot_success(req, handler).await
     }
 }

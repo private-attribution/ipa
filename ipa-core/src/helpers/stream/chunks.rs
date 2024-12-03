@@ -26,7 +26,7 @@ pub enum ChunkData<'a, T, const N: usize> {
     Owned(Box<[T; N]>),
 }
 
-impl<'a, T, const N: usize> Deref for ChunkData<'a, T, N> {
+impl<T, const N: usize> Deref for ChunkData<'_, T, N> {
     type Target = [T; N];
 
     fn deref(&self) -> &Self::Target {
@@ -135,7 +135,7 @@ impl<T, const N: usize> Chunk<Vec<T>, N> {
         let Self { chunk_type, data } = self;
         debug_assert!(N % M == 0);
         let (mut len, expected) = if let ChunkType::Partial(len) = chunk_type {
-            (len, Expected::Range(((len + M - 1) / M)..=(N / M)))
+            (len, Expected::Range(len.div_ceil(M)..=(N / M)))
         } else {
             (N, Expected::Exactly(N / M))
         };
@@ -484,7 +484,7 @@ where
     <Const<DIVISOR> as ToUInt>::Output: Unsigned + typenum::NonZero,
 {
     let divisor = <Const<DIVISOR> as ToUInt>::Output::to_usize();
-    (dividend + divisor - 1) / divisor
+    dividend.div_ceil(divisor)
 }
 
 /// Trait to flatten a stream of iterables.

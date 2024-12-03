@@ -1,15 +1,21 @@
-use std::{convert::Into, marker::PhantomData, sync::Arc};
+use std::{
+    convert::{Infallible, Into},
+    marker::PhantomData,
+    ops::Add,
+    sync::Arc,
+};
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
+use generic_array::ArrayLength;
 
 use crate::{
-    error::Error,
+    error::{Error, LengthError},
     ff::{
         boolean::Boolean,
         boolean_array::{BooleanArray, BA3, BA8},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
-        U128Conversions,
+        Serializable, U128Conversions,
     },
     helpers::{
         query::{DpMechanism, HybridQueryParams, QuerySize},
@@ -17,7 +23,7 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, Reveal},
+        basics::{shard_fin::FinalizerContext, BooleanArrayMul, BooleanProtocols, Reveal},
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
             hybrid_protocol,
@@ -32,7 +38,10 @@ use crate::{
     report::hybrid::{
         EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+        Vectorizable,
+    },
 };
 
 #[allow(dead_code)]
@@ -55,8 +64,12 @@ impl<C, HV, R: PrivateKeyRegistry> Query<C, HV, R> {
 
 impl<C, HV, R> Query<C, HV, R>
 where
-    C: UpgradableContext + Shuffle + ShardedContext,
+    C: UpgradableContext
+        + Shuffle
+        + ShardedContext
+        + FinalizerContext<FinalizingContext = DZKPUpgraded<C>>,
     HV: BooleanArray + U128Conversions,
+    <HV as Serializable>::Size: Add<<HV as Serializable>::Size, Output: ArrayLength>,
     R: PrivateKeyRegistry,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
@@ -64,8 +77,16 @@ where
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<HV>: Serializable,
     Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
         + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
+    BitDecomposed<Replicated<Boolean, 256>>:
+        for<'bt> TransposeFrom<&'bt Vec<Replicated<HV>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, 256>>:
+        for<'bt> TransposeFrom<&'bt [Replicated<HV>; 256], Error = Infallible>,
+    Vec<Replicated<HV>>:
+        for<'bt> TransposeFrom<&'bt BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+    DZKPUpgraded<C>: ShardedContext,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
@@ -134,7 +155,7 @@ where
         #[cfg(not(feature = "relaxed-dp"))]
         let padding_params = PaddingParameters::default();
 
-        hybrid_protocol::<_, BA8, BA3, HV, 256>(
+        hybrid_protocol::<_, BA8, BA3, HV, 3, 256>(
             ctx,
             indistinguishable_reports,
             dp_params,
@@ -146,7 +167,10 @@ where
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod tests {
-    use std::{iter::zip, sync::Arc};
+    use std::{
+        iter::{repeat, zip},
+        sync::Arc,
+    };
 
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
@@ -163,14 +187,16 @@ mod tests {
         hpke::{KeyPair, KeyRegistry},
         query::runner::hybrid::Query as HybridQuery,
         report::{hybrid::HybridReport, DEFAULT_KEY_ID},
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        secret_sharing::IntoShares,
         test_executor::run,
         test_fixture::{
-            flatten3v, hybrid::TestHybridRecord, Reconstruct, RoundRobinInputDistribution,
-            TestWorld, TestWorldConfig, WithShards,
+            flatten3v,
+            hybrid::{build_hybrid_records_and_expectation, TestHybridRecord},
+            Reconstruct, RoundRobinInputDistribution, TestWorld, TestWorldConfig, WithShards,
         },
     };
 
+/*
     const EXPECTED: &[u128] = &[0, 8, 5];
 
     fn build_records() -> Vec<TestHybridRecord> {
@@ -225,7 +251,7 @@ mod tests {
             },
         ]
     }
-
+*/
     struct BufferAndKeyRegistry {
         buffers: [Vec<Vec<u8>>; 3],
         key_registry: Arc<KeyRegistry<KeyPair>>,
@@ -269,23 +295,28 @@ mod tests {
     }
 
     #[test]
-    // placeholder until the protocol is complete. can be updated to make sure we
-    // get to the unimplemented() call
-    #[should_panic(
-        expected = "not implemented: protocol::hybrid::hybrid_protocol is not fully implemented"
-    )]
     fn encrypted_hybrid_reports_happy() {
         // While this test currently checks for an unimplemented panic it is
         // designed to test for a correct result for a complete implementation.
         run(|| async {
             const SHARDS: usize = 2;
-            let records = build_records();
+            let (test_hybrid_records, mut expected) = build_hybrid_records_and_expectation();
+
+            match expected.len() {
+                len if len < 256 => {
+                    expected.extend(repeat(0).take(256 - len));
+                }
+                len if len > 256 => {
+                    panic!("no support for more than 256 breakdown_keys");
+                }
+                _ => {}
+            }
 
             let BufferAndKeyRegistry {
                 buffers,
                 key_registry,
                 query_sizes,
-            } = build_buffers_from_records(&records, SHARDS);
+            } = build_buffers_from_records(&test_hybrid_records, SHARDS);
 
             let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
             let contexts = world.malicious_contexts();
@@ -298,7 +329,10 @@ mod tests {
                         .zip(helper_ctxs)
                         .zip(query_sizes.clone())
                         .map(|((buffer, ctx), query_size)| {
-                            let query_params = HybridQueryParams::default();
+                            let query_params = HybridQueryParams {
+                                with_dp: 0,
+                                ..Default::default()
+                            };
                             let input = BodyStream::from(buffer);
 
                             HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
@@ -311,24 +345,26 @@ mod tests {
             ))
             .await;
 
-            let results: Vec<[Vec<AdditiveShare<BA16>>; 3]> = results
-                .chunks(3)
-                .map(|chunk| {
-                    [
-                        chunk[0].as_ref().unwrap().clone(),
-                        chunk[1].as_ref().unwrap().clone(),
-                        chunk[2].as_ref().unwrap().clone(),
-                    ]
-                })
-                .collect();
+            let leader_results: Vec<u32> = [
+                results[0].as_ref().unwrap().clone(),
+                results[1].as_ref().unwrap().clone(),
+                results[2].as_ref().unwrap().clone(),
+            ]
+            .reconstruct()
+            .iter()
+            .map(U128Conversions::as_u128)
+            .map(|x| u32::try_from(x).expect("test values constructed to fit in u32"))
+            .collect::<Vec<u32>>();
 
-            assert_eq!(
-                results.into_iter().next().unwrap().reconstruct()[0..3]
-                    .iter()
-                    .map(U128Conversions::as_u128)
-                    .collect::<Vec<u128>>(),
-                EXPECTED
-            );
+            assert_eq!(expected, leader_results);
+
+            let follower_results = [
+                results[3].as_ref().unwrap().clone(),
+                results[4].as_ref().unwrap().clone(),
+                results[5].as_ref().unwrap().clone(),
+            ]
+            .reconstruct();
+            assert_eq!(0, follower_results.len());
         });
     }
 
@@ -337,13 +373,13 @@ mod tests {
     #[should_panic(expected = "DuplicateBytes")]
     async fn duplicate_encrypted_hybrid_reports() {
         const SHARDS: usize = 2;
-        let records = build_records();
+        let (test_hybrid_records, _expected) = build_hybrid_records_and_expectation();
 
         let BufferAndKeyRegistry {
             mut buffers,
             key_registry,
             query_sizes,
-        } = build_buffers_from_records(&records, SHARDS);
+        } = build_buffers_from_records(&test_hybrid_records, SHARDS);
 
         // this is double, since we duplicate the data below
         let query_sizes = query_sizes
@@ -402,13 +438,13 @@ mod tests {
     )]
     async fn unsupported_plaintext_match_keys_hybrid_query() {
         const SHARDS: usize = 2;
-        let records = build_records();
+        let (test_hybrid_records, _expected) = build_hybrid_records_and_expectation();
 
         let BufferAndKeyRegistry {
             buffers,
             key_registry,
             query_sizes,
-        } = build_buffers_from_records(&records, SHARDS);
+        } = build_buffers_from_records(&test_hybrid_records, SHARDS);
 
         let world: TestWorld<WithShards<SHARDS, RoundRobinInputDistribution>> =
             TestWorld::with_shards(TestWorldConfig::default());

@@ -36,11 +36,10 @@ impl<'a> InstrumentedIndexedSharedRandomness<'a> {
 }
 
 impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
-    type ChunkIter<'a, Z: ArrayLength> = InstrumentedChunkIter<
-        'a,
-        <IndexedSharedRandomness as SharedRandomness>::ChunkIter<'a, Z>,
-    >
-    where Self: 'a;
+    type ChunkIter<'a, Z: ArrayLength>
+        = InstrumentedChunkIter<'a, <IndexedSharedRandomness as SharedRandomness>::ChunkIter<'a, Z>>
+    where
+        Self: 'a;
 
     fn generate_chunks_one_side<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,
@@ -72,7 +71,7 @@ pub struct InstrumentedChunkIter<'a, I: Iterator> {
     inner: I,
 }
 
-impl<'a, I: Iterator> Iterator for InstrumentedChunkIter<'a, I> {
+impl<I: Iterator> Iterator for InstrumentedChunkIter<'_, I> {
     type Item = <I as Iterator>::Item;
 
     fn next(&mut self) -> Option<Self::Item> {

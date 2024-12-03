@@ -30,10 +30,7 @@ use crate::{
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-            ReplicatedSecretSharing,
-        },
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
 };
@@ -170,7 +167,7 @@ where
     // Step 2: Convert to input from needed for aggregate_values
     let aggregation_input = Box::pin(stream::iter(vector_input_to_agg.into_iter()).map(Ok));
     // Step 3: Call `aggregate_values` to sum up Bernoulli noise.
-    let noise_vector: Result<BitDecomposed<AdditiveShare<Boolean, { B }>>, Error> =
+    let noise_vector: Result<BitDecomposed<Replicated<Boolean, { B }>>, Error> =
         aggregate_values::<_, OV, B>(ctx, aggregation_input, num_bernoulli, None).await;
     noise_vector
 }
@@ -242,8 +239,8 @@ where
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
-    BitDecomposed<AdditiveShare<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<OV>; B], Error = Infallible>,
 {
     let steps = MaliciousProtocolSteps {
         protocol: &IpaPrfStep::DifferentialPrivacy,
@@ -411,7 +408,7 @@ impl ShiftedTruncatedDiscreteLaplace {
         &self,
         rng: &mut R,
         direction_to_excluded_helper: Direction,
-    ) -> AdditiveShare<OV>
+    ) -> Replicated<OV>
     where
         R: RngCore + CryptoRng,
         OV: BooleanArray + U128Conversions,
@@ -420,10 +417,10 @@ impl ShiftedTruncatedDiscreteLaplace {
         let symmetric_sample = sample.wrapping_sub(self.shift) % self.modulus;
         match direction_to_excluded_helper {
             Direction::Left => {
-                AdditiveShare::new(OV::ZERO, OV::truncate_from(u128::from(symmetric_sample)))
+                Replicated::new(OV::ZERO, OV::truncate_from(u128::from(symmetric_sample)))
             }
             Direction::Right => {
-                AdditiveShare::new(OV::truncate_from(u128::from(symmetric_sample)), OV::ZERO)
+                Replicated::new(OV::truncate_from(u128::from(symmetric_sample)), OV::ZERO)
             }
         }
     }
@@ -444,11 +441,11 @@ where
     OV: BooleanArray + U128Conversions,
     Boolean: Vectorizable<B> + FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<C, B>,
-    BitDecomposed<AdditiveShare<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [AdditiveShare<OV>; B], Error = Infallible>,
-    AdditiveShare<OV>: ReplicatedSecretSharing<OV>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<OV>; B], Error = Infallible>,
+    Replicated<OV>: ReplicatedSecretSharing<OV>,
 {
-    let noise_values_array: [AdditiveShare<OV>; B] =
+    let noise_values_array: [Replicated<OV>; B] =
         if let Some(direction_to_excluded_helper) = ctx.role().direction_to(excluded_helper) {
             // Step 1: Helpers `h_i` and `h_i_plus_one` will get the same rng from PRSS
             // and use it to sample the same random Laplace noise sample from TruncatedDoubleGeometric.
@@ -465,10 +462,10 @@ where
         } else {
             //  before we can do integer_add we need the excluded Helper to set its shares to zero
             // for these noise values.
-            std::array::from_fn(|_i| AdditiveShare::new(OV::ZERO, OV::ZERO))
+            std::array::from_fn(|_i| Replicated::new(OV::ZERO, OV::ZERO))
         };
 
-    let noise_shares_vectorized: BitDecomposed<AdditiveShare<Boolean, B>> =
+    let noise_shares_vectorized: BitDecomposed<Replicated<Boolean, B>> =
         BitDecomposed::transposed_from(&noise_values_array).unwrap();
 
     //  Add DP noise to output values
@@ -619,12 +616,10 @@ mod test {
         },
         rand::thread_rng,
         secret_sharing::{
-            replicated::{
-                semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-                ReplicatedSecretSharing,
-            },
+            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
             BitDecomposed, SharedValue, TransposeFrom,
         },
+        sharding::NotSharded,
         telemetry::metrics::BYTES_SENT,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
@@ -663,7 +658,7 @@ mod test {
 
         let attempts = 10;
 
-        let mut left_noise_shares: AdditiveShare<OV> = AdditiveShare::new(OV::ZERO, OV::ZERO);
+        let mut left_noise_shares: Replicated<OV> = Replicated::new(OV::ZERO, OV::ZERO);
         for _i in 1..attempts {
             left_noise_shares =
                 shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Left);
@@ -674,7 +669,7 @@ mod test {
         assert_eq!(left_noise_shares.left(), OV::ZERO);
         assert_ne!(left_noise_shares.right(), OV::ZERO);
 
-        let mut right_noise_shares: AdditiveShare<OV> = AdditiveShare::new(OV::ZERO, OV::ZERO);
+        let mut right_noise_shares: Replicated<OV> = Replicated::new(OV::ZERO, OV::ZERO);
         for _i in 1..attempts {
             right_noise_shares =
                 shifted_truncated_discrete_laplace.sample_shares(&mut rng, Direction::Right);
@@ -869,7 +864,8 @@ mod test {
         if std::env::var("EXEC_SLOW_TESTS").is_err() {
             return;
         }
-        let world = TestWorld::default();
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -904,7 +900,8 @@ mod test {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 32;
         let num_bernoulli: u32 = 2000;
-        let world = TestWorld::default();
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -939,7 +936,8 @@ mod test {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 256;
         let num_bernoulli: u32 = 1000;
-        let world = TestWorld::default();
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(

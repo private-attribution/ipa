@@ -122,6 +122,8 @@ pub mod query {
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_ADD_STR => Ok(QueryType::TestAddInPrimeField),
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::TEST_SHARDED_SHUFFLE_STR => Ok(QueryType::TestShardedShuffle),
                 QueryType::SEMI_HONEST_OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::SemiHonestOprfIpa(q))
@@ -605,5 +607,49 @@ pub mod query {
         }
 
         pub const AXUM_PATH: &str = "/:query_id/kill";
+    }
+
+    pub mod status_match {
+        use serde::{Deserialize, Serialize};
+
+        use crate::{helpers::query::CompareStatusRequest, query::QueryStatus};
+
+        #[derive(Serialize, Deserialize)]
+        pub struct StatusQueryString {
+            pub status: QueryStatus,
+        }
+
+        impl StatusQueryString {
+            fn url_encode(&self) -> String {
+                // todo: serde urlencoded
+                format!("status={}", self.status)
+            }
+        }
+
+        impl From<QueryStatus> for StatusQueryString {
+            fn from(value: QueryStatus) -> Self {
+                Self { status: value }
+            }
+        }
+
+        pub fn try_into_http_request(
+            req: &CompareStatusRequest,
+            scheme: axum::http::uri::Scheme,
+            authority: axum::http::uri::Authority,
+        ) -> crate::net::http_serde::OutgoingRequest {
+            let uri = axum::http::uri::Uri::builder()
+                .scheme(scheme)
+                .authority(authority)
+                .path_and_query(format!(
+                    "{}/{}/status-match?{}",
+                    crate::net::http_serde::query::BASE_AXUM_PATH,
+                    req.query_id.as_ref(),
+                    StatusQueryString::from(req.status).url_encode(),
+                ))
+                .build()?;
+            Ok(hyper::Request::get(uri).body(axum::body::Body::empty())?)
+        }
+
+        pub const AXUM_PATH: &str = "/:query_id/status-match";
     }
 }

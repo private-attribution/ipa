@@ -913,7 +913,7 @@ impl<'a, B: ShardBinding> MaliciousDZKPValidator<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> Drop for MaliciousDZKPValidator<'a, B> {
+impl<B: ShardBinding> Drop for MaliciousDZKPValidator<'_, B> {
     fn drop(&mut self) {
         // If `validate` has not been called, and we are not unwinding, check that the
         // validator is not holding unverified multiplies.
@@ -972,7 +972,8 @@ mod tests {
         },
         seq_join::{seq_join, SeqJoin},
         sharding::NotSharded,
-        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
+        test_executor::run_random,
+        test_fixture::{join3v, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
     async fn test_select_semi_honest<V>()
@@ -1161,30 +1162,35 @@ mod tests {
         let a: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
         let b: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
 
-        let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] = TestWorld::default()
-            .malicious(
-                zip(bit.clone(), zip(a.clone(), b.clone())),
-                |ctx, inputs| async move {
-                    let v = ctx
-                        .set_total_records(count)
-                        .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
-                    let m_ctx = v.context();
+        // Timeout is 10 seconds plus count * (3 ms).
+        let config = TestWorldConfig::default()
+            .with_timeout_secs(10 + 3 * u64::try_from(count).unwrap() / 1000);
 
-                    v.validated_seq_join(stream::iter(inputs).enumerate().map(
-                        |(i, (bit_share, (a_share, b_share)))| {
-                            let m_ctx = m_ctx.clone();
-                            async move {
-                                select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
-                                    .await
-                            }
-                        },
-                    ))
-                    .try_collect()
-                    .await
-                },
-            )
-            .await
-            .map(Result::unwrap);
+        let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] =
+            TestWorld::<NotSharded>::with_config(&config)
+                .malicious(
+                    zip(bit.clone(), zip(a.clone(), b.clone())),
+                    |ctx, inputs| async move {
+                        let v = ctx
+                            .set_total_records(count)
+                            .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
+                        let m_ctx = v.context();
+
+                        v.validated_seq_join(stream::iter(inputs).enumerate().map(
+                            |(i, (bit_share, (a_share, b_share)))| {
+                                let m_ctx = m_ctx.clone();
+                                async move {
+                                    select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
+                                        .await
+                                }
+                            },
+                        ))
+                        .try_collect()
+                        .await
+                    },
+                )
+                .await
+                .map(Result::unwrap);
 
         let ab: Vec<V> = [ab0, ab1, ab2].reconstruct();
 
@@ -1354,7 +1360,11 @@ mod tests {
         }
     }
 
+    // This test is much slower in the multi-threading config, perhaps because the
+    // amount of work it does for each record is very small compared to the overhead of
+    // spawning tasks.
     #[tokio::test]
+    #[cfg(not(feature = "multi-threading"))]
     async fn large_batch() {
         multi_select_malicious::<BA8>(2 * TARGET_PROOF_SIZE, 2 * TARGET_PROOF_SIZE).await;
     }
@@ -1370,7 +1380,10 @@ mod tests {
         let a: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
         let b: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
 
-        let [ab0, ab1, ab2]: [Vec<Replicated<BA8>>; 3] = TestWorld::default()
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
+
+        let [ab0, ab1, ab2]: [Vec<Replicated<BA8>>; 3] = world
             .malicious(
                 zip(bit.clone(), zip(a.clone(), b.clone())),
                 |ctx, inputs| async move {
@@ -1523,85 +1536,91 @@ mod tests {
 
     #[test]
     fn batch_fill_out_of_order() {
-        let mut batch = Batch::with_implicit_first_record(3);
-        let ba0 = BA256::from((0, 0));
-        let ba1 = BA256::from((0, 1));
-        let ba2 = BA256::from((0, 2));
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba0,
-        ));
-        batch.push(Gate::default(), RecordId::from(0), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba2,
-        ));
-        batch.push(Gate::default(), RecordId::from(2), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba1,
-        ));
-        batch.push(Gate::default(), RecordId::from(1), segment.clone());
-        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
-            ba0.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
-            ba1.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
-            ba2.as_bitslice()
-        );
+        run_random(|mut rng| async move {
+            let mut batch = Batch::with_implicit_first_record(3);
+            let ba0 = rng.gen::<BA256>();
+            let ba1 = rng.gen::<BA256>();
+            let ba2 = rng.gen::<BA256>();
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba0),
+            );
+            batch.push(Gate::default(), RecordId::from(0), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba2),
+            );
+            batch.push(Gate::default(), RecordId::from(2), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba1),
+            );
+            batch.push(Gate::default(), RecordId::from(1), segment.clone());
+            assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+                ba0.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+                ba1.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+                ba2.as_bitslice()
+            );
+        });
     }
 
     #[test]
     fn batch_fill_at_offset() {
-        const SIZE: usize = 3;
-        let mut batch = Batch::with_implicit_first_record(SIZE);
-        let ba0 = BA256::from((0, 0));
-        let ba1 = BA256::from((0, 1));
-        let ba2 = BA256::from((0, 2));
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba0,
-        ));
-        batch.push(Gate::default(), RecordId::from(4), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba1,
-        ));
-        batch.push(Gate::default(), RecordId::from(5), segment.clone());
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba2,
-        ));
-        batch.push(Gate::default(), RecordId::from(6), segment.clone());
-        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
-            ba0.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
-            ba1.as_bitslice()
-        );
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
-            ba2.as_bitslice()
-        );
+        run_random(|mut rng| async move {
+            const SIZE: usize = 3;
+            let mut batch = Batch::with_implicit_first_record(SIZE);
+            let ba0 = rng.gen::<BA256>();
+            let ba1 = rng.gen::<BA256>();
+            let ba2 = rng.gen::<BA256>();
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba0),
+            );
+            batch.push(Gate::default(), RecordId::from(4), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba1),
+            );
+            batch.push(Gate::default(), RecordId::from(5), segment.clone());
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba2),
+            );
+            batch.push(Gate::default(), RecordId::from(6), segment.clone());
+            assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[0].x_left,
+                ba0.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[1].x_left,
+                ba1.as_bitslice()
+            );
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+                ba2.as_bitslice()
+            );
+        });
     }
 
     #[test]
     fn batch_explicit_first_record() {
-        const SIZE: usize = 3;
-        let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
-        let ba6 = BA256::from((0, 6));
-        let segment = segment_from_entry(<Boolean as DZKPCompatibleField<256>>::as_segment_entry(
-            &ba6,
-        ));
-        batch.push(Gate::default(), RecordId::from(6), segment.clone());
-        assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
-        assert_eq!(
-            batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
-            ba6.as_bitslice()
-        );
+        run_random(|mut rng| async move {
+            const SIZE: usize = 3;
+            let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
+            let ba6 = rng.gen::<BA256>();
+            let segment = segment_from_entry(
+                <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba6),
+            );
+            batch.push(Gate::default(), RecordId::from(6), segment.clone());
+            assert_eq!(batch.inner.get(&Gate::default()).unwrap().vec.len(), 3);
+            assert_eq!(
+                batch.inner.get(&Gate::default()).unwrap().vec[2].x_left,
+                ba6.as_bitslice()
+            );
+        });
     }
 
     #[test]

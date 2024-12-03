@@ -4,10 +4,12 @@ use std::{
     array::from_fn,
     borrow::Borrow,
     fmt::Debug,
+    future::IntoFuture,
     io::stdout,
     iter::{self, zip},
     marker::PhantomData,
     sync::Mutex,
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -108,6 +110,7 @@ pub struct TestWorld<S: ShardingScheme = NotSharded> {
     rng: Mutex<StdRng>,
     gate_vendor: Box<dyn TestGateVendor>,
     _shard_network: InMemoryShardNetwork,
+    timeout: Option<Duration>,
 }
 
 #[derive(Clone)]
@@ -155,6 +158,14 @@ pub struct TestWorldConfig {
     /// [`MaliciousHelper`]: crate::helpers::in_memory_config::MaliciousHelper
     /// [`passthrough`]: crate::helpers::in_memory_config::passthrough
     pub stream_interceptor: DynStreamInterceptor,
+
+    /// Timeout for tests run by this `TestWorld`.
+    ///
+    /// If `None`, there is no timeout.
+    ///
+    /// The timeout is implemented using tokio, so it will only be able to terminate the test if the
+    /// futures are yielding periodically.
+    pub timeout: Option<Duration>,
 }
 
 impl ShardingScheme for NotSharded {
@@ -347,6 +358,7 @@ impl<S: ShardingScheme> TestWorld<S> {
             rng: Mutex::new(rng),
             gate_vendor: gate_vendor(config.initial_gate.clone()),
             _shard_network: shard_network,
+            timeout: config.timeout,
         }
     }
 
@@ -375,6 +387,23 @@ impl<S: ShardingScheme> TestWorld<S> {
         // unfortunately take `&self`.
         StdRng::from_seed(self.rng.lock().unwrap().gen())
     }
+
+    async fn with_timeout<F: IntoFuture>(&self, fut: F) -> F::Output {
+        let timeout = if cfg!(feature = "shuttle") {
+            None
+        } else {
+            self.timeout
+        };
+        if let Some(timeout) = timeout {
+            let Ok(output) = tokio::time::timeout(timeout, fut).await else {
+                tracing::error!("timed out after {:?}", self.timeout);
+                panic!("timed out after {:?}", self.timeout);
+            };
+            output
+        } else {
+            fut.await
+        }
+    }
 }
 
 impl Default for TestWorldConfig {
@@ -392,6 +421,7 @@ impl Default for TestWorldConfig {
             seed: thread_rng().next_u64(),
             initial_gate: None,
             stream_interceptor: passthrough(),
+            timeout: Some(Duration::from_secs(10)),
         }
     }
 }
@@ -406,6 +436,18 @@ impl TestWorldConfig {
     #[must_use]
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
+        self
+    }
+
+    #[must_use]
+    pub fn with_timeout_secs(mut self, timeout_secs: u64) -> Self {
+        self.timeout = Some(Duration::from_secs(timeout_secs));
+        self
+    }
+
+    #[must_use]
+    pub fn with_no_timeout(mut self) -> Self {
+        self.timeout = None;
         self
     }
 
@@ -538,18 +580,20 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
         #[allow(clippy::redundant_closure)]
         let shard_fn = |ctx, input| helper_fn(ctx, input);
-        zip(shards.into_iter(), zip(zip(h1, h2), h3))
-            .map(|(shard, ((h1, h2), h3))| {
-                ShardWorld::<WithShards<SHARDS, D>>::run_either(
-                    shard.contexts(&gate),
-                    self.metrics_handle.span(),
-                    [h1, h2, h3],
-                    shard_fn,
-                )
-            })
-            .collect::<FuturesOrdered<_>>()
-            .collect::<Vec<_>>()
-            .await
+        self.with_timeout(
+            zip(shards.into_iter(), zip(zip(h1, h2), h3))
+                .map(|(shard, ((h1, h2), h3))| {
+                    ShardWorld::<WithShards<SHARDS, D>>::run_either(
+                        shard.contexts(&gate),
+                        self.metrics_handle.span(),
+                        [h1, h2, h3],
+                        shard_fn,
+                    )
+                })
+                .collect::<FuturesOrdered<_>>()
+                .collect::<Vec<_>>(),
+        )
+        .await
     }
 
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> Vec<[O; 3]>
@@ -573,18 +617,20 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
         // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
         #[allow(clippy::redundant_closure)]
         let shard_fn = |ctx, input| helper_fn(ctx, input);
-        zip(shards.into_iter(), zip(zip(h1, h2), h3))
-            .map(|(shard, ((h1, h2), h3))| {
-                ShardWorld::<WithShards<SHARDS, D>>::run_either(
-                    shard.malicious_contexts(&gate),
-                    self.metrics_handle.span(),
-                    [h1, h2, h3],
-                    shard_fn,
-                )
-            })
-            .collect::<FuturesOrdered<_>>()
-            .collect::<Vec<_>>()
-            .await
+        self.with_timeout(
+            zip(shards.into_iter(), zip(zip(h1, h2), h3))
+                .map(|(shard, ((h1, h2), h3))| {
+                    ShardWorld::<WithShards<SHARDS, D>>::run_either(
+                        shard.malicious_contexts(&gate),
+                        self.metrics_handle.span(),
+                        [h1, h2, h3],
+                        shard_fn,
+                    )
+                })
+                .collect::<FuturesOrdered<_>>()
+                .collect::<Vec<_>>(),
+        )
+        .await
     }
 
     async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(
@@ -645,12 +691,12 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         H: Fn(Self::SemiHonestContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        ShardWorld::<NotSharded>::run_either(
+        self.with_timeout(ShardWorld::<NotSharded>::run_either(
             self.contexts(),
             self.metrics_handle.span(),
             input.share_with(&mut self.rng()),
             helper_fn,
-        )
+        ))
         .await
     }
 
@@ -662,12 +708,12 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         H: Fn(Self::MaliciousContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        ShardWorld::<NotSharded>::run_either(
+        self.with_timeout(ShardWorld::<NotSharded>::run_either(
             self.malicious_contexts(),
             self.metrics_handle.span(),
             input.share_with(&mut self.rng()),
             helper_fn,
-        )
+        ))
         .await
     }
 
@@ -747,7 +793,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
         H: Fn(DZKPUpgradedSemiHonestContext<'a, NotSharded>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        ShardWorld::<NotSharded>::run_either(
+        self.with_timeout(ShardWorld::<NotSharded>::run_either(
             self.contexts(),
             self.metrics_handle.span(),
             input.share(),
@@ -758,7 +804,7 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
                 v.validate().await.unwrap();
                 m_result
             },
-        )
+        ))
         .await
     }
 
@@ -852,6 +898,7 @@ impl<S: ShardingScheme> ShardWorld<S> {
         }))
         .instrument(span)
         .await;
+
         <[_; 3]>::try_from(output).unwrap()
     }
 
