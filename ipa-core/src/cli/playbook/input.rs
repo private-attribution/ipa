@@ -62,7 +62,7 @@ impl InputItem for TestHybridRecord {
         let event_type = s.chars().nth(0).unwrap();
         match event_type {
             'i' => {
-                if let [_, match_key, number, helper_origin, key_id] =
+                if let [_, match_key, number, key_id, helper_origin] =
                     s.splitn(5, ',').collect::<Vec<_>>()[..]
                 {
                     let match_key: u64 = match_key
@@ -88,7 +88,7 @@ impl InputItem for TestHybridRecord {
             }
 
             'c' => {
-                if let [_, match_key, number, helper_origin, key_id, conversion_site_domain, timestamp, epsilon, sensitivity] =
+                if let [_, match_key, number, key_id, helper_origin, conversion_site_domain, timestamp, epsilon, sensitivity] =
                     s.splitn(9, ',').collect::<Vec<_>>()[..]
                 {
                     let match_key: u64 = match_key
