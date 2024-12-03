@@ -89,6 +89,9 @@ fn http_sharded_shuffle_3_shards() {
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
 
+    // Shuffle numbers from 1 to 10. `test_mpc` binary will check if they were
+    // permuted correctly. Our job here is to submit input large enough to avoid
+    // false negatives
     test_mpc
         .stdin
         .as_ref()
