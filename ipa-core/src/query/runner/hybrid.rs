@@ -196,62 +196,62 @@ mod tests {
         },
     };
 
-/*
-    const EXPECTED: &[u128] = &[0, 8, 5];
+    /*
+        const EXPECTED: &[u128] = &[0, 8, 5];
 
-    fn build_records() -> Vec<TestHybridRecord> {
-        vec![
-            TestHybridRecord::TestImpression {
-                match_key: 12345,
-                breakdown_key: 2,
-                key_id: 0,
-                helper_origin: "HELPER_ORIGIN".to_string(),
-            },
-            TestHybridRecord::TestImpression {
-                match_key: 68362,
-                breakdown_key: 1,
-                key_id: 0,
-                helper_origin: "HELPER_ORIGIN".to_string(),
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 12345,
-                value: 5,
-                key_id: 0,
-                helper_origin: "HELPER_ORIGIN".to_string(),
-                conversion_site_domain: "meta.com".to_string(),
-                timestamp: 102,
-                epsilon: 0.0,
-                sensitivity: 0.0,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 68362,
-                value: 2,
-                key_id: 0,
-                helper_origin: "HELPER_ORIGIN".to_string(),
-                conversion_site_domain: "meta.com".to_string(),
-                timestamp: 103,
-                epsilon: 0.0,
-                sensitivity: 0.0,
-            },
-            TestHybridRecord::TestImpression {
-                match_key: 68362,
-                breakdown_key: 1,
-                key_id: 0,
-                helper_origin: "HELPER_ORIGIN".to_string(),
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 68362,
-                value: 7,
-                key_id: 0,
-                helper_origin: "HELPER_ORIGIN".to_string(),
-                conversion_site_domain: "meta.com".to_string(),
-                timestamp: 102,
-                epsilon: 0.0,
-                sensitivity: 0.0,
-            },
-        ]
-    }
-*/
+        fn build_records() -> Vec<TestHybridRecord> {
+            vec![
+                TestHybridRecord::TestImpression {
+                    match_key: 12345,
+                    breakdown_key: 2,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                },
+                TestHybridRecord::TestImpression {
+                    match_key: 68362,
+                    breakdown_key: 1,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                },
+                TestHybridRecord::TestConversion {
+                    match_key: 12345,
+                    value: 5,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 102,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
+                },
+                TestHybridRecord::TestConversion {
+                    match_key: 68362,
+                    value: 2,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 103,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
+                },
+                TestHybridRecord::TestImpression {
+                    match_key: 68362,
+                    breakdown_key: 1,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                },
+                TestHybridRecord::TestConversion {
+                    match_key: 68362,
+                    value: 7,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 102,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
+                },
+            ]
+        }
+    */
     struct BufferAndKeyRegistry {
         buffers: [Vec<Vec<u8>>; 3],
         key_registry: Arc<KeyRegistry<KeyPair>>,
