@@ -6,18 +6,35 @@ use crate::{
         U128Conversions,
     },
     rand::Rng,
-    report::hybrid::{
-        AggregateableHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
-        IndistinguishableHybridReport,
+    report::{
+        hybrid::{
+            AggregateableHybridReport, HybridConversionReport, HybridImpressionReport,
+            HybridReport, IndistinguishableHybridReport, KeyIdentifier,
+        },
+        hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::sharing::Reconstruct,
 };
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum TestHybridRecord {
-    TestImpression { match_key: u64, breakdown_key: u32 },
-    TestConversion { match_key: u64, value: u32 },
+    TestImpression {
+        match_key: u64,
+        breakdown_key: u32,
+        key_id: KeyIdentifier,
+        helper_origin: String,
+    },
+    TestConversion {
+        match_key: u64,
+        value: u32,
+        key_id: KeyIdentifier,
+        helper_origin: String,
+        conversion_site_domain: String,
+        timestamp: u64,
+        epsilon: f64,
+        sensitivity: f64,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -118,6 +135,8 @@ where
             TestHybridRecord::TestImpression {
                 match_key,
                 breakdown_key,
+                key_id,
+                helper_origin,
             } => {
                 let ba_match_key = BA64::try_from(u128::from(match_key))
                     .unwrap()
@@ -130,13 +149,23 @@ where
                         HybridReport::Impression::<BK, V>(HybridImpressionReport {
                             match_key: match_key_share,
                             breakdown_key: breakdown_key_share,
+                            info: HybridImpressionInfo::new(key_id, &helper_origin).unwrap(),
                         })
                     })
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap()
             }
-            TestHybridRecord::TestConversion { match_key, value } => {
+            TestHybridRecord::TestConversion {
+                match_key,
+                value,
+                key_id,
+                helper_origin,
+                conversion_site_domain,
+                timestamp,
+                epsilon,
+                sensitivity,
+            } => {
                 let ba_match_key = BA64::try_from(u128::from(match_key))
                     .unwrap()
                     .share_with(rng);
@@ -146,6 +175,15 @@ where
                         HybridReport::Conversion::<BK, V>(HybridConversionReport {
                             match_key: match_key_share,
                             value: value_share,
+                            info: HybridConversionInfo::new(
+                                key_id,
+                                &helper_origin,
+                                &conversion_site_domain,
+                                timestamp,
+                                epsilon,
+                                sensitivity,
+                            )
+                            .unwrap(),
                         })
                     })
                     .collect::<Vec<_>>()
@@ -225,63 +263,126 @@ pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn build_hybrid_records_and_expectation() -> (Vec<TestHybridRecord>, Vec<u32>) {
+    let helper_origin = "HELPER_ORIGIN".to_string();
+    let conversion_site_domain = "meta.com".to_string();
     let test_hybrid_records = vec![
         TestHybridRecord::TestConversion {
             match_key: 12345,
             value: 2,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 100,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // malicious client attributed to breakdown 0
         TestHybridRecord::TestConversion {
             match_key: 12345,
             value: 5,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 101,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // malicious client attributed to breakdown 0
         TestHybridRecord::TestImpression {
             match_key: 23456,
             breakdown_key: 4,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
         }, // attributed
         TestHybridRecord::TestConversion {
             match_key: 23456,
             value: 7,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 102,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // attributed
         TestHybridRecord::TestImpression {
             match_key: 34567,
             breakdown_key: 1,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
         }, // no conversion
         TestHybridRecord::TestImpression {
             match_key: 45678,
             breakdown_key: 3,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
         }, // attributed
         TestHybridRecord::TestConversion {
             match_key: 45678,
             value: 5,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 103,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // attributed
         TestHybridRecord::TestImpression {
             match_key: 56789,
             breakdown_key: 5,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
         }, // no conversion
         TestHybridRecord::TestConversion {
             match_key: 67890,
             value: 2,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 104,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // NOT attributed
         TestHybridRecord::TestImpression {
             match_key: 78901,
             breakdown_key: 2,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
         }, // too many reports
         TestHybridRecord::TestConversion {
             match_key: 78901,
             value: 3,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 105,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // not attributed, too many reports
         TestHybridRecord::TestConversion {
             match_key: 78901,
             value: 4,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 103,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // not attributed, too many reports
         TestHybridRecord::TestImpression {
             match_key: 89012,
             breakdown_key: 4,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
         }, // attributed
         TestHybridRecord::TestConversion {
             match_key: 89012,
             value: 6,
+            key_id: 0,
+            helper_origin: helper_origin.clone(),
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 103,
+            epsilon: 0.0,
+            sensitivity: 0.0,
         }, // attributed
     ];
 
