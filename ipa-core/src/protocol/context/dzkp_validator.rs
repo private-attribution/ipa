@@ -1162,9 +1162,9 @@ mod tests {
         let a: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
         let b: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
 
-        // Timeout is 20 seconds plus count * (5 ms).
+        // Timeout is 10 seconds plus count * (3 ms).
         let config = TestWorldConfig::default()
-            .with_timeout_secs(20 + 5 * u64::try_from(count).unwrap() / 1000);
+            .with_timeout_secs(10 + 3 * u64::try_from(count).unwrap() / 1000);
 
         let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] =
             TestWorld::<NotSharded>::with_config(&config)
@@ -1360,7 +1360,11 @@ mod tests {
         }
     }
 
+    // This test is much slower in the multi-threading config, perhaps because the
+    // amount of work it does for each record is very small compared to the overhead of
+    // spawning tasks.
     #[tokio::test]
+    #[cfg(not(feature = "multi-threading"))]
     async fn large_batch() {
         multi_select_malicious::<BA8>(2 * TARGET_PROOF_SIZE, 2 * TARGET_PROOF_SIZE).await;
     }
