@@ -59,60 +59,81 @@ impl InputItem for TestRawDataRecord {
 
 impl InputItem for TestHybridRecord {
     fn from_str(s: &str) -> Self {
-        if let [event_type, match_key, number, key_id, helper_origin, conversion_site_domain, timestamp, epsilon, sensitivity] =
-            s.splitn(9, ',').collect::<Vec<_>>()[..]
-        {
-            let match_key: u64 = match_key
-                .parse()
-                .unwrap_or_else(|e| panic!("Expected an u64, got {match_key}: {e}"));
+        let event_type = s.chars().nth(0).unwrap();
+        match event_type {
+            'i' => {
+                if let [_, match_key, number, helper_origin, key_id] =
+                    s.splitn(5, ',').collect::<Vec<_>>()[..]
+                {
+                    let match_key: u64 = match_key
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected a u64, got {match_key}: {e}"));
 
-            let number: u32 = number
-                .parse()
-                .unwrap_or_else(|e| panic!("Expected an u32, got {number}: {e}"));
+                    let number: u32 = number
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected a u32, got {number}: {e}"));
 
-            let key_id: u8 = key_id
-                .parse()
-                .unwrap_or_else(|e| panic!("Expected an u8, got {key_id}: {e}"));
+                    let key_id: u8 = key_id
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected a u8, got {key_id}: {e}"));
+                    TestHybridRecord::TestImpression {
+                        match_key,
+                        breakdown_key: number,
+                        key_id,
+                        helper_origin: helper_origin.to_string(),
+                    }
+                } else {
+                    panic!("{s} is not a valid {}", type_name::<Self>())
+                }
+            }
 
-            let timestamp: u64 = timestamp
-                .parse()
-                .unwrap_or_else(|e| panic!("Expected an u64, got {timestamp}: {e}"));
+            'c' => {
+                if let [_, match_key, number, helper_origin, key_id, conversion_site_domain, timestamp, epsilon, sensitivity] =
+                    s.splitn(9, ',').collect::<Vec<_>>()[..]
+                {
+                    let match_key: u64 = match_key
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected a u64, got {match_key}: {e}"));
 
-            let epsilon: f64 = epsilon
-                .parse()
-                .unwrap_or_else(|e| panic!("Expected an f64, got {epsilon}: {e}"));
+                    let number: u32 = number
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected a u32, got {number}: {e}"));
 
-            let sensitivity: f64 = sensitivity
-                .parse()
-                .unwrap_or_else(|e| panic!("Expected an f64, got {sensitivity}: {e}"));
+                    let key_id: u8 = key_id
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected a u8, got {key_id}: {e}"));
 
-            match event_type {
-                "i" => TestHybridRecord::TestImpression {
-                    match_key,
-                    breakdown_key: number,
-                    key_id,
-                    helper_origin: helper_origin.to_string(),
-                },
+                    let timestamp: u64 = timestamp
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected a u64, got {timestamp}: {e}"));
 
-                "c" => TestHybridRecord::TestConversion {
-                    match_key,
-                    value: number,
-                    key_id,
-                    helper_origin: helper_origin.to_string(),
-                    conversion_site_domain: conversion_site_domain.to_string(),
-                    timestamp,
-                    epsilon,
-                    sensitivity,
-                },
-                _ => panic!(
-                    "{}",
-                    format!(
+                    let epsilon: f64 = epsilon
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected an f64, got {epsilon}: {e}"));
+
+                    let sensitivity: f64 = sensitivity
+                        .parse()
+                        .unwrap_or_else(|e| panic!("Expected an f64, got {sensitivity}: {e}"));
+                    TestHybridRecord::TestConversion {
+                        match_key,
+                        value: number,
+                        key_id,
+                        helper_origin: helper_origin.to_string(),
+                        conversion_site_domain: conversion_site_domain.to_string(),
+                        timestamp,
+                        epsilon,
+                        sensitivity,
+                    }
+                } else {
+                    panic!("{s} is not a valid {}", type_name::<Self>())
+                }
+            }
+            _ => panic!(
+                "{}",
+                format!(
                     "Invalid input. Rows should start with 'i' or 'c'. Did not expect {event_type}"
                 )
-                ),
-            }
-        } else {
-            panic!("{s} is not a valid {}", type_name::<Self>())
+            ),
         }
     }
 }
