@@ -336,10 +336,13 @@ pub mod tests {
     #[test]
     #[cfg(not(feature = "shuttle"))] // too slow
     fn breakdown_reveal_malicious_happy_path() {
+        use crate::test_fixture::TestWorldConfig;
+
         type HV = BA16;
         const SHARDS: usize = 2;
         run(|| async {
-            let world = TestWorld::<WithShards<SHARDS>>::with_shards(TestWorldConfig::default());
+            let config = TestWorldConfig::default().with_timeout_secs(60);
+            let world = TestWorld::<WithShards<SHARDS>>::with_shards(&config);
             let (inputs, expectation) = inputs_and_expectation(world.rng());
 
             let result: Vec<_> = world

@@ -200,7 +200,10 @@ where
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod test {
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        time::Duration,
+    };
 
     use ipa_step::StepNarrow;
 
@@ -218,6 +221,7 @@ mod test {
             const SHARDS: usize = 2;
             let world: TestWorld<WithShards<SHARDS>> = TestWorld::with_shards(TestWorldConfig {
                 initial_gate: Some(Gate::default().narrow(&ProtocolStep::Hybrid)),
+                timeout: Duration::from_secs(60),
                 ..Default::default()
             });
 

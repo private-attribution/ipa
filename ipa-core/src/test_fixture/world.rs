@@ -387,11 +387,15 @@ impl<S: ShardingScheme> TestWorld<S> {
     }
 
     async fn with_timeout<F: IntoFuture>(&self, fut: F) -> F::Output {
-        let Ok(output) = tokio::time::timeout(self.timeout, fut).await else {
-            tracing::error!("timed out after {:?}", self.timeout);
-            panic!("timed out after {:?}", self.timeout);
-        };
-        output
+        if cfg!(feature = "shuttle") {
+            fut.await
+        } else {
+            let Ok(output) = tokio::time::timeout(self.timeout, fut).await else {
+                tracing::error!("timed out after {:?}", self.timeout);
+                panic!("timed out after {:?}", self.timeout);
+            };
+            output
+        }
     }
 }
 

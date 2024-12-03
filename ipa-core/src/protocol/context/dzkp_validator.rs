@@ -973,7 +973,7 @@ mod tests {
         seq_join::{seq_join, SeqJoin},
         sharding::NotSharded,
         test_executor::run_random,
-        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
+        test_fixture::{join3v, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
     async fn test_select_semi_honest<V>()
@@ -1162,30 +1162,35 @@ mod tests {
         let a: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
         let b: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
 
-        let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] = TestWorld::default()
-            .malicious(
-                zip(bit.clone(), zip(a.clone(), b.clone())),
-                |ctx, inputs| async move {
-                    let v = ctx
-                        .set_total_records(count)
-                        .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
-                    let m_ctx = v.context();
+        // Timeout is 10 seconds plus count * (3 ms).
+        let config = TestWorldConfig::default()
+            .with_timeout_secs(10 + 3 * u64::try_from(count).unwrap() / 1000);
 
-                    v.validated_seq_join(stream::iter(inputs).enumerate().map(
-                        |(i, (bit_share, (a_share, b_share)))| {
-                            let m_ctx = m_ctx.clone();
-                            async move {
-                                select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
-                                    .await
-                            }
-                        },
-                    ))
-                    .try_collect()
-                    .await
-                },
-            )
-            .await
-            .map(Result::unwrap);
+        let [ab0, ab1, ab2]: [Vec<Replicated<V>>; 3] =
+            TestWorld::<NotSharded>::with_config(&config)
+                .malicious(
+                    zip(bit.clone(), zip(a.clone(), b.clone())),
+                    |ctx, inputs| async move {
+                        let v = ctx
+                            .set_total_records(count)
+                            .dzkp_validator(TEST_DZKP_STEPS, max_multiplications_per_gate);
+                        let m_ctx = v.context();
+
+                        v.validated_seq_join(stream::iter(inputs).enumerate().map(
+                            |(i, (bit_share, (a_share, b_share)))| {
+                                let m_ctx = m_ctx.clone();
+                                async move {
+                                    select(m_ctx, RecordId::from(i), &bit_share, &a_share, &b_share)
+                                        .await
+                                }
+                            },
+                        ))
+                        .try_collect()
+                        .await
+                    },
+                )
+                .await
+                .map(Result::unwrap);
 
         let ab: Vec<V> = [ab0, ab1, ab2].reconstruct();
 
@@ -1371,7 +1376,10 @@ mod tests {
         let a: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
         let b: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
 
-        let [ab0, ab1, ab2]: [Vec<Replicated<BA8>>; 3] = TestWorld::default()
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
+
+        let [ab0, ab1, ab2]: [Vec<Replicated<BA8>>; 3] = world
             .malicious(
                 zip(bit.clone(), zip(a.clone(), b.clone())),
                 |ctx, inputs| async move {

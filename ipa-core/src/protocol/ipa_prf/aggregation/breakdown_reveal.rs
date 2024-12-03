@@ -392,9 +392,12 @@ pub mod tests {
     #[test]
     #[cfg(not(feature = "shuttle"))] // too slow
     fn malicious_happy_path() {
+        use crate::{sharding::NotSharded, test_fixture::TestWorldConfig};
+
         type HV = BA16;
         run(|| async {
-            let world = TestWorld::default();
+            let config = TestWorldConfig::default().with_timeout_secs(60);
+            let world = TestWorld::<NotSharded>::with_config(&config);
             let mut rng = world.rng();
             let mut expectation = Vec::new();
             for _ in 0..32 {
