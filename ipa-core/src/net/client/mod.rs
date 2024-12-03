@@ -384,6 +384,31 @@ impl<F: ConnectionFlavor> IpaHttpClient<F> {
         let resp = self.request(req).await?;
         resp_ok(resp).await
     }
+
+    /// This API is used by leader shards in MPC to request query status information on peers.
+    /// If a given peer has status that doesn't match the one provided by the leader, it responds
+    /// with 412 error and encodes its status inside the response body. Otherwise, 200 is returned.
+    ///
+    /// # Errors
+    /// If the request has illegal arguments, or fails to be delivered
+    pub async fn status_match(&self, data: CompareStatusRequest) -> Result<(), Error> {
+        let req = http_serde::query::status_match::try_into_http_request(
+            &data,
+            self.scheme.clone(),
+            self.authority.clone(),
+        )?;
+        let resp = self.request(req).await?;
+
+        match resp.status() {
+            StatusCode::OK => Ok(()),
+            StatusCode::PRECONDITION_FAILED => {
+                let bytes = response_to_bytes(resp).await?;
+                let err = serde_json::from_slice::<ShardQueryStatusMismatchError>(&bytes)?;
+                Err(err.into())
+            }
+            _ => Err(Error::from_failed_resp(resp).await),
+        }
+    }
 }
 
 impl IpaHttpClient<Helper> {
@@ -508,31 +533,6 @@ impl IpaHttpClient<Shard> {
                 )
             })
             .collect()
-    }
-
-    /// This API is used by leader shards in MPC to request query status information on peers.
-    /// If a given peer has status that doesn't match the one provided by the leader, it responds
-    /// with 412 error and encodes its status inside the response body. Otherwise, 200 is returned.
-    ///
-    /// # Errors
-    /// If the request has illegal arguments, or fails to be delivered
-    pub async fn status_match(&self, data: CompareStatusRequest) -> Result<(), Error> {
-        let req = http_serde::query::status_match::try_into_http_request(
-            &data,
-            self.scheme.clone(),
-            self.authority.clone(),
-        )?;
-        let resp = self.request(req).await?;
-
-        match resp.status() {
-            StatusCode::OK => Ok(()),
-            StatusCode::PRECONDITION_FAILED => {
-                let bytes = response_to_bytes(resp).await?;
-                let err = serde_json::from_slice::<ShardQueryStatusMismatchError>(&bytes)?;
-                Err(err.into())
-            }
-            _ => Err(Error::from_failed_resp(resp).await),
-        }
     }
 }
 
