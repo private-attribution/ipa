@@ -386,8 +386,9 @@ mod tests {
         rand::thread_rng,
         secret_sharing::SharedValue,
         seq_join::{seq_join, SeqJoin},
+        sharding::NotSharded,
         test_executor::run,
-        test_fixture::{ReconstructArr, Runner, TestWorld},
+        test_fixture::{ReconstructArr, Runner, TestWorld, TestWorldConfig},
     };
 
     #[test]
@@ -457,7 +458,8 @@ mod tests {
             const COUNT: usize = CONV_CHUNK * PROOF_CHUNK * 2 + 1;
             const TOTAL_RECORDS: usize = COUNT.div_ceil(CONV_CHUNK);
 
-            let world = TestWorld::default();
+            let config = TestWorldConfig::default().with_timeout_secs(60);
+            let world = TestWorld::<NotSharded>::with_config(&config);
 
             let mut rng = thread_rng();
 

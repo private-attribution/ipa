@@ -619,6 +619,7 @@ mod test {
             replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
             BitDecomposed, SharedValue, TransposeFrom,
         },
+        sharding::NotSharded,
         telemetry::metrics::BYTES_SENT,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
@@ -863,7 +864,8 @@ mod test {
         if std::env::var("EXEC_SLOW_TESTS").is_err() {
             return;
         }
-        let world = TestWorld::default();
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -898,7 +900,8 @@ mod test {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 32;
         let num_bernoulli: u32 = 2000;
-        let world = TestWorld::default();
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
@@ -933,7 +936,8 @@ mod test {
         type OutputValue = BA16;
         const NUM_BREAKDOWNS: u32 = 256;
         let num_bernoulli: u32 = 1000;
-        let world = TestWorld::default();
+        let config = TestWorldConfig::default().with_timeout_secs(60);
+        let world = TestWorld::<NotSharded>::with_config(&config);
         let result: [Vec<Replicated<OutputValue>>; 3] = world
             .dzkp_semi_honest((), |ctx, ()| async move {
                 Vec::transposed_from(
