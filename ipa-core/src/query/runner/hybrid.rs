@@ -1,10 +1,12 @@
 use std::{
     convert::{Infallible, Into},
     marker::PhantomData,
+    ops::Add,
     sync::Arc,
 };
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
+use generic_array::ArrayLength;
 
 use crate::{
     error::{Error, LengthError},
@@ -13,7 +15,7 @@ use crate::{
         boolean_array::{BooleanArray, BA3, BA8},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
-        U128Conversions,
+        Serializable, U128Conversions,
     },
     helpers::{
         query::{DpMechanism, HybridQueryParams, QuerySize},
@@ -21,7 +23,7 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, Reveal},
+        basics::{shard_fin::FinalizerContext, BooleanArrayMul, BooleanProtocols, Reveal},
         context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
         hybrid::{
             hybrid_protocol,
@@ -71,8 +73,12 @@ impl<'a, C, HV, R: PrivateKeyRegistry> Query<'a, C, HV, R> {
 
 impl<'a, C, HV, R> Query<'a, C, HV, R>
 where
-    C: UpgradableContext + Shuffle + ShardedContext,
+    C: UpgradableContext
+        + Shuffle
+        + ShardedContext
+        + FinalizerContext<FinalizingContext = DZKPUpgraded<C>>,
     HV: BooleanArray + U128Conversions,
+    <HV as Serializable>::Size: Add<<HV as Serializable>::Size, Output: ArrayLength>,
     R: PrivateKeyRegistry,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
@@ -80,12 +86,16 @@ where
     Replicated<RP25519, PRF_CHUNK>:
         Reveal<MacUpgraded<C, Fp25519>, Output = <RP25519 as Vectorizable<PRF_CHUNK>>::Array>,
     Replicated<Boolean>: BooleanProtocols<DZKPUpgraded<C>>,
+    Replicated<HV>: Serializable,
     Replicated<BA8>: BooleanArrayMul<DZKPUpgraded<C>>
         + Reveal<DZKPUpgraded<C>, Output = <BA8 as Vectorizable<1>>::Array>,
     BitDecomposed<Replicated<Boolean, 256>>:
-        for<'b> TransposeFrom<&'b [Replicated<HV>; 256], Error = Infallible>,
+        for<'bt> TransposeFrom<&'bt Vec<Replicated<HV>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, 256>>:
+        for<'bt> TransposeFrom<&'bt [Replicated<HV>; 256], Error = Infallible>,
     Vec<Replicated<HV>>:
-        for<'b> TransposeFrom<&'b BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+        for<'bt> TransposeFrom<&'bt BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
+    DZKPUpgraded<C>: ShardedContext,
 {
     #[tracing::instrument("hybrid_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
@@ -303,32 +313,26 @@ mod tests {
             ))
             .await;
 
-            // TODO: after landing #1446, refactor this to only take the first 3
-            // vectors, then validate that all other vectors reconstruct to 0.
-            let results: Vec<u128> = results
-                .chunks(3)
-                .map(|chunk| {
-                    [
-                        chunk[0].as_ref().unwrap().clone(),
-                        chunk[1].as_ref().unwrap().clone(),
-                        chunk[2].as_ref().unwrap().clone(),
-                    ]
-                    .reconstruct()
-                    .iter()
-                    .map(U128Conversions::as_u128)
-                    .collect::<Vec<u128>>()
-                })
-                .fold(([0_u128; 256]).to_vec(), |acc, v| {
-                    acc.into_iter().zip(v).map(|(a, b)| a + b).collect()
-                });
+            let leader_results: Vec<u32> = [
+                results[0].as_ref().unwrap().clone(),
+                results[1].as_ref().unwrap().clone(),
+                results[2].as_ref().unwrap().clone(),
+            ]
+            .reconstruct()
+            .iter()
+            .map(U128Conversions::as_u128)
+            .map(|x| u32::try_from(x).expect("test values constructed to fit in u32"))
+            .collect::<Vec<u32>>();
 
-            assert_eq!(
-                results
-                    .iter()
-                    .map(|&x| u32::try_from(x).expect("test values should fit in u32"))
-                    .collect::<Vec<u32>>(),
-                expected
-            );
+            assert_eq!(expected, leader_results);
+
+            let follower_results = [
+                results[3].as_ref().unwrap().clone(),
+                results[4].as_ref().unwrap().clone(),
+                results[5].as_ref().unwrap().clone(),
+            ]
+            .reconstruct();
+            assert_eq!(0, follower_results.len());
         });
     }
 

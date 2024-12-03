@@ -3,7 +3,7 @@ mod if_else;
 pub(crate) mod mul;
 mod reshare;
 mod reveal;
-mod shard_fin;
+pub(crate) mod shard_fin;
 mod share_known_value;
 pub mod share_validation;
 pub mod step;

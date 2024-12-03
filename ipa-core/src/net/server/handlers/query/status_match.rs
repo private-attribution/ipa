@@ -45,7 +45,7 @@ pub fn router(transport: Arc<HttpTransport<Shard>>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::borrow::Borrow;
+    use std::{borrow::Borrow, sync::Arc};
 
     use axum::{
         body::Body,
@@ -58,11 +58,14 @@ mod tests {
             make_owned_handler,
             query::CompareStatusRequest,
             routing::{Addr, RouteId},
-            ApiError, BodyStream, HelperResponse,
+            ApiError, BodyStream, HelperResponse, RequestHandler,
         },
         net::{
-            http_serde::query::status_match::try_into_http_request, server::ClientIdentity,
-            test::TestServer, Shard,
+            error::ShardQueryStatusMismatchError,
+            http_serde::query::status_match::try_into_http_request,
+            server::ClientIdentity,
+            test::{TestServer, TestServerBuilder},
+            Error, Shard,
         },
         protocol::QueryId,
         query::{QueryStatus, QueryStatusError},
@@ -91,42 +94,90 @@ mod tests {
         req
     }
 
-    #[tokio::test]
-    async fn status_success() {
-        let expected_status = QueryStatus::Running;
-        let expected_query_id = QueryId;
-
-        let handler = make_owned_handler(
+    fn handler_status_match(expected_status: QueryStatus) -> Arc<dyn RequestHandler<ShardIndex>> {
+        make_owned_handler(
             move |addr: Addr<ShardIndex>, _data: BodyStream| async move {
                 let RouteId::QueryStatus = addr.route else {
                     panic!("unexpected call");
                 };
                 let req = addr.into::<CompareStatusRequest>().unwrap();
-                assert_eq!(req.query_id, expected_query_id);
+                assert_eq!(req.query_id, QueryId);
                 assert_eq!(req.status, expected_status);
                 Ok(HelperResponse::ok())
             },
-        );
+        )
+    }
+
+    fn handler_status_mismatch(
+        expected_status: QueryStatus,
+    ) -> Arc<dyn RequestHandler<ShardIndex>> {
+        assert_ne!(expected_status, QueryStatus::Running);
+
+        make_owned_handler(
+            move |addr: Addr<ShardIndex>, _data: BodyStream| async move {
+                let RouteId::QueryStatus = addr.route else {
+                    panic!("unexpected call");
+                };
+                let req = addr.into::<CompareStatusRequest>().unwrap();
+                assert_eq!(req.query_id, QueryId);
+                Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
+                    query_id: QueryId,
+                    my_status: QueryStatus::Running,
+                    other_status: expected_status,
+                }))
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn status_success() {
+        let expected_status = QueryStatus::Running;
         let req = authenticated(http_request(for_status(expected_status)));
 
-        TestServer::<Shard>::oneshot_success(req, handler).await;
+        TestServer::<Shard>::oneshot_success(req, handler_status_match(expected_status)).await;
+    }
+
+    #[tokio::test]
+    async fn status_client_success() {
+        let expected_status = QueryStatus::Running;
+        let test_server = TestServerBuilder::<Shard>::default()
+            .with_request_handler(handler_status_match(expected_status))
+            .build()
+            .await;
+
+        test_server
+            .client
+            .status_match(for_status(expected_status))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn status_client_mismatch() {
+        let diff_status = QueryStatus::Preparing;
+        let test_server = TestServerBuilder::<Shard>::default()
+            .with_request_handler(handler_status_mismatch(diff_status))
+            .build()
+            .await;
+        let e = test_server
+            .client
+            .status_match(for_status(diff_status))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            e,
+            Error::ShardQueryStatusMismatch {
+                error: ShardQueryStatusMismatchError {
+                    actual: QueryStatus::Running
+                },
+            }
+        ));
     }
 
     #[tokio::test]
     async fn status_mismatch() {
         let req_status = QueryStatus::Completed;
-        let handler = make_owned_handler(
-            move |addr: Addr<ShardIndex>, _data: BodyStream| async move {
-                let RouteId::QueryStatus = addr.route else {
-                    panic!("unexpected call");
-                };
-                Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
-                    query_id: QueryId,
-                    my_status: QueryStatus::Running,
-                    other_status: req_status,
-                }))
-            },
-        );
+        let handler = handler_status_mismatch(req_status);
         let req = authenticated(http_request(for_status(req_status)));
 
         let resp = TestServer::<Shard>::oneshot(req, handler).await;
