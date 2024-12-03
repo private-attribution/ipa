@@ -33,10 +33,10 @@ use crate::{
     },
     executor::IpaRuntime,
     helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
         TransportIdentity,
     },
-    net::{http_serde, Error, CRYPTO_PROVIDER},
+    net::{error::ShardQueryStatusMismatchError, http_serde, Error, CRYPTO_PROVIDER},
     protocol::{Gate, QueryId},
 };
 
@@ -509,6 +509,31 @@ impl IpaHttpClient<Shard> {
             })
             .collect()
     }
+
+    /// This API is used by leader shards in MPC to request query status information on peers.
+    /// If a given peer has status that doesn't match the one provided by the leader, it responds
+    /// with 412 error and encodes its status inside the response body. Otherwise, 200 is returned.
+    ///
+    /// # Errors
+    /// If the request has illegal arguments, or fails to be delivered
+    pub async fn status_match(&self, data: CompareStatusRequest) -> Result<(), Error> {
+        let req = http_serde::query::status_match::try_into_http_request(
+            &data,
+            self.scheme.clone(),
+            self.authority.clone(),
+        )?;
+        let resp = self.request(req).await?;
+
+        match resp.status() {
+            StatusCode::OK => Ok(()),
+            StatusCode::PRECONDITION_FAILED => {
+                let bytes = response_to_bytes(resp).await?;
+                let err = serde_json::from_slice::<ShardQueryStatusMismatchError>(&bytes)?;
+                Err(err.into())
+            }
+            _ => Err(Error::from_failed_resp(resp).await),
+        }
+    }
 }
 
 fn make_http_connector() -> HttpConnector {
@@ -537,7 +562,7 @@ pub(crate) mod tests {
         ff::{FieldType, Fp31},
         helpers::{
             make_owned_handler, query::QueryType::TestMultiply, BytesStream, HelperIdentity,
-            HelperResponse, RequestHandler, RoleAssignment, Transport, MESSAGE_PAYLOAD_SIZE_BYTES,
+            HelperResponse, RequestHandler, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::test::TestServer,
         protocol::step::TestExecutionStep,
@@ -734,7 +759,7 @@ pub(crate) mod tests {
         resp_ok(resp).await.unwrap();
 
         let mut stream = transport
-            .receive(HelperIdentity::ONE, (QueryId, expected_step.clone()))
+            .receive(HelperIdentity::ONE, &(QueryId, expected_step.clone()))
             .into_bytes_stream();
 
         assert_eq!(
