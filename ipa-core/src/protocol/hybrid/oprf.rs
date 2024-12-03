@@ -225,26 +225,50 @@ mod test {
                 TestHybridRecord::TestImpression {
                     match_key: 12345,
                     breakdown_key: 2,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
                 },
                 TestHybridRecord::TestImpression {
                     match_key: 68362,
                     breakdown_key: 1,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
                 },
                 TestHybridRecord::TestConversion {
                     match_key: 12345,
                     value: 5,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 100,
+                epsilon: 0.0,
+                sensitivity: 0.0
                 },
                 TestHybridRecord::TestConversion {
                     match_key: 68362,
                     value: 2,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 102,
+                epsilon: 0.0,
+                sensitivity: 0.0
                 },
                 TestHybridRecord::TestImpression {
                     match_key: 68362,
                     breakdown_key: 1,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
                 },
                 TestHybridRecord::TestConversion {
                     match_key: 68362,
                     value: 7,
+                    key_id: 0,
+                    helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 104,
+                epsilon: 0.0,
+                sensitivity: 0.0
                 },
             ];
 

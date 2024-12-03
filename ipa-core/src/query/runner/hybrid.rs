@@ -39,19 +39,19 @@ use crate::{
 };
 
 #[allow(dead_code)]
-pub struct Query<'a, C, HV, R: PrivateKeyRegistry> {
+pub struct Query<C, HV, R: PrivateKeyRegistry> {
     config: HybridQueryParams,
     key_registry: Arc<R>,
-    hybrid_info: HybridInfo<'a>,
+    hybrid_info: HybridInfo,
     phantom_data: PhantomData<(C, HV)>,
 }
 
 #[allow(dead_code)]
-impl<'a, C, HV, R: PrivateKeyRegistry> Query<'a, C, HV, R> {
+impl<C, HV, R: PrivateKeyRegistry> Query<C, HV, R> {
     pub fn new(
         query_params: HybridQueryParams,
         key_registry: Arc<R>,
-        hybrid_info: HybridInfo<'a>,
+        hybrid_info: HybridInfo,
     ) -> Self {
         Self {
             config: query_params,
@@ -62,7 +62,7 @@ impl<'a, C, HV, R: PrivateKeyRegistry> Query<'a, C, HV, R> {
     }
 }
 
-impl<'a, C, HV, R> Query<'a, C, HV, R>
+impl<C, HV, R> Query<C, HV, R>
 where
     C: UpgradableContext + Shuffle + ShardedContext,
     HV: BooleanArray + U128Conversions,
@@ -188,26 +188,50 @@ mod tests {
             TestHybridRecord::TestImpression {
                 match_key: 12345,
                 breakdown_key: 2,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             },
             TestHybridRecord::TestImpression {
                 match_key: 68362,
                 breakdown_key: 1,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             },
             TestHybridRecord::TestConversion {
                 match_key: 12345,
                 value: 5,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 102,
+                epsilon: 0.0,
+                sensitivity: 0.0
             },
             TestHybridRecord::TestConversion {
                 match_key: 68362,
                 value: 2,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 103,
+                epsilon: 0.0,
+                sensitivity: 0.0
             },
             TestHybridRecord::TestImpression {
                 match_key: 68362,
                 breakdown_key: 1,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             },
             TestHybridRecord::TestConversion {
                 match_key: 68362,
                 value: 7,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 102,
+                epsilon: 0.0,
+                sensitivity: 0.0
             },
         ]
     }

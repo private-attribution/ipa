@@ -198,60 +198,120 @@ pub mod test {
             TestHybridRecord::TestImpression {
                 match_key: SHARD1_MKS[0],
                 breakdown_key: 45,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             },
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[1],
                 value: 1,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 102,
+                epsilon: 0.0,
+                sensitivity: 0.0
             }, // attributed
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[2],
                 value: 3,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 103,
+                epsilon: 0.0,
+                sensitivity: 0.0
             },
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[3],
                 value: 4,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 104,
+                epsilon: 0.0,
+                sensitivity: 0.0
             }, // not attibuted, but duplicated conversion. will land in breakdown_key 0
             TestHybridRecord::TestImpression {
                 match_key: SHARD1_MKS[4],
                 breakdown_key: 1,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             }, // duplicated impression with same match_key
             TestHybridRecord::TestImpression {
                 match_key: SHARD1_MKS[4],
                 breakdown_key: 2,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             }, // duplicated impression with same match_key
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[5],
                 value: 7,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 105,
+                epsilon: 0.0,
+                sensitivity: 0.0
             }, // removed
         ];
         let shard2_records = [
             TestHybridRecord::TestImpression {
                 match_key: SHARD2_MKS[0],
                 breakdown_key: 56,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             },
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[1],
                 value: 2,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 100,
+                epsilon: 0.0,
+                sensitivity: 0.0
             }, // attributed
             TestHybridRecord::TestImpression {
                 match_key: SHARD2_MKS[2],
                 breakdown_key: 78,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             }, // NOT attributed
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[3],
                 value: 5,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 101,
+                epsilon: 0.0,
+                sensitivity: 0.0
             }, // NOT attributed
             TestHybridRecord::TestImpression {
                 match_key: SHARD2_MKS[4],
                 breakdown_key: 90,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
             }, // attributed twice, removed
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[5],
                 value: 6,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 102,
+                epsilon: 0.0,
+                sensitivity: 0.0
             }, // attributed twice, removed
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[6],
                 value: 7,
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: 103,
+                epsilon: 0.0,
+                sensitivity: 0.0
             }, // attributed twice, removed
         ];
 

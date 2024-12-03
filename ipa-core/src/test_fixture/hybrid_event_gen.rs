@@ -134,6 +134,12 @@ impl<R: Rng> EventGenerator<R> {
             value: self
                 .rng
                 .gen_range(1..self.config.max_conversion_value.get()),
+                key_id: 0,
+                helper_origin: "HELPER_ORIGIN".to_string(),
+                conversion_site_domain: "meta.com".to_string(),
+                timestamp: self.rng.gen_range(0..1000),
+                epsilon: 0.0,
+                sensitivity: 0.0
         }
     }
 
@@ -141,6 +147,8 @@ impl<R: Rng> EventGenerator<R> {
         TestHybridRecord::TestImpression {
             match_key,
             breakdown_key: self.rng.gen_range(0..self.config.max_breakdown_key.get()),
+            key_id: 0,
+            helper_origin: "HELPER_ORIGIN".to_string(),
         }
     }
 }
@@ -265,6 +273,7 @@ mod tests {
                 TestHybridRecord::TestImpression {
                     match_key,
                     breakdown_key,
+                    ..
                 } => {
                     assert!(breakdown_key <= MAX_BREAKDOWN_KEY);
                     match_key_to_event_count
@@ -272,7 +281,7 @@ mod tests {
                         .and_modify(|count| *count += 1)
                         .or_insert(1);
                 }
-                TestHybridRecord::TestConversion { match_key, value } => {
+                TestHybridRecord::TestConversion { match_key, value, .. } => {
                     assert!(value <= MAX_VALUE);
                     match_key_to_event_count
                         .entry(match_key)
@@ -319,6 +328,7 @@ mod tests {
                 TestHybridRecord::TestImpression {
                     match_key,
                     breakdown_key,
+                    ..
                 } => {
                     assert!(breakdown_key <= MAX_BREAKDOWN_KEY);
                     match_keys.insert(match_key);
@@ -348,7 +358,7 @@ mod tests {
         let mut match_keys = HashSet::new();
         for event in gen.take(NUM_EVENTS) {
             match event {
-                TestHybridRecord::TestConversion { match_key, value } => {
+                TestHybridRecord::TestConversion { match_key, value, .. } => {
                     assert!(value <= MAX_VALUE);
                     match_keys.insert(match_key);
                 }
