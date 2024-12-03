@@ -15,7 +15,7 @@ use time::{Duration, OffsetDateTime};
 
 use crate::{error::BoxError, hpke::KeyPair};
 
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, Args)]
 #[clap(
     name = "keygen",
     about = "Generate keys used by an MPC helper",

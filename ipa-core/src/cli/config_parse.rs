@@ -255,6 +255,7 @@ fn assert_hpke_config(expected: &Value, actual: Option<&HpkeClientConfig>) {
 #[allow(dead_code)]
 pub trait HelperNetworkConfigParseExt {
     fn from_toml_str(input: &str) -> Result<NetworkConfig<Helper>, Error>;
+    fn from_toml_str_sharded(input: &str) -> Result<Vec<NetworkConfig<Helper>>, Error>;
 }
 
 /// Reads config from string. Expects config to be toml format.
@@ -273,6 +274,24 @@ impl HelperNetworkConfigParseExt for NetworkConfig<Helper> {
                 .collect(),
             all_network.client.clone(),
         ))
+    }
+    fn from_toml_str_sharded(input: &str) -> Result<Vec<NetworkConfig<Helper>>, Error> {
+        let all_network = parse_sharded_network_toml(input)?;
+        // peers are grouped by shard, meaning 0,1,2 describe MPC for shard 0.
+        // 3,4,5 describe shard 1, etc.
+        Ok(all_network
+            .peers
+            .chunks(3)
+            .map(|mpc_config| {
+                NetworkConfig::new_mpc(
+                    mpc_config
+                        .iter()
+                        .map(ShardedPeerConfigToml::to_mpc_peer)
+                        .collect(),
+                    all_network.client.clone(),
+                )
+            })
+            .collect())
     }
 }
 

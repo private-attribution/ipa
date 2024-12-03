@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use super::min_status;
 use crate::{
-    error::{BoxError, Error as ProtocolError},
+    error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
@@ -368,7 +368,8 @@ impl Processor {
     /// This helper function is used to transform a [`BoxError`] into a
     /// [`QueryStatusError::DifferentStatus`] and retrieve it's internal state. Returns [`None`]
     /// if not possible.
-    fn downcast_state_error(box_error: BoxError) -> Option<QueryStatus> {
+    #[cfg(feature = "in-memory-infra")]
+    fn downcast_state_error(box_error: crate::error::BoxError) -> Option<QueryStatus> {
         use crate::helpers::ApiError;
         let api_error = box_error.downcast::<ApiError>().ok()?;
         if let ApiError::QueryStatus(QueryStatusError::DifferentStatus { my_status, .. }) =
@@ -399,8 +400,8 @@ impl Processor {
     /// of relying on errors.
     #[cfg(feature = "real-world-infra")]
     fn get_state_from_error(shard_error: crate::net::ShardError) -> Option<QueryStatus> {
-        if let crate::net::Error::Application { error, .. } = shard_error.source {
-            return Self::downcast_state_error(error);
+        if let crate::net::Error::ShardQueryStatusMismatch { error, .. } = shard_error.source {
+            return Some(error.actual);
         }
         None
     }
@@ -431,6 +432,10 @@ impl Processor {
         let shard_responses = shard_transport.broadcast(shard_query_status_req).await;
         if let Err(e) = shard_responses {
             // The following silently ignores the cases where the query isn't found.
+            // TODO: this code is a ticking bomb - it ignores all errors, not just when
+            // query is not found. If there is no handler, handler responded with an error, etc.
+            // Moreover, any error may result in client mistakenly assuming that the status
+            // is completed.
             let states: Vec<_> = e
                 .failures
                 .into_iter()

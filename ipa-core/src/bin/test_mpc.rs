@@ -5,13 +5,18 @@ use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        playbook::{make_clients, secure_add, secure_mul, validate, InputSource},
+        playbook::{
+            make_clients, make_sharded_clients, secure_add, secure_mul, secure_shuffle, validate,
+            InputSource,
+        },
         Verbosity,
     },
-    ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions},
+    ff::{
+        boolean_array::BA64, Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions,
+    },
     helpers::query::{
         QueryConfig,
-        QueryType::{TestAddInPrimeField, TestMultiply},
+        QueryType::{TestAddInPrimeField, TestMultiply, TestShardedShuffle},
     },
     net::{Helper, IpaHttpClient},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
@@ -103,11 +108,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Scheme::HTTPS
     };
 
-    let (clients, _) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
-        TestAction::Multiply => multiply(&args, &clients).await,
-        TestAction::AddInPrimeField => add(&args, &clients).await,
-        TestAction::ShardedShuffle => sharded_shuffle(&args, &clients).await,
+        TestAction::Multiply => {
+            let (clients, _) = make_clients(args.network.as_deref(), scheme, args.wait).await;
+            multiply(&args, &clients).await
+        }
+        TestAction::AddInPrimeField => {
+            let (clients, _) = make_clients(args.network.as_deref(), scheme, args.wait).await;
+            add(&args, &clients).await
+        }
+        TestAction::ShardedShuffle => {
+            // we need clients to talk to each individual shard
+            let clients = make_sharded_clients(
+                args.network
+                    .as_deref()
+                    .expect("network config is required for sharded shuffle"),
+                scheme,
+                args.wait,
+            )
+            .await;
+            sharded_shuffle(&args, clients).await
+        }
     };
 
     Ok(())
@@ -166,6 +187,20 @@ async fn add(args: &Args, helper_clients: &[IpaHttpClient<Helper>; 3]) {
     };
 }
 
-async fn sharded_shuffle(_args: &Args, _helper_clients: &[IpaHttpClient<Helper>; 3]) {
-    unimplemented!()
+async fn sharded_shuffle(args: &Args, helper_clients: Vec<[IpaHttpClient<Helper>; 3]>) {
+    let input = InputSource::from(&args.input);
+    let input_rows = input
+        .iter::<u64>()
+        .map(BA64::truncate_from)
+        .collect::<Vec<_>>();
+    let query_config =
+        QueryConfig::new(TestShardedShuffle, args.input.field, input_rows.len()).unwrap();
+    let query_id = helper_clients[0][0]
+        .create_query(query_config)
+        .await
+        .unwrap();
+    let shuffled = secure_shuffle(input_rows.clone(), &helper_clients, query_id).await;
+
+    assert_eq!(shuffled.len(), input_rows.len());
+    assert_ne!(shuffled, input_rows);
 }
