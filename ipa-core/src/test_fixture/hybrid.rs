@@ -12,7 +12,7 @@ use crate::{
     report::{hybrid::{
         AggregateableHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
         IndistinguishableHybridReport, KeyIdentifier,
-    }, hybrid_info::HybridConversionInfo},
+    }, hybrid_info::{HybridConversionInfo, HybridImpressionInfo}},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::sharing::Reconstruct,
 };
@@ -135,6 +135,7 @@ where
                         HybridReport::Impression::<BK, V>(HybridImpressionReport {
                             match_key: match_key_share,
                             breakdown_key: breakdown_key_share,
+                            info: HybridImpressionInfo::new(key_id, &helper_origin).unwrap(),
                         })
                     })
                     .collect::<Vec<_>>()
