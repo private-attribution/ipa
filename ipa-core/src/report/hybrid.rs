@@ -445,7 +445,6 @@ where
         &self,
         key_id: KeyIdentifier,
         key_registry: &impl PublicKeyRegistry,
-        info: &HybridInfo,
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
@@ -469,7 +468,6 @@ where
         &self,
         key_id: KeyIdentifier,
         key_registry: &impl PublicKeyRegistry,
-        info: &HybridInfo,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidHybridReportError> {
         match self {
@@ -488,7 +486,6 @@ where
         &self,
         key_id: KeyIdentifier,
         key_registry: &impl PublicKeyRegistry,
-        info: &HybridInfo,
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
@@ -1081,7 +1078,6 @@ where
     pub fn decrypt<P: PrivateKeyRegistry>(
         &self,
         key_registry: &P,
-        info: &HybridInfo,
     ) -> Result<HybridReport<BK, V>, InvalidHybridReportError> {
         match self {
             EncryptedHybridReport::Impression(impression_report) => Ok(HybridReport::Impression(
@@ -1544,17 +1540,14 @@ mod test {
             let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
             let key_id = 0;
 
-            let info = HybridInfo::new(key_id, HELPER_ORIGIN, "meta.com", 1_729_707_432, 5.0, 1.1)
-                .unwrap();
-
             let enc_report_bytes = hybrid_report
-                .encrypt(key_id, &key_registry, &info, &mut rng)
+                .encrypt(key_id, &key_registry, &mut rng)
                 .unwrap();
 
             let enc_report =
                 EncryptedHybridReport::<BA8, BA3>::from_bytes(enc_report_bytes.into()).unwrap();
             let dec_report: HybridReport<BA8, BA3> =
-                enc_report.decrypt(&key_registry, &info).unwrap();
+                enc_report.decrypt(&key_registry).unwrap();
 
             assert_eq!(dec_report, hybrid_report);
         });
@@ -1603,9 +1596,7 @@ mod test {
                 }
             }
             // Case 2: Decrypt directly
-            let info = HybridInfo::new(0, "HELPER_ORIGIN", "meta.com", 1_729_707_432, 5.0, 1.1).unwrap();
-
-            let dec_report3 = enc_report3.decrypt(&key_registry, &info).unwrap();
+            let dec_report3 = enc_report3.decrypt(&key_registry).unwrap();
             assert_eq!(
                 dec_report3,
                 HybridReport::Conversion(hybrid_conversion_report)
