@@ -59,7 +59,9 @@ impl InputItem for TestRawDataRecord {
 
 impl InputItem for TestHybridRecord {
     fn from_str(s: &str) -> Self {
-        if let [event_type, match_key, number] = s.splitn(3, ',').collect::<Vec<_>>()[..] {
+        if let [event_type, match_key, number, key_id, helper_origin, conversion_site_domain, timestamp, epsilon, sensitivity] =
+            s.splitn(9, ',').collect::<Vec<_>>()[..]
+        {
             let match_key: u64 = match_key
                 .parse()
                 .unwrap_or_else(|e| panic!("Expected an u64, got {match_key}: {e}"));
@@ -68,15 +70,39 @@ impl InputItem for TestHybridRecord {
                 .parse()
                 .unwrap_or_else(|e| panic!("Expected an u32, got {number}: {e}"));
 
+            let key_id: u8 = key_id
+                .parse()
+                .unwrap_or_else(|e| panic!("Expected an u8, got {key_id}: {e}"));
+
+            let timestamp: u64 = timestamp
+                .parse()
+                .unwrap_or_else(|e| panic!("Expected an u64, got {timestamp}: {e}"));
+
+            let epsilon: f64 = epsilon
+                .parse()
+                .unwrap_or_else(|e| panic!("Expected an f64, got {epsilon}: {e}"));
+
+            let sensitivity: f64 = sensitivity
+                .parse()
+                .unwrap_or_else(|e| panic!("Expected an f64, got {sensitivity}: {e}"));
+
             match event_type {
                 "i" => TestHybridRecord::TestImpression {
                     match_key,
                     breakdown_key: number,
+                    key_id,
+                    helper_origin: helper_origin.to_string(),
                 },
 
                 "c" => TestHybridRecord::TestConversion {
                     match_key,
                     value: number,
+                    key_id,
+                    helper_origin: helper_origin.to_string(),
+                    conversion_site_domain: conversion_site_domain.to_string(),
+                    timestamp,
+                    epsilon,
+                    sensitivity,
                 },
                 _ => panic!(
                     "{}",

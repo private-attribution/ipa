@@ -193,6 +193,7 @@ pub mod test {
     const SHARD1_MKS: [u64; 7] = [12345, 12345, 34567, 34567, 78901, 78901, 78901];
     const SHARD2_MKS: [u64; 7] = [23456, 23456, 45678, 56789, 67890, 67890, 67890];
 
+    #[allow(clippy::too_many_lines)]
     fn get_records() -> Vec<TestHybridRecord> {
         let shard1_records = [
             TestHybridRecord::TestImpression {
@@ -209,7 +210,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 102,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[2],
@@ -219,7 +220,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 103,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             },
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[3],
@@ -229,7 +230,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 104,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // not attibuted, but duplicated conversion. will land in breakdown_key 0
             TestHybridRecord::TestImpression {
                 match_key: SHARD1_MKS[4],
@@ -251,7 +252,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 105,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // removed
         ];
         let shard2_records = [
@@ -269,7 +270,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 100,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed
             TestHybridRecord::TestImpression {
                 match_key: SHARD2_MKS[2],
@@ -285,7 +286,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 101,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // NOT attributed
             TestHybridRecord::TestImpression {
                 match_key: SHARD2_MKS[4],
@@ -301,7 +302,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 102,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed twice, removed
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[6],
@@ -311,7 +312,7 @@ pub mod test {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 103,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed twice, removed
         ];
 

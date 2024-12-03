@@ -1,4 +1,7 @@
-use crate::report::{hybrid::{NonAsciiStringError, InvalidHybridReportError}, KeyIdentifier};
+use crate::report::{
+    hybrid::{InvalidHybridReportError, NonAsciiStringError},
+    KeyIdentifier,
+};
 
 const DOMAIN: &str = "private-attribution";
 
@@ -13,10 +16,7 @@ impl HybridImpressionInfo {
     ///
     /// ## Errors
     /// if helper or site origin is not a valid ASCII string.
-    pub fn new(
-        key_id: KeyIdentifier,
-        helper_origin: &str,
-    ) -> Result<Self, NonAsciiStringError> {
+    pub fn new(key_id: KeyIdentifier, helper_origin: &str) -> Result<Self, NonAsciiStringError> {
         // If the types of errors returned from this function change, then the validation in
         // `EncryptedReport::from_bytes` may need to change as well.
         if !helper_origin.is_ascii() {
@@ -31,6 +31,7 @@ impl HybridImpressionInfo {
 
     // Converts this instance into an owned byte slice that can further be used to create HPKE
     // sender or receiver context.
+    #[must_use]
     pub fn to_bytes(&self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
             + self.helper_origin.len()
@@ -50,17 +51,36 @@ impl HybridImpressionInfo {
         r.into_boxed_slice()
     }
 
-    pub fn from_bytes(bytes: &[u8]) ->  Result<Self, InvalidHybridReportError> {
+    /// ## Errors
+    /// If deserialization fails.
+    /// ## Panics
+    /// If not enough delimiters are found in the input bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, InvalidHybridReportError> {
         let mut pos = 0;
 
-        let domain = std::str::from_utf8(&bytes[pos..pos + DOMAIN.len()]).unwrap();
-        assert!(domain == DOMAIN, "HPKE Info domain does not match hardcoded domain");
+        let domain = std::str::from_utf8(&bytes[pos..pos + DOMAIN.len()]).map_err(|e| {
+            InvalidHybridReportError::DeserializationError("HybridImpressionInfo: domain", e.into())
+        })?;
+        assert!(
+            domain == DOMAIN,
+            "HPKE Info domain does not match hardcoded domain"
+        );
         pos += DOMAIN.len() + 1;
 
-        let delimiter_pos = bytes[pos..].iter().position(|&b| b == 0).unwrap();
-        let helper_origin = String::from_utf8(bytes[pos..pos + delimiter_pos].to_vec()).unwrap();
-
-        pos += delimiter_pos + 1;
+        let delimiter_pos = bytes[pos..]
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or_else(|| panic!("not enough delimiters for HybridImpressionInfo"));
+        let helper_origin =
+            String::from_utf8(bytes[pos..pos + delimiter_pos].to_vec()).map_err(|e| {
+                InvalidHybridReportError::DeserializationError(
+                    "HybridImpressionInfo: helper_origin",
+                    e.into(),
+                )
+            })?;
+        pos += delimiter_pos;
+        debug_assert!(pos + 2 == bytes.len(), "{}", format!("bytes for HybridImpressionInfo::from_bytes has incorrect length. Expected: {}, Actual: {}", pos + 2, bytes.len()).to_string());
+        pos += 1;
 
         let key_id = bytes[pos];
 
@@ -72,7 +92,7 @@ impl HybridImpressionInfo {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct HybridConversionInfo{
+pub struct HybridConversionInfo {
     pub key_id: KeyIdentifier,
     pub helper_origin: String,
     pub conversion_site_domain: String,
@@ -81,7 +101,7 @@ pub struct HybridConversionInfo{
     pub sensitivity: f64,
 }
 
-impl HybridConversionInfo{
+impl HybridConversionInfo {
     /// Creates a new instance.
     ///
     /// ## Errors
@@ -116,6 +136,7 @@ impl HybridConversionInfo{
 
     // Converts this instance into an owned byte slice that can further be used to create HPKE
     // sender or receiver context.
+    #[must_use]
     pub fn to_bytes(&self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
             + self.helper_origin.len()
@@ -144,20 +165,48 @@ impl HybridConversionInfo{
         r.into_boxed_slice()
     }
 
-    pub fn from_bytes(bytes: &[u8]) ->  Result<Self, InvalidHybridReportError> {
+    /// ## Errors
+    /// If deserialization fails.
+    /// ## Panics
+    /// If not enough delimiters are found in the input bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, InvalidHybridReportError> {
         let mut pos = 0;
 
-        let domain = std::str::from_utf8(&bytes[pos..pos + DOMAIN.len()]).unwrap();
-        assert!(domain == DOMAIN, "HPKE Info domain does not match hardcoded domain");
+        let domain = std::str::from_utf8(&bytes[pos..pos + DOMAIN.len()]).map_err(|e| {
+            InvalidHybridReportError::DeserializationError("HybridConversionInfo: domain", e.into())
+        })?;
+        assert!(
+            domain == DOMAIN,
+            "HPKE Info domain does not match hardcoded domain"
+        );
         pos += DOMAIN.len() + 1;
 
-        let mut delimiter_pos = bytes[pos..].iter().position(|&b| b == 0).unwrap();
-        let helper_origin = String::from_utf8(bytes[pos..pos + delimiter_pos].to_vec()).unwrap();
+        let mut delimiter_pos = bytes[pos..]
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or_else(|| panic!("not enough delimiters for HybridConversionInfo"));
+        let helper_origin =
+            String::from_utf8(bytes[pos..pos + delimiter_pos].to_vec()).map_err(|e| {
+                InvalidHybridReportError::DeserializationError(
+                    "HybridConversionInfo: helper_origin",
+                    e.into(),
+                )
+            })?;
         pos += delimiter_pos + 1;
 
-        delimiter_pos = bytes[pos..].iter().position(|&b| b == 0).unwrap();
-        let conversion_site_domain = String::from_utf8(bytes[pos..pos + delimiter_pos].to_vec()).unwrap();
+        delimiter_pos = bytes[pos..]
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or_else(|| panic!("not enough delimiters for HybridConversionInfo"));
+        let conversion_site_domain = String::from_utf8(bytes[pos..pos + delimiter_pos].to_vec())
+            .map_err(|e| {
+                InvalidHybridReportError::DeserializationError(
+                    "HybridConversionInfo: conversion_site_domain",
+                    e.into(),
+                )
+            })?;
         pos += delimiter_pos + 1;
+        debug_assert!(pos + 25 == bytes.len(), "{}", format!("bytes for HybridConversionInfo::from_bytes has incorrect length. Expected: {}, Actual: {}", pos + 25, bytes.len()).to_string());
 
         let key_id = bytes[pos];
         pos += 1;
@@ -184,7 +233,7 @@ pub struct HybridInfo {
     pub conversion: HybridConversionInfo,
 }
 
-impl HybridInfo{
+impl HybridInfo {
     /// Creates a new instance.
     /// ## Errors
     /// if helper or site origin is not a valid ASCII string.
@@ -211,13 +260,16 @@ impl HybridInfo{
         })
     }
 
+    #[must_use]
     pub fn to_bytes(&self) -> Box<[u8]> {
         self.conversion.to_bytes()
     }
 
+    /// ## Errors
+    /// If deserialization fails.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, InvalidHybridReportError> {
         let conversion = HybridConversionInfo::from_bytes(bytes)?;
-        let impression = HybridImpressionInfo{
+        let impression = HybridImpressionInfo {
             key_id: conversion.key_id,
             helper_origin: conversion.helper_origin.clone(),
         };
@@ -241,16 +293,39 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_hybrid_conversion_serialization() {
-        let info = HybridConversionInfo::new(0, "https://www.example.com", "https://www.example2.com", 1234567, 1.151, 0.95).unwrap();
+        let info = HybridConversionInfo::new(
+            0,
+            "https://www.example.com",
+            "https://www.example2.com",
+            1_234_567,
+            1.151,
+            0.95,
+        )
+        .unwrap();
         let bytes = info.to_bytes();
         let info2 = HybridConversionInfo::from_bytes(&bytes).unwrap();
+        assert_eq!(info2.key_id, 0);
+        assert_eq!(info2.helper_origin, "https://www.example.com");
+        assert_eq!(info2.conversion_site_domain, "https://www.example2.com");
+        assert_eq!(info2.timestamp, 1_234_567);
+        assert_eq!(info2.epsilon, 1.151);
+        assert_eq!(info2.sensitivity, 0.95);
         assert_eq!(info.to_bytes(), info2.to_bytes());
     }
 
     #[test]
     fn test_hybrid_info_serialization() {
-        let info = HybridInfo::new(0, "https://www.example.com", "https://www.example2.com", 1234567, 1.151, 0.95).unwrap();
+        let info = HybridInfo::new(
+            0,
+            "https://www.example.com",
+            "https://www.example2.com",
+            1_234_567,
+            1.151,
+            0.95,
+        )
+        .unwrap();
         let bytes = info.to_bytes();
         let info2 = HybridInfo::from_bytes(&bytes).unwrap();
         assert_eq!(info.to_bytes(), info2.to_bytes());

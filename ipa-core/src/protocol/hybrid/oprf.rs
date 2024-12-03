@@ -213,6 +213,7 @@ mod test {
     };
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn hybrid_oprf() {
         run(|| async {
             const SHARDS: usize = 2;
@@ -239,20 +240,20 @@ mod test {
                     value: 5,
                     key_id: 0,
                     helper_origin: "HELPER_ORIGIN".to_string(),
-                conversion_site_domain: "meta.com".to_string(),
-                timestamp: 100,
-                epsilon: 0.0,
-                sensitivity: 0.0
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 100,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
                 },
                 TestHybridRecord::TestConversion {
                     match_key: 68362,
                     value: 2,
                     key_id: 0,
                     helper_origin: "HELPER_ORIGIN".to_string(),
-                conversion_site_domain: "meta.com".to_string(),
-                timestamp: 102,
-                epsilon: 0.0,
-                sensitivity: 0.0
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 102,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
                 },
                 TestHybridRecord::TestImpression {
                     match_key: 68362,
@@ -265,10 +266,10 @@ mod test {
                     value: 7,
                     key_id: 0,
                     helper_origin: "HELPER_ORIGIN".to_string(),
-                conversion_site_domain: "meta.com".to_string(),
-                timestamp: 104,
-                epsilon: 0.0,
-                sensitivity: 0.0
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 104,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
                 },
             ];
 

@@ -32,7 +32,11 @@ impl Serializer for crate::test_fixture::hybrid::TestHybridRecord {
             } => {
                 write!(buf, "i,{match_key},{breakdown_key}")?;
             }
-            crate::test_fixture::hybrid::TestHybridRecord::TestConversion { match_key, value, .. } => {
+            crate::test_fixture::hybrid::TestHybridRecord::TestConversion {
+                match_key,
+                value,
+                ..
+            } => {
                 write!(buf, "c,{match_key},{value}")?;
             }
         }

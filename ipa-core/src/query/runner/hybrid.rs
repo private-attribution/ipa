@@ -29,10 +29,8 @@ use crate::{
         step::ProtocolStep::Hybrid,
     },
     query::runner::reshard_tag::reshard_aad,
-    report::{
-        hybrid::{
-            EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
-        },
+    report::hybrid::{
+        EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
 };
@@ -46,10 +44,7 @@ pub struct Query<C, HV, R: PrivateKeyRegistry> {
 
 #[allow(dead_code)]
 impl<C, HV, R: PrivateKeyRegistry> Query<C, HV, R> {
-    pub fn new(
-        query_params: HybridQueryParams,
-        key_registry: Arc<R>,
-    ) -> Self {
+    pub fn new(query_params: HybridQueryParams, key_registry: Arc<R>) -> Self {
         Self {
             config: query_params,
             key_registry,
@@ -200,7 +195,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 102,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             },
             TestHybridRecord::TestConversion {
                 match_key: 68362,
@@ -210,7 +205,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 103,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             },
             TestHybridRecord::TestImpression {
                 match_key: 68362,
@@ -226,7 +221,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 102,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             },
         ]
     }
@@ -237,10 +232,7 @@ mod tests {
         query_sizes: Vec<QuerySize>,
     }
 
-    fn build_buffers_from_records(
-        records: &[TestHybridRecord],
-        s: usize,
-    ) -> BufferAndKeyRegistry {
+    fn build_buffers_from_records(records: &[TestHybridRecord], s: usize) -> BufferAndKeyRegistry {
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
         let key_registry = Arc::new(KeyRegistry::<KeyPair>::random(1, &mut rng));
@@ -250,12 +242,7 @@ mod tests {
         for (buf, shares) in zip(&mut buffers, shares) {
             for (i, share) in shares.into_iter().enumerate() {
                 share
-                    .delimited_encrypt_to(
-                        key_id,
-                        key_registry.as_ref(),
-                        &mut rng,
-                        &mut buf[i % s],
-                    )
+                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, &mut buf[i % s])
                     .unwrap();
             }
         }

@@ -9,18 +9,35 @@ use crate::{
         U128Conversions,
     },
     rand::Rng,
-    report::{hybrid::{
-        AggregateableHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
-        IndistinguishableHybridReport, KeyIdentifier,
-    }, hybrid_info::{HybridConversionInfo, HybridImpressionInfo}},
+    report::{
+        hybrid::{
+            AggregateableHybridReport, HybridConversionReport, HybridImpressionReport,
+            HybridReport, IndistinguishableHybridReport, KeyIdentifier,
+        },
+        hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::sharing::Reconstruct,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum TestHybridRecord {
-    TestImpression { match_key: u64, breakdown_key: u32, key_id: KeyIdentifier, helper_origin: String,},
-    TestConversion { match_key: u64, value: u32, key_id: KeyIdentifier, helper_origin: String, conversion_site_domain: String, timestamp: u64, epsilon: f64, sensitivity: f64},
+    TestImpression {
+        match_key: u64,
+        breakdown_key: u32,
+        key_id: KeyIdentifier,
+        helper_origin: String,
+    },
+    TestConversion {
+        match_key: u64,
+        value: u32,
+        key_id: KeyIdentifier,
+        helper_origin: String,
+        conversion_site_domain: String,
+        timestamp: u64,
+        epsilon: f64,
+        sensitivity: f64,
+    },
 }
 
 #[derive(PartialEq, Debug)]
@@ -142,7 +159,16 @@ where
                     .try_into()
                     .unwrap()
             }
-            TestHybridRecord::TestConversion { match_key, value, key_id, helper_origin, conversion_site_domain, timestamp, epsilon, sensitivity } => {
+            TestHybridRecord::TestConversion {
+                match_key,
+                value,
+                key_id,
+                helper_origin,
+                conversion_site_domain,
+                timestamp,
+                epsilon,
+                sensitivity,
+            } => {
                 let ba_match_key = BA64::try_from(u128::from(match_key))
                     .unwrap()
                     .share_with(rng);
@@ -152,7 +178,15 @@ where
                         HybridReport::Conversion::<BK, V>(HybridConversionReport {
                             match_key: match_key_share,
                             value: value_share,
-                            info: HybridConversionInfo::new(key_id, &helper_origin, &conversion_site_domain, timestamp, epsilon, sensitivity).unwrap(),
+                            info: HybridConversionInfo::new(
+                                key_id,
+                                &helper_origin,
+                                &conversion_site_domain,
+                                timestamp,
+                                epsilon,
+                                sensitivity,
+                            )
+                            .unwrap(),
                         })
                     })
                     .collect::<Vec<_>>()
@@ -212,7 +246,9 @@ pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize
                     v.breakdown_key = *breakdown_key;
                 }
             }
-            TestHybridRecord::TestConversion { match_key, value, .. } => {
+            TestHybridRecord::TestConversion {
+                match_key, value, ..
+            } => {
                 if impression_match_keys.contains(match_key) {
                     attributed_conversions
                         .entry(*match_key)
@@ -239,6 +275,7 @@ mod tests {
     use crate::test_fixture::hybrid::hybrid_in_the_clear;
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn basic() {
         let mut test_data = vec![
             TestHybridRecord::TestImpression {
@@ -261,7 +298,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 102,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed
             TestHybridRecord::TestImpression {
                 match_key: 34567,
@@ -283,7 +320,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 103,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed
             TestHybridRecord::TestImpression {
                 match_key: 56789,
@@ -299,7 +336,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 104,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // NOT attributed
             TestHybridRecord::TestImpression {
                 match_key: 78901,
@@ -315,7 +352,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 100,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed
             TestHybridRecord::TestConversion {
                 match_key: 78901,
@@ -325,7 +362,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 102,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed
             TestHybridRecord::TestImpression {
                 match_key: 89012,
@@ -341,7 +378,7 @@ mod tests {
                 conversion_site_domain: "meta.com".to_string(),
                 timestamp: 1234,
                 epsilon: 0.0,
-                sensitivity: 0.0
+                sensitivity: 0.0,
             }, // attributed
         ];
 
