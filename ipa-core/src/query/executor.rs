@@ -39,7 +39,7 @@ use crate::{
         Gate,
     },
     query::{
-        runner::{OprfIpaQuery, QueryResult},
+        runner::{execute_hybrid_protocol, OprfIpaQuery, QueryResult},
         state::RunningQuery,
     },
     sync::Arc,
@@ -165,7 +165,22 @@ pub fn execute<R: PrivateKeyRegistry>(
                 )
             },
         ),
-        (QueryType::MaliciousHybrid(_), _) => todo!(),
+        (QueryType::MaliciousHybrid(ipa_config), _) => do_query(
+            runtime,
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                Box::pin(execute_hybrid_protocol(
+                    prss,
+                    gateway,
+                    input,
+                    ipa_config,
+                    config,
+                    key_registry,
+                ))
+            },
+        ),
     }
 }
 

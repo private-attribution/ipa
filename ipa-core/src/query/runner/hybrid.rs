@@ -8,31 +8,35 @@ use std::{
 use futures::{stream::iter, StreamExt, TryStreamExt};
 use generic_array::ArrayLength;
 
+use super::QueryResult;
 use crate::{
     error::{Error, LengthError},
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA3, BA8},
+        boolean_array::{BooleanArray, BA16, BA3, BA8},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
     },
     helpers::{
-        query::{DpMechanism, HybridQueryParams, QuerySize},
-        BodyStream, LengthDelimitedStream,
+        query::{DpMechanism, HybridQueryParams, QueryConfig, QuerySize},
+        setup_cross_shard_prss, BodyStream, Gateway, LengthDelimitedStream,
     },
     hpke::PrivateKeyRegistry,
     protocol::{
         basics::{shard_fin::FinalizerContext, BooleanArrayMul, BooleanProtocols, Reveal},
-        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        context::{
+            DZKPUpgraded, MacUpgraded, ShardedContext, ShardedMaliciousContext, UpgradableContext,
+        },
         hybrid::{
             hybrid_protocol,
             oprf::{CONV_CHUNK, PRF_CHUNK},
             step::HybridStep,
         },
         ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
-        prss::FromPrss,
+        prss::{Endpoint, FromPrss},
         step::ProtocolStep::Hybrid,
+        Gate,
     },
     query::runner::reshard_tag::reshard_aad,
     report::hybrid::{
@@ -42,6 +46,7 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         Vectorizable,
     },
+    sharding::{ShardConfiguration, Sharded},
 };
 
 #[allow(dead_code)]
@@ -163,6 +168,32 @@ where
         )
         .await
     }
+}
+
+pub async fn execute_hybrid_protocol<'a, R: PrivateKeyRegistry>(
+    prss: &'a Endpoint,
+    gateway: &'a Gateway,
+    input: BodyStream,
+    ipa_config: HybridQueryParams,
+    config: &QueryConfig,
+    key_registry: Arc<R>,
+) -> QueryResult {
+    let gate = Gate::default();
+    let cross_shard_prss =
+        setup_cross_shard_prss(gateway, &gate, prss.indexed(&gate), gateway).await?;
+    let sharded = Sharded {
+        shard_id: gateway.shard_id(),
+        shard_count: gateway.shard_count(),
+        prss: Arc::new(cross_shard_prss),
+    };
+
+    let ctx = ShardedMaliciousContext::new_with_gate(prss, gateway, gate, sharded);
+
+    Ok(Box::new(
+        Query::<_, BA16, R>::new(ipa_config, key_registry)
+            .execute(ctx, config.size, input)
+            .await?,
+    ))
 }
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
