@@ -3,8 +3,9 @@ pub(crate) mod breakdown_reveal;
 pub(crate) mod oprf;
 pub(crate) mod step;
 
-use std::convert::Infallible;
+use std::{convert::Infallible, ops::Add};
 
+use generic_array::ArrayLength;
 use tracing::{info_span, Instrument};
 
 use crate::{
@@ -15,14 +16,19 @@ use crate::{
     },
     helpers::query::DpMechanism,
     protocol::{
-        basics::{BooleanArrayMul, Reveal},
-        context::{DZKPUpgraded, MacUpgraded, ShardedContext, UpgradableContext},
+        basics::{
+            shard_fin::{FinalizerContext, Histogram},
+            BooleanArrayMul, Reveal,
+        },
+        context::{
+            DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext, UpgradableContext,
+        },
         dp::dp_for_histogram,
         hybrid::{
             agg::aggregate_reports,
             breakdown_reveal::breakdown_reveal_aggregation,
             oprf::{compute_prf_and_reshard, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
-            step::HybridStep as Step,
+            step::{FinalizeSteps, HybridStep as Step},
         },
         ipa_prf::{
             oprf_padding::{apply_dp_padding, PaddingParameters},
@@ -71,10 +77,15 @@ pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const SS_BITS: usize, const B: 
     dp_padding_params: PaddingParameters,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    C: UpgradableContext + 'ctx + Shuffle + ShardedContext,
+    C: UpgradableContext
+        + 'ctx
+        + Shuffle
+        + ShardedContext
+        + FinalizerContext<FinalizingContext = DZKPUpgraded<C>>,
     BK: BreakdownKey<B>,
     V: BooleanArray + U128Conversions,
     HV: BooleanArray + U128Conversions,
+    <HV as Serializable>::Size: Add<<HV as Serializable>::Size, Output: ArrayLength>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, CONV_CHUNK>: BooleanProtocols<DZKPUpgraded<C>, CONV_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>:
@@ -90,8 +101,11 @@ where
         for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<HV>; B], Error = Infallible>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<HV>>, Error = LengthError>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    DZKPUpgraded<C>: ShardedContext,
 {
     if input_rows.is_empty() {
         return Ok(vec![Replicated::ZERO; B]);
@@ -122,15 +136,23 @@ where
     )
     .await?;
 
+    let histogram: Histogram<HV, B> = Histogram::from(histogram);
+
+    let finalized_histogram = ctx
+        .narrow(&Step::Finalize)
+        .finalize(
+            MaliciousProtocolSteps {
+                protocol: &FinalizeSteps::Add,
+                validate: &FinalizeSteps::Validate,
+            },
+            histogram,
+        )
+        .await?;
+
     let noisy_histogram = if ctx.is_leader() {
-        dp_for_histogram::<_, B, HV, SS_BITS>(ctx, histogram, dp_params).await?
+        dp_for_histogram::<_, B, HV, SS_BITS>(ctx, finalized_histogram.values, dp_params).await?
     } else {
-        // the following ZERO vec should be the result for
-        // all follow shards, but this won't work until
-        // #1446 is merged
-        // vec![Replicated::<HV>::ZERO; B]
-        // temporary hack, just return the histogram
-        Vec::transposed_from(&histogram)?
+        finalized_histogram.compose()
     };
 
     Ok(noisy_histogram)
