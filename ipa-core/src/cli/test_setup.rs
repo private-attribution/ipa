@@ -1,11 +1,12 @@
 use std::{
     fs::{DirBuilder, File},
     iter::zip,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use clap::Args;
 
+use super::clientconf::shard_conf_folder;
 use crate::{
     cli::{
         config_parse::{gen_client_config, HelperClientConf},
@@ -66,7 +67,7 @@ impl TestSetupArgs {
 ///
 /// # Panics
 /// If something that shouldn't happen goes wrong.
-pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
+pub fn test_setup(args: &TestSetupArgs) -> Result<(), BoxError> {
     assert_eq!(
         args.ports.len(),
         args.shard_ports.len(),
@@ -97,96 +98,72 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
     }
 }
 
-fn sharded_keygen(args: TestSetupArgs) -> Result<(), BoxError> {
-    let localhost = String::from("localhost");
-    let keygen_args: Vec<_> = [1, 2, 3]
-        .into_iter()
-        .cycle()
-        .take(args.ports.len())
-        .enumerate()
-        .map(|(i, id)| {
-            let shard_dir = args.output_dir.join(format!("shard{i}"));
-            DirBuilder::new().create(&shard_dir)?;
-            Ok::<_, BoxError>(if i < 3 {
-                // Only leader shards generate MK keys
-                KeygenArgs {
-                    name: localhost.clone(),
-                    tls_cert: shard_dir.helper_tls_cert(id),
-                    tls_key: shard_dir.helper_tls_key(id),
-                    tls_expire_after: 365,
-                    mk_public_key: Some(shard_dir.helper_mk_public_key(id)),
-                    mk_private_key: Some(shard_dir.helper_mk_private_key(id)),
-                }
-            } else {
-                KeygenArgs {
-                    name: localhost.clone(),
-                    tls_cert: shard_dir.helper_tls_cert(id),
-                    tls_key: shard_dir.helper_tls_key(id),
-                    tls_expire_after: 365,
-                    mk_public_key: None,
-                    mk_private_key: None,
-                }
-            })
-        })
-        .collect::<Result<_, _>>()?;
+fn sharded_keygen(args: &TestSetupArgs) -> Result<(), BoxError> {
+    const RING_SIZE: usize = 3;
 
-    for ka in &keygen_args {
-        keygen(ka)?;
-    }
-
+    // we split all ports into chunks of 3 (for each MPC ring) and go over
+    // all of them, creating configuration
     let clients_config: Vec<_> = zip(
-        keygen_args.iter(),
-        zip(
-            keygen_args.clone().into_iter().take(3).cycle(),
-            zip(args.ports, args.shard_ports),
-        ),
+        args.ports.chunks(RING_SIZE),
+        args.shard_ports.chunks(RING_SIZE),
     )
-    .map(
-        |(keygen, (leader_keygen, (port, shard_port)))| HelperClientConf {
-            host: localhost.to_string(),
-            port,
-            shard_port,
-            tls_cert_file: keygen.tls_cert.clone(),
-            mk_public_key_file: leader_keygen.mk_public_key.clone().unwrap(),
-        },
-    )
-    .collect();
+    .enumerate()
+    .flat_map(|(shard_id, (mpc_ports, shard_ports))| {
+        let shard_dir = args.output_dir.join(shard_conf_folder(shard_id));
+        DirBuilder::new().create(&shard_dir)?;
+        make_client_configs(mpc_ports, shard_ports, &shard_dir)
+    })
+    .flatten()
+    .collect::<Vec<_>>();
 
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
-    gen_client_config(clients_config.into_iter(), args.use_http1, &mut conf_file)
+    gen_client_config(clients_config, args.use_http1, &mut conf_file)
 }
 
 /// This generates directories and files needed to run a non-sharded MPC.
 /// The directory structure is flattened and does not include per-shard configuration.
-fn non_sharded_keygen(args: TestSetupArgs) -> Result<(), BoxError> {
+fn non_sharded_keygen(args: &TestSetupArgs) -> Result<(), BoxError> {
+    let client_configs = make_client_configs(&args.ports, &args.shard_ports, &args.output_dir)?;
+
+    let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
+    gen_client_config(client_configs, args.use_http1, &mut conf_file)
+}
+
+fn make_client_configs(
+    mpc_ports: &[u16],
+    shard_ports: &[u16],
+    config_dir: &Path,
+) -> Result<Vec<HelperClientConf>, BoxError> {
+    assert_eq!(shard_ports.len(), mpc_ports.len());
+    assert_eq!(3, shard_ports.len());
+
     let localhost = String::from("localhost");
-    let clients_config: [_; 3] = zip([1, 2, 3], zip(args.ports, args.shard_ports))
-        .map(|(id, (port, shard_port))| {
+    zip(mpc_ports.iter(), shard_ports.iter())
+        .enumerate()
+        .map(|(i, (&mpc_port, &shard_port))| {
+            let id = u8::try_from(i + 1).unwrap();
+
+            // TODO: only leader shards should generate MK encryptions.
             let keygen_args = KeygenArgs {
                 name: localhost.clone(),
-                tls_cert: args.output_dir.helper_tls_cert(id),
-                tls_key: args.output_dir.helper_tls_key(id),
+                tls_cert: config_dir.helper_tls_cert(id),
+                tls_key: config_dir.helper_tls_key(id),
                 tls_expire_after: 365,
-                mk_public_key: Some(args.output_dir.helper_mk_public_key(id)),
-                mk_private_key: Some(args.output_dir.helper_mk_private_key(id)),
+                mk_public_key: Some(config_dir.helper_mk_public_key(id)),
+                mk_private_key: Some(config_dir.helper_mk_private_key(id)),
             };
 
             keygen(&keygen_args)?;
 
             Ok(HelperClientConf {
                 host: localhost.to_string(),
-                port,
+                port: mpc_port,
                 shard_port,
                 tls_cert_file: keygen_args.tls_cert,
                 mk_public_key_file: keygen_args.mk_public_key.unwrap(),
             })
         })
-        .collect::<Result<Vec<_>, BoxError>>()?
-        .try_into()
-        .unwrap();
-
-    let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
-    gen_client_config(clients_config.into_iter(), args.use_http1, &mut conf_file)
+        .collect::<Result<_, _>>()
 }
 
 #[cfg(test)]
@@ -212,7 +189,7 @@ mod tests {
             ports: vec![3000, 3001, 3002, 3003, 3004, 3005],
             shard_ports: vec![6000, 6001, 6002, 6003, 6004, 6005],
         };
-        test_setup(args).unwrap();
+        test_setup(&args).unwrap();
         let network_config_path = outdir.join("network.toml");
         let network_config_string = &fs::read_to_string(network_config_path).unwrap();
         let _r = sharded_server_from_toml_str(
@@ -237,7 +214,7 @@ mod tests {
             ports: vec![],
             shard_ports: vec![],
         };
-        test_setup(args).unwrap();
+        test_setup(&args).unwrap();
     }
 
     #[test]
@@ -252,6 +229,6 @@ mod tests {
             ports: vec![3000, 3001],
             shard_ports: vec![6000, 6001, 6002],
         };
-        test_setup(args).unwrap();
+        test_setup(&args).unwrap();
     }
 }

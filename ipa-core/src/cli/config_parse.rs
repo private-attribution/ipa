@@ -123,8 +123,8 @@ fn parse_sharded_network_toml(input: &str) -> Result<ShardedNetworkToml, Error> 
 
 /// Generates client configuration file at the requested destination. The destination must exist
 /// before this function is called
-pub fn gen_client_config(
-    clients_conf: impl Iterator<Item = HelperClientConf>,
+pub fn gen_client_config<I: IntoIterator<Item = HelperClientConf>>(
+    clients_conf: I,
     use_http1: bool,
     conf_file: &mut File,
 ) -> Result<(), BoxError> {
@@ -352,7 +352,7 @@ pub fn sharded_server_from_toml_str(
             identities: shard_count.iter().collect(),
         };
         Ok((mpc_network, shard_network))
-    } else if missing_urls == [0, 1, 2] && shard_count == ShardIndex(1) {
+    } else if missing_urls == [0, 1, 2] && shard_count == ShardIndex::from(1) {
         // This is the special case we're dealing with a non-sharded, single ring MPC.
         // Since the shard network will be of size 1, it can't really communicate with anyone else.
         // Hence we just create a config where I'm the only shard. We take the MPC configuration

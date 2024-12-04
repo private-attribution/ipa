@@ -1,11 +1,6 @@
 mod common;
 
-use std::{
-    array,
-    io::Write,
-    path::Path,
-    process::{Command, Stdio},
-};
+use std::{array, path::Path, process::Command};
 
 use common::{
     spawn_helpers, tempdir::TempDir, test_ipa, test_multiply, test_network, CommandExt,
@@ -14,8 +9,7 @@ use common::{
 use ipa_core::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
 
 use crate::common::{
-    spawn_shards, test_sharded_setup, AddInPrimeField, Multiply, ShardTcpListeners,
-    TerminateOnDrop, TerminateOnDropExt, TEST_MPC_BIN,
+    test_sharded_network, AddInPrimeField, Multiply, ShardTcpListeners, ShardedShuffle,
 };
 
 #[test]
@@ -72,40 +66,13 @@ fn https_malicious_ipa() {
 #[test]
 #[cfg(all(test, web_test))]
 fn http_sharded_shuffle_3_shards() {
-    let dir = TempDir::new_delete_on_drop();
-    let path = dir.path();
+    test_sharded_network::<3, ShardedShuffle>(false);
+}
 
-    println!("generating configuration in {}", path.display());
-    let sockets = test_sharded_setup::<3>(path);
-    let _helpers = spawn_shards(path, &sockets, false);
-
-    let mut command = Command::new(TEST_MPC_BIN);
-    command
-        .args(["--network".into(), path.join("network.toml")])
-        .args(["--wait", "2"])
-        .arg("--disable-https");
-
-    command.arg("sharded-shuffle").stdin(Stdio::piped());
-
-    let test_mpc = command.spawn().unwrap().terminate_on_drop();
-
-    // Shuffle numbers from 1 to 10. `test_mpc` binary will check if they were
-    // permuted correctly. Our job here is to submit input large enough to avoid
-    // false negatives
-    test_mpc
-        .stdin
-        .as_ref()
-        .unwrap()
-        .write_all(
-            (1..10)
-                .into_iter()
-                .map(|i| i.to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-                .as_bytes(),
-        )
-        .unwrap();
-    TerminateOnDrop::wait(test_mpc).unwrap_status();
+#[test]
+#[cfg(all(test, web_test))]
+fn https_sharded_shuffle_3_shards() {
+    test_sharded_network::<3, ShardedShuffle>(true);
 }
 
 /// Similar to [`network`] tests, but it uses keygen + confgen CLIs to generate helper client config

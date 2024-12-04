@@ -9,6 +9,7 @@ use crate::{
     },
     error::BoxError,
     helpers::HelperIdentity,
+    sharding::ShardIndex,
 };
 
 #[derive(Debug, Args)]
@@ -157,7 +158,7 @@ fn create_sharded_conf_from_files(
             let mut shard_dir = base_dir.clone();
             let id_nr: u8 = id.into();
             shard_dir.push(format!("helper{id_nr}"));
-            shard_dir.push(format!("shard{ix}"));
+            shard_dir.push(shard_conf_folder(ix));
 
             let host_name = find_file_with_extension(&shard_dir, "pem").unwrap();
             let tls_cert_file = shard_dir.join(format!("{host_name}.pem"));
@@ -222,4 +223,8 @@ fn gen_conf_from_args(
         conf_file_path.display()
     );
     Ok(())
+}
+
+pub fn shard_conf_folder<I: TryInto<ShardIndex>>(shard_id: I) -> PathBuf {
+    format!("shard{}", shard_id.try_into().ok().unwrap()).into()
 }

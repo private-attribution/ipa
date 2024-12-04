@@ -39,8 +39,11 @@ impl ShardedHelperIdentity {
 }
 
 /// A unique zero-based index of the helper shard.
+/// Note to editors - if rustc suggests to make the internal field public,
+/// don't. It breaks the encapsulation constraint. Use `from` or other methods
+/// to convert from or into this struct's instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ShardIndex(pub u32);
+pub struct ShardIndex(u32);
 
 impl ShardIndex {
     pub const FIRST: Self = Self(0);
@@ -49,11 +52,18 @@ impl ShardIndex {
     pub fn iter(self) -> impl Iterator<Item = Self> {
         (0..self.0).map(Self)
     }
+
+    /// Create a valid shard index from its u32 representation.
+    /// The reason it exists is because traits don't exist in const context
+    #[must_use]
+    pub const fn from_u32(value: u32) -> Self {
+        Self(value)
+    }
 }
 
 impl From<u32> for ShardIndex {
     fn from(value: u32) -> Self {
-        Self(value)
+        Self::from_u32(value)
     }
 }
 
