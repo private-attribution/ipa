@@ -566,7 +566,10 @@ pub mod tests {
                  )
                  (
                      len in Just(len),
-                     inputs in prop::collection::vec((0..PROP_BUCKETS, 0u32..1 << PropTriggerValue::BITS).prop_map(Into::into), len),
+                     inputs in prop::collection::vec((
+                        0..PROP_BUCKETS,
+                        0u32..1 << PropTriggerValue::BITS,
+                    ).prop_map(Into::into), len),
                  )
         -> AggregatePropTestInputs {
             let mut expected = [0; PROP_BUCKETS];
@@ -593,7 +596,8 @@ pub mod tests {
     proptest! {
         #![proptest_config(mpc_proptest_config_with_cases(100))]
         #[test]
-        #[ignore] // this test is redundant with the version in hybrid::breakdown_reveal.
+        #[ignore] // This test is similar enough to the one in hybrid::breakdown_reveal
+                  // that it is not worth running both.
         fn breakdown_reveal_proptest(
             input_struct in inputs(PROP_MAX_INPUT_LEN),
             seed in any::<u64>(),
@@ -606,7 +610,11 @@ pub mod tests {
                 } = input_struct;
                 let result = TestWorld::with_seed(seed)
                     .malicious(inputs.into_iter(), |ctx, inputs| async move {
-                        breakdown_reveal_aggregation::<_, _, _, PropHistogramValue, {PropBucketsBitVec::BITS as usize}>(
+                        breakdown_reveal_aggregation::<
+                            _, _, _,
+                            PropHistogramValue,
+                            {PropBucketsBitVec::BITS as usize},
+                        >(
                             ctx,
                             inputs,
                             &PaddingParameters::no_padding(),

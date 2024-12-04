@@ -584,7 +584,7 @@ mod proptests {
     prop_compose! {
         fn inputs(max_len: usize)
                  (
-                     len in 1..=max_len,
+                     len in 0..=max_len,
                  )
                  (
                      len in Just(len),
