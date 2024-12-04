@@ -1,5 +1,5 @@
 use std::{
-    fs::{DirBuilder, File},
+    fs::{self, DirBuilder, File},
     iter::zip,
     path::{Path, PathBuf},
 };
@@ -15,6 +15,7 @@ use crate::{
         KeygenArgs,
     },
     error::BoxError,
+    sharding::ShardIndex,
 };
 
 #[derive(Debug, Args)]
@@ -116,6 +117,24 @@ fn sharded_keygen(args: &TestSetupArgs) -> Result<(), BoxError> {
     .flatten()
     .collect::<Vec<_>>();
 
+    // for match key encryption keys we need to do some extra work. All shards
+    // must have access to the same set of encryption keys in order to decrypt the
+    // reports. So we distribute the leader encryption keys across all shards.
+    let first_shard_dir = args.output_dir.join(shard_conf_folder(ShardIndex::FIRST));
+    for dest_shard in 1..args.shard_count() {
+        let dest_shard_dir = args.output_dir.join(shard_conf_folder(dest_shard));
+        for helper_id in 1..=3 {
+            fs::copy(
+                first_shard_dir.helper_mk_public_key(helper_id),
+                dest_shard_dir.helper_mk_public_key(helper_id),
+            )?;
+            fs::copy(
+                first_shard_dir.helper_mk_private_key(helper_id),
+                dest_shard_dir.helper_mk_private_key(helper_id),
+            )?;
+        }
+    }
+
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
     gen_client_config(clients_config, args.use_http1, &mut conf_file)
 }
@@ -143,7 +162,6 @@ fn make_client_configs(
         .map(|(i, (&mpc_port, &shard_port))| {
             let id = u8::try_from(i + 1).unwrap();
 
-            // TODO: only leader shards should generate MK encryptions.
             let keygen_args = KeygenArgs {
                 name: localhost.clone(),
                 tls_cert: config_dir.helper_tls_cert(id),
