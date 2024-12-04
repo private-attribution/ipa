@@ -187,6 +187,7 @@ pub mod test {
     // the inputs are laid out to work with exactly 2 shards
     // as if it we're resharded by match_key/prf
     const SHARDS: usize = 2;
+    const SECOND_SHARD: ShardIndex = ShardIndex::from_u32(1);
 
     // we re-use these as the "prf" of the match_key
     // to avoid needing to actually do the prf here
@@ -374,8 +375,8 @@ pub mod test {
             let results: Vec<[Vec<[AggregateableHybridReport<BA8, BA3>; 2]>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
                     let match_keys = match ctx.shard_id() {
-                        ShardIndex(0) => SHARD1_MKS,
-                        ShardIndex(1) => SHARD2_MKS,
+                        ShardIndex::FIRST => SHARD1_MKS,
+                        SECOND_SHARD => SHARD2_MKS,
                         _ => panic!("invalid shard_id"),
                     };
                     async move {
@@ -446,8 +447,8 @@ pub mod test {
             let results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
                     let match_keys = match ctx.shard_id() {
-                        ShardIndex(0) => SHARD1_MKS,
-                        ShardIndex(1) => SHARD2_MKS,
+                        ShardIndex::FIRST => SHARD1_MKS,
+                        SECOND_SHARD => SHARD2_MKS,
                         _ => panic!("invalid shard_id"),
                     };
                     async move {
@@ -572,8 +573,8 @@ pub mod test {
             let _results: Vec<[Vec<AggregateableHybridReport<BA8, BA3>>; 3]> = world
                 .malicious(records.clone().into_iter(), |ctx, input| {
                     let match_keys = match ctx.shard_id() {
-                        ShardIndex(0) => SHARD1_MKS,
-                        ShardIndex(1) => SHARD2_MKS,
+                        ShardIndex::FIRST => SHARD1_MKS,
+                        SECOND_SHARD => SHARD2_MKS,
                         _ => panic!("invalid shard_id"),
                     };
                     async move {

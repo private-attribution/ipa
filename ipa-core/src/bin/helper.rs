@@ -371,7 +371,7 @@ pub async fn main() {
     let res = match args.command {
         None => server(args.server, handle).await,
         Some(HelperCommand::Keygen(args)) => keygen(&args),
-        Some(HelperCommand::TestSetup(args)) => test_setup(args),
+        Some(HelperCommand::TestSetup(args)) => test_setup(&args),
         Some(HelperCommand::Confgen(args)) => client_config_setup(args),
         Some(HelperCommand::ShardedConfgen(args)) => sharded_client_config_setup(args),
     };

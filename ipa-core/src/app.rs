@@ -220,7 +220,6 @@ impl RequestHandler<HelperIdentity> for Inner {
         data: BodyStream,
     ) -> Result<HelperResponse, ApiError> {
         let qp = &self.query_processor;
-
         Ok(match req.route {
             r @ RouteId::Records => {
                 return Err(ApiError::BadRequest(

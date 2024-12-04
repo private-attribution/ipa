@@ -172,10 +172,6 @@ pub fn spawn_shards(
     sockets: &[[ShardTcpListeners; 3]],
     https: bool,
 ) -> Vec<TerminateOnDrop> {
-    if https {
-        unimplemented!("We haven't implemented HTTPS path yet")
-    }
-
     let shard_count = sockets.len();
     sockets
         .iter()
@@ -189,18 +185,39 @@ pub fn spawn_shards(
                         .args(["-i", &id.to_string()])
                         .args(["--shard-index", &shard_index.to_string()])
                         .args(["--shard-count", &shard_count.to_string()])
-                        .args(["--network".into(), config_path.join("network.toml")])
-                        .arg("--disable-https")
-                        .silent();
+                        .args(["--network".into(), config_path.join("network.toml")]);
+
+                    if https {
+                        let config_path = config_path.join(format!("shard{shard_index}"));
+                        command
+                            .args(["--tls-cert".into(), config_path.join(format!("h{id}.pem"))])
+                            .args(["--tls-key".into(), config_path.join(format!("h{id}.key"))])
+                            .args([
+                                "--mk-public-key".into(),
+                                config_path.join(format!("h{id}_mk.pub")),
+                            ])
+                            .args([
+                                "--mk-private-key".into(),
+                                config_path.join(format!("h{id}_mk.key")),
+                            ]);
+                    } else {
+                        command.arg("--disable-https");
+                    }
 
                     command.preserved_fds(vec![mpc.as_raw_fd(), shard.as_raw_fd()]);
                     command.args(["--server-socket-fd", &mpc.as_raw_fd().to_string()]);
                     command.args(["--shard-server-socket-fd", &shard.as_raw_fd().to_string()]);
 
                     // something went wrong if command is terminated at this point.
-                    let mut child = command.spawn().unwrap();
-                    if let Ok(Some(status)) = child.try_wait() {
-                        panic!("Helper binary terminated early with status = {status}");
+                    let mut child = command.silent().spawn().unwrap();
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            panic!("Helper binary terminated early with status = {status}")
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            panic!("Error while waiting for helper binary: {e}");
+                        }
                     }
 
                     child.terminate_on_drop()
@@ -301,6 +318,20 @@ pub fn test_network<T: NetworkTest>(https: bool) {
     println!("generating configuration in {}", path.display());
     let sockets = test_setup(path);
     let _helpers = spawn_helpers(path, &sockets, https);
+
+    T::execute(path, https);
+}
+
+pub fn test_sharded_network<const SHARDS: usize, T: NetworkTest<SHARDS>>(https: bool) {
+    let dir = TempDir::new_delete_on_drop();
+    let path = dir.path();
+
+    println!(
+        "generating configuration for {SHARDS} shards in {}",
+        path.display()
+    );
+    let sockets = test_sharded_setup::<SHARDS>(path);
+    let _helpers = spawn_shards(path, &sockets, https);
 
     T::execute(path, https);
 }
@@ -440,7 +471,7 @@ pub fn test_ipa_with_config(
     assert_eq!(INPUT_SIZE, usize::from(output.input_size));
 }
 
-pub trait NetworkTest {
+pub trait NetworkTest<const SHARDS: usize = 1> {
     fn execute(config_path: &Path, https: bool);
 }
 
@@ -457,5 +488,41 @@ pub struct AddInPrimeField<const N: u32>;
 impl<const N: u32> NetworkTest for AddInPrimeField<N> {
     fn execute(config_path: &Path, https: bool) {
         test_add_in_prime_field(config_path, https, N)
+    }
+}
+
+pub struct ShardedShuffle;
+
+impl<const SHARDS: usize> NetworkTest<SHARDS> for ShardedShuffle {
+    fn execute(config_path: &Path, https: bool) {
+        let mut command = Command::new(TEST_MPC_BIN);
+        command
+            .args(["--network".into(), config_path.join("network.toml")])
+            .args(["--wait", "2"]);
+
+        if !https {
+            command.arg("--disable-https");
+        }
+
+        command.arg("sharded-shuffle").stdin(Stdio::piped());
+
+        let test_mpc = command.silent().spawn().unwrap().terminate_on_drop();
+
+        // Shuffle numbers from 1 to 10. `test_mpc` binary will check if they were
+        // permuted correctly. Our job here is to submit input large enough to avoid
+        // false negatives
+        test_mpc
+            .stdin
+            .as_ref()
+            .unwrap()
+            .write_all(
+                (1..10)
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .as_bytes(),
+            )
+            .unwrap();
+        TerminateOnDrop::wait(test_mpc).unwrap_status();
     }
 }

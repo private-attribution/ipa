@@ -602,6 +602,6 @@ mod tests {
         let pc1 = PeerConfig::new(uri1, None);
         let client = ClientConfig::default();
         let conf = NetworkConfig::new_shards(vec![pc1.clone()], client);
-        assert_eq!(conf.peers[ShardIndex(0)].url, pc1.url);
+        assert_eq!(conf.peers[ShardIndex::FIRST].url, pc1.url);
     }
 }

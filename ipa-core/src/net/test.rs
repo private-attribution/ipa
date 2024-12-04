@@ -138,7 +138,7 @@ impl TestNetwork<Shard> {
     /// Creates all the shards for a helper and creates a network.
     fn new_shards(id: HelperIdentity, ports: Vec<Option<u16>>, conf: &TestConfigBuilder) -> Self {
         let servers: Vec<_> = (0..conf.shard_count)
-            .map(ShardIndex)
+            .map(ShardIndex::from)
             .zip(ports)
             .map(|(ix, p)| {
                 let sid = ShardedHelperIdentity::new(id, ix);
@@ -296,7 +296,7 @@ impl TestConfig {
     /// Creates a new [`TestConfig`] using the provided configuration.
     fn new(conf: &TestConfigBuilder) -> Self {
         let rings = (0..conf.shard_count)
-            .map(ShardIndex)
+            .map(ShardIndex::from)
             .map(|s| {
                 let ports = conf.get_ports_for_shard_index(s);
                 TestNetwork::<Helper>::new_mpc(s, ports, conf)
@@ -1049,7 +1049,7 @@ mod tests {
         let builder = TestConfigBuilder::with_http_and_default_test_ports();
         assert_eq!(
             vec![Some(3000), Some(3001), Some(3002)],
-            builder.get_ports_for_shard_index(ShardIndex(0))
+            builder.get_ports_for_shard_index(ShardIndex::FIRST)
         );
         assert_eq!(
             vec![Some(6001)],
@@ -1060,6 +1060,9 @@ mod tests {
     #[test]
     fn get_os_ports() {
         let builder = TestConfigBuilder::default();
-        assert_eq!(3, builder.get_ports_for_shard_index(ShardIndex(0)).len());
+        assert_eq!(
+            3,
+            builder.get_ports_for_shard_index(ShardIndex::FIRST).len()
+        );
     }
 }
