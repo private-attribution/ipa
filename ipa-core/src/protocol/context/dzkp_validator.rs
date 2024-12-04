@@ -1332,7 +1332,7 @@ mod tests {
     proptest! {
         #![proptest_config(mpc_proptest_config())]
         #[test]
-        fn batching_proptest(
+        fn batching_mpc_proptest(
             (record_count, max_multiplications_per_gate) in batching(),
             protocol in 0..8,
         ) {

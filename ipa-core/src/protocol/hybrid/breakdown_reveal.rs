@@ -616,7 +616,7 @@ mod proptests {
     proptest! {
         #![proptest_config(mpc_proptest_config_with_cases(100))]
         #[test]
-        fn breakdown_reveal_proptest(
+        fn breakdown_reveal_mpc_proptest(
             input_struct in inputs(PROP_MAX_INPUT_LEN),
             seed in any::<u64>(),
         ) {

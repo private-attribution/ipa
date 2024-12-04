@@ -199,6 +199,9 @@ pub fn bits_to_field<F: Field + U128Conversions>(x: &[F]) -> F {
 }
 
 /// Useful proptest configuration when testing MPC protocols.
+///
+/// If you are using this config in a test, consider putting `mpc_proptest` in the name
+/// of the test, so it is included in the CI run of slow tests.
 #[cfg(test)]
 #[must_use]
 pub fn mpc_proptest_config() -> proptest::prelude::ProptestConfig {

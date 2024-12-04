@@ -598,7 +598,7 @@ pub mod tests {
         #[test]
         #[ignore] // This test is similar enough to the one in hybrid::breakdown_reveal
                   // that it is not worth running both.
-        fn breakdown_reveal_proptest(
+        fn breakdown_reveal_mpc_proptest(
             input_struct in inputs(PROP_MAX_INPUT_LEN),
             seed in any::<u64>(),
         ) {
