@@ -311,10 +311,11 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
+
     use std::cmp::min;
 
     use futures::TryFutureExt;
-    use proptest::{prelude::*, prop_compose};
+    use proptest::{prelude::*, prop_compose, proptest};
     use rand::seq::SliceRandom;
 
     use crate::{
@@ -350,6 +351,46 @@ pub mod tests {
             bk: BA5::truncate_from(bk),
             tv: BA3::truncate_from(tv),
         }
+    }
+
+    #[test]
+    fn single() {
+        // Test that the output is padded to the full size, when there are not enough inputs
+        // for the computation to naturally grow to the full size.
+        run_with::<_, _, 3>(|| async {
+            let world = TestWorld::default();
+            let mut expectation = vec![0; 32];
+            expectation[0] = 7;
+            let expectation = expectation; // no more mutability for safety
+            let inputs = vec![input_row(0, 7)];
+            let result: Vec<_> = world
+                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                    let aos = input_rows
+                        .into_iter()
+                        .map(|ti| SecretSharedAttributionOutputs {
+                            attributed_breakdown_key_bits: ti.0,
+                            capped_attributed_trigger_value: ti.1,
+                        })
+                        .collect();
+                    let r: Vec<Replicated<BA8>> =
+                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
+                            ctx,
+                            aos,
+                            &PaddingParameters::no_padding(),
+                        )
+                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                            Vec::transposed_from(&d).unwrap()
+                        })
+                        .await
+                        .unwrap();
+                    r
+                })
+                .await
+                .reconstruct();
+            let result = result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>();
+            assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
     }
 
     #[test]
@@ -552,6 +593,7 @@ pub mod tests {
     proptest! {
         #![proptest_config(mpc_proptest_config_with_cases(100))]
         #[test]
+        #[ignore] // this test is redundant with the version in hybrid::breakdown_reveal.
         fn breakdown_reveal_proptest(
             input_struct in inputs(PROP_MAX_INPUT_LEN),
             seed in any::<u64>(),
