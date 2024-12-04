@@ -1,4 +1,4 @@
-use std::{convert::Infallible, pin::pin};
+use std::{convert::Infallible, iter::repeat, pin::pin};
 
 use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
@@ -76,6 +76,14 @@ where
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<V>; B], Error = Infallible>,
 {
+    // This was checked early in the protocol, but we need to check again here, in case
+    // there were no matching pairs of reports.
+    if attributed_values.is_empty() {
+        return Ok(BitDecomposed::new(
+            repeat(Replicated::<Boolean, B>::ZERO).take(usize::try_from(HV::BITS).unwrap()),
+        ));
+    }
+
     // Apply DP padding for Breakdown Reveal Aggregation
     let attributed_values_padded = apply_dp_padding::<_, AggregateableHybridReport<BK, V>, B>(
         ctx.narrow(&Step::PaddingDp),
@@ -291,6 +299,78 @@ pub mod tests {
     }
 
     #[test]
+    fn empty() {
+        run_with::<_, _, 3>(|| async {
+            let world = TestWorld::<WithShards<1>>::with_shards(TestWorldConfig::default());
+            let expectation = vec![0; 32];
+            let inputs: Vec<TestAggregateableHybridReport> = vec![];
+            let result: Vec<_> = world
+                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                    let r: Vec<Replicated<BA8>> =
+                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
+                            ctx,
+                            input_rows,
+                            &PaddingParameters::no_padding(),
+                        )
+                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                            Vec::transposed_from(&d).unwrap()
+                        })
+                        .await
+                        .unwrap();
+                    r
+                })
+                .await
+                .reconstruct();
+            let result = result
+                .first()
+                .unwrap()
+                .iter()
+                .map(|&v| v.as_u128())
+                .collect::<Vec<_>>();
+            assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
+    }
+
+    #[test]
+    fn single() {
+        // Test that the output is padded to the full size, when there are not enough inputs
+        // for the computation to naturally grow to the full size.
+        run_with::<_, _, 3>(|| async {
+            let world = TestWorld::<WithShards<1>>::with_shards(TestWorldConfig::default());
+            let mut expectation = vec![0; 32];
+            expectation[0] = 7;
+            let expectation = expectation; // no more mutability for safety
+            let inputs = vec![input_row(0, 7)];
+            let result: Vec<_> = world
+                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                    let r: Vec<Replicated<BA8>> =
+                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
+                            ctx,
+                            input_rows,
+                            &PaddingParameters::no_padding(),
+                        )
+                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                            Vec::transposed_from(&d).unwrap()
+                        })
+                        .await
+                        .unwrap();
+                    r
+                })
+                .await
+                .reconstruct();
+            let result = result
+                .first()
+                .unwrap()
+                .iter()
+                .map(|&v| v.as_u128())
+                .collect::<Vec<_>>();
+            assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
+    }
+
+    #[test]
     fn breakdown_reveal_semi_honest_happy_path() {
         // if shuttle executor is enabled, run this test only once.
         // it is a very expensive test to explore all possible states,
@@ -431,5 +511,166 @@ pub mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(result, expectation);
         });
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod proptests {
+    use std::{cmp::min, time::Duration};
+
+    use futures::TryFutureExt;
+    use proptest::{prelude::*, prop_compose};
+
+    use crate::{
+        const_assert,
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BA3, BA32, BA5, BA8},
+            U128Conversions,
+        },
+        protocol::{
+            hybrid::breakdown_reveal::breakdown_reveal_aggregation,
+            ipa_prf::oprf_padding::PaddingParameters,
+        },
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
+            TransposeFrom,
+        },
+        test_fixture::{
+            hybrid::{TestAggregateableHybridReport, TestIndistinguishableHybridReport},
+            mpc_proptest_config_with_cases, Reconstruct, Runner, TestWorld, TestWorldConfig,
+            WithShards,
+        },
+    };
+
+    type PropBreakdownKey = BA5;
+    type PropTriggerValue = BA3;
+    type PropHistogramValue = BA8;
+    type PropBucketsBitVec = BA32;
+    const PROP_MAX_INPUT_LEN: usize = 2500;
+    const PROP_BUCKETS: usize = PropBucketsBitVec::BITS as usize;
+    const PROP_SHARDS: usize = 2;
+
+    // We want to capture everything in this struct for visibility in the output of failing runs,
+    // even if it isn't used by the test.
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct AggregatePropTestInputs {
+        inputs: Vec<TestAggregateableHybridReport>,
+        expected: Vec<u32>,
+        len: usize,
+    }
+
+    const_assert!(
+        PropHistogramValue::BITS < u32::BITS,
+        "(1 << PropHistogramValue::BITS) must fit in u32",
+    );
+
+    const_assert!(
+        PROP_BUCKETS <= 1 << PropBreakdownKey::BITS,
+        "PROP_BUCKETS must fit in PropBreakdownKey",
+    );
+
+    impl From<(u32, u32)> for TestAggregateableHybridReport {
+        fn from(value: (u32, u32)) -> Self {
+            TestAggregateableHybridReport {
+                match_key: (),
+                breakdown_key: value.0,
+                value: value.1,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn inputs(max_len: usize)
+                 (
+                     len in 0..=max_len,
+                 )
+                 (
+                     len in Just(len),
+                     inputs in prop::collection::vec((
+                        0u32..u32::try_from(PROP_BUCKETS).unwrap(),
+                        0u32..1 << PropTriggerValue::BITS,
+                    ).prop_map(Into::into), len),
+                 )
+        -> AggregatePropTestInputs {
+            let mut expected = vec![0; PROP_BUCKETS];
+            for input in &inputs {
+                let TestIndistinguishableHybridReport {
+                    match_key: (),
+                    breakdown_key: bk,
+                    value: tv,
+                } = *input;
+                let bk = usize::try_from(bk).unwrap();
+                expected[bk] = min(expected[bk] + tv, (1 << PropHistogramValue::BITS) - 1);
+            }
+
+            AggregatePropTestInputs {
+                inputs,
+                expected,
+                len,
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(mpc_proptest_config_with_cases(100))]
+        #[test]
+        fn breakdown_reveal_mpc_proptest(
+            input_struct in inputs(PROP_MAX_INPUT_LEN),
+            seed in any::<u64>(),
+        ) {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let AggregatePropTestInputs {
+                    inputs,
+                    expected,
+                    ..
+                } = input_struct;
+                let config = TestWorldConfig {
+                    seed,
+                    timeout: Some(Duration::from_secs(20)),
+                    ..Default::default()
+                };
+                let result = TestWorld::<WithShards<PROP_SHARDS>>::with_config(&config)
+                    .malicious(inputs.into_iter(), |ctx, inputs| async move {
+                        breakdown_reveal_aggregation::<
+                            _,
+                            PropBreakdownKey,
+                            PropTriggerValue,
+                            PropHistogramValue,
+                            {PropBucketsBitVec::BITS as usize},
+                        >(
+                            ctx,
+                            inputs,
+                            &PaddingParameters::no_padding(),
+                        )
+                        .map_ok(|d: BitDecomposed<Replicated<Boolean, PROP_BUCKETS>>| {
+                            Vec::transposed_from(&d).unwrap()
+                        })
+                        .await
+                        .unwrap()
+                    })
+                    .await
+                    .reconstruct();
+
+                let initial = vec![0; PROP_BUCKETS];
+                let result = result
+                    .iter()
+                    .fold(initial, |mut acc, vec: &Vec<PropHistogramValue>| {
+                        acc.iter_mut()
+                            .zip(vec)
+                            .for_each(|(a, &b)| {
+                                *a = min(
+                                    *a + u32::try_from(b.as_u128()).unwrap(),
+                                    (1 << PropHistogramValue::BITS) - 1,
+                                );
+                            });
+                        acc
+                    })
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                assert_eq!(result, expected);
+            });
+        }
     }
 }

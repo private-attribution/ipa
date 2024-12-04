@@ -203,10 +203,19 @@ where
         intermediate_results = next_intermediate_results;
     }
 
-    Ok(intermediate_results
+    let mut result = intermediate_results
         .into_iter()
         .next()
-        .expect("aggregation input must not be empty"))
+        .expect("aggregation input must not be empty");
+
+    // If there were less than 2^(|ov| - |tv|) inputs, then we didn't add enough carries to produce
+    // a full-length output, so pad the output now.
+    result.resize(
+        usize::try_from(HV::BITS).unwrap(),
+        Replicated::<Boolean, B>::ZERO,
+    );
+
+    Ok(result)
 }
 
 /// Transforms the Breakdown key from a secret share into a revealed `usize`.
@@ -302,29 +311,39 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
+
+    use std::cmp::min;
+
     use futures::TryFutureExt;
+    use proptest::{prelude::*, prop_compose, proptest};
     use rand::seq::SliceRandom;
 
-    #[cfg(not(feature = "shuttle"))]
-    use crate::{ff::boolean_array::BA16, test_executor::run};
     use crate::{
+        const_assert,
         ff::{
             boolean::Boolean,
-            boolean_array::{BA3, BA5, BA8},
+            boolean_array::{BA3, BA32, BA5, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::{
             aggregation::breakdown_reveal::breakdown_reveal_aggregation,
             oprf_padding::PaddingParameters,
-            prf_sharding::{AttributionOutputsTestInput, SecretSharedAttributionOutputs},
+            prf_sharding::{
+                AttributionOutputs, AttributionOutputsTestInput, SecretSharedAttributionOutputs,
+            },
         },
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
+            SharedValue, TransposeFrom,
         },
         test_executor::run_with,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{
+            mpc_proptest_config_with_cases, Reconstruct, ReconstructArr, Runner, TestWorld,
+        },
     };
+    #[cfg(not(feature = "shuttle"))]
+    use crate::{ff::boolean_array::BA16, test_executor::run};
 
     fn input_row(bk: usize, tv: u128) -> AttributionOutputsTestInput<BA5, BA3> {
         let bk: u128 = bk.try_into().unwrap();
@@ -332,6 +351,46 @@ pub mod tests {
             bk: BA5::truncate_from(bk),
             tv: BA3::truncate_from(tv),
         }
+    }
+
+    #[test]
+    fn single() {
+        // Test that the output is padded to the full size, when there are not enough inputs
+        // for the computation to naturally grow to the full size.
+        run_with::<_, _, 3>(|| async {
+            let world = TestWorld::default();
+            let mut expectation = vec![0; 32];
+            expectation[0] = 7;
+            let expectation = expectation; // no more mutability for safety
+            let inputs = vec![input_row(0, 7)];
+            let result: Vec<_> = world
+                .semi_honest(inputs.into_iter(), |ctx, input_rows| async move {
+                    let aos = input_rows
+                        .into_iter()
+                        .map(|ti| SecretSharedAttributionOutputs {
+                            attributed_breakdown_key_bits: ti.0,
+                            capped_attributed_trigger_value: ti.1,
+                        })
+                        .collect();
+                    let r: Vec<Replicated<BA8>> =
+                        breakdown_reveal_aggregation::<_, BA5, BA3, BA8, 32>(
+                            ctx,
+                            aos,
+                            &PaddingParameters::no_padding(),
+                        )
+                        .map_ok(|d: BitDecomposed<Replicated<Boolean, 32>>| {
+                            Vec::transposed_from(&d).unwrap()
+                        })
+                        .await
+                        .unwrap();
+                    r
+                })
+                .await
+                .reconstruct();
+            let result = result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>();
+            assert_eq!(32, result.len());
+            assert_eq!(result, expectation);
+        });
     }
 
     #[test]
@@ -444,5 +503,129 @@ pub mod tests {
             assert_eq!(32, result.len());
             assert_eq!(result, expectation);
         });
+    }
+
+    type PropBreakdownKey = BA5;
+    type PropTriggerValue = BA3;
+    type PropHistogramValue = BA8;
+    type PropBucketsBitVec = BA32;
+    const PROP_MAX_INPUT_LEN: usize = 2500;
+    const PROP_BUCKETS: usize = PropBucketsBitVec::BITS as usize;
+
+    // We want to capture everything in this struct for visibility in the output of failing runs,
+    // even if it isn't used by the test.
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct AggregatePropTestInputs {
+        inputs: Vec<AttributionOutputs<usize, u32>>,
+        expected: BitDecomposed<PropBucketsBitVec>,
+        len: usize,
+    }
+
+    const_assert!(
+        PropHistogramValue::BITS < u32::BITS,
+        "(1 << PropHistogramValue::BITS) must fit in u32",
+    );
+
+    const_assert!(
+        PROP_BUCKETS <= 1 << PropBreakdownKey::BITS,
+        "PROP_BUCKETS must fit in PropBreakdownKey",
+    );
+
+    impl<BK, TV> From<(BK, TV)> for AttributionOutputs<BK, TV> {
+        fn from(value: (BK, TV)) -> Self {
+            AttributionOutputs {
+                attributed_breakdown_key_bits: value.0,
+                capped_attributed_trigger_value: value.1,
+            }
+        }
+    }
+
+    impl IntoShares<SecretSharedAttributionOutputs<PropBreakdownKey, PropTriggerValue>>
+        for AttributionOutputs<usize, u32>
+    {
+        fn share_with<R: Rng>(
+            self,
+            rng: &mut R,
+        ) -> [SecretSharedAttributionOutputs<PropBreakdownKey, PropTriggerValue>; 3] {
+            let [bk_0, bk_1, bk_2] = PropBreakdownKey::truncate_from(
+                u128::try_from(self.attributed_breakdown_key_bits).unwrap(),
+            )
+            .share_with(rng);
+            let [tv_0, tv_1, tv_2] =
+                PropTriggerValue::truncate_from(u128::from(self.capped_attributed_trigger_value))
+                    .share_with(rng);
+            [(bk_0, tv_0), (bk_1, tv_1), (bk_2, tv_2)].map(Into::into)
+        }
+    }
+
+    prop_compose! {
+        fn inputs(max_len: usize)
+                 (
+                     len in 1..=max_len,
+                 )
+                 (
+                     len in Just(len),
+                     inputs in prop::collection::vec((
+                        0..PROP_BUCKETS,
+                        0u32..1 << PropTriggerValue::BITS,
+                    ).prop_map(Into::into), len),
+                 )
+        -> AggregatePropTestInputs {
+            let mut expected = [0; PROP_BUCKETS];
+            for input in &inputs {
+                let AttributionOutputs {
+                    attributed_breakdown_key_bits: bk,
+                    capped_attributed_trigger_value: tv,
+                } = *input;
+                expected[bk] = min(expected[bk] + tv, (1 << PropHistogramValue::BITS) - 1);
+            }
+
+            let expected = BitDecomposed::decompose(PropHistogramValue::BITS, |i| {
+                expected.iter().map(|v| Boolean::from((v >> i) & 1 == 1)).collect()
+            });
+
+            AggregatePropTestInputs {
+                inputs,
+                expected,
+                len,
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(mpc_proptest_config_with_cases(100))]
+        #[test]
+        #[ignore] // This test is similar enough to the one in hybrid::breakdown_reveal
+                  // that it is not worth running both.
+        fn breakdown_reveal_mpc_proptest(
+            input_struct in inputs(PROP_MAX_INPUT_LEN),
+            seed in any::<u64>(),
+        ) {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let AggregatePropTestInputs {
+                    inputs,
+                    expected,
+                    ..
+                } = input_struct;
+                let result = TestWorld::with_seed(seed)
+                    .malicious(inputs.into_iter(), |ctx, inputs| async move {
+                        breakdown_reveal_aggregation::<
+                            _, _, _,
+                            PropHistogramValue,
+                            {PropBucketsBitVec::BITS as usize},
+                        >(
+                            ctx,
+                            inputs,
+                            &PaddingParameters::no_padding(),
+                        ).await
+                    })
+                    .await
+                    .map(Result::unwrap)
+                    .reconstruct_arr();
+
+                assert_eq!(result, expected);
+            });
+        }
     }
 }

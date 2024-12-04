@@ -197,3 +197,34 @@ pub fn bits_to_value<F: Field + U128Conversions>(x: &[F]) -> u128 {
 pub fn bits_to_field<F: Field + U128Conversions>(x: &[F]) -> F {
     F::try_from(bits_to_value(x)).unwrap()
 }
+
+/// Useful proptest configuration when testing MPC protocols.
+///
+/// If you are using this config in a test, consider putting `mpc_proptest` in the name
+/// of the test, so it is included in the CI run of slow tests.
+#[cfg(test)]
+#[must_use]
+pub fn mpc_proptest_config() -> proptest::prelude::ProptestConfig {
+    mpc_proptest_config_with_cases(proptest::prelude::ProptestConfig::default().cases)
+}
+
+#[cfg(test)]
+#[must_use]
+pub fn mpc_proptest_config_with_cases(cases: u32) -> proptest::prelude::ProptestConfig {
+    use std::cmp::max;
+
+    // TestWorld imposes a per-iteration timeout. In addition to that, we want to limit
+    // the shrinking time, since most of the shrinking attempts for a timeout case, are
+    // likely to also time out. Proptest also has a timeout mechanism, but it interacts
+    // badly with max_shrink_time, and is mostly redundant with the TestWorld timeout.
+    let mut config = proptest::prelude::ProptestConfig {
+        max_shrink_time: 60_000,
+        cases,
+        ..Default::default()
+    };
+    if std::env::var("EXEC_SLOW_TESTS").is_err() {
+        // Reduce the number of cases when not in slow-tests mode.
+        config.cases = max(cases / 20, 1);
+    }
+    config
+}

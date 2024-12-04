@@ -396,8 +396,8 @@ impl<S: ShardingScheme> TestWorld<S> {
         };
         if let Some(timeout) = timeout {
             let Ok(output) = tokio::time::timeout(timeout, fut).await else {
-                tracing::error!("timed out after {:?}", self.timeout);
-                panic!("timed out after {:?}", self.timeout);
+                tracing::error!("timed out after {timeout:?}");
+                panic!("timed out after {timeout:?}");
             };
             output
         } else {

@@ -172,6 +172,9 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
+      - name: Slow Unit Tests
+        run: cargo test -p ipa-core --lib -- mpc_proptest semi_honest_with_dp_slow gen_binomial_noise_16_breakdowns
+
       - name: Integration Tests - Compact Gate
         run: cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
