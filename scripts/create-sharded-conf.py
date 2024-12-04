@@ -3,6 +3,10 @@ import subprocess
 import argparse
 import shutil
 
+# The following format is what ipa-infra project expects.
+# See:
+# https://github.com/private-attribution/ipa-infra/blob/main/templates/service.yaml
+# https://github.com/private-attribution/ipa-infra/blob/main/templates/helpers.yaml
 DNS_FORMAT = "h{}-helper-shard-{}.h{}-helper-shard.default.svc.cluster.local"
 
 def generate_keys(base_dir, shard_count):
@@ -29,7 +33,10 @@ def generate_keys(base_dir, shard_count):
 
             print(f"Generating keys for {helper_name}...")
 
-            # Run keygen for each helper
+            # Run keygen for each helper BUT we only generate MK keys for the first shard and
+            # copy them for the rest.
+            # This code needs to remain in sync with its Rust counterpart in:
+            # https://github.com/private-attribution/ipa/blob/d8b73fb2521c8f90a8fd9897d462a5a9816adeb7/ipa-core/src/cli/clientconf.rs#L149
             keygen_cmd = [
                 "./target/release/helper",
                 "keygen",
