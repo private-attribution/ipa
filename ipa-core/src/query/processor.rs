@@ -1151,18 +1151,18 @@ mod tests {
         #[tokio::test]
         async fn combined_status_response() {
             fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-                const THIRD_SHARD: ShardIndex = ShardIndex::from_u32(3);
-                const SECOND_SHARD: ShardIndex = ShardIndex::from_u32(2);
+                const FOURTH_SHARD: ShardIndex = ShardIndex::from_u32(3);
+                const THIRD_SHARD: ShardIndex = ShardIndex::from_u32(2);
                 create_handler(move |_| async move {
                     match si {
-                        THIRD_SHARD => {
+                        FOURTH_SHARD => {
                             Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
                                 query_id: QueryId,
                                 my_status: QueryStatus::Completed,
                                 other_status: QueryStatus::Preparing,
                             }))
                         }
-                        SECOND_SHARD => {
+                        THIRD_SHARD => {
                             Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
                                 query_id: QueryId,
                                 my_status: QueryStatus::Running,
