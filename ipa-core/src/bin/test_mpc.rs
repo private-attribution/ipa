@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         TestAction::ShardedShuffle => {
             // we need clients to talk to each individual shard
-            let clients = make_sharded_clients(
+            let (clients, _networks) = make_sharded_clients(
                 args.network
                     .as_deref()
                     .expect("network config is required for sharded shuffle"),
