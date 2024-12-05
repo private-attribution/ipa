@@ -17,7 +17,6 @@ pub const IN_THE_CLEAR_BIN: &str = env!("CARGO_BIN_EXE_in_the_clear");
 // this currently only generates data and runs in the clear
 // eventaully we'll want to add the MPC as well
 #[test]
-#[ignore]
 fn test_hybrid() {
     const INPUT_SIZE: usize = 100;
     const SHARDS: usize = 5;
@@ -56,7 +55,6 @@ fn test_hybrid() {
         .stdin(Stdio::piped());
     command.status().unwrap_status();
 
-    // set to true to always keep the temp dir after test finishes
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
