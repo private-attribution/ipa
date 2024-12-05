@@ -165,47 +165,6 @@ impl HybridDecryptArgs {
                     panic!("Reports are not all the same type");
                 }
             }
-
-            /*let match_key = [
-                dec_report1.match_key,
-                dec_report2.match_key,
-                dec_report3.match_key,
-            ]
-            .reconstruct()
-            .as_u128();
-
-            // these aren't reconstucted, so we explictly make sure
-            // they are consistent across all three files, then set
-            // it to the first one (without loss of generality)
-            assert_eq!(dec_report1.event_type, dec_report2.event_type);
-            assert_eq!(dec_report2.event_type, dec_report3.event_type);
-            let is_trigger_report = dec_report1.event_type == EventType::Trigger;
-
-            let breakdown_key = [
-                dec_report1.breakdown_key,
-                dec_report2.breakdown_key,
-                dec_report3.breakdown_key,
-            ]
-            .reconstruct()
-            .as_u128();
-
-            let trigger_value = [
-                dec_report1.trigger_value,
-                dec_report2.trigger_value,
-                dec_report3.trigger_value,
-            ]
-            .reconstruct()
-            .as_u128();
-
-            writeln!(
-                writer,
-                "{},{},{},{},{}",
-                timestamp,
-                match_key,
-                u8::from(is_trigger_report),
-                breakdown_key,
-                trigger_value,
-            )?;*/
         }
 
         Ok(())
