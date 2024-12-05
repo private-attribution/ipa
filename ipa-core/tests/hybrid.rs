@@ -88,6 +88,7 @@ fn test_hybrid() {
         .args(["--network".into(), config_path.join("network.toml")])
         .args(["--output-file".as_ref(), output_file.as_os_str()])
         .args(["--shard-count", SHARDS.to_string().as_str()])
+        .args(["--count", INPUT_SIZE.to_string().as_str()])
         .args(["--wait", "2"])
         .arg("malicious-hybrid")
         .args(["--enc-input-file1".as_ref(), enc1.as_os_str()])
