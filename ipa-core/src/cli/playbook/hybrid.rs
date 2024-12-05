@@ -1,16 +1,14 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
 use std::{
     cmp::min,
-    io::BufRead,
     time::{Duration, Instant},
 };
-
+use std::iter::zip;
 use futures_util::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
-    cli::playbook::{RoundRobinSubmission, StreamingSubmission},
     ff::{Serializable, U128Conversions},
     helpers::{
         query::{HybridQueryParams, QueryInput, QuerySize},
@@ -26,10 +24,9 @@ use crate::{
 /// # Panics
 /// if results are invalid
 #[allow(clippy::disallowed_methods)] // allow try_join_all
-pub async fn run_hybrid_query_and_validate<HV, R>(
-    inputs: [RoundRobinSubmission<R>; 3],
+pub async fn run_hybrid_query_and_validate<HV>(
+    inputs: Vec<[BodyStream; 3]>,
     query_size: usize,
-    shard_count: usize,
     clients: Vec<[IpaHttpClient<Helper>; 3]>,
     query_id: QueryId,
     query_config: HybridQueryParams,
@@ -37,43 +34,33 @@ pub async fn run_hybrid_query_and_validate<HV, R>(
 where
     HV: SharedValue + U128Conversions,
     AdditiveShare<HV>: Serializable,
-    R: BufRead + Send,
 {
     let mpc_time = Instant::now();
-    let leader_clients = clients[0].clone();
-
-    let transposed_inputs = inputs[0]
-        .into_byte_streams(shard_count)
-        .iter()
-        .zip(
-            inputs[1]
-                .into_byte_streams(shard_count)
+    assert_eq!(clients.len(), inputs.len());
+    // submit inputs to each shard
+    let _ = try_join_all(zip(clients.iter(), inputs.into_iter())
+        .map(|(shard_clients, shard_inputs)| {
+            try_join_all(shard_clients
                 .iter()
-                .zip(inputs[2].into_byte_streams(shard_count).iter()),
-        )
-        .map(|(i1, (i2, i3))| [i1, i2, i3])
-        .collect::<Vec<_>>();
+                .zip(shard_inputs.into_iter())
+                .map(|(client, input)|
+                    {
+                        client.query_input(QueryInput {
+                            query_id,
+                            input_stream: input
+                        })
+                    }
+                )
+            )
+        })).await.unwrap();
 
-    try_join_all(
-        transposed_inputs
-            .into_iter()
-            .flatten()
-            .zip(clients.into_iter().flatten())
-            .map(|(stream, client)| {
-                client.query_input(QueryInput {
-                    query_id,
-                    input_stream: BodyStream::from_bytes_stream(*stream),
-                })
-            }),
-    )
-    .await
-    .unwrap();
+    let leader_clients = &clients[0];
 
     let mut delay = Duration::from_millis(125);
     loop {
         if try_join_all(
             leader_clients
-                .iter()
+                .each_ref()
                 .map(|client| client.query_status(query_id)),
         )
         .await
