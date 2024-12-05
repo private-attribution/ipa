@@ -155,20 +155,6 @@ mod tests {
         HybridEncryptArgs::new(input_file.path(), output_dir.path(), network_file.path())
             .encrypt()
             .unwrap();
-
-        /*let files = [
-            &output_dir.path().join("helper1.enc"),
-            &output_dir.path().join("helper2.enc"),
-            &output_dir.path().join("helper3.enc"),
-        ];
-
-        let world = TestWorld::default();
-
-        let mk_private_keys = [
-            "53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff",
-            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569",
-            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7",
-        ];*/
     }
 
     #[test]
