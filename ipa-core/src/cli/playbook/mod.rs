@@ -5,6 +5,8 @@ mod input;
 mod ipa;
 mod multiply;
 mod sharded_shuffle;
+#[allow(dead_code)]
+mod streaming;
 
 use core::fmt::Debug;
 use std::{fs, path::Path, time::Duration};
