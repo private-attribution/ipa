@@ -209,7 +209,9 @@ pub fn spawn_shards(
                     command.args(["--shard-server-socket-fd", &shard.as_raw_fd().to_string()]);
 
                     // something went wrong if command is terminated at this point.
-                    let mut child = command.silent().spawn().unwrap();
+                    // let mut child = command.silent().spawn().unwrap();
+                    // TODO: make this silent again
+                    let mut child = command.spawn().unwrap();
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             panic!("Helper binary terminated early with status = {status}")
