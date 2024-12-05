@@ -33,6 +33,7 @@ fn test_hybrid() {
 
     // Gen inputs
     let input_file = dir.path().join("ipa_inputs.txt");
+    let in_the_clear_output_file = dir.path().join("ipa_output_in_the_clear.json");
     let output_file = dir.path().join("ipa_output.json");
 
     let mut command = Command::new(TEST_RC_BIN);
@@ -50,7 +51,10 @@ fn test_hybrid() {
     let mut command = Command::new(IN_THE_CLEAR_BIN);
     command
         .args(["--input-file".as_ref(), input_file.as_os_str()])
-        .args(["--output-file".as_ref(), output_file.as_os_str()])
+        .args([
+            "--output-file".as_ref(),
+            in_the_clear_output_file.as_os_str(),
+        ])
         .silent()
         .stdin(Stdio::piped());
     command.status().unwrap_status();
@@ -103,7 +107,7 @@ fn test_hybrid() {
 
     // basic output checks - output should have the exact size as number of breakdowns
     let output = serde_json::from_str::<HybridQueryResult>(
-        &std::fs::read_to_string(&output_file).expect("IPA results file exists"),
+        &std::fs::read_to_string(&output_file).expect("IPA results file should exist"),
     )
     .expect("IPA results file is valid JSON");
 
