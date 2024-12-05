@@ -4,7 +4,7 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io,
-    io::{stdout, Write},
+    io::{stdout, BufRead, BufReader, Write},
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -16,6 +16,7 @@ use ipa_core::{
         playbook::{
             make_clients, make_sharded_clients, playbook_oprf_ipa, run_hybrid_query_and_validate,
             run_query_and_validate, validate, validate_dp, HybridQueryResult, InputSource,
+            RoundRobinSubmission,
         },
         CsvSerializer, IpaQueryResult, Verbosity,
     },
@@ -143,6 +144,10 @@ enum ReportCollectorCommand {
 
         #[clap(flatten)]
         hybrid_query_config: HybridQueryParams,
+
+        /// Number of records to aggreagte
+        #[clap(long, short = 'n')]
+        count: u32,
     },
 }
 
@@ -255,7 +260,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ReportCollectorCommand::MaliciousHybrid {
             ref encrypted_inputs,
             hybrid_query_config,
-        } => hybrid(&args, hybrid_query_config, clients, encrypted_inputs).await?,
+            count,
+        } => {
+            hybrid(
+                &args,
+                hybrid_query_config,
+                clients,
+                encrypted_inputs,
+                count.try_into().expect("u32 should fit into usize"),
+            )
+            .await?
+        }
     };
 
     Ok(())
@@ -402,6 +417,7 @@ async fn hybrid(
     hybrid_query_config: HybridQueryParams,
     helper_clients: Vec<[IpaHttpClient<Helper>; 3]>,
     encrypted_inputs: &EncryptedInputs,
+    count: usize,
 ) -> Result<(), Box<dyn Error>> {
     let query_type = QueryType::MaliciousHybrid(hybrid_query_config);
 
@@ -411,11 +427,17 @@ async fn hybrid(
         &encrypted_inputs.enc_input_file3,
     ];
 
-    // despite the name, this is generic enough to work with hybrid
-    let encrypted_report_streams = EncryptedOprfReportStreams::from(files);
+    let submissions = files
+        .iter()
+        .map(|path| {
+            let file =
+                File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
+            RoundRobinSubmission::new(BufReader::new(file))
+        })
+        .collect::<Vec<_>>();
 
     let query_config = QueryConfig {
-        size: QuerySize::try_from(encrypted_report_streams.query_size).unwrap(),
+        size: QuerySize::try_from(count).unwrap(),
         field_type: FieldType::Fp32BitPrime,
         query_type,
     };
@@ -429,9 +451,13 @@ async fn hybrid(
     // the value for histogram values (BA32) must be kept in sync with the server-side
     // implementation, otherwise a runtime reconstruct error will be generated.
     // see ipa-core/src/query/executor.rs
-    let actual = run_hybrid_query_and_validate::<BA32>(
-        encrypted_report_streams.streams,
-        encrypted_report_streams.query_size,
+
+    let actual = run_hybrid_query_and_validate::<BA32, BufReader>(
+        submissions,
+        count,
+        args.shard_count
+            .try_into()
+            .expect("u32 should fit in usize"),
         helper_clients,
         query_id,
         hybrid_query_config,

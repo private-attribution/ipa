@@ -22,6 +22,7 @@ use tokio::time::sleep;
 pub use self::{
     hybrid::{run_hybrid_query_and_validate, HybridQueryResult},
     ipa::{playbook_oprf_ipa, run_query_and_validate},
+    streaming::{RoundRobinSubmission, StreamingSubmission},
 };
 use crate::{
     cli::config_parse::HelperNetworkConfigParseExt,
