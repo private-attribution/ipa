@@ -1,5 +1,6 @@
 mod add;
 mod generator;
+mod hybrid;
 mod input;
 mod ipa;
 mod multiply;
@@ -16,7 +17,10 @@ pub use multiply::secure_mul;
 pub use sharded_shuffle::secure_shuffle;
 use tokio::time::sleep;
 
-pub use self::ipa::{playbook_oprf_ipa, run_query_and_validate};
+pub use self::{
+    hybrid::{run_hybrid_query_and_validate, HybridQueryResult},
+    ipa::{playbook_oprf_ipa, run_query_and_validate},
+};
 use crate::{
     cli::config_parse::HelperNetworkConfigParseExt,
     config::{ClientConfig, NetworkConfig, PeerConfig},
@@ -227,11 +231,12 @@ pub async fn make_sharded_clients(
     network_path: &Path,
     scheme: Scheme,
     wait: usize,
-) -> Vec<[IpaHttpClient<Helper>; 3]> {
+) -> (Vec<[IpaHttpClient<Helper>; 3]>, Vec<NetworkConfig<Helper>>) {
     let network =
         NetworkConfig::from_toml_str_sharded(&fs::read_to_string(network_path).unwrap()).unwrap();
 
     let clients = network
+        .clone()
         .into_iter()
         .map(|network| {
             let network = network.override_scheme(&scheme);
@@ -241,7 +246,7 @@ pub async fn make_sharded_clients(
 
     wait_for_servers(wait, &clients).await;
 
-    clients
+    (clients, network)
 }
 
 async fn wait_for_servers(mut wait: usize, clients: &[[IpaHttpClient<Helper>; 3]]) {

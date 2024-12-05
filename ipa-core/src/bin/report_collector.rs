@@ -14,14 +14,16 @@ use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
         playbook::{
-            make_clients, playbook_oprf_ipa, run_query_and_validate, validate, validate_dp,
-            InputSource,
+            make_clients, make_sharded_clients, playbook_oprf_ipa, run_hybrid_query_and_validate,
+            run_query_and_validate, validate, validate_dp, HybridQueryResult, InputSource,
         },
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
-    helpers::query::{DpMechanism, IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+    helpers::query::{
+        DpMechanism, HybridQueryParams, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
+    },
     net::{Helper, IpaHttpClient},
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
     test_fixture::{
@@ -57,6 +59,9 @@ struct Args {
     /// The destination file for output.
     #[arg(long, value_name = "OUTPUT_FILE")]
     output_file: Option<PathBuf>,
+
+    #[arg(long, default_value_t = 1)]
+    shard_count: usize,
 
     #[command(subcommand)]
     action: ReportCollectorCommand,
@@ -132,6 +137,13 @@ enum ReportCollectorCommand {
         #[clap(flatten)]
         ipa_query_config: IpaQueryConfig,
     },
+    MaliciousHybrid {
+        #[clap(flatten)]
+        encrypted_inputs: EncryptedInputs,
+
+        #[clap(flatten)]
+        hybrid_query_config: HybridQueryParams,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -169,7 +181,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Scheme::HTTPS
     };
 
-    let (clients, network) = make_clients(args.network.as_deref(), scheme, args.wait).await;
+    let (clients, networks) = if args.shard_count == 1 {
+        let (c, n) = make_clients(args.network.as_deref(), scheme, args.wait).await;
+        (vec![c], vec![n])
+    } else {
+        make_sharded_clients(
+            args.network
+                .as_deref()
+                .expect("Network.toml is required for sharded queries"),
+            scheme,
+            args.wait,
+        )
+        .await
+    };
+
     match args.action {
         ReportCollectorCommand::GenIpaInputs {
             count,
@@ -184,20 +209,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ReportCollectorCommand::SemiHonestOprfIpaTest(config) => {
             ipa_test(
                 &args,
-                &network,
+                &networks[0],
                 IpaSecurityModel::SemiHonest,
                 config,
-                &clients,
+                &clients[0],
             )
             .await?
         }
         ReportCollectorCommand::MaliciousOprfIpaTest(config) => {
             ipa_test(
                 &args,
-                &network,
+                &networks[0],
                 IpaSecurityModel::Malicious,
                 config,
-                &clients,
+                &clients[0],
             )
             .await?
         }
@@ -209,7 +234,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 &args,
                 IpaSecurityModel::Malicious,
                 ipa_query_config,
-                &clients,
+                &clients[0],
                 encrypted_inputs,
             )
             .await?
@@ -222,11 +247,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 &args,
                 IpaSecurityModel::SemiHonest,
                 ipa_query_config,
-                &clients,
+                &clients[0],
                 encrypted_inputs,
             )
             .await?
         }
+        ReportCollectorCommand::MaliciousHybrid {
+            ref encrypted_inputs,
+            hybrid_query_config,
+        } => hybrid(&args, hybrid_query_config, clients, encrypted_inputs).await?,
     };
 
     Ok(())
@@ -326,6 +355,94 @@ fn write_ipa_output_file(
         .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
 
     write!(file, "{}", serde_json::to_string_pretty(query_result)?)?;
+    Ok(())
+}
+
+fn write_hybrid_output_file(
+    path: &PathBuf,
+    query_result: &HybridQueryResult,
+) -> Result<(), Box<dyn Error>> {
+    // it will be sad to lose the results if file already exists.
+    let path = if Path::is_file(path) {
+        let mut new_file_name = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(5)
+            .map(char::from)
+            .collect::<String>();
+        let file_name = path.file_stem().ok_or("not a file")?;
+
+        new_file_name.insert(0, '-');
+        new_file_name.insert_str(0, &file_name.to_string_lossy());
+        tracing::warn!(
+            "{} file exists, renaming to {:?}",
+            path.display(),
+            new_file_name
+        );
+
+        // it will not be 100% accurate until file_prefix API is stabilized
+        Cow::Owned(
+            path.with_file_name(&new_file_name)
+                .with_extension(path.extension().unwrap_or("".as_ref())),
+        )
+    } else {
+        Cow::Borrowed(path)
+    };
+    let mut file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(path.deref())
+        .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
+
+    write!(file, "{}", serde_json::to_string_pretty(query_result)?)?;
+    Ok(())
+}
+
+async fn hybrid(
+    args: &Args,
+    hybrid_query_config: HybridQueryParams,
+    helper_clients: Vec<[IpaHttpClient<Helper>; 3]>,
+    encrypted_inputs: &EncryptedInputs,
+) -> Result<(), Box<dyn Error>> {
+    let query_type = QueryType::MaliciousHybrid(hybrid_query_config);
+
+    let files = [
+        &encrypted_inputs.enc_input_file1,
+        &encrypted_inputs.enc_input_file2,
+        &encrypted_inputs.enc_input_file3,
+    ];
+
+    // despite the name, this is generic enough to work with hybrid
+    let encrypted_report_streams = EncryptedOprfReportStreams::from(files);
+
+    let query_config = QueryConfig {
+        size: QuerySize::try_from(encrypted_report_streams.query_size).unwrap(),
+        field_type: FieldType::Fp32BitPrime,
+        query_type,
+    };
+
+    let query_id = helper_clients[0][0]
+        .create_query(query_config)
+        .await
+        .expect("Unable to create query!");
+
+    tracing::info!("Starting query for OPRF");
+    // the value for histogram values (BA32) must be kept in sync with the server-side
+    // implementation, otherwise a runtime reconstruct error will be generated.
+    // see ipa-core/src/query/executor.rs
+    let actual = run_hybrid_query_and_validate::<BA32>(
+        encrypted_report_streams.streams,
+        encrypted_report_streams.query_size,
+        helper_clients,
+        query_id,
+        hybrid_query_config,
+    )
+    .await;
+
+    if let Some(ref path) = args.output_file {
+        write_hybrid_output_file(path, &actual)?;
+    } else {
+        println!("{}", serde_json::to_string_pretty(&actual)?);
+    }
     Ok(())
 }
 
