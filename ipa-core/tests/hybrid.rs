@@ -80,7 +80,7 @@ fn test_hybrid() {
         .args(["--network".into(), dir.path().join("network.toml")])
         .args(["--output-file".as_ref(), output_file.as_os_str()])
         .args(["--wait", "2"])
-        .arg("hybrid")
+        .arg("malicious-hybrid")
         .args(["--enc-input-file1".as_ref(), enc1.as_os_str()])
         .args(["--enc-input-file2".as_ref(), enc2.as_os_str()])
         .args(["--enc-input-file3".as_ref(), enc3.as_os_str()])
