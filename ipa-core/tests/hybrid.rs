@@ -108,10 +108,8 @@ fn test_hybrid() {
     }
     command.stdin(Stdio::piped());
 
-    let _test_mpc = command.spawn().unwrap().terminate_on_drop();
-
-    println!("RC stdout: {:?}", _test_mpc.stdout.as_ref());
-    println!("RC stderr: {:?}", _test_mpc.stderr.as_ref());
+    let test_mpc = command.spawn().unwrap().terminate_on_drop();
+    test_mpc.wait().unwrap_status();
 
     // basic output checks - output should have the exact size as number of breakdowns
     println!(
