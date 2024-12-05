@@ -59,6 +59,11 @@ fn test_hybrid() {
         .stdin(Stdio::piped());
     command.status().unwrap_status();
 
+    println!(
+        "{}",
+        &std::fs::read_to_string(&in_the_clear_output_file).expect("IPA results file exists")
+    );
+
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
@@ -105,7 +110,15 @@ fn test_hybrid() {
 
     let _test_mpc = command.spawn().unwrap().terminate_on_drop();
 
+    println!("RC stdout: {:?}", _test_mpc.stdout.as_ref());
+    println!("RC stderr: {:?}", _test_mpc.stderr.as_ref());
+
     // basic output checks - output should have the exact size as number of breakdowns
+    println!(
+        "{}",
+        &std::fs::read_to_string(&output_file).expect("IPA results file should exist")
+    );
+
     let output = serde_json::from_str::<HybridQueryResult>(
         &std::fs::read_to_string(&output_file).expect("IPA results file should exist"),
     )
