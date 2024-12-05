@@ -60,23 +60,22 @@ fn test_hybrid() {
     command.status().unwrap_status();
 
     println!(
-        "{}",
-        &std::fs::read_to_string(&in_the_clear_output_file).expect("IPA results file exists")
+        "In the clear results: {}",
+        &std::fs::read_to_string(&in_the_clear_output_file)
+            .expect("IPA in the clear results file exists")
     );
 
-    let dir = TempDir::new_delete_on_drop();
-    let path = dir.path();
-
-    let sockets = test_sharded_setup::<SHARDS>(path);
-    let _helpers = spawn_shards(path, &sockets, true);
+    let config_path = dir.path().join("config");
+    let sockets = test_sharded_setup::<SHARDS>(&config_path);
+    let _helpers = spawn_shards(&config_path, &sockets, true);
 
     // encrypt input
     let mut command = Command::new(CRYPTO_UTIL_BIN);
     command
         .arg("hybrid-encrypt")
         .args(["--input-file".as_ref(), input_file.as_os_str()])
-        .args(["--output-dir".as_ref(), path.as_os_str()])
-        .args(["--network".into(), dir.path().join("network.toml")])
+        .args(["--output-dir".as_ref(), dir.path().as_os_str()])
+        .args(["--network".into(), config_path.join("network.toml")])
         .stdin(Stdio::piped());
     command.status().unwrap_status();
     let enc1 = dir.path().join("helper1.enc");
@@ -86,7 +85,7 @@ fn test_hybrid() {
     // Run Hybrid
     let mut command = Command::new(TEST_RC_BIN);
     command
-        .args(["--network".into(), dir.path().join("network.toml")])
+        .args(["--network".into(), config_path.join("network.toml")])
         .args(["--output-file".as_ref(), output_file.as_os_str()])
         .args(["--shard-count", SHARDS.to_string().as_str()])
         .args(["--wait", "2"])
