@@ -1,6 +1,7 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
 use std::{
     cmp::min,
+    iter::zip,
     time::{Duration, Instant},
 };
 
@@ -25,7 +26,7 @@ use crate::{
 /// if results are invalid
 #[allow(clippy::disallowed_methods)] // allow try_join_all
 pub async fn run_hybrid_query_and_validate<HV>(
-    inputs: [BodyStream; 3],
+    inputs: Vec<[BodyStream; 3]>,
     query_size: usize,
     clients: Vec<[IpaHttpClient<Helper>; 3]>,
     query_id: QueryId,
@@ -36,28 +37,30 @@ where
     AdditiveShare<HV>: Serializable,
 {
     let mpc_time = Instant::now();
-
-    // for now, submit everything to the leader. TODO: round robin submission
-    let leader_clients = &clients[0];
-    try_join_all(
-        inputs
-            .into_iter()
-            .zip(leader_clients)
-            .map(|(input_stream, client)| {
-                client.query_input(QueryInput {
-                    query_id,
-                    input_stream,
-                })
-            }),
-    )
+    assert_eq!(clients.len(), inputs.len());
+    // submit inputs to each shard
+    let _ = try_join_all(zip(clients.iter(), inputs.into_iter()).map(
+        |(shard_clients, shard_inputs)| {
+            try_join_all(shard_clients.iter().zip(shard_inputs.into_iter()).map(
+                |(client, input)| {
+                    client.query_input(QueryInput {
+                        query_id,
+                        input_stream: input,
+                    })
+                },
+            ))
+        },
+    ))
     .await
     .unwrap();
+
+    let leader_clients = &clients[0];
 
     let mut delay = Duration::from_millis(125);
     loop {
         if try_join_all(
             leader_clients
-                .iter()
+                .each_ref()
                 .map(|client| client.query_status(query_id)),
         )
         .await

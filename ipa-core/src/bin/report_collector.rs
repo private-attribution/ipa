@@ -4,7 +4,7 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io,
-    io::{stdout, Write},
+    io::{stdout, BufReader, Write},
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -16,13 +16,20 @@ use ipa_core::{
         playbook::{
             make_clients, make_sharded_clients, playbook_oprf_ipa, run_hybrid_query_and_validate,
             run_query_and_validate, validate, validate_dp, HybridQueryResult, InputSource,
+            RoundRobinSubmission, StreamingSubmission,
         },
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::{KeyRegistries, NetworkConfig},
-    ff::{boolean_array::BA32, FieldType},
-    helpers::query::{
-        DpMechanism, HybridQueryParams, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
+    ff::{
+        boolean_array::{BA16, BA32},
+        FieldType,
+    },
+    helpers::{
+        query::{
+            DpMechanism, HybridQueryParams, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
+        },
+        BodyStream,
     },
     net::{Helper, IpaHttpClient},
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
@@ -143,6 +150,10 @@ enum ReportCollectorCommand {
 
         #[clap(flatten)]
         hybrid_query_config: HybridQueryParams,
+
+        /// Number of records to aggregate
+        #[clap(long, short = 'n')]
+        count: u32,
     },
 }
 
@@ -255,7 +266,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ReportCollectorCommand::MaliciousHybrid {
             ref encrypted_inputs,
             hybrid_query_config,
-        } => hybrid(&args, hybrid_query_config, clients, encrypted_inputs).await?,
+            count,
+        } => {
+            hybrid(
+                &args,
+                hybrid_query_config,
+                clients,
+                encrypted_inputs,
+                count.try_into().expect("u32 should fit into usize"),
+            )
+            .await?
+        }
     };
 
     Ok(())
@@ -402,20 +423,37 @@ async fn hybrid(
     hybrid_query_config: HybridQueryParams,
     helper_clients: Vec<[IpaHttpClient<Helper>; 3]>,
     encrypted_inputs: &EncryptedInputs,
+    count: usize,
 ) -> Result<(), Box<dyn Error>> {
     let query_type = QueryType::MaliciousHybrid(hybrid_query_config);
 
-    let files = [
+    let [h1_streams, h2_streams, h3_streams] = [
         &encrypted_inputs.enc_input_file1,
         &encrypted_inputs.enc_input_file2,
         &encrypted_inputs.enc_input_file3,
-    ];
+    ]
+    .map(|path| {
+        let file = File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
+        RoundRobinSubmission::new(BufReader::new(file))
+    })
+    .map(|s| s.into_byte_streams(args.shard_count));
 
-    // despite the name, this is generic enough to work with hybrid
-    let encrypted_report_streams = EncryptedOprfReportStreams::from(files);
+    // create byte streams for each shard
+    let submissions = h1_streams
+        .into_iter()
+        .zip(h2_streams.into_iter())
+        .zip(h3_streams.into_iter())
+        .map(|((s1, s2), s3)| {
+            [
+                BodyStream::from_bytes_stream(s1),
+                BodyStream::from_bytes_stream(s2),
+                BodyStream::from_bytes_stream(s3),
+            ]
+        })
+        .collect::<Vec<_>>();
 
     let query_config = QueryConfig {
-        size: QuerySize::try_from(encrypted_report_streams.query_size).unwrap(),
+        size: QuerySize::try_from(count).unwrap(),
         field_type: FieldType::Fp32BitPrime,
         query_type,
     };
@@ -426,12 +464,13 @@ async fn hybrid(
         .expect("Unable to create query!");
 
     tracing::info!("Starting query for OPRF");
-    // the value for histogram values (BA32) must be kept in sync with the server-side
+
+    // the value for histogram values (BA16) must be kept in sync with the server-side
     // implementation, otherwise a runtime reconstruct error will be generated.
     // see ipa-core/src/query/executor.rs
-    let actual = run_hybrid_query_and_validate::<BA32>(
-        encrypted_report_streams.streams,
-        encrypted_report_streams.query_size,
+    let actual = run_hybrid_query_and_validate::<BA16>(
+        submissions,
+        count,
         helper_clients,
         query_id,
         hybrid_query_config,

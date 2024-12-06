@@ -132,6 +132,10 @@ pub mod query {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::MaliciousOprfIpa(q))
                 }
+                QueryType::MALICIOUS_HYBRID_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::MaliciousHybrid(q))
+                }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {

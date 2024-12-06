@@ -15,7 +15,7 @@ use crate::{
 
 /// Trait for submitting inputs as streams, rather than reading everything
 /// in memory. Should provide better performance for very large inputs.
-trait StreamingSubmission {
+pub trait StreamingSubmission {
     /// Spits itself into `count` instances of [`BytesStream`].
     fn into_byte_streams(self, count: usize) -> Vec<impl BytesStream>;
 }
@@ -25,7 +25,7 @@ trait StreamingSubmission {
 /// and delimited by newlines. The output streams will have
 /// run-length encoding, meaning that each element will have
 /// a 2 byte length prefix added to it.
-struct RoundRobinSubmission<R>(R);
+pub struct RoundRobinSubmission<R>(R);
 
 impl<R: BufRead> RoundRobinSubmission<R> {
     pub fn new(read_from: R) -> Self {

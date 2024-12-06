@@ -130,7 +130,7 @@ where
     let aggregated_reports = aggregate_reports::<BK, V, C>(ctx.clone(), sharded_reports).await?;
 
     let histogram = breakdown_reveal_aggregation::<C, BK, V, HV, B>(
-        ctx.clone(),
+        ctx.narrow(&Step::Aggregate),
         aggregated_reports,
         &dp_padding_params,
     )
