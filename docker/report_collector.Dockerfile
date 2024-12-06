@@ -7,7 +7,7 @@ ARG SOURCES_DIR
 WORKDIR "$SOURCES_DIR"
 COPY . .
 RUN set -eux; \
-    cargo build --bin in_the_clear --bin crypto_util --bin report_collector --release --no-default-features --features "cli test-fixture web-app real-world-infra compact-gate multi-threading"
+    cargo build --bin in_the_clear --bin crypto_util --bin report_collector --release --no-default-features --features "cli test-fixture web-app real-world-infra compact-gate"
 
 # Copy them to the final image
 FROM rust:slim-bookworm
