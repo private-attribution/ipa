@@ -1,9 +1,10 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
 use std::{
     cmp::min,
+    iter::zip,
     time::{Duration, Instant},
 };
-use std::iter::zip;
+
 use futures_util::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
@@ -38,21 +39,20 @@ where
     let mpc_time = Instant::now();
     assert_eq!(clients.len(), inputs.len());
     // submit inputs to each shard
-    let _ = try_join_all(zip(clients.iter(), inputs.into_iter())
-        .map(|(shard_clients, shard_inputs)| {
-            try_join_all(shard_clients
-                .iter()
-                .zip(shard_inputs.into_iter())
-                .map(|(client, input)|
-                    {
-                        client.query_input(QueryInput {
-                            query_id,
-                            input_stream: input
-                        })
-                    }
-                )
-            )
-        })).await.unwrap();
+    let _ = try_join_all(zip(clients.iter(), inputs.into_iter()).map(
+        |(shard_clients, shard_inputs)| {
+            try_join_all(shard_clients.iter().zip(shard_inputs.into_iter()).map(
+                |(client, input)| {
+                    client.query_input(QueryInput {
+                        query_id,
+                        input_stream: input,
+                    })
+                },
+            ))
+        },
+    ))
+    .await
+    .unwrap();
 
     let leader_clients = &clients[0];
 

@@ -16,14 +16,20 @@ use ipa_core::{
         playbook::{
             make_clients, make_sharded_clients, playbook_oprf_ipa, run_hybrid_query_and_validate,
             run_query_and_validate, validate, validate_dp, HybridQueryResult, InputSource,
-            RoundRobinSubmission,
+            RoundRobinSubmission, StreamingSubmission,
         },
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::{KeyRegistries, NetworkConfig},
-    ff::{boolean_array::BA32, FieldType},
-    helpers::query::{
-        DpMechanism, HybridQueryParams, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
+    ff::{
+        boolean_array::{BA16, BA32},
+        FieldType,
+    },
+    helpers::{
+        query::{
+            DpMechanism, HybridQueryParams, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
+        },
+        BodyStream,
     },
     net::{Helper, IpaHttpClient},
     report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
@@ -34,8 +40,6 @@ use ipa_core::{
 };
 use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
 use rand_core::SeedableRng;
-use ipa_core::cli::playbook::StreamingSubmission;
-use ipa_core::helpers::BodyStream;
 
 #[derive(Debug, Parser)]
 #[clap(name = "rc", about = "Report Collector CLI")]
@@ -427,18 +431,24 @@ async fn hybrid(
         &encrypted_inputs.enc_input_file1,
         &encrypted_inputs.enc_input_file2,
         &encrypted_inputs.enc_input_file3,
-    ].map(|path| {
-        let file =
-            File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
+    ]
+    .map(|path| {
+        let file = File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
         RoundRobinSubmission::new(BufReader::new(file))
-    }).map(|s| s.into_byte_streams(args.shard_count));
+    })
+    .map(|s| s.into_byte_streams(args.shard_count));
 
     // create byte streams for each shard
-    let submissions = h1_streams.into_iter()
+    let submissions = h1_streams
+        .into_iter()
         .zip(h2_streams.into_iter())
         .zip(h3_streams.into_iter())
         .map(|((s1, s2), s3)| {
-            [BodyStream::from_bytes_stream(s1), BodyStream::from_bytes_stream(s2), BodyStream::from_bytes_stream(s3)]
+            [
+                BodyStream::from_bytes_stream(s1),
+                BodyStream::from_bytes_stream(s2),
+                BodyStream::from_bytes_stream(s3),
+            ]
         })
         .collect::<Vec<_>>();
 
@@ -458,7 +468,7 @@ async fn hybrid(
     // implementation, otherwise a runtime reconstruct error will be generated.
     // see ipa-core/src/query/executor.rs
 
-    let actual = run_hybrid_query_and_validate::<BA32>(
+    let actual = run_hybrid_query_and_validate::<BA16>(
         submissions,
         count,
         helper_clients,
