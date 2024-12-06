@@ -151,7 +151,7 @@ enum ReportCollectorCommand {
         #[clap(flatten)]
         hybrid_query_config: HybridQueryParams,
 
-        /// Number of records to aggreagte
+        /// Number of records to aggregate
         #[clap(long, short = 'n')]
         count: u32,
     },
