@@ -182,7 +182,7 @@ jobs:
         run: cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
       - name: Integration Tests - Hybrid
-        run: cargo test --release --test "hybrid" --features "cli test-fixture"
+        run: cargo test --release --test "hybrid" --features "cli compact-gate web-app real-world-infra test-fixture relaxed-dp"
 
       - name: Integration Tests - IPA with Relaxed DP
         run: cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
