@@ -7,7 +7,7 @@ ARG SOURCES_DIR
 WORKDIR "$SOURCES_DIR"
 COPY . .
 RUN set -eux; \
-    cargo build --bin helper --release --no-default-features --features "web-app real-world-infra compact-gate"
+    cargo build --bin helper --release --no-default-features --features "web-app real-world-infra compact-gate multi-threading"
 
 # Copy them to the final image
 FROM rust:slim-bookworm
