@@ -19,6 +19,8 @@ pub(crate) enum HybridStep {
     GroupBySum,
     #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     GroupBySumValidate,
+    #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
+    Aggregate,
     #[step(child = FinalizeSteps)]
     Finalize,
 }
@@ -33,6 +35,7 @@ pub(crate) enum AggregateReportsStep {
 
 #[derive(CompactStep)]
 pub(crate) enum FinalizeSteps {
+    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
     Add,
     #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     Validate,
