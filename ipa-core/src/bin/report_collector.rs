@@ -464,10 +464,10 @@ async fn hybrid(
         .expect("Unable to create query!");
 
     tracing::info!("Starting query for OPRF");
-    // the value for histogram values (BA32) must be kept in sync with the server-side
+
+    // the value for histogram values (BA16) must be kept in sync with the server-side
     // implementation, otherwise a runtime reconstruct error will be generated.
     // see ipa-core/src/query/executor.rs
-
     let actual = run_hybrid_query_and_validate::<BA16>(
         submissions,
         count,
