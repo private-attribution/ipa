@@ -2,7 +2,10 @@
 #[allow(dead_code)]
 mod common;
 
-use std::process::{Command, Stdio};
+use std::{
+    fs::File,
+    process::{Command, Stdio},
+};
 
 use common::{
     spawn_shards, tempdir::TempDir, test_sharded_setup, CommandExt, TerminateOnDropExt,
@@ -11,6 +14,7 @@ use common::{
 use ipa_core::{cli::playbook::HybridQueryResult, helpers::query::HybridQueryParams};
 use rand::thread_rng;
 use rand_core::RngCore;
+use serde_json::from_reader;
 
 pub const IN_THE_CLEAR_BIN: &str = env!("CARGO_BIN_EXE_in_the_clear");
 
@@ -59,12 +63,6 @@ fn test_hybrid() {
         .stdin(Stdio::piped());
     command.status().unwrap_status();
 
-    println!(
-        "In the clear results: {}",
-        &std::fs::read_to_string(&in_the_clear_output_file)
-            .expect("IPA in the clear results file exists")
-    );
-
     let config_path = dir.path().join("config");
     let sockets = test_sharded_setup::<SHARDS>(&config_path);
     let _helpers = spawn_shards(&config_path, &sockets, true);
@@ -90,6 +88,7 @@ fn test_hybrid() {
         .args(["--shard-count", SHARDS.to_string().as_str()])
         .args(["--wait", "2"])
         .arg("malicious-hybrid")
+        .silent()
         .args(["--count", INPUT_SIZE.to_string().as_str()])
         .args(["--enc-input-file1".as_ref(), enc1.as_os_str()])
         .args(["--enc-input-file2".as_ref(), enc2.as_os_str()])
@@ -112,11 +111,6 @@ fn test_hybrid() {
     test_mpc.wait().unwrap_status();
 
     // basic output checks - output should have the exact size as number of breakdowns
-    println!(
-        "{}",
-        &std::fs::read_to_string(&output_file).expect("IPA results file should exist")
-    );
-
     let output = serde_json::from_str::<HybridQueryResult>(
         &std::fs::read_to_string(&output_file).expect("IPA results file should exist"),
     )
@@ -129,5 +123,14 @@ fn test_hybrid() {
     );
     assert_eq!(INPUT_SIZE, usize::from(output.input_size));
 
-    // TODO compare in the clear results with MPC results
+    let expected_result: Vec<u32> = from_reader(
+        File::open(in_the_clear_output_file)
+            .expect("file should exist as it's created above in the test"),
+    )
+    .expect("should match hard coded format from in_the_clear");
+    assert!(output
+        .breakdowns
+        .iter()
+        .zip(expected_result.iter())
+        .all(|(a, b)| a == b));
 }
