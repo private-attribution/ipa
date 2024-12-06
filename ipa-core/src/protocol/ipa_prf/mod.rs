@@ -867,7 +867,7 @@ mod compact_gate_tests {
     fn step_count_limit() {
         // This is an arbitrary limit intended to catch changes that unintentionally
         // blow up the step count. It can be increased, within reason.
-        const STEP_COUNT_LIMIT: u32 = 24_000;
+        const STEP_COUNT_LIMIT: u32 = 36_000;
         assert!(
             ProtocolStep::STEP_COUNT < STEP_COUNT_LIMIT,
             "Step count of {actual} exceeds limit of {STEP_COUNT_LIMIT}.",
