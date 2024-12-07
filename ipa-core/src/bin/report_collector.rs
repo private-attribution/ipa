@@ -573,7 +573,7 @@ async fn ipa_test(
         r
     };
 
-    let mut key_registries = KeyRegistries::default();
+    let key_registries = KeyRegistries::default();
     let Some(key_registries) = key_registries.init_from(network) else {
         panic!("could not load network file")
     };
@@ -585,7 +585,7 @@ async fn ipa_test(
         helper_clients,
         query_id,
         ipa_query_config,
-        Some((DEFAULT_KEY_ID, key_registries)),
+        Some((DEFAULT_KEY_ID, key_registries.each_ref())),
     )
     .await;
 

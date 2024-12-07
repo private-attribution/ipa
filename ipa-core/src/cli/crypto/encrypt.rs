@@ -55,7 +55,7 @@ impl EncryptArgs {
         let input = InputSource::from_file(&self.input_file);
 
         let mut rng = thread_rng();
-        let mut key_registries = KeyRegistries::default();
+        let key_registries = KeyRegistries::default();
 
         let network =
             NetworkConfig::from_toml_str(&read_to_string(&self.network).unwrap_or_else(|e| {
@@ -84,7 +84,7 @@ impl EncryptArgs {
 
             for share in shares {
                 let output = share
-                    .encrypt(DEFAULT_KEY_ID, key_registry, &mut rng)
+                    .encrypt(DEFAULT_KEY_ID, &key_registry, &mut rng)
                     .unwrap();
                 let hex_output = hex::encode(&output);
                 writeln!(writer, "{hex_output}")?;

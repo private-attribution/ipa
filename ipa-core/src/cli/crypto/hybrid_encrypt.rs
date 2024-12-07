@@ -1,8 +1,13 @@
 use std::{
-    fs::{read_to_string, OpenOptions},
-    io::Write,
-    iter::zip,
+    array,
+    collections::BTreeMap,
+    fs::{read_to_string, File, OpenOptions},
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
+    sync::mpsc::{channel, Sender},
+    thread,
+    thread::JoinHandle,
+    time::Instant,
 };
 
 use clap::Parser;
@@ -15,10 +20,22 @@ use crate::{
     },
     config::{KeyRegistries, NetworkConfig},
     error::BoxError,
+    hpke::{KeyRegistry, PublicKeyOnly},
     report::hybrid::{HybridReport, DEFAULT_KEY_ID},
     secret_sharing::IntoShares,
     test_fixture::hybrid::TestHybridRecord,
 };
+
+/// Encryptor takes 3 arguments: `report_id`, helper that the shares must be encrypted towards
+/// and the actual share ([`HybridReport`]) to encrypt.
+type EncryptorInput = (usize, usize, HybridReport<BreakdownKey, TriggerValue>);
+/// Encryptor sends report id and encrypted bytes down to file worker to write those bytes
+/// down
+type EncryptorOutput = (usize, Vec<u8>);
+type FileWorkerInput = EncryptorOutput;
+
+/// This type is used quite often in this module
+type UnitResult = Result<(), BoxError>;
 
 #[derive(Debug, Parser)]
 #[clap(name = "test_hybrid_encrypt", about = "Test Hybrid Encrypt")]
@@ -51,11 +68,12 @@ impl HybridEncryptArgs {
     /// if input file or network file are not correctly formatted
     /// # Errors
     /// if it cannot open the files
-    pub fn encrypt(&self) -> Result<(), BoxError> {
+    pub fn encrypt(&self) -> UnitResult {
+        tracing::info!("encrypting input from {:?}", self.input_file);
+        let start = Instant::now();
         let input = InputSource::from_file(&self.input_file);
 
-        let mut rng = thread_rng();
-        let mut key_registries = KeyRegistries::default();
+        let key_registries = KeyRegistries::default();
 
         let network =
             NetworkConfig::from_toml_str_sharded(&read_to_string(&self.network).unwrap_or_else(
@@ -71,27 +89,198 @@ impl HybridEncryptArgs {
             panic!("could not load network file")
         };
 
-        let shares: [Vec<HybridReport<BreakdownKey, TriggerValue>>; 3] =
-            input.iter::<TestHybridRecord>().share();
+        let mut worker_pool = ReportWriter::new(key_registries, &self.output_dir);
+        for (report_id, record) in input.iter::<TestHybridRecord>().enumerate() {
+            worker_pool.submit(report_id, record.share())?;
+        }
 
-        for (index, (shares, key_registry)) in zip(shares, key_registries).enumerate() {
-            let output_filename = format!("helper{}.enc", index + 1);
-            let mut writer = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(self.output_dir.join(&output_filename))
-                .unwrap_or_else(|e| panic!("unable write to {}. {}", &output_filename, e));
+        worker_pool.join()?;
 
-            for share in shares {
-                let output = share
-                    .encrypt(DEFAULT_KEY_ID, key_registry, &mut rng)
-                    .unwrap();
-                let hex_output = hex::encode(&output);
-                writeln!(writer, "{hex_output}")?;
-            }
+        let elapsed = start.elapsed();
+        tracing::info!(
+            "Encryption process is completed. {}s",
+            elapsed.as_secs_f64()
+        );
+
+        Ok(())
+    }
+}
+
+/// A thread-per-core pool responsible for encrypting reports in parallel.
+/// This pool is shared across all writers to reduce the number of context switches.
+struct EncryptorPool {
+    pool: Vec<(Sender<EncryptorInput>, JoinHandle<UnitResult>)>,
+    next_worker: usize,
+}
+
+impl EncryptorPool {
+    pub fn with_worker_threads(
+        thread_count: usize,
+        file_writer: [Sender<EncryptorOutput>; 3],
+        key_registries: [KeyRegistry<PublicKeyOnly>; 3],
+    ) -> Self {
+        Self {
+            pool: (0..thread_count)
+                .map(move |i| {
+                    let (tx, rx) = channel::<EncryptorInput>();
+                    let key_registries = key_registries.clone();
+                    let file_writer = file_writer.clone();
+                    (
+                        tx,
+                        std::thread::Builder::new()
+                            .name(format!("encryptor-{i}"))
+                            .spawn(move || {
+                                for (i, helper_id, report) in rx {
+                                    let key_registry = &key_registries[helper_id];
+                                    let output = report.encrypt(
+                                        DEFAULT_KEY_ID,
+                                        key_registry,
+                                        &mut thread_rng(),
+                                    )?;
+                                    file_writer[helper_id].send((i, output))?;
+                                }
+
+                                Ok(())
+                            })
+                            .unwrap(),
+                    )
+                })
+                .collect(),
+            next_worker: 0,
+        }
+    }
+
+    pub fn encrypt_share(&mut self, report: EncryptorInput) -> UnitResult {
+        let tx = &self.pool[self.next_worker].0;
+        tx.send(report)?;
+        self.next_worker = (self.next_worker + 1) % self.pool.len();
+
+        Ok(())
+    }
+
+    pub fn stop(self) -> UnitResult {
+        for (tx, handle) in self.pool {
+            drop(tx);
+            handle.join().unwrap()?;
         }
 
         Ok(())
+    }
+}
+
+/// Performs end-to-end encryption, taking individual shares as input
+/// (see [`ReportWriter::submit`]), encrypting them in parallel and writing
+/// encrypted shares into 3 separate files. This optimizes for memory usage,
+/// and maximizes CPU utilization.
+struct ReportWriter {
+    encryptor_pool: EncryptorPool,
+    workers: Option<[FileWriteWorker; 3]>,
+}
+
+impl ReportWriter {
+    pub fn new(key_registries: [KeyRegistry<PublicKeyOnly>; 3], output_dir: &Path) -> Self {
+        // create 3 worker threads to write data into 3 files
+        let workers = array::from_fn(|i| {
+            let output_filename = format!("helper{}.enc", i + 1);
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(output_dir.join(&output_filename))
+                .unwrap_or_else(|e| panic!("unable write to {:?}. {}", &output_filename, e));
+
+            FileWriteWorker::new(file)
+        });
+        let encryptor_pool = EncryptorPool::with_worker_threads(
+            num_cpus::get(),
+            workers.each_ref().map(|x| x.sender.clone()),
+            key_registries,
+        );
+
+        Self {
+            encryptor_pool,
+            workers: Some(workers),
+        }
+    }
+
+    pub fn submit(
+        &mut self,
+        report_id: usize,
+        shares: [HybridReport<BreakdownKey, TriggerValue>; 3],
+    ) -> UnitResult {
+        for (i, share) in shares.into_iter().enumerate() {
+            self.encryptor_pool.encrypt_share((report_id, i, share))?;
+        }
+
+        Ok(())
+    }
+
+    pub fn join(mut self) -> UnitResult {
+        self.encryptor_pool.stop()?;
+        self.workers
+            .take()
+            .unwrap()
+            .map(|worker| {
+                let FileWriteWorker { handle, sender } = worker;
+                drop(sender);
+                handle.join().unwrap()
+            })
+            .into_iter()
+            .collect()
+    }
+}
+
+/// This takes a file and writes all encrypted reports to it,
+/// ensuring the same total order based on `report_id`. Report id is
+/// just the index of file input row that guarantees consistency
+/// of shares written across 3 files
+struct FileWriteWorker {
+    sender: Sender<FileWorkerInput>,
+    handle: JoinHandle<UnitResult>,
+}
+
+impl FileWriteWorker {
+    pub fn new(file: File) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self {
+            sender: tx,
+            handle: thread::spawn(move || {
+                fn write_report<W: Write>(writer: &mut W, report: &[u8]) -> Result<(), BoxError> {
+                    let hex_output = hex::encode(report);
+                    writeln!(writer, "{hex_output}")?;
+                    Ok(())
+                }
+
+                // write low watermark. All reports below this line have been written
+                let mut lw = 0;
+                let mut pending_reports = BTreeMap::new();
+
+                // Buffered writes should improve IO, but it is likely not the bottleneck here.
+                let mut writer = BufWriter::new(file);
+                for (report_id, report) in rx {
+                    // Because reports are encrypted in parallel, it is possible
+                    // to receive report_id = X+1 before X. To mitigate that, we keep
+                    // a buffer, ordered by report_id and always write from low watermark.
+                    // This ensures consistent order of reports written to files. Any misalignment
+                    // will result in broken shares and garbage output.
+                    assert!(
+                        report_id >= lw,
+                        "Internal error: received a report {report_id} below low watermark"
+                    );
+                    assert!(
+                        pending_reports.insert(report_id, report).is_none(),
+                        "Internal error: received a duplicate report {report_id}"
+                    );
+                    while let Some(report) = pending_reports.remove(&lw) {
+                        write_report(&mut writer, &report)?;
+                        lw += 1;
+                        if lw % 1_000_000 == 0 {
+                            tracing::info!("Encrypted {}M reports", lw / 1_000_000);
+                        }
+                    }
+                }
+                Ok(())
+            }),
+        }
     }
 }
 
