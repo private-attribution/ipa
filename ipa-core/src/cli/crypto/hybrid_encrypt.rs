@@ -27,7 +27,7 @@ use crate::{
 };
 
 /// Encryptor takes 3 arguments: `report_id`, helper that the shares must be encrypted towards
-/// and the actual share to encrypt.
+/// and the actual share ([`HybridReport`]) to encrypt.
 type EncryptorInput = (usize, usize, HybridReport<BreakdownKey, TriggerValue>);
 /// Encryptor sends report id and encrypted bytes down to file worker to write those bytes
 /// down
