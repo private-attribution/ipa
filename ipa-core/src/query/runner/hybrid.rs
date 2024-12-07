@@ -13,7 +13,7 @@ use crate::{
     error::{Error, LengthError},
     ff::{
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA16, BA3, BA8},
+        boolean_array::{BooleanArray, BA3, BA32, BA8},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
@@ -190,7 +190,7 @@ pub async fn execute_hybrid_protocol<'a, R: PrivateKeyRegistry>(
     let ctx = ShardedMaliciousContext::new_with_gate(prss, gateway, gate, sharded);
 
     Ok(Box::new(
-        Query::<_, BA16, R>::new(ipa_config, key_registry)
+        Query::<_, BA32, R>::new(ipa_config, key_registry)
             .execute(ctx, config.size, input)
             .await?,
     ))
@@ -208,7 +208,7 @@ mod tests {
 
     use crate::{
         ff::{
-            boolean_array::{BA16, BA3, BA8},
+            boolean_array::{BA3, BA32, BA8},
             U128Conversions,
         },
         helpers::{
@@ -310,7 +310,7 @@ mod tests {
                             };
                             let input = BodyStream::from(buffer);
 
-                            HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                            HybridQuery::<_, BA32, KeyRegistry<KeyPair>>::new(
                                 query_params,
                                 Arc::clone(&key_registry),
                             )
@@ -393,7 +393,7 @@ mod tests {
                         let query_params = HybridQueryParams::default();
                         let input = BodyStream::from(buffer);
 
-                        HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                        HybridQuery::<_, BA32, KeyRegistry<KeyPair>>::new(
                             query_params,
                             Arc::clone(&key_registry),
                         )
@@ -439,7 +439,7 @@ mod tests {
                         };
                         let input = BodyStream::from(buffer);
 
-                        HybridQuery::<_, BA16, KeyRegistry<KeyPair>>::new(
+                        HybridQuery::<_, BA32, KeyRegistry<KeyPair>>::new(
                             query_params,
                             Arc::clone(&key_registry),
                         )
