@@ -2,7 +2,10 @@ use std::fmt::Debug;
 
 use clap::{Parser, Subcommand};
 use ipa_core::{
-    cli::crypto::{DecryptArgs, EncryptArgs, HybridDecryptArgs, HybridEncryptArgs},
+    cli::{
+        crypto::{DecryptArgs, EncryptArgs, HybridDecryptArgs, HybridEncryptArgs},
+        Verbosity,
+    },
     error::BoxError,
 };
 
@@ -10,6 +13,10 @@ use ipa_core::{
 #[clap(name = "crypto-util", about = "Crypto Util CLI")]
 #[command(about)]
 struct Args {
+    // Configure logging.
+    #[clap(flatten)]
+    logging: Verbosity,
+
     #[command(subcommand)]
     action: CryptoUtilCommand,
 }
@@ -25,6 +32,7 @@ enum CryptoUtilCommand {
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
     let args = Args::parse();
+    let _handle = args.logging.setup_logging();
     match args.action {
         CryptoUtilCommand::Encrypt(encrypt_args) => encrypt_args.encrypt()?,
         CryptoUtilCommand::HybridEncrypt(hybrid_encrypt_args) => hybrid_encrypt_args.encrypt()?,

@@ -27,7 +27,7 @@
 //! all secret sharings (including the sharings of zero), making the collection of reports
 //! cryptographically indistinguishable.
 
-use std::{collections::HashSet, convert::Infallible, iter::once, marker::PhantomData, ops::Add};
+use std::{collections::HashSet, convert::Infallible, marker::PhantomData, ops::Add};
 
 use bytes::{Buf, BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
@@ -477,14 +477,9 @@ where
         key_registry: &impl PublicKeyRegistry,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidHybridReportError> {
-        match self {
-            HybridReport::Impression(impression_report) => {
-                    impression_report.encrypt(key_id, key_registry, rng).map(|v| once(HybridEventType::Impression as u8).chain(v).collect())
-            },
-            HybridReport::Conversion(conversion_report) => {
-                    conversion_report.encrypt(key_id, key_registry, rng).map(|v| once(HybridEventType::Conversion as u8).chain(v).collect())
-            },
-        }
+        let mut buf = Vec::new();
+        self.encrypt_to(key_id, key_registry, rng, &mut buf)?;
+        Ok(buf)
     }
 
     /// # Errors
