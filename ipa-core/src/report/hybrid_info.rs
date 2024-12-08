@@ -21,13 +21,8 @@ impl HybridImpressionInfo {
     // This is only for serialization and deserialization.
     #[must_use]
     pub fn to_bytes(&self) -> Box<[u8]> {
-        let info_len = DOMAIN.len()
-            + 1 // delimiter
-            + std::mem::size_of_val(&self.key_id);
+        let info_len = std::mem::size_of_val(&self.key_id);
         let mut r = Vec::with_capacity(info_len);
-
-        r.extend_from_slice(DOMAIN.as_bytes());
-        r.push(0);
 
         r.push(self.key_id);
 
@@ -57,19 +52,7 @@ impl HybridImpressionInfo {
     /// ## Panics
     /// If not enough delimiters are found in the input bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, InvalidHybridReportError> {
-        let mut pos = 0;
-
-        let domain = std::str::from_utf8(&bytes[pos..pos + DOMAIN.len()]).map_err(|e| {
-            InvalidHybridReportError::DeserializationError("HybridImpressionInfo: domain", e.into())
-        })?;
-        assert!(
-            domain == DOMAIN,
-            "HPKE Info domain does not match hardcoded domain"
-        );
-        pos += DOMAIN.len() + 1;
-
-        let key_id = bytes[pos];
-
+        let key_id = bytes[0];
         Ok(Self { key_id })
     }
 }
@@ -112,17 +95,14 @@ impl HybridConversionInfo {
     // This is only for serialization and deserialization.
     #[must_use]
     pub fn to_bytes(&self) -> Box<[u8]> {
-        let info_len = DOMAIN.len()
-            + self.conversion_site_domain.len()
-            + 2 // delimiters
+        let info_len = self.conversion_site_domain.len()
+            + 1 // delimiter
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.timestamp)
             + std::mem::size_of_val(&self.epsilon)
             + std::mem::size_of_val(&self.sensitivity);
         let mut r = Vec::with_capacity(info_len);
 
-        r.extend_from_slice(DOMAIN.as_bytes());
-        r.push(0);
         r.extend_from_slice(self.conversion_site_domain.as_bytes());
         r.push(0);
 
@@ -169,16 +149,6 @@ impl HybridConversionInfo {
     /// If not enough delimiters are found in the input bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, InvalidHybridReportError> {
         let mut pos = 0;
-
-        let domain = std::str::from_utf8(&bytes[pos..pos + DOMAIN.len()]).map_err(|e| {
-            InvalidHybridReportError::DeserializationError("HybridConversionInfo: domain", e.into())
-        })?;
-        assert!(
-            domain == DOMAIN,
-            "HPKE Info domain does not match hardcoded domain"
-        );
-        pos += DOMAIN.len() + 1;
-
         let delimiter_pos = bytes[pos..]
             .iter()
             .position(|&b| b == 0)
