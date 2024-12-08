@@ -59,7 +59,7 @@ use crate::{
 
 // TODO(679): This needs to come from configuration.
 #[allow(dead_code)]
-static HELPER_ORIGIN: &str = "github.com/private-attribution";
+pub static HELPER_ORIGIN: &str = "github.com/private-attribution";
 
 pub type KeyIdentifier = u8;
 pub const DEFAULT_KEY_ID: KeyIdentifier = 0;
@@ -185,8 +185,7 @@ where
     /// # Panics
     /// If report length does not fit in `u16`.
     pub fn encrypted_len(&self) -> u16 {
-        // Todo: get this more efficiently
-        self.ciphertext_len() + u16::try_from(self.info.to_bytes().len()).unwrap()
+        self.ciphertext_len() + u16::try_from(self.info.byte_len()).unwrap()
     }
 
     /// # Errors
@@ -233,19 +232,20 @@ where
             .serialize(GenericArray::from_mut_slice(&mut plaintext_btt[..]));
 
         let pk = key_registry.public_key(key_id).ok_or(CryptError::NoSuchKey(key_id))?;
+        let info_enc_bytes = self.info.to_enc_bytes();
         let info_bytes = self.info.to_bytes();
 
         let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
             pk,
             plaintext_mk.as_mut(),
-            &info_bytes,
+            &info_enc_bytes,
             rng,
         )?;
 
         let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
             pk,
             plaintext_btt.as_mut(),
-            &info_bytes,
+            &info_enc_bytes,
             rng,
         )?;
 
@@ -333,8 +333,7 @@ where
     /// # Panics
     /// If report length does not fit in `u16`.
     pub fn encrypted_len(&self) -> u16 {
-        // Todo: get this more efficiently
-        self.ciphertext_len() + u16::try_from(self.info.to_bytes().len()).unwrap()
+        self.ciphertext_len() + u16::try_from(self.info.byte_len()).unwrap()
     }
 
     /// # Errors
@@ -382,19 +381,20 @@ where
             .serialize(GenericArray::from_mut_slice(&mut plaintext_btt[..]));
 
         let pk = key_registry.public_key(key_id).ok_or(CryptError::NoSuchKey(key_id))?;
+        let info_enc_bytes = self.info.to_enc_bytes();
         let info_bytes = self.info.to_bytes();
 
         let (encap_key_mk, ciphertext_mk, tag_mk) = seal_in_place(
             pk,
             plaintext_mk.as_mut(),
-            &info_bytes,
+            &info_enc_bytes,
             rng,
         )?;
 
         let (encap_key_btt, ciphertext_btt, tag_btt) = seal_in_place(
             pk,
             plaintext_btt.as_mut(),
-            &info_bytes,
+            &info_enc_bytes,
             rng,
         )?;
 
@@ -590,11 +590,13 @@ where
             HybridImpressionInfo::from_bytes(&self.data[Self::INFO_OFFSET..]).map_err(|e| {
                 InvalidHybridReportError::DeserializationError("HybridImpressionInfo", e.into())
             })?;
-        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info.to_bytes())?;
+        let info_enc_bytes = info.to_enc_bytes();
+
+        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info_enc_bytes)?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
 
-        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info.to_bytes())?;
+        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info_enc_bytes)?;
 
         Ok(HybridImpressionReport::<BK> {
             match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
@@ -693,11 +695,12 @@ where
             HybridConversionInfo::from_bytes(&self.data[Self::INFO_OFFSET..]).map_err(|e| {
                 InvalidHybridReportError::DeserializationError("HybridConversionInfo", e.into())
             })?;
+        let info_enc_bytes = info.to_enc_bytes();
 
-        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info.to_bytes())?;
+        let plaintext_mk = open_in_place(sk, self.encap_key_mk(), &mut ct_mk, &info_enc_bytes)?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<V>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
-        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info.to_bytes())?;
+        let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info_enc_bytes)?;
 
         Ok(HybridConversionReport::<V> {
             match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
@@ -1236,7 +1239,6 @@ mod test {
         EncryptedHybridImpressionReport, EncryptedHybridReport, GenericArray,
         HybridConversionReport, HybridImpressionReport, HybridReport,
         IndistinguishableHybridReport, PrfHybridReport, UniqueTag, UniqueTagValidator,
-        HELPER_ORIGIN,
     };
     use crate::{
         error::Error,
@@ -1246,7 +1248,7 @@ mod test {
         },
         hpke::{KeyPair, KeyRegistry},
         report::{
-            hybrid::{EncryptedHybridConversionReport, HybridEventType, NonAsciiStringError},
+            hybrid::{EncryptedHybridConversionReport, HybridEventType},
             hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
         },
         secret_sharing::replicated::{
@@ -1265,7 +1267,7 @@ mod test {
                 HybridReport::Impression(HybridImpressionReport::<BA8> {
                     match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                     breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                    info: HybridImpressionInfo::new(0, "HelperOrigin").unwrap(),
+                    info: HybridImpressionInfo::new(0),
                 })
             }
             HybridEventType::Conversion => {
@@ -1274,7 +1276,6 @@ mod test {
                     value: AdditiveShare::new(rng.gen(), rng.gen()),
                     info: HybridConversionInfo::new(
                         0,
-                        "HelperOrigin",
                         "https://www.example2.com",
                         rng.gen(),
                         0.0,
@@ -1307,15 +1308,8 @@ mod test {
             let conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                info: HybridConversionInfo::new(
-                    0,
-                    "HelperOrigin",
-                    "https://www.example2.com",
-                    1_234_567,
-                    0.0,
-                    0.0,
-                )
-                .unwrap(),
+                info: HybridConversionInfo::new(0, "https://www.example2.com", 1_234_567, 0.0, 0.0)
+                    .unwrap(),
             };
             let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
                 conversion_report.clone().into();
@@ -1345,7 +1339,7 @@ mod test {
             let impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                info: HybridImpressionInfo::new(0, "HelperOrigin").unwrap(),
+                info: HybridImpressionInfo::new(0),
             };
             let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
                 impression_report.clone().into();
@@ -1395,7 +1389,7 @@ mod test {
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                info: HybridImpressionInfo::new(0, "HelperOrigin").unwrap(),
+                info: HybridImpressionInfo::new(0),
             };
             let mut hybrid_impression_report_bytes =
                 Vec::with_capacity(HybridImpressionReport::<BA8>::serialized_len());
@@ -1414,15 +1408,8 @@ mod test {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                info: HybridConversionInfo::new(
-                    0,
-                    "HelperOrigin",
-                    "https://www.example2.com",
-                    1_234_567,
-                    0.0,
-                    0.0,
-                )
-                .unwrap(),
+                info: HybridConversionInfo::new(0, "https://www.example2.com", 1_234_567, 0.0, 0.0)
+                    .unwrap(),
             };
             let mut hybrid_conversion_report_bytes =
                 Vec::with_capacity(HybridImpressionReport::<BA8>::serialized_len());
@@ -1444,7 +1431,7 @@ mod test {
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                info: HybridImpressionInfo::new(key_id, HELPER_ORIGIN).unwrap(),
+                info: HybridImpressionInfo::new(key_id),
             };
 
             let enc_report_bytes = hybrid_impression_report
@@ -1467,15 +1454,7 @@ mod test {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                info: HybridConversionInfo::new(
-                    0,
-                    HELPER_ORIGIN,
-                    "meta.com",
-                    1_729_707_432,
-                    5.0,
-                    1.1,
-                )
-                .unwrap(),
+                info: HybridConversionInfo::new(0, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap(),
             };
 
             let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
@@ -1522,15 +1501,7 @@ mod test {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                info: HybridConversionInfo::new(
-                    0,
-                    "HELPER_ORIGIN",
-                    "meta.com",
-                    1_729_707_432,
-                    5.0,
-                    1.1,
-                )
-                .unwrap(),
+                info: HybridConversionInfo::new(0, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap(),
             };
 
             let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
@@ -1572,13 +1543,6 @@ mod test {
                 HybridReport::Conversion(hybrid_conversion_report)
             );
         });
-    }
-
-    #[test]
-    fn non_ascii_string() {
-        let non_ascii_string = "☃️☃️☃️";
-        let err = HybridImpressionInfo::new(0, non_ascii_string).unwrap_err();
-        assert!(matches!(err, NonAsciiStringError(_)));
     }
 
     #[test]

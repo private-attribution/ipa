@@ -29,24 +29,19 @@ impl Serializer for crate::test_fixture::hybrid::TestHybridRecord {
                 match_key,
                 breakdown_key,
                 key_id,
-                helper_origin,
             } => {
-                write!(
-                    buf,
-                    "i,{match_key},{breakdown_key},{key_id},{helper_origin}"
-                )?;
+                write!(buf, "i,{match_key},{breakdown_key},{key_id}")?;
             }
             crate::test_fixture::hybrid::TestHybridRecord::TestConversion {
                 match_key,
                 value,
                 key_id,
-                helper_origin,
                 conversion_site_domain,
                 timestamp,
                 epsilon,
                 sensitivity,
             } => {
-                write!(buf, "c,{match_key},{value},{key_id},{helper_origin},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}")?;
+                write!(buf, "c,{match_key},{value},{key_id},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}")?;
             }
         }
 

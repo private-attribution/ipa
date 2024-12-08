@@ -112,7 +112,6 @@ impl<R: Rng> EventGenerator<R> {
                 .rng
                 .gen_range(1..self.config.max_conversion_value.get()),
             key_id: 0,
-            helper_origin: "HELPER_ORIGIN".to_string(),
             conversion_site_domain: "meta.com".to_string(),
             timestamp: self.rng.gen_range(0..1000),
             epsilon: 0.0,
@@ -125,7 +124,6 @@ impl<R: Rng> EventGenerator<R> {
             match_key,
             breakdown_key: self.rng.gen_range(0..self.config.max_breakdown_key.get()),
             key_id: 0,
-            helper_origin: "HELPER_ORIGIN".to_string(),
         }
     }
 }
