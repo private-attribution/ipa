@@ -17,6 +17,13 @@ impl HybridImpressionInfo {
         Self { key_id }
     }
 
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        let out_len = std::mem::size_of_val(&self.key_id);
+        debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
+        out_len
+    }
+
     // Converts this instance into an owned byte slice. DO NOT USE AS INPUT TO HPKE
     // This is only for serialization and deserialization.
     #[must_use]
@@ -89,6 +96,18 @@ impl HybridConversionInfo {
             epsilon,
             sensitivity,
         })
+    }
+
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        let out_len = std::mem::size_of_val(&self.key_id)
+        + 1 // delimiter
+        + self.conversion_site_domain.len()
+        + std::mem::size_of_val(&self.timestamp)
+        + std::mem::size_of_val(&self.epsilon)
+        + std::mem::size_of_val(&self.sensitivity);
+        debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
+        out_len
     }
 
     // Converts this instance into an owned byte slice. DO NOT USE AS INPUT TO HPKE

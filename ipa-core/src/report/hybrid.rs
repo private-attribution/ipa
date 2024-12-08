@@ -185,8 +185,7 @@ where
     /// # Panics
     /// If report length does not fit in `u16`.
     pub fn encrypted_len(&self) -> u16 {
-        // Todo: get this more efficiently
-        self.ciphertext_len() + u16::try_from(self.info.to_bytes().len()).unwrap()
+        self.ciphertext_len() + u16::try_from(self.info.byte_len()).unwrap()
     }
 
     /// # Errors
@@ -334,8 +333,7 @@ where
     /// # Panics
     /// If report length does not fit in `u16`.
     pub fn encrypted_len(&self) -> u16 {
-        // Todo: get this more efficiently
-        self.ciphertext_len() + u16::try_from(self.info.to_bytes().len()).unwrap()
+        self.ciphertext_len() + u16::try_from(self.info.byte_len()).unwrap()
     }
 
     /// # Errors
