@@ -196,20 +196,17 @@ pub mod test {
 
     #[allow(clippy::too_many_lines)]
     fn get_records() -> Vec<TestHybridRecord> {
-        let helper_origin = "HELPER_ORIGIN".to_string();
         let conversion_site_domain = "meta.com".to_string();
         let shard1_records = [
             TestHybridRecord::TestImpression {
                 match_key: SHARD1_MKS[0],
                 breakdown_key: 45,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
             },
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[1],
                 value: 1,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 102,
                 epsilon: 0.0,
@@ -219,7 +216,6 @@ pub mod test {
                 match_key: SHARD1_MKS[2],
                 value: 3,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 103,
                 epsilon: 0.0,
@@ -229,7 +225,6 @@ pub mod test {
                 match_key: SHARD1_MKS[3],
                 value: 4,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 104,
                 epsilon: 0.0,
@@ -239,19 +234,16 @@ pub mod test {
                 match_key: SHARD1_MKS[4],
                 breakdown_key: 1,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
             }, // duplicated impression with same match_key
             TestHybridRecord::TestImpression {
                 match_key: SHARD1_MKS[4],
                 breakdown_key: 2,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
             }, // duplicated impression with same match_key
             TestHybridRecord::TestConversion {
                 match_key: SHARD1_MKS[5],
                 value: 7,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 105,
                 epsilon: 0.0,
@@ -263,13 +255,11 @@ pub mod test {
                 match_key: SHARD2_MKS[0],
                 breakdown_key: 56,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
             },
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[1],
                 value: 2,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 100,
                 epsilon: 0.0,
@@ -279,13 +269,11 @@ pub mod test {
                 match_key: SHARD2_MKS[2],
                 breakdown_key: 78,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
             }, // NOT attributed
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[3],
                 value: 5,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 101,
                 epsilon: 0.0,
@@ -295,13 +283,11 @@ pub mod test {
                 match_key: SHARD2_MKS[4],
                 breakdown_key: 90,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
             }, // attributed twice, removed
             TestHybridRecord::TestConversion {
                 match_key: SHARD2_MKS[5],
                 value: 6,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 102,
                 epsilon: 0.0,
@@ -311,7 +297,6 @@ pub mod test {
                 match_key: SHARD2_MKS[6],
                 value: 7,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 103,
                 epsilon: 0.0,

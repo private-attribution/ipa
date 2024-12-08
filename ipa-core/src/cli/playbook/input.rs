@@ -62,9 +62,7 @@ impl InputItem for TestHybridRecord {
         let event_type = s.chars().nth(0).unwrap();
         match event_type {
             'i' => {
-                if let [_, match_key, number, key_id, helper_origin] =
-                    s.splitn(5, ',').collect::<Vec<_>>()[..]
-                {
+                if let [_, match_key, number, key_id] = s.splitn(4, ',').collect::<Vec<_>>()[..] {
                     let match_key: u64 = match_key
                         .parse()
                         .unwrap_or_else(|e| panic!("Expected a u64, got {match_key}: {e}"));
@@ -80,7 +78,6 @@ impl InputItem for TestHybridRecord {
                         match_key,
                         breakdown_key: number,
                         key_id,
-                        helper_origin: helper_origin.to_string(),
                     }
                 } else {
                     panic!("{s} is not a valid {}", type_name::<Self>())
@@ -88,8 +85,8 @@ impl InputItem for TestHybridRecord {
             }
 
             'c' => {
-                if let [_, match_key, number, key_id, helper_origin, conversion_site_domain, timestamp, epsilon, sensitivity] =
-                    s.splitn(9, ',').collect::<Vec<_>>()[..]
+                if let [_, match_key, number, key_id, conversion_site_domain, timestamp, epsilon, sensitivity] =
+                    s.splitn(8, ',').collect::<Vec<_>>()[..]
                 {
                     let match_key: u64 = match_key
                         .parse()
@@ -118,7 +115,6 @@ impl InputItem for TestHybridRecord {
                         match_key,
                         value: number,
                         key_id,
-                        helper_origin: helper_origin.to_string(),
                         conversion_site_domain: conversion_site_domain.to_string(),
                         timestamp,
                         epsilon,

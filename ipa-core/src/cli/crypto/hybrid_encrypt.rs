@@ -300,14 +300,12 @@ mod tests {
 
     #[tokio::test]
     async fn try_encrypting_something() {
-        let helper_origin = "HELPER_ORIGIN".to_string();
         let conversion_site_domain = "meta.com".to_string();
         let records = vec![
             TestHybridRecord::TestConversion {
                 match_key: 12345,
                 value: 2,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 100,
                 epsilon: 0.0,
@@ -317,7 +315,6 @@ mod tests {
                 match_key: 12345,
                 value: 5,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
                 conversion_site_domain: conversion_site_domain.clone(),
                 timestamp: 101,
                 epsilon: 0.0,
@@ -327,7 +324,6 @@ mod tests {
                 match_key: 23456,
                 breakdown_key: 4,
                 key_id: 0,
-                helper_origin: helper_origin.clone(),
             },
         ];
         let mut input_file = NamedTempFile::new().unwrap();
