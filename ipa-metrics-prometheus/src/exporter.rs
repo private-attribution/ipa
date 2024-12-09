@@ -39,7 +39,6 @@ impl PrometheusMetricsExporter for MetricsStore {
 
         let encoder = TextEncoder::new();
         let metric_families = registry.gather();
-        // TODO: Handle error?
         encoder.encode(&metric_families, w).unwrap();
     }
 }
@@ -71,7 +70,15 @@ mod test {
         let mut buff = Vec::new();
         store.export(&mut buff);
 
+
+        let expected_result = "# TYPE bar_total counter
+bar_total{otel_scope_name=\"ipa-helper\"} 1
+# TYPE baz_total counter
+baz_total{otel_scope_name=\"ipa-helper\"} 4
+# HELP target_info Target metadata
+# TYPE target_info gauge
+target_info{service_name=\"unknown_service\",telemetry_sdk_language=\"rust\",telemetry_sdk_name=\"opentelemetry\",telemetry_sdk_version=\"0.24.1\"} 1\n";
         let result = String::from_utf8(buff).unwrap();
-        println!("Export to Prometheus: {result}");
+        assert_eq!(result, expected_result);
     }
 }

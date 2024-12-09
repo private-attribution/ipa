@@ -121,8 +121,15 @@ impl PartitionedStore {
         self.get_mut(CurrentThreadContext::get()).counter(key)
     }
 
-    pub fn counters(&mut self) -> impl Iterator<Item = (&OwnedMetricName, CounterValue)> {
-        self.get_mut(CurrentThreadContext::get()).counters()
+    pub fn counters(&self) -> impl Iterator<Item = (&OwnedMetricName, CounterValue)> {
+        if let Some(partition) = CurrentThreadContext::get() {
+            return match self.inner.get(&partition) {
+                    Some(store) => store.counters(),
+                    None => self.default_store.counters()
+                }
+        } else {
+            self.default_store.counters()
+        }
     }
 
     #[must_use]
