@@ -14,6 +14,13 @@ pub enum RouteId {
     ReceiveQuery,
     PrepareQuery,
     QueryInput,
+    /// To accelerate delivery, we made some compromise here and as a result this API
+    /// has double-meaning depending on the context.
+    /// In the context of a shard, it is used to check whether other shards have the
+    /// same status
+    /// In the context of an MPC client, it is used to fetch the latest status of a given query.
+    ///
+    /// We should've used a different `RouteId` to differentiate those
     QueryStatus,
     CompleteQuery,
     KillQuery,

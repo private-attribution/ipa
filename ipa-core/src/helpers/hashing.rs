@@ -51,7 +51,7 @@ impl<T: Serializable> SerializeAs<T> for T {
     }
 }
 
-impl<'a, T: Serializable> SerializeAs<T> for &'a T {
+impl<T: Serializable> SerializeAs<T> for &T {
     fn serialize(self, buf: &mut GenericArray<u8, <T as Serializable>::Size>) {
         <T as Serializable>::serialize(self, buf);
     }

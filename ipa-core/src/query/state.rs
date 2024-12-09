@@ -1,6 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     future::Future,
     task::Poll,
 };
@@ -33,6 +33,12 @@ pub enum QueryStatus {
     AwaitingCompletion,
     /// Query has finished and results are available.
     Completed,
+}
+
+impl Display for QueryStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 impl From<&QueryState> for QueryStatus {

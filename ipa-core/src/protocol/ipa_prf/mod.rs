@@ -527,8 +527,9 @@ pub mod tests {
             dp::NoiseParams,
             ipa_prf::{oprf_ipa, oprf_padding::PaddingParameters},
         },
+        sharding::NotSharded,
         test_executor::run,
-        test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
+        test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
     fn test_input(
@@ -660,7 +661,8 @@ pub mod tests {
             let dp_params = DpMechanism::Binomial { epsilon };
             let per_user_credit_cap = 2_f64.powi(i32::try_from(SS_BITS).unwrap());
             let padding_params = PaddingParameters::relaxed();
-            let world = TestWorld::default();
+            let config = TestWorldConfig::default().with_timeout_secs(60);
+            let world = TestWorld::<NotSharded>::with_config(&config);
 
             let records: Vec<TestRawDataRecord> = vec![
                 test_input(0, 12345, false, 1, 0),
@@ -865,7 +867,7 @@ mod compact_gate_tests {
     fn step_count_limit() {
         // This is an arbitrary limit intended to catch changes that unintentionally
         // blow up the step count. It can be increased, within reason.
-        const STEP_COUNT_LIMIT: u32 = 24_000;
+        const STEP_COUNT_LIMIT: u32 = 32_500;
         assert!(
             ProtocolStep::STEP_COUNT < STEP_COUNT_LIMIT,
             "Step count of {actual} exceeds limit of {STEP_COUNT_LIMIT}.",

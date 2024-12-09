@@ -116,6 +116,7 @@ async fn run(args: Args) -> Result<(), Error> {
             ..Default::default()
         },
         initial_gate: Some(Gate::default().narrow(&IpaPrf)),
+        timeout: None,
         ..TestWorldConfig::default()
     };
     // Construct TestWorld early to initialize logging.

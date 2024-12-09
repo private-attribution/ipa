@@ -48,6 +48,7 @@ impl KeyPair {
 // The coherence rules prohibit us from implementing `PublicKeyRegistry` both for our concrete type
 // `KeyPair` and for `IpaPublicKey`, because the impls would overlap if hpke chose to define
 // `IpaPublicKey` to be the same as `KeyPair`.
+#[derive(Clone)]
 pub struct PublicKeyOnly(pub IpaPublicKey);
 
 impl Deref for PublicKeyOnly {
@@ -83,6 +84,14 @@ pub trait PrivateKeyRegistry: Send + Sync + 'static {
 /// A registry that holds all the keys available for helper/UA to use.
 pub struct KeyRegistry<K> {
     keys: Box<[K]>,
+}
+
+impl<K: Clone> Clone for KeyRegistry<K> {
+    fn clone(&self) -> Self {
+        Self {
+            keys: self.keys.clone(),
+        }
+    }
 }
 
 impl<K> KeyRegistry<K> {

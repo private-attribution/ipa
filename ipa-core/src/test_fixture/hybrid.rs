@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    iter::zip,
-};
+use std::{collections::HashMap, iter::zip};
 
 use crate::{
     ff::{
@@ -9,21 +6,36 @@ use crate::{
         U128Conversions,
     },
     rand::Rng,
-    report::hybrid::{
-        AggregateableHybridReport, HybridConversionReport, HybridImpressionReport, HybridReport,
-        IndistinguishableHybridReport,
+    report::{
+        hybrid::{
+            AggregateableHybridReport, HybridConversionReport, HybridImpressionReport,
+            HybridReport, IndistinguishableHybridReport, KeyIdentifier,
+        },
+        hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::sharing::Reconstruct,
 };
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum TestHybridRecord {
-    TestImpression { match_key: u64, breakdown_key: u32 },
-    TestConversion { match_key: u64, value: u32 },
+    TestImpression {
+        match_key: u64,
+        breakdown_key: u32,
+        key_id: KeyIdentifier,
+    },
+    TestConversion {
+        match_key: u64,
+        value: u32,
+        key_id: KeyIdentifier,
+        conversion_site_domain: String,
+        timestamp: u64,
+        epsilon: f64,
+        sensitivity: f64,
+    },
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestIndistinguishableHybridReport<MK = u64> {
     pub match_key: MK,
     pub value: u32,
@@ -121,6 +133,7 @@ where
             TestHybridRecord::TestImpression {
                 match_key,
                 breakdown_key,
+                key_id,
             } => {
                 let ba_match_key = BA64::try_from(u128::from(match_key))
                     .unwrap()
@@ -133,13 +146,22 @@ where
                         HybridReport::Impression::<BK, V>(HybridImpressionReport {
                             match_key: match_key_share,
                             breakdown_key: breakdown_key_share,
+                            info: HybridImpressionInfo::new(key_id),
                         })
                     })
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap()
             }
-            TestHybridRecord::TestConversion { match_key, value } => {
+            TestHybridRecord::TestConversion {
+                match_key,
+                value,
+                key_id,
+                conversion_site_domain,
+                timestamp,
+                epsilon,
+                sensitivity,
+            } => {
                 let ba_match_key = BA64::try_from(u128::from(match_key))
                     .unwrap()
                     .share_with(rng);
@@ -149,6 +171,14 @@ where
                         HybridReport::Conversion::<BK, V>(HybridConversionReport {
                             match_key: match_key_share,
                             value: value_share,
+                            info: HybridConversionInfo::new(
+                                key_id,
+                                &conversion_site_domain,
+                                timestamp,
+                                epsilon,
+                                sensitivity,
+                            )
+                            .unwrap(),
                         })
                     })
                     .collect::<Vec<_>>()
@@ -159,16 +189,40 @@ where
     }
 }
 
-struct HashmapEntry {
-    breakdown_key: u32,
-    total_value: u32,
+enum MatchEntry {
+    Single(TestHybridRecord),
+    Pair(TestHybridRecord, TestHybridRecord),
+    MoreThanTwo,
 }
 
-impl HashmapEntry {
-    pub fn new(breakdown_key: u32, value: u32) -> Self {
-        Self {
-            breakdown_key,
-            total_value: value,
+impl MatchEntry {
+    pub fn add_record(&mut self, new_record: TestHybridRecord) {
+        match self {
+            Self::Single(old_record) => {
+                *self = Self::Pair(old_record.clone(), new_record);
+            }
+            Self::Pair { .. } | Self::MoreThanTwo => *self = Self::MoreThanTwo,
+        }
+    }
+
+    pub fn into_breakdown_key_and_value_tuple(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Pair(imp, conv) => match (imp, conv) {
+                (
+                    TestHybridRecord::TestImpression { breakdown_key, .. },
+                    TestHybridRecord::TestConversion { value, .. },
+                )
+                | (
+                    TestHybridRecord::TestConversion { value, .. },
+                    TestHybridRecord::TestImpression { breakdown_key, .. },
+                ) => Some((breakdown_key, value)),
+                (
+                    TestHybridRecord::TestConversion { value: value1, .. },
+                    TestHybridRecord::TestConversion { value: value2, .. },
+                ) => Some((0, value1 + value2)),
+                _ => None,
+            },
+            _ => None,
         }
     }
 }
@@ -177,127 +231,162 @@ impl HashmapEntry {
 /// It won't, so long as you can convert a u32 to a usize
 #[must_use]
 pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize) -> Vec<u32> {
-    let mut conversion_match_keys = HashSet::new();
-    let mut impression_match_keys = HashSet::new();
-
+    let mut attributed_conversions = HashMap::<u64, MatchEntry>::new();
     for input in input_rows {
         match input {
-            TestHybridRecord::TestImpression { match_key, .. } => {
-                impression_match_keys.insert(*match_key);
-            }
-            TestHybridRecord::TestConversion { match_key, .. } => {
-                conversion_match_keys.insert(*match_key);
+            TestHybridRecord::TestConversion { match_key, .. }
+            | TestHybridRecord::TestImpression { match_key, .. } => {
+                attributed_conversions
+                    .entry(*match_key)
+                    .and_modify(|e| e.add_record(input.clone()))
+                    .or_insert(MatchEntry::Single(input.clone()));
             }
         }
     }
 
-    // The key is the "match key" and the value stores both the breakdown and total attributed value
-    let mut attributed_conversions = HashMap::new();
-
-    for input in input_rows {
-        match input {
-            TestHybridRecord::TestImpression {
-                match_key,
-                breakdown_key,
-            } => {
-                if conversion_match_keys.contains(match_key) {
-                    let v = attributed_conversions
-                        .entry(*match_key)
-                        .or_insert(HashmapEntry::new(*breakdown_key, 0));
-                    v.breakdown_key = *breakdown_key;
-                }
-            }
-            TestHybridRecord::TestConversion { match_key, value } => {
-                if impression_match_keys.contains(match_key) {
-                    attributed_conversions
-                        .entry(*match_key)
-                        .and_modify(|e| e.total_value += value)
-                        .or_insert(HashmapEntry::new(0, *value));
-                }
-            }
-        }
-    }
+    let pairs = attributed_conversions
+        .into_values()
+        .filter_map(MatchEntry::into_breakdown_key_and_value_tuple)
+        .collect::<Vec<_>>();
 
     let mut output = vec![0; max_breakdown];
-    for (_, entry) in attributed_conversions {
-        output[usize::try_from(entry.breakdown_key).unwrap()] += entry.total_value;
+    for (breakdown_key, value) in pairs {
+        output[usize::try_from(breakdown_key).unwrap()] += value;
     }
 
     output
+}
+
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn build_hybrid_records_and_expectation() -> (Vec<TestHybridRecord>, Vec<u32>) {
+    let conversion_site_domain = "meta.com".to_string();
+    let test_hybrid_records = vec![
+        TestHybridRecord::TestConversion {
+            match_key: 12345,
+            value: 2,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 100,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // malicious client attributed to breakdown 0
+        TestHybridRecord::TestConversion {
+            match_key: 12345,
+            value: 5,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 101,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // malicious client attributed to breakdown 0
+        TestHybridRecord::TestImpression {
+            match_key: 23456,
+            breakdown_key: 4,
+            key_id: 0,
+        }, // attributed
+        TestHybridRecord::TestConversion {
+            match_key: 23456,
+            value: 7,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 102,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // attributed
+        TestHybridRecord::TestImpression {
+            match_key: 34567,
+            breakdown_key: 1,
+            key_id: 0,
+        }, // no conversion
+        TestHybridRecord::TestImpression {
+            match_key: 45678,
+            breakdown_key: 3,
+            key_id: 0,
+        }, // attributed
+        TestHybridRecord::TestConversion {
+            match_key: 45678,
+            value: 5,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 103,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // attributed
+        TestHybridRecord::TestImpression {
+            match_key: 56789,
+            breakdown_key: 5,
+            key_id: 0,
+        }, // no conversion
+        TestHybridRecord::TestConversion {
+            match_key: 67890,
+            value: 2,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 104,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // NOT attributed
+        TestHybridRecord::TestImpression {
+            match_key: 78901,
+            breakdown_key: 2,
+            key_id: 0,
+        }, // too many reports
+        TestHybridRecord::TestConversion {
+            match_key: 78901,
+            value: 3,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 105,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // not attributed, too many reports
+        TestHybridRecord::TestConversion {
+            match_key: 78901,
+            value: 4,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 103,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // not attributed, too many reports
+        TestHybridRecord::TestImpression {
+            match_key: 89012,
+            breakdown_key: 4,
+            key_id: 0,
+        }, // attributed
+        TestHybridRecord::TestConversion {
+            match_key: 89012,
+            value: 6,
+            key_id: 0,
+            conversion_site_domain: conversion_site_domain.clone(),
+            timestamp: 103,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        }, // attributed
+    ];
+
+    let expected = vec![
+        7, // two conversions goes to bucket 0: 2 + 5
+        0, 0, 5, 13, // 4: 7 + 6
+        0,
+    ];
+
+    (test_hybrid_records, expected)
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
     use rand::{seq::SliceRandom, thread_rng};
 
-    use super::TestHybridRecord;
-    use crate::test_fixture::hybrid::hybrid_in_the_clear;
+    use crate::test_fixture::hybrid::{build_hybrid_records_and_expectation, hybrid_in_the_clear};
 
     #[test]
-    fn basic() {
-        let mut test_data = vec![
-            TestHybridRecord::TestImpression {
-                match_key: 12345,
-                breakdown_key: 2,
-            },
-            TestHybridRecord::TestImpression {
-                match_key: 23456,
-                breakdown_key: 4,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 23456,
-                value: 25,
-            }, // attributed
-            TestHybridRecord::TestImpression {
-                match_key: 34567,
-                breakdown_key: 1,
-            },
-            TestHybridRecord::TestImpression {
-                match_key: 45678,
-                breakdown_key: 3,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 45678,
-                value: 13,
-            }, // attributed
-            TestHybridRecord::TestImpression {
-                match_key: 56789,
-                breakdown_key: 5,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 67890,
-                value: 14,
-            }, // NOT attributed
-            TestHybridRecord::TestImpression {
-                match_key: 78901,
-                breakdown_key: 2,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 78901,
-                value: 12,
-            }, // attributed
-            TestHybridRecord::TestConversion {
-                match_key: 78901,
-                value: 31,
-            }, // attributed
-            TestHybridRecord::TestImpression {
-                match_key: 89012,
-                breakdown_key: 4,
-            },
-            TestHybridRecord::TestConversion {
-                match_key: 89012,
-                value: 8,
-            }, // attributed
-        ];
-
+    fn hybrid_basic() {
+        let (mut test_hybrid_records, expected) = build_hybrid_records_and_expectation();
         let mut rng = thread_rng();
-        test_data.shuffle(&mut rng);
-        let expected = vec![
-            0, 0, 43, // 12 + 31
-            13, 33, // 25 + 8
-            0,
-        ];
-        let result = hybrid_in_the_clear(&test_data, 6);
+        test_hybrid_records.shuffle(&mut rng);
+        let result = hybrid_in_the_clear(&test_hybrid_records, 6);
         assert_eq!(result, expected);
     }
 }

@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use super::min_status;
 use crate::{
-    error::{BoxError, Error as ProtocolError},
+    error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
@@ -368,7 +368,8 @@ impl Processor {
     /// This helper function is used to transform a [`BoxError`] into a
     /// [`QueryStatusError::DifferentStatus`] and retrieve it's internal state. Returns [`None`]
     /// if not possible.
-    fn downcast_state_error(box_error: BoxError) -> Option<QueryStatus> {
+    #[cfg(feature = "in-memory-infra")]
+    fn downcast_state_error(box_error: crate::error::BoxError) -> Option<QueryStatus> {
         use crate::helpers::ApiError;
         let api_error = box_error.downcast::<ApiError>().ok()?;
         if let ApiError::QueryStatus(QueryStatusError::DifferentStatus { my_status, .. }) =
@@ -399,8 +400,8 @@ impl Processor {
     /// of relying on errors.
     #[cfg(feature = "real-world-infra")]
     fn get_state_from_error(shard_error: crate::net::ShardError) -> Option<QueryStatus> {
-        if let crate::net::Error::Application { error, .. } = shard_error.source {
-            return Self::downcast_state_error(error);
+        if let crate::net::Error::ShardQueryStatusMismatch { error, .. } = shard_error.source {
+            return Some(error.actual);
         }
         None
     }
@@ -431,6 +432,10 @@ impl Processor {
         let shard_responses = shard_transport.broadcast(shard_query_status_req).await;
         if let Err(e) = shard_responses {
             // The following silently ignores the cases where the query isn't found.
+            // TODO: this code is a ticking bomb - it ignores all errors, not just when
+            // query is not found. If there is no handler, handler responded with an error, etc.
+            // Moreover, any error may result in client mistakenly assuming that the status
+            // is completed.
             let states: Vec<_> = e
                 .failures
                 .into_iter()
@@ -859,7 +864,7 @@ mod tests {
     async fn shard_prepare_error() {
         fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
             create_handler(move |_| async move {
-                if si == ShardIndex(2) {
+                if si == ShardIndex::from(2) {
                     Err(ApiError::QueryPrepare(PrepareQueryError::AlreadyRunning))
                 } else {
                     Ok(HelperResponse::ok())
@@ -884,7 +889,7 @@ mod tests {
         assert!(r.is_err());
         if let Err(e) = r {
             if let NewQueryError::ShardBroadcastError(be) = e {
-                assert_eq!(be.failures[0].0, ShardIndex(2));
+                assert_eq!(be.failures[0].0, ShardIndex::from(2));
             } else {
                 panic!("Unexpected error type");
             }
@@ -1133,6 +1138,7 @@ mod tests {
     }
 
     mod query_status {
+
         use super::*;
         use crate::{helpers::query::CompareStatusRequest, protocol::QueryId};
 
@@ -1145,16 +1151,18 @@ mod tests {
         #[tokio::test]
         async fn combined_status_response() {
             fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
+                const FOURTH_SHARD: ShardIndex = ShardIndex::from_u32(3);
+                const THIRD_SHARD: ShardIndex = ShardIndex::from_u32(2);
                 create_handler(move |_| async move {
                     match si {
-                        ShardIndex(3) => {
+                        FOURTH_SHARD => {
                             Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
                                 query_id: QueryId,
                                 my_status: QueryStatus::Completed,
                                 other_status: QueryStatus::Preparing,
                             }))
                         }
-                        ShardIndex(2) => {
+                        THIRD_SHARD => {
                             Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
                                 query_id: QueryId,
                                 my_status: QueryStatus::Running,
@@ -1203,11 +1211,12 @@ mod tests {
         async fn status_query_doesnt_exist() {
             fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
                 create_handler(move |_| async move {
-                    match si {
-                        ShardIndex(3) => Err(ApiError::QueryStatus(QueryStatusError::NoSuchQuery(
+                    if si == ShardIndex::from(3) {
+                        Err(ApiError::QueryStatus(QueryStatusError::NoSuchQuery(
                             QueryId,
-                        ))),
-                        _ => Ok(HelperResponse::ok()),
+                        )))
+                    } else {
+                        Ok(HelperResponse::ok())
                     }
                 })
             }
@@ -1402,10 +1411,9 @@ mod tests {
                     .unwrap()
             });
 
-            Ok(assert_eq!(
-                vec![Fp31::truncate_from(20u128)],
-                results.reconstruct()
-            ))
+            assert_eq!(vec![Fp31::truncate_from(20u128)], results.reconstruct());
+
+            Ok(())
         }
 
         #[tokio::test]
@@ -1426,10 +1434,12 @@ mod tests {
                     .collect::<Vec<_>>()
             });
 
-            Ok(assert_eq!(
+            assert_eq!(
                 &[Fp31::truncate_from(20u128)] as &[_],
                 results.reconstruct()
-            ))
+            );
+
+            Ok(())
         }
 
         #[tokio::test]

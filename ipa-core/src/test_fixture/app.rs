@@ -93,7 +93,6 @@ impl TestApp {
     /// ## Errors
     /// Returns an error if it can't start a query or send query input.
     #[allow(clippy::missing_panics_doc)]
-
     pub async fn start_query<I, A>(
         &self,
         input: I,

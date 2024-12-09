@@ -1,8 +1,12 @@
 mod add;
 mod generator;
+mod hybrid;
 mod input;
 mod ipa;
 mod multiply;
+mod sharded_shuffle;
+#[allow(dead_code)]
+mod streaming;
 
 use core::fmt::Debug;
 use std::{fs, path::Path, time::Duration};
@@ -12,9 +16,14 @@ use comfy_table::{Cell, Color, Table};
 use hyper::http::uri::Scheme;
 pub use input::InputSource;
 pub use multiply::secure_mul;
+pub use sharded_shuffle::secure_shuffle;
 use tokio::time::sleep;
 
-pub use self::ipa::{playbook_oprf_ipa, run_query_and_validate};
+pub use self::{
+    hybrid::{run_hybrid_query_and_validate, HybridQueryResult},
+    ipa::{playbook_oprf_ipa, run_query_and_validate},
+    streaming::{RoundRobinSubmission, StreamingSubmission},
+};
 use crate::{
     cli::config_parse::HelperNetworkConfigParseExt,
     config::{ClientConfig, NetworkConfig, PeerConfig},
@@ -196,7 +205,6 @@ pub async fn make_clients(
     scheme: Scheme,
     wait: usize,
 ) -> ([IpaHttpClient<Helper>; 3], NetworkConfig<Helper>) {
-    let mut wait = wait;
     let network = if let Some(path) = network_path {
         NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
     } else {
@@ -214,16 +222,52 @@ pub async fn make_clients(
     // Note: This closure is only called when the selected action uses clients.
 
     let clients = IpaHttpClient::from_conf(&IpaRuntime::current(), &network, &ClientIdentity::None);
-    while wait > 0 && !clients_ready(&clients).await {
+    wait_for_servers(wait, &[clients.clone()]).await;
+    (clients, network)
+}
+
+/// Creates enough clients to talk to all shards on MPC helpers. This only supports
+/// reading configuration from the `network.toml` file
+/// ## Panics
+/// If configuration file `network_path` cannot be read from or if it does not conform to toml spec.
+pub async fn make_sharded_clients(
+    network_path: &Path,
+    scheme: Scheme,
+    wait: usize,
+) -> (Vec<[IpaHttpClient<Helper>; 3]>, Vec<NetworkConfig<Helper>>) {
+    let network =
+        NetworkConfig::from_toml_str_sharded(&fs::read_to_string(network_path).unwrap()).unwrap();
+
+    let clients = network
+        .clone()
+        .into_iter()
+        .map(|network| {
+            let network = network.override_scheme(&scheme);
+            IpaHttpClient::from_conf(&IpaRuntime::current(), &network, &ClientIdentity::None)
+        })
+        .collect::<Vec<_>>();
+
+    wait_for_servers(wait, &clients).await;
+
+    (clients, network)
+}
+
+async fn wait_for_servers(mut wait: usize, clients: &[[IpaHttpClient<Helper>; 3]]) {
+    while wait > 0 && !clients_ready(clients).await {
         tracing::debug!("waiting for servers to come up");
         sleep(Duration::from_secs(1)).await;
         wait -= 1;
     }
-    (clients, network)
 }
 
-async fn clients_ready(clients: &[IpaHttpClient<Helper>; 3]) -> bool {
-    clients[0].echo("").await.is_ok()
-        && clients[1].echo("").await.is_ok()
-        && clients[2].echo("").await.is_ok()
+#[allow(clippy::disallowed_methods)]
+async fn clients_ready(clients: &[[IpaHttpClient<Helper>; 3]]) -> bool {
+    let r = futures::future::join_all(clients.iter().map(|clients| async move {
+        clients[0].echo("").await.is_ok()
+            && clients[1].echo("").await.is_ok()
+            && clients[2].echo("").await.is_ok()
+    }))
+    .await;
+
+    r.iter().all(|&v| v)
 }

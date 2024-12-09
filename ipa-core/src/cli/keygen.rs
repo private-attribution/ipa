@@ -15,13 +15,12 @@ use time::{Duration, OffsetDateTime};
 
 use crate::{error::BoxError, hpke::KeyPair};
 
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, Args)]
 #[clap(
     name = "keygen",
     about = "Generate keys used by an MPC helper",
     next_help_heading = "Key Generation Options"
 )]
-
 pub struct KeygenArgs {
     /// DNS name to use for the TLS certificate
     #[arg(short, long)]

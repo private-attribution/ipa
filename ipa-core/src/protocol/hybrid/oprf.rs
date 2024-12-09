@@ -200,7 +200,10 @@ where
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod test {
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        time::Duration,
+    };
 
     use ipa_step::StepNarrow;
 
@@ -213,11 +216,13 @@ mod test {
     };
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn hybrid_oprf() {
         run(|| async {
             const SHARDS: usize = 2;
             let world: TestWorld<WithShards<SHARDS>> = TestWorld::with_shards(TestWorldConfig {
                 initial_gate: Some(Gate::default().narrow(&ProtocolStep::Hybrid)),
+                timeout: Some(Duration::from_secs(60)),
                 ..Default::default()
             });
 
@@ -225,26 +230,44 @@ mod test {
                 TestHybridRecord::TestImpression {
                     match_key: 12345,
                     breakdown_key: 2,
+                    key_id: 0,
                 },
                 TestHybridRecord::TestImpression {
                     match_key: 68362,
                     breakdown_key: 1,
+                    key_id: 0,
                 },
                 TestHybridRecord::TestConversion {
                     match_key: 12345,
                     value: 5,
+                    key_id: 0,
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 100,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
                 },
                 TestHybridRecord::TestConversion {
                     match_key: 68362,
                     value: 2,
+                    key_id: 0,
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 102,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
                 },
                 TestHybridRecord::TestImpression {
                     match_key: 68362,
                     breakdown_key: 1,
+                    key_id: 0,
                 },
                 TestHybridRecord::TestConversion {
                     match_key: 68362,
                     value: 7,
+                    key_id: 0,
+                    conversion_site_domain: "meta.com".to_string(),
+                    timestamp: 104,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
                 },
             ];
 

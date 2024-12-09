@@ -3,7 +3,7 @@ use ipa_step_derive::CompactStep;
 #[derive(CompactStep)]
 pub(crate) enum HybridStep {
     ReshardByTag,
-    #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="padding_dp")]
+    #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="report_padding_dp")]
     PaddingDp,
     #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
     InputShuffle,
@@ -19,6 +19,10 @@ pub(crate) enum HybridStep {
     GroupBySum,
     #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     GroupBySumValidate,
+    #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
+    Aggregate,
+    #[step(child = FinalizeSteps)]
+    Finalize,
 }
 
 #[derive(CompactStep)]
@@ -27,4 +31,12 @@ pub(crate) enum AggregateReportsStep {
     AddBK,
     #[step(child = crate::protocol::boolean::step::EightBitStep)]
     AddV,
+}
+
+#[derive(CompactStep)]
+pub(crate) enum FinalizeSteps {
+    #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedAdditionStep)]
+    Add,
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    Validate,
 }

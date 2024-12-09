@@ -674,9 +674,6 @@ macro_rules! impl_transpose_shares_ba_to_bool {
 // Usage: Share conversion input (convert_to_fp25519 test). M = CONV_CHUNK, N = MK_BITS.
 impl_transpose_shares_ba_to_bool!(BA64, 256, 64, test_transpose_shares_ba_to_bool_256x64);
 
-// Usage: Quicksort. M = SORT_CHUNK, N = sort key bits.
-impl_transpose_shares_ba_to_bool!(BA32, 256, 32, test_transpose_shares_ba_to_bool_256x32);
-
 /// Implement a transpose of a MxN matrix of secret-shared bits accessed via
 /// `Fn(usize) -> AdditiveShare<BA{N}>` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
 ///
@@ -786,6 +783,8 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
 // Dimensions: Arbitrary (rows are padded to whole bytes).
 
 // Usage: Aggregation input. M = AGG_CHUNK, N = BK or TV bits.
+impl_transpose_shares_ba_to_bool_small!(BA32, 256, 32, test_transpose_shares_ba_to_bool_256x32); // Addtional Usage: Quicksort. M = SORT_CHUNK, N = sort key bits.
+impl_transpose_shares_ba_to_bool_small!(BA16, 256, 16, test_transpose_shares_ba_to_bool_256x16);
 impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to_bool_256x8);
 impl_transpose_shares_ba_to_bool_small!(BA5, 256, 5, test_transpose_shares_ba_to_bool_256x5);
 impl_transpose_shares_ba_to_bool_small!(BA3, 256, 3, test_transpose_shares_ba_to_bool_256x3);
@@ -798,7 +797,6 @@ impl_transpose_shares_ba_to_bool_small!(BA3, 32, 3, test_transpose_shares_ba_to_
 
 // Usage: Laplace noise mechanism. M = number of breakdowns (2^|bk|), N = OV bits.
 impl_transpose_shares_ba_to_bool!(BA32, 32, 32, test_transpose_shares_ba_to_bool_32x32);
-impl_transpose_shares_ba_to_bool!(BA16, 256, 16, test_transpose_shares_ba_to_bool_256x16);
 impl_transpose_shares_ba_to_bool!(BA16, 32, 16, test_transpose_shares_ba_to_bool_32x16);
 impl_transpose_shares_ba_to_bool_small!(BA8, 16, 8, test_transpose_shares_ba_to_bool_16x8);
 

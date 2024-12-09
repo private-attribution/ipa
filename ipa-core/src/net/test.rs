@@ -15,17 +15,21 @@ use std::{
     ops::Index,
 };
 
+#[cfg(all(test, unit_test))]
+use http_body_util::BodyExt;
+#[cfg(all(test, unit_test))]
+use hyper::StatusCode;
 use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
 
-use super::{transport::MpcHttpTransport, ConnectionFlavor, Shard};
+use super::{ConnectionFlavor, HttpTransport, Shard};
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
         TlsConfig,
     },
-    executor::{IpaJoinHandle, IpaRuntime},
-    helpers::{HandlerBox, HelperIdentity, RequestHandler, TransportIdentity},
+    executor::IpaRuntime,
+    helpers::{HandlerBox, HelperIdentity, RequestHandler, StreamCollection, TransportIdentity},
     hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, Helper, IpaHttpClient, IpaHttpServer},
     sharding::{ShardIndex, ShardedHelperIdentity},
@@ -134,7 +138,7 @@ impl TestNetwork<Shard> {
     /// Creates all the shards for a helper and creates a network.
     fn new_shards(id: HelperIdentity, ports: Vec<Option<u16>>, conf: &TestConfigBuilder) -> Self {
         let servers: Vec<_> = (0..conf.shard_count)
-            .map(ShardIndex)
+            .map(ShardIndex::from)
             .zip(ports)
             .map(|(ix, p)| {
                 let sid = ShardedHelperIdentity::new(id, ix);
@@ -229,7 +233,7 @@ impl TestApp {
             &self.mpc_network_config,
             &identities.helper,
         );
-        let (transport, server) = MpcHttpTransport::new(
+        let (transport, server) = crate::net::MpcHttpTransport::new(
             IpaRuntime::current(),
             sid.helper_identity,
             self.mpc_server.config,
@@ -292,7 +296,7 @@ impl TestConfig {
     /// Creates a new [`TestConfig`] using the provided configuration.
     fn new(conf: &TestConfigBuilder) -> Self {
         let rings = (0..conf.shard_count)
-            .map(ShardIndex)
+            .map(ShardIndex::from)
             .map(|s| {
                 let ports = conf.get_ports_for_shard_index(s);
                 TestNetwork::<Helper>::new_mpc(s, ports, conf)
@@ -465,16 +469,34 @@ impl TestConfigBuilder {
         TestConfig::new(self)
     }
 }
-pub struct TestServer {
+pub struct TestServer<F: ConnectionFlavor = Helper> {
     pub addr: SocketAddr,
-    pub handle: IpaJoinHandle<()>,
-    pub transport: MpcHttpTransport,
-    pub server: IpaHttpServer<Helper>,
-    pub client: IpaHttpClient<Helper>,
-    pub request_handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
+    pub transport: Arc<HttpTransport<F>>,
+    pub server: IpaHttpServer<F>,
+    pub client: IpaHttpClient<F>,
+    pub request_handler: Option<Arc<dyn RequestHandler<F::Identity>>>,
 }
 
-impl TestServer {
+impl<F: ConnectionFlavor> TestServer<F> {
+    fn new(
+        addr: SocketAddr,
+        transport: Arc<HttpTransport<F>>,
+        server: IpaHttpServer<F>,
+        request_handler: Option<Arc<dyn RequestHandler<F::Identity>>>,
+    ) -> Self {
+        // pick the first client because it is the one that will be used to talk to this server
+        let client = transport.clients.first().unwrap().clone();
+        Self {
+            addr,
+            transport,
+            server,
+            client,
+            request_handler,
+        }
+    }
+}
+
+impl TestServer<Helper> {
     /// Build default set of test clients
     ///
     /// All three clients will be configured with the same default server URL, thus,
@@ -488,23 +510,72 @@ impl TestServer {
     pub fn builder() -> TestServerBuilder {
         TestServerBuilder::default()
     }
+
+    #[cfg(all(test, unit_test))]
+    pub async fn oneshot_success(
+        req: hyper::Request<axum::body::Body>,
+        handler: Arc<dyn RequestHandler<HelperIdentity>>,
+    ) -> bytes::Bytes {
+        let test_server = TestServerBuilder::<Helper>::default()
+            .with_request_handler(handler)
+            .build()
+            .await;
+        let resp = test_server.server.handle_req(req).await;
+        let status = resp.status();
+        assert_eq!(StatusCode::OK, status);
+
+        resp.into_body().collect().await.unwrap().to_bytes()
+    }
 }
 
-#[derive(Default)]
-pub struct TestServerBuilder {
-    handler: Option<Arc<dyn RequestHandler<HelperIdentity>>>,
+impl TestServer<Shard> {
+    #[cfg(all(test, unit_test))]
+    pub async fn oneshot(
+        req: hyper::Request<axum::body::Body>,
+        handler: Arc<dyn RequestHandler<ShardIndex>>,
+    ) -> hyper::Response<axum::body::Body> {
+        let test_server = TestServerBuilder::<Shard>::default()
+            .with_request_handler(handler)
+            .build()
+            .await;
+        test_server.server.handle_req(req).await
+    }
+
+    #[cfg(all(test, unit_test))]
+    pub async fn oneshot_success(
+        req: hyper::Request<axum::body::Body>,
+        handler: Arc<dyn RequestHandler<ShardIndex>>,
+    ) -> bytes::Bytes {
+        let resp = Self::oneshot(req, handler).await;
+        let status = resp.status();
+        assert_eq!(StatusCode::OK, status);
+
+        resp.into_body().collect().await.unwrap().to_bytes()
+    }
+}
+pub struct TestServerBuilder<F: ConnectionFlavor = Helper> {
+    handler: Option<Arc<dyn RequestHandler<F::Identity>>>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
     use_http1: bool,
     disable_matchkey_encryption: bool,
 }
 
-impl TestServerBuilder {
+impl<F: ConnectionFlavor> Default for TestServerBuilder<F> {
+    fn default() -> Self {
+        Self {
+            handler: None,
+            metrics: None,
+            disable_https: false,
+            use_http1: false,
+            disable_matchkey_encryption: false,
+        }
+    }
+}
+
+impl<F: ConnectionFlavor> TestServerBuilder<F> {
     #[must_use]
-    pub fn with_request_handler(
-        mut self,
-        handler: Arc<dyn RequestHandler<HelperIdentity>>,
-    ) -> Self {
+    pub fn with_request_handler(mut self, handler: Arc<dyn RequestHandler<F::Identity>>) -> Self {
         self.handler = Some(handler);
         self
     }
@@ -537,42 +608,157 @@ impl TestServerBuilder {
         self
     }
 
-    pub async fn build(self) -> TestServer {
-        let identities =
-            ClientIdentities::new(self.disable_https, ShardedHelperIdentity::ONE_FIRST);
-        let mut test_config = TestConfig::builder()
+    fn test_config(&self) -> TestConfig {
+        TestConfig::builder()
             .with_disable_https_option(self.disable_https)
             .with_use_http1_option(self.use_http1)
             // TODO: add disble_matchkey here
-            .build();
-        let leaders_ring = test_config.rings.pop().unwrap();
-        let first_server = leaders_ring.servers.into_iter().next().unwrap();
-        let clients = IpaHttpClient::from_conf(
-            &IpaRuntime::current(),
-            &leaders_ring.network,
-            &identities.helper.clone_with_key(),
-        );
-        let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
-        let client = clients[0].clone();
-        let (transport, server) = MpcHttpTransport::new(
-            IpaRuntime::current(),
-            HelperIdentity::ONE,
-            first_server.config,
-            leaders_ring.network,
-            &clients,
+            .build()
+    }
+}
+
+trait TestTransportConfigurator {
+    type Connection: ConnectionFlavor;
+    const IDENTITY: <Self::Connection as ConnectionFlavor>::Identity;
+
+    fn client_identity(&self) -> ClientIdentity<Self::Connection>;
+
+    fn make_transport(
+        &self,
+        handler: Option<Arc<dyn RequestHandler<<Self::Connection as ConnectionFlavor>::Identity>>>,
+        test_network: &TestNetwork<Self::Connection>,
+    ) -> Arc<HttpTransport<Self::Connection>> {
+        let handler = handler.as_ref().map(HandlerBox::owning_ref);
+
+        let clients = test_network
+            .network
+            .peers
+            .iter()
+            .map(|peer| {
+                IpaHttpClient::new(
+                    IpaRuntime::current(),
+                    &test_network.network.client,
+                    peer.clone(),
+                    self.client_identity(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let transport = HttpTransport {
+            http_runtime: IpaRuntime::current(),
+            identity: Self::IDENTITY,
+            clients,
+            record_streams: StreamCollection::default(),
             handler,
+        };
+
+        Arc::new(transport)
+    }
+}
+
+/// Pick the first helper to serve as test server
+impl TestTransportConfigurator for TestServerBuilder<Helper> {
+    type Connection = Helper;
+    const IDENTITY: HelperIdentity = HelperIdentity::ONE;
+
+    fn client_identity(&self) -> ClientIdentity<Self::Connection> {
+        ClientIdentities::new(self.disable_https, ShardedHelperIdentity::ONE_FIRST).helper
+    }
+}
+
+/// Pick the first shard to serve as test server
+impl TestTransportConfigurator for TestServerBuilder<Shard> {
+    type Connection = Shard;
+    const IDENTITY: ShardIndex = ShardIndex::FIRST;
+
+    fn client_identity(&self) -> ClientIdentity<Self::Connection> {
+        ClientIdentities::new(self.disable_https, ShardedHelperIdentity::ONE_FIRST).shard
+    }
+}
+
+trait TestServerConfigurator {
+    type Connection: ConnectionFlavor;
+
+    fn configure(
+        transport: &Arc<HttpTransport<Self::Connection>>,
+        test_config: TestConfig,
+    ) -> (IpaHttpServer<Self::Connection>, AddressableTestServer);
+}
+
+impl TestServerConfigurator for IpaHttpServer<Shard> {
+    type Connection = Shard;
+
+    fn configure(
+        transport: &Arc<HttpTransport<Self::Connection>>,
+        test_config: TestConfig,
+    ) -> (IpaHttpServer<Self::Connection>, AddressableTestServer) {
+        let [test_network, ..] = test_config.shards;
+        let first_server = test_network.servers.into_iter().next().unwrap();
+        let http_server = IpaHttpServer::new_shards(
+            Arc::clone(transport),
+            first_server.config.clone(),
+            test_network.network,
         );
-        let (addr, handle) = server
-            .start_on(&IpaRuntime::current(), first_server.socket, self.metrics)
+
+        (http_server, first_server)
+    }
+}
+
+impl TestServerConfigurator for IpaHttpServer<Helper> {
+    type Connection = Helper;
+
+    fn configure(
+        transport: &Arc<HttpTransport<Self::Connection>>,
+        mut test_config: TestConfig,
+    ) -> (IpaHttpServer<Self::Connection>, AddressableTestServer) {
+        let test_network = test_config.rings.pop().unwrap();
+        let first_server = test_network.servers.into_iter().next().unwrap();
+        let http_server = IpaHttpServer::new_mpc(
+            Arc::clone(transport),
+            first_server.config.clone(),
+            test_network.network,
+        );
+
+        (http_server, first_server)
+    }
+}
+
+impl TestServerBuilder<Shard> {
+    pub async fn build(self) -> TestServer<Shard> {
+        let test_config = self.test_config();
+
+        let transport = self.make_transport(self.handler.clone(), &test_config.shards[0]);
+        let (http_server, test_server_conf) =
+            IpaHttpServer::<Shard>::configure(&transport, test_config);
+        let (addr, _handle) = http_server
+            .start_on(
+                &IpaRuntime::current(),
+                test_server_conf.socket,
+                self.metrics,
+            )
             .await;
-        TestServer {
-            addr,
-            handle,
-            transport,
-            server,
-            client,
-            request_handler: self.handler,
-        }
+
+        TestServer::new(addr, transport, http_server, self.handler)
+    }
+}
+
+impl TestServerBuilder<Helper> {
+    pub async fn build(self) -> TestServer<Helper> {
+        let test_config = self.test_config();
+
+        let transport =
+            self.make_transport(self.handler.clone(), test_config.rings.first().unwrap());
+        let (http_server, test_server_conf) =
+            IpaHttpServer::<Helper>::configure(&transport, test_config);
+        let (addr, _handle) = http_server
+            .start_on(
+                &IpaRuntime::current(),
+                test_server_conf.socket,
+                self.metrics,
+            )
+            .await;
+
+        TestServer::new(addr, transport, http_server, self.handler)
     }
 }
 
@@ -863,7 +1049,7 @@ mod tests {
         let builder = TestConfigBuilder::with_http_and_default_test_ports();
         assert_eq!(
             vec![Some(3000), Some(3001), Some(3002)],
-            builder.get_ports_for_shard_index(ShardIndex(0))
+            builder.get_ports_for_shard_index(ShardIndex::FIRST)
         );
         assert_eq!(
             vec![Some(6001)],
@@ -874,6 +1060,9 @@ mod tests {
     #[test]
     fn get_os_ports() {
         let builder = TestConfigBuilder::default();
-        assert_eq!(3, builder.get_ports_for_shard_index(ShardIndex(0)).len());
+        assert_eq!(
+            3,
+            builder.get_ports_for_shard_index(ShardIndex::FIRST).len()
+        );
     }
 }

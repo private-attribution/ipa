@@ -2,11 +2,19 @@
 #[allow(dead_code)]
 mod common;
 
-use std::process::{Command, Stdio};
+use std::{
+    fs::File,
+    process::{Command, Stdio},
+};
 
-use common::{tempdir::TempDir, CommandExt, UnwrapStatusExt, TEST_RC_BIN};
+use common::{
+    spawn_shards, tempdir::TempDir, test_sharded_setup, CommandExt, TerminateOnDropExt,
+    UnwrapStatusExt, CRYPTO_UTIL_BIN, TEST_RC_BIN,
+};
+use ipa_core::{cli::playbook::HybridQueryResult, helpers::query::HybridQueryParams};
 use rand::thread_rng;
 use rand_core::RngCore;
+use serde_json::from_reader;
 
 pub const IN_THE_CLEAR_BIN: &str = env!("CARGO_BIN_EXE_in_the_clear");
 
@@ -15,13 +23,21 @@ pub const IN_THE_CLEAR_BIN: &str = env!("CARGO_BIN_EXE_in_the_clear");
 #[test]
 fn test_hybrid() {
     const INPUT_SIZE: usize = 100;
+    const SHARDS: usize = 5;
     const MAX_CONVERSION_VALUE: usize = 5;
-    const MAX_BREAKDOWN_KEY: usize = 20;
+
+    let config = HybridQueryParams {
+        max_breakdown_key: 5,
+        with_dp: 0,
+        epsilon: 0.0,
+        plaintext_match_keys: false, // this shouldn't be necessary
+    };
 
     let dir = TempDir::new_delete_on_drop();
 
     // Gen inputs
     let input_file = dir.path().join("ipa_inputs.txt");
+    let in_the_clear_output_file = dir.path().join("ipa_output_in_the_clear.json");
     let output_file = dir.path().join("ipa_output.json");
 
     let mut command = Command::new(TEST_RC_BIN);
@@ -30,7 +46,7 @@ fn test_hybrid() {
         .arg("gen-hybrid-inputs")
         .args(["--count", &INPUT_SIZE.to_string()])
         .args(["--max-conversion-value", &MAX_CONVERSION_VALUE.to_string()])
-        .args(["--max-breakdown-key", &MAX_BREAKDOWN_KEY.to_string()])
+        .args(["--max-breakdown-key", &config.max_breakdown_key.to_string()])
         .args(["--seed", &thread_rng().next_u64().to_string()])
         .silent()
         .stdin(Stdio::piped());
@@ -39,8 +55,82 @@ fn test_hybrid() {
     let mut command = Command::new(IN_THE_CLEAR_BIN);
     command
         .args(["--input-file".as_ref(), input_file.as_os_str()])
-        .args(["--output-file".as_ref(), output_file.as_os_str()])
+        .args([
+            "--output-file".as_ref(),
+            in_the_clear_output_file.as_os_str(),
+        ])
         .silent()
         .stdin(Stdio::piped());
     command.status().unwrap_status();
+
+    let config_path = dir.path().join("config");
+    let sockets = test_sharded_setup::<SHARDS>(&config_path);
+    let _helpers = spawn_shards(&config_path, &sockets, true);
+
+    // encrypt input
+    let mut command = Command::new(CRYPTO_UTIL_BIN);
+    command
+        .arg("hybrid-encrypt")
+        .args(["--input-file".as_ref(), input_file.as_os_str()])
+        .args(["--output-dir".as_ref(), dir.path().as_os_str()])
+        .args(["--network".into(), config_path.join("network.toml")])
+        .stdin(Stdio::piped());
+    command.status().unwrap_status();
+    let enc1 = dir.path().join("helper1.enc");
+    let enc2 = dir.path().join("helper2.enc");
+    let enc3 = dir.path().join("helper3.enc");
+
+    // Run Hybrid
+    let mut command = Command::new(TEST_RC_BIN);
+    command
+        .args(["--network".into(), config_path.join("network.toml")])
+        .args(["--output-file".as_ref(), output_file.as_os_str()])
+        .args(["--shard-count", SHARDS.to_string().as_str()])
+        .args(["--wait", "2"])
+        .arg("malicious-hybrid")
+        .silent()
+        .args(["--count", INPUT_SIZE.to_string().as_str()])
+        .args(["--enc-input-file1".as_ref(), enc1.as_os_str()])
+        .args(["--enc-input-file2".as_ref(), enc2.as_os_str()])
+        .args(["--enc-input-file3".as_ref(), enc3.as_os_str()])
+        .args(["--max-breakdown-key", &config.max_breakdown_key.to_string()]);
+
+    match config.with_dp {
+        0 => {
+            command.args(["--with-dp", &config.with_dp.to_string()]);
+        }
+        _ => {
+            command
+                .args(["--with-dp", &config.with_dp.to_string()])
+                .args(["--epsilon", &config.epsilon.to_string()]);
+        }
+    }
+    command.stdin(Stdio::piped());
+
+    let test_mpc = command.spawn().unwrap().terminate_on_drop();
+    test_mpc.wait().unwrap_status();
+
+    // basic output checks - output should have the exact size as number of breakdowns
+    let output = serde_json::from_str::<HybridQueryResult>(
+        &std::fs::read_to_string(&output_file).expect("IPA results file should exist"),
+    )
+    .expect("IPA results file is valid JSON");
+
+    assert_eq!(
+        usize::try_from(config.max_breakdown_key).unwrap(),
+        output.breakdowns.len(),
+        "Number of breakdowns does not match the expected",
+    );
+    assert_eq!(INPUT_SIZE, usize::from(output.input_size));
+
+    let expected_result: Vec<u32> = from_reader(
+        File::open(in_the_clear_output_file)
+            .expect("file should exist as it's created above in the test"),
+    )
+    .expect("should match hard coded format from in_the_clear");
+    assert!(output
+        .breakdowns
+        .iter()
+        .zip(expected_result.iter())
+        .all(|(a, b)| a == b));
 }

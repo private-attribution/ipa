@@ -14,7 +14,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare},
-        Block, FieldVectorizable, SharedValue, StdArray, Vectorizable,
+        Block, FieldVectorizable, SharedValue, SharedValueArray, StdArray, Vectorizable,
     },
 };
 
@@ -266,6 +266,30 @@ macro_rules! impl_share_from_random {
 }
 
 impl_share_from_random!(PRF_CHUNK);
+
+/// Calls the `batch_invert` function for Scalars from the `curve25519_dalek` crate.
+/// # Panics
+/// When N != N (never)
+pub fn batch_invert<const N: usize>(
+    inputs: &<Fp25519 as Vectorizable<N>>::Array,
+) -> <Fp25519 as Vectorizable<N>>::Array
+where
+    Fp25519: Vectorizable<N>,
+{
+    // TODO: This can be made more memory-efficient if we can manage to pass
+    // the input as a mutable reference to `Scalar::batch_invert`
+    // We can also create our own version of `Scalar::batch_invert` that avoids Vecs,
+    // but this would require forking the crate.
+    let mut inverted: [Scalar; N] = inputs
+        .clone()
+        .into_iter()
+        .map(|x| x.0)
+        .collect::<Vec<Scalar>>() // Relying on the compiler to optimize this out
+        .try_into()
+        .unwrap(); // Safe, the length will always be N
+    Scalar::batch_invert(&mut inverted);
+    <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| Fp25519(inverted[i]))
+}
 
 #[cfg(all(test, unit_test))]
 mod test {

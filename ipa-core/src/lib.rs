@@ -31,7 +31,7 @@ mod app;
 mod seq_join;
 mod serde;
 pub mod sharding;
-mod utils;
+pub mod utils;
 pub use app::{AppConfig, HelperApp, Setup as AppSetup};
 pub use utils::NonZeroU32PowerOfTwo;
 

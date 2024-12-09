@@ -91,7 +91,7 @@ impl<'a, B: ShardBinding> DZKPUpgraded<'a, B> {
 }
 
 #[async_trait]
-impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
+impl<B: ShardBinding> DZKPContext for DZKPUpgraded<'_, B> {
     async fn validate_record(&self, record_id: RecordId) -> Result<(), Error> {
         let validator_inner = self.validator_inner.upgrade().expect("validator is active");
 
@@ -107,7 +107,7 @@ impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> super::Context for DZKPUpgraded<'a, B> {
+impl<B: ShardBinding> super::Context for DZKPUpgraded<'_, B> {
     fn role(&self) -> Role {
         self.base_ctx.role()
     }
@@ -159,7 +159,7 @@ impl<'a, B: ShardBinding> super::Context for DZKPUpgraded<'a, B> {
     }
 }
 
-impl<'a, B: ShardBinding> SeqJoin for DZKPUpgraded<'a, B> {
+impl<B: ShardBinding> SeqJoin for DZKPUpgraded<'_, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.base_ctx.active_work()
     }

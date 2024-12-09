@@ -8,7 +8,7 @@ pub(crate) struct UpgradeStep;
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
 #[derive(CompactStep)]
-pub(crate) enum MaliciousProtocolStep {
+pub enum MaliciousProtocolStep {
     /// For the execution of the malicious protocol.
     #[step(child = crate::protocol::ipa_prf::step::PrfStep)]
     MaliciousProtocol,

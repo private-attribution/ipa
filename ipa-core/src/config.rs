@@ -466,10 +466,11 @@ pub struct KeyRegistries(Vec<KeyRegistry<PublicKeyOnly>>);
 impl KeyRegistries {
     /// # Panics
     /// If network file is improperly formatted
+    #[must_use]
     pub fn init_from(
-        &mut self,
+        mut self,
         network: &NetworkConfig<Helper>,
-    ) -> Option<[&KeyRegistry<PublicKeyOnly>; 3]> {
+    ) -> Option<[KeyRegistry<PublicKeyOnly>; 3]> {
         // Get the configs, if all three peers have one
         let peers = network.peers();
         let configs = peers.iter().try_fold(Vec::new(), |acc, peer| {
@@ -487,7 +488,14 @@ impl KeyRegistries {
             .map(|hpke| KeyRegistry::from_keys([PublicKeyOnly(hpke.public_key.clone())]))
             .collect::<Vec<KeyRegistry<PublicKeyOnly>>>();
 
-        Some(self.0.iter().collect::<Vec<_>>().try_into().ok().unwrap())
+        Some(
+            self.0
+                .into_iter()
+                .collect::<Vec<_>>()
+                .try_into()
+                .ok()
+                .unwrap(),
+        )
     }
 }
 
@@ -602,6 +610,6 @@ mod tests {
         let pc1 = PeerConfig::new(uri1, None);
         let client = ClientConfig::default();
         let conf = NetworkConfig::new_shards(vec![pc1.clone()], client);
-        assert_eq!(conf.peers[ShardIndex(0)].url, pc1.url);
+        assert_eq!(conf.peers[ShardIndex::FIRST].url, pc1.url);
     }
 }

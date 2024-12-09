@@ -257,7 +257,7 @@ pub mod tests {
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{ReconstructArr, Runner, TestWorld},
+        test_fixture::{mpc_proptest_config, ReconstructArr, Runner, TestWorld},
     };
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {
@@ -482,7 +482,7 @@ pub mod tests {
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
     // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
     // saturated addition at the output.
-    const PROP_MAX_INPUT_LEN: usize = 10;
+    const PROP_MAX_INPUT_LEN: usize = 100;
     const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
     const PROP_BUCKETS: usize = 8;
     type PropHistogramValue = BA8;
@@ -535,8 +535,9 @@ pub mod tests {
     }
 
     proptest! {
+        #![proptest_config(mpc_proptest_config())]
         #[test]
-        fn aggregate_proptest(
+        fn aggregate_values_mpc_proptest(
             input_struct in arb_aggregate_values_inputs(PROP_MAX_INPUT_LEN),
             seed in any::<u64>(),
         ) {
