@@ -149,6 +149,12 @@ impl<R: AsRef<dyn ProtocolResult>> From<R> for HelperResponse {
     }
 }
 
+impl From<Vec<u8>> for HelperResponse {
+    fn from(value: Vec<u8>) -> Self {
+        Self { body: value }
+    }
+}
+
 /// Union of error types returned by API operations.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
