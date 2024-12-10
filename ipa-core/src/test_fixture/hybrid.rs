@@ -190,61 +190,61 @@ where
 }
 
 enum MatchEntry {
-    Single(TestHybridRecord),
+    SingleImpression { breakdown_key: u32 },
+    SingleConversion { value: u32 },
     Attributed(Option<(u32, u32)>),
-    // Pair(TestHybridRecord, TestHybridRecord),
     MoreThanTwo,
 }
 
 impl MatchEntry {
-    pub fn add_record(&mut self, new_record: &TestHybridRecord) {
-        let new_v = if let Self::Single(old_record) = &self {
-            Self::attribute(old_record, new_record)
-        } else {
-            Self::MoreThanTwo
-        };
-
-        *self = new_v;
+    pub fn from_record(record: &TestHybridRecord) -> Self {
+        match record {
+            TestHybridRecord::TestImpression { breakdown_key, .. } => Self::SingleImpression {
+                breakdown_key: *breakdown_key,
+            },
+            TestHybridRecord::TestConversion { value, .. } => {
+                Self::SingleConversion { value: *value }
+            }
+        }
     }
 
-    fn attribute(old_record: &TestHybridRecord, new_record: &TestHybridRecord) -> Self {
-        let attr_result = match (old_record, new_record) {
-            (
-                TestHybridRecord::TestImpression { breakdown_key, .. },
-                TestHybridRecord::TestConversion { value, .. },
-            )
-            | (
-                TestHybridRecord::TestConversion { value, .. },
-                TestHybridRecord::TestImpression { breakdown_key, .. },
-            ) => Some((*breakdown_key, *value)),
-            (TestHybridRecord::TestConversion { value: value1, .. }, TestHybridRecord::TestConversion { value: value2, .. }) => Some((0, *value1 + value2)),
-            _ => None
-        };
+    pub fn add_record(&mut self, new_record: &TestHybridRecord) {
+        match self {
+            MatchEntry::SingleImpression { breakdown_key, .. } => {
+                *self = Self::attribute_impression(*breakdown_key, new_record);
+            }
+            MatchEntry::SingleConversion { value } => {
+                *self = Self::attribute_conversion(*value, new_record);
+            }
+            _ => *self = Self::MoreThanTwo,
+        }
+    }
 
-        Self::Attributed(attr_result)
+    fn attribute_impression(breakdown_key: u32, new_record: &TestHybridRecord) -> Self {
+        match new_record {
+            TestHybridRecord::TestImpression { .. } => Self::Attributed(None),
+            TestHybridRecord::TestConversion { value, .. } => {
+                Self::Attributed(Some((breakdown_key, *value)))
+            }
+        }
+    }
+
+    fn attribute_conversion(value: u32, new_record: &TestHybridRecord) -> Self {
+        match new_record {
+            TestHybridRecord::TestImpression { breakdown_key, .. } => {
+                Self::Attributed(Some((*breakdown_key, value)))
+            }
+            TestHybridRecord::TestConversion {
+                value: other_value, ..
+            } => Self::Attributed(Some((0, value + *other_value))),
+        }
     }
 
     pub fn into_breakdown_key_and_value_tuple(self) -> Option<(u32, u32)> {
         match self {
-            Self::Attributed(Some((breakdown_key, value))) => Some((breakdown_key, value)),
+            Self::Attributed(v) => v,
             _ => None,
         }
-            // Self::Pair(imp, conv) => match (imp, conv) {
-            //     (
-            //         TestHybridRecord::TestImpression { breakdown_key, .. },
-            //         TestHybridRecord::TestConversion { value, .. },
-            //     )
-            //     | (
-            //         TestHybridRecord::TestConversion { value, .. },
-            //         TestHybridRecord::TestImpression { breakdown_key, .. },
-            //     ) => Some((breakdown_key, value)),
-            //     (
-            //         TestHybridRecord::TestConversion { value: value1, .. },
-            //         TestHybridRecord::TestConversion { value: value2, .. },
-            //     ) => Some((0, value1 + value2)),
-            //     _ => None,
-            // },
-            // _ => None,
     }
 }
 
@@ -258,7 +258,11 @@ pub fn hybrid_in_the_clear<I: IntoIterator<Item: Borrow<TestHybridRecord>>>(
     let mut attributed_conversions = HashMap::<u64, MatchEntry>::new();
     for (cnt, input) in input_rows.into_iter().enumerate() {
         if cnt % 1_000_000 == 0 {
-            tracing::info!("processed another 1M rows: {}, size of conversions: {}", cnt / 1_000_000, attributed_conversions.len());
+            tracing::info!(
+                "processed another 1M rows: {}, size of conversions: {}",
+                cnt / 1_000_000,
+                attributed_conversions.len()
+            );
         }
         match input.borrow() {
             r @ (TestHybridRecord::TestConversion { match_key, .. }
@@ -266,7 +270,7 @@ pub fn hybrid_in_the_clear<I: IntoIterator<Item: Borrow<TestHybridRecord>>>(
                 attributed_conversions
                     .entry(*match_key)
                     .and_modify(|e| e.add_record(r))
-                    .or_insert(MatchEntry::Single(r.clone()));
+                    .or_insert(MatchEntry::from_record(r));
             }
         }
     }
