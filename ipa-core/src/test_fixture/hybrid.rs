@@ -256,14 +256,7 @@ pub fn hybrid_in_the_clear<I: IntoIterator<Item: Borrow<TestHybridRecord>>>(
     max_breakdown: usize,
 ) -> Vec<u32> {
     let mut attributed_conversions = HashMap::<u64, MatchEntry>::new();
-    for (cnt, input) in input_rows.into_iter().enumerate() {
-        if cnt % 1_000_000 == 0 {
-            tracing::info!(
-                "processed another 1M rows: {}, size of conversions: {}",
-                cnt / 1_000_000,
-                attributed_conversions.len()
-            );
-        }
+    for input in input_rows {
         match input.borrow() {
             r @ (TestHybridRecord::TestConversion { match_key, .. }
             | TestHybridRecord::TestImpression { match_key, .. }) => {
@@ -274,15 +267,8 @@ pub fn hybrid_in_the_clear<I: IntoIterator<Item: Borrow<TestHybridRecord>>>(
             }
         }
     }
-    tracing::info!("done attribution phase");
-
-    // let pairs = attributed_conversions
-    //     .into_values()
-    //     .filter_map(MatchEntry::into_breakdown_key_and_value_tuple)
-    //     .collect::<Vec<_>>();
 
     let mut output = vec![0; max_breakdown];
-    // for (breakdown_key, value) in attributed_conversions.into_values() {
     for entry in attributed_conversions.into_values() {
         if let Some((breakdown_key, value)) = entry.into_breakdown_key_and_value_tuple() {
             output[usize::try_from(breakdown_key).unwrap()] += value;
