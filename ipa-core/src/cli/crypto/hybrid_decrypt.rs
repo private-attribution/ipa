@@ -125,9 +125,8 @@ impl HybridDecryptArgs {
                     ]
                     .reconstruct()
                     .as_u128();
-                    let key_id = impression_report1.info.key_id;
 
-                    writeln!(writer, "i,{match_key},{breakdown_key},{key_id}")?;
+                    writeln!(writer, "i,{match_key},{breakdown_key}")?;
                 }
                 (
                     HybridReport::Conversion(conversion_report1),
@@ -149,12 +148,7 @@ impl HybridDecryptArgs {
                     ]
                     .reconstruct()
                     .as_u128();
-                    let key_id = conversion_report1.info.key_id;
-                    let conversion_site_domain = conversion_report1.info.conversion_site_domain;
-                    let timestamp = conversion_report1.info.timestamp;
-                    let epsilon = conversion_report1.info.epsilon;
-                    let sensitivity = conversion_report1.info.sensitivity;
-                    writeln!(writer, "c,{match_key},{value},{key_id},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}")?;
+                    writeln!(writer, "c,{match_key},{value}")?;
                 }
                 _ => {
                     panic!("Reports are not all the same type");
