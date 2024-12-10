@@ -124,12 +124,11 @@ impl PartitionedStore {
     pub fn counters(&self) -> impl Iterator<Item = (&OwnedMetricName, CounterValue)> {
         if let Some(partition) = CurrentThreadContext::get() {
             return match self.inner.get(&partition) {
-                    Some(store) => store.counters(),
-                    None => self.default_store.counters()
-                }
-        } else {
-            self.default_store.counters()
+                Some(store) => store.counters(),
+                None => self.default_store.counters(),
+            };
         }
+        self.default_store.counters()
     }
 
     #[must_use]

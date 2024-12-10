@@ -29,34 +29,34 @@ pub fn router(transport: MpcHttpTransport) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use axum::{body::Body, http::uri::{Authority, Scheme}};
-    use bytes::Buf;
-    use http_body_util::BodyExt;
-    use hyper::{Request, StatusCode};
-    use serde_json::{json, Value};
-    use tower::ServiceExt;
-
-    use crate::{helpers::{make_owned_handler, routing::Addr, HelperIdentity, HelperResponse}, net::server::handlers::query::test_helpers::assert_success_with};
+    use axum::{
+        body::Body,
+        http::uri::{self, Authority, Scheme},
+    };
 
     use super::*;
+    use crate::{
+        helpers::{make_owned_handler, routing::Addr, HelperIdentity, HelperResponse},
+        net::server::handlers::query::test_helpers::assert_success_with,
+    };
 
     #[tokio::test]
     async fn happy_case() {
         let handler = make_owned_handler(
             move |addr: Addr<HelperIdentity>, _data: BodyStream| async move {
-                println!("{:?}", addr.route);
                 let RouteId::Metrics = addr.route else {
                     panic!("unexpected call");
                 };
                 Ok(HelperResponse::from(Vec::new()))
             },
         );
-        let req = http_serde::metrics::Request { };
-        let req = req
-            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
+        let uri = uri::Builder::new()
+            .scheme(Scheme::HTTP)
+            .authority(Authority::from_static("localhost"))
+            .path_and_query(String::from("/metrics"))
+            .build()
             .unwrap();
-            
+        let req = hyper::Request::get(uri).body(Body::empty()).unwrap();
         assert_success_with(req, handler).await;
-
     }
 }

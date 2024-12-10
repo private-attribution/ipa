@@ -70,26 +70,10 @@ pub mod echo {
 
 pub mod metrics {
 
-    use axum::{body::Body, http::uri};
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Request {}
-
-    impl Request {
-        pub fn try_into_http_request(
-            self,
-            scheme: uri::Scheme,
-            authority: uri::Authority,
-        ) -> crate::net::http_serde::OutgoingRequest {
-            let uri = uri::Builder::new()
-                .scheme(scheme)
-                .authority(authority)
-                .path_and_query(String::from(AXUM_PATH))
-                .build()?;
-            Ok(hyper::Request::get(uri).body(Body::empty())?)
-        }
-    }
 
     pub const AXUM_PATH: &str = "/metrics";
 }

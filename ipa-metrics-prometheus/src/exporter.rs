@@ -70,7 +70,6 @@ mod test {
         let mut buff = Vec::new();
         store.export(&mut buff);
 
-
         let expected_result = "# TYPE bar_total counter
 bar_total{otel_scope_name=\"ipa-helper\"} 1
 # TYPE baz_total counter
