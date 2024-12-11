@@ -22,10 +22,9 @@ use hyper::StatusCode;
 use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
 
+use super::{ConnectionFlavor, HttpTransport, Shard};
 #[cfg(all(test, web_test, descriptive_gate))]
 use crate::cli::{install_collector, LoggingHandle};
-
-use super::{ConnectionFlavor, HttpTransport, Shard};
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
