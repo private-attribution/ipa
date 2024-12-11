@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter::zip};
+use std::{borrow::Borrow, collections::HashMap, iter::zip};
 
 use crate::{
     ff::{
@@ -190,38 +190,59 @@ where
 }
 
 enum MatchEntry {
-    Single(TestHybridRecord),
-    Pair(TestHybridRecord, TestHybridRecord),
+    SingleImpression { breakdown_key: u32 },
+    SingleConversion { value: u32 },
+    Attributed(Option<(u32, u32)>),
     MoreThanTwo,
 }
 
 impl MatchEntry {
-    pub fn add_record(&mut self, new_record: TestHybridRecord) {
-        match self {
-            Self::Single(old_record) => {
-                *self = Self::Pair(old_record.clone(), new_record);
+    pub fn from_record(record: &TestHybridRecord) -> Self {
+        match record {
+            TestHybridRecord::TestImpression { breakdown_key, .. } => Self::SingleImpression {
+                breakdown_key: *breakdown_key,
+            },
+            TestHybridRecord::TestConversion { value, .. } => {
+                Self::SingleConversion { value: *value }
             }
-            Self::Pair { .. } | Self::MoreThanTwo => *self = Self::MoreThanTwo,
+        }
+    }
+
+    pub fn add_record(&mut self, new_record: &TestHybridRecord) {
+        match self {
+            MatchEntry::SingleImpression { breakdown_key, .. } => {
+                *self = Self::attribute_impression(*breakdown_key, new_record);
+            }
+            MatchEntry::SingleConversion { value } => {
+                *self = Self::attribute_conversion(*value, new_record);
+            }
+            _ => *self = Self::MoreThanTwo,
+        }
+    }
+
+    fn attribute_impression(breakdown_key: u32, new_record: &TestHybridRecord) -> Self {
+        match new_record {
+            TestHybridRecord::TestImpression { .. } => Self::Attributed(None),
+            TestHybridRecord::TestConversion { value, .. } => {
+                Self::Attributed(Some((breakdown_key, *value)))
+            }
+        }
+    }
+
+    fn attribute_conversion(value: u32, new_record: &TestHybridRecord) -> Self {
+        match new_record {
+            TestHybridRecord::TestImpression { breakdown_key, .. } => {
+                Self::Attributed(Some((*breakdown_key, value)))
+            }
+            TestHybridRecord::TestConversion {
+                value: other_value, ..
+            } => Self::Attributed(Some((0, value + *other_value))),
         }
     }
 
     pub fn into_breakdown_key_and_value_tuple(self) -> Option<(u32, u32)> {
         match self {
-            Self::Pair(imp, conv) => match (imp, conv) {
-                (
-                    TestHybridRecord::TestImpression { breakdown_key, .. },
-                    TestHybridRecord::TestConversion { value, .. },
-                )
-                | (
-                    TestHybridRecord::TestConversion { value, .. },
-                    TestHybridRecord::TestImpression { breakdown_key, .. },
-                ) => Some((breakdown_key, value)),
-                (
-                    TestHybridRecord::TestConversion { value: value1, .. },
-                    TestHybridRecord::TestConversion { value: value2, .. },
-                ) => Some((0, value1 + value2)),
-                _ => None,
-            },
+            Self::Attributed(v) => v,
             _ => None,
         }
     }
@@ -230,28 +251,28 @@ impl MatchEntry {
 /// # Panics
 /// It won't, so long as you can convert a u32 to a usize
 #[must_use]
-pub fn hybrid_in_the_clear(input_rows: &[TestHybridRecord], max_breakdown: usize) -> Vec<u32> {
+pub fn hybrid_in_the_clear<I: IntoIterator<Item: Borrow<TestHybridRecord>>>(
+    input_rows: I,
+    max_breakdown: usize,
+) -> Vec<u32> {
     let mut attributed_conversions = HashMap::<u64, MatchEntry>::new();
     for input in input_rows {
-        match input {
-            TestHybridRecord::TestConversion { match_key, .. }
-            | TestHybridRecord::TestImpression { match_key, .. } => {
+        match input.borrow() {
+            r @ (TestHybridRecord::TestConversion { match_key, .. }
+            | TestHybridRecord::TestImpression { match_key, .. }) => {
                 attributed_conversions
                     .entry(*match_key)
-                    .and_modify(|e| e.add_record(input.clone()))
-                    .or_insert(MatchEntry::Single(input.clone()));
+                    .and_modify(|e| e.add_record(r))
+                    .or_insert(MatchEntry::from_record(r));
             }
         }
     }
 
-    let pairs = attributed_conversions
-        .into_values()
-        .filter_map(MatchEntry::into_breakdown_key_and_value_tuple)
-        .collect::<Vec<_>>();
-
     let mut output = vec![0; max_breakdown];
-    for (breakdown_key, value) in pairs {
-        output[usize::try_from(breakdown_key).unwrap()] += value;
+    for entry in attributed_conversions.into_values() {
+        if let Some((breakdown_key, value)) = entry.into_breakdown_key_and_value_tuple() {
+            output[usize::try_from(breakdown_key).unwrap()] += value;
+        }
     }
 
     output
