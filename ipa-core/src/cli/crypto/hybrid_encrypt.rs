@@ -29,8 +29,8 @@ use crate::{
     test_fixture::hybrid::TestHybridRecord,
 };
 
-/// Encryptor takes 3 arguments: `report_id`, helper that the shares must be encrypted towards
-/// and the actual share ([`HybridReport`]) to encrypt.
+/// Encryptor takes 4 arguments: `report_id`, helper that the shares must be encrypted towards,
+/// AAD info, and the actual share ([`HybridReport`]) to encrypt.
 type EncryptorInput = (
     usize,
     usize,

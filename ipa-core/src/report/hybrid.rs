@@ -141,7 +141,6 @@ where
 
         buf.put_slice(&plaintext_mk);
         buf.put_slice(&plaintext_bk);
-        //buf.put_slice(&self.info.to_bytes());
     }
 
     /// # Errors
@@ -292,7 +291,6 @@ where
 
         buf.put_slice(&plaintext_mk);
         buf.put_slice(&plaintext_v);
-        //buf.put_slice(&self.info.to_bytes());
     }
 
     /// # Errors
@@ -305,7 +303,6 @@ where
         let value =
             Replicated::<V>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + v_sz]))
             .map_err(|e| InvalidHybridReportError::DeserializationError("breakdown_key", e.into()))?;
-        // let info = HybridConversionInfo::from_bytes(&buf[mk_sz + v_sz..])?;
         Ok(Self { match_key, value })
     }
 
@@ -334,7 +331,7 @@ where
     /// # Panics
     /// If report length does not fit in `u16`.
     pub fn encrypted_len(&self) -> u16 {
-        self.ciphertext_len() //+ usize::try_from(self.info.byte_len()).unwrap()
+        self.ciphertext_len()
     }
 
     /// # Errors
@@ -616,7 +613,6 @@ where
                 .map_err(|e| {
                     InvalidHybridReportError::DeserializationError("is_trigger", e.into())
                 })?,
-                //info,
             },
             info,
         ))
@@ -737,7 +733,6 @@ where
                     .map_err(|e| {
                         InvalidHybridReportError::DeserializationError("trigger_value", e.into())
                     })?,
-                //info,
             },
             info,
         ))
@@ -1333,21 +1328,12 @@ mod test {
                 HybridReport::Impression(HybridImpressionReport::<BA8> {
                     match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                     breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                    //info: HybridImpressionInfo::new(0),
                 })
             }
             HybridEventType::Conversion => {
                 HybridReport::Conversion(HybridConversionReport::<BA3> {
                     match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                     value: AdditiveShare::new(rng.gen(), rng.gen()),
-                    /*info: HybridConversionInfo::new(
-                        0,
-                        "https://www.example2.com",
-                        rng.gen(),
-                        0.0,
-                        0.0,
-                    )
-                    .unwrap(),*/
                 })
             }
         }
@@ -1374,8 +1360,6 @@ mod test {
             let conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                //info: HybridConversionInfo::new(0, "https://www.example2.com", 1_234_567, 0.0, 0.0)
-                //    .unwrap(),
             };
             let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
                 conversion_report.clone().into();
@@ -1405,7 +1389,6 @@ mod test {
             let impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                //info: HybridImpressionInfo::new(0),
             };
             let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
                 impression_report.clone().into();
@@ -1455,7 +1438,6 @@ mod test {
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                //info: HybridImpressionInfo::new(0),
             };
             let mut hybrid_impression_report_bytes =
                 Vec::with_capacity(HybridImpressionReport::<BA8>::serialized_len());
@@ -1474,8 +1456,6 @@ mod test {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                //info: HybridConversionInfo::new(0, "https://www.example2.com", 1_234_567, 0.0, 0.0)
-                //    .unwrap(),
             };
             let mut hybrid_conversion_report_bytes =
                 Vec::with_capacity(HybridImpressionReport::<BA8>::serialized_len());
@@ -1497,7 +1477,6 @@ mod test {
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                //info: HybridImpressionInfo::new(key_id),
             };
             let impression_info = HybridImpressionInfo::new(key_id);
 
@@ -1521,7 +1500,6 @@ mod test {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                //info: HybridConversionInfo::new(0, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap(),
             };
 
             let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
@@ -1571,7 +1549,6 @@ mod test {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
                 match_key: AdditiveShare::new(rng.gen(), rng.gen()),
                 value: AdditiveShare::new(rng.gen(), rng.gen()),
-                //info: HybridConversionInfo::new(0, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap(),
             };
 
             let key_registry = KeyRegistry::<KeyPair>::random(1, &mut rng);
