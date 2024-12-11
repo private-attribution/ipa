@@ -18,10 +18,12 @@ impl HybridImpressionInfo {
     }
 
     #[must_use]
-    pub fn byte_len(&self) -> usize {
+    /// # Panics
+    /// If report length does not fit in `u16`.
+    pub fn byte_len(&self) -> u16 {
         let out_len = std::mem::size_of_val(&self.key_id);
         debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
-        out_len
+        out_len.try_into().unwrap()
     }
 
     // Converts this instance into an owned byte slice. DO NOT USE AS INPUT TO HPKE
@@ -99,7 +101,9 @@ impl HybridConversionInfo {
     }
 
     #[must_use]
-    pub fn byte_len(&self) -> usize {
+    /// # Panics
+    /// If report length does not fit in `u16`.
+    pub fn byte_len(&self) -> u16 {
         let out_len = std::mem::size_of_val(&self.key_id)
         + 1 // delimiter
         + self.conversion_site_domain.len()
@@ -107,7 +111,7 @@ impl HybridConversionInfo {
         + std::mem::size_of_val(&self.epsilon)
         + std::mem::size_of_val(&self.sensitivity);
         debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
-        out_len
+        out_len.try_into().unwrap()
     }
 
     // Converts this instance into an owned byte slice. DO NOT USE AS INPUT TO HPKE
@@ -247,6 +251,34 @@ impl HybridInfo {
             impression,
             conversion,
         })
+    }
+}
+
+impl From<HybridImpressionInfo> for HybridInfo {
+    fn from(impression: HybridImpressionInfo) -> Self {
+        let conversion = HybridConversionInfo {
+            key_id: impression.key_id,
+            conversion_site_domain: String::new(),
+            timestamp: 0,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        };
+        Self {
+            impression,
+            conversion,
+        }
+    }
+}
+
+impl From<HybridConversionInfo> for HybridInfo {
+    fn from(conversion: HybridConversionInfo) -> Self {
+        let impression = HybridImpressionInfo {
+            key_id: conversion.key_id,
+        };
+        Self {
+            impression,
+            conversion,
+        }
     }
 }
 

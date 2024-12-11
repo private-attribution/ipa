@@ -11,7 +11,7 @@ use crate::{
             AggregateableHybridReport, HybridConversionReport, HybridImpressionReport,
             HybridReport, IndistinguishableHybridReport, KeyIdentifier,
         },
-        hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
+        hybrid_info::{HybridConversionInfo, HybridImpressionInfo, HybridInfo},
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::sharing::Reconstruct,
@@ -133,7 +133,7 @@ where
             TestHybridRecord::TestImpression {
                 match_key,
                 breakdown_key,
-                key_id,
+                key_id: _,
             } => {
                 let ba_match_key = BA64::try_from(u128::from(match_key))
                     .unwrap()
@@ -146,7 +146,7 @@ where
                         HybridReport::Impression::<BK, V>(HybridImpressionReport {
                             match_key: match_key_share,
                             breakdown_key: breakdown_key_share,
-                            info: HybridImpressionInfo::new(key_id),
+                            //info: HybridImpressionInfo::new(key_id),
                         })
                     })
                     .collect::<Vec<_>>()
@@ -156,11 +156,11 @@ where
             TestHybridRecord::TestConversion {
                 match_key,
                 value,
-                key_id,
-                conversion_site_domain,
-                timestamp,
-                epsilon,
-                sensitivity,
+                key_id: _,
+                conversion_site_domain: _,
+                timestamp: _,
+                epsilon: _,
+                sensitivity: _,
             } => {
                 let ba_match_key = BA64::try_from(u128::from(match_key))
                     .unwrap()
@@ -171,19 +171,64 @@ where
                         HybridReport::Conversion::<BK, V>(HybridConversionReport {
                             match_key: match_key_share,
                             value: value_share,
-                            info: HybridConversionInfo::new(
-                                key_id,
-                                &conversion_site_domain,
-                                timestamp,
-                                epsilon,
-                                sensitivity,
-                            )
-                            .unwrap(),
                         })
                     })
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap()
+            }
+        }
+    }
+}
+
+impl TestHybridRecord {
+    #[must_use]
+    pub fn create_hybrid_info(&self) -> HybridInfo {
+        match self {
+            TestHybridRecord::TestImpression {
+                match_key: _,
+                breakdown_key: _,
+                key_id,
+            } => {
+                let conversion = HybridConversionInfo {
+                    key_id: *key_id,
+                    conversion_site_domain: String::new(),
+                    timestamp: 0,
+                    epsilon: 0.0,
+                    sensitivity: 0.0,
+                };
+                let impression = HybridImpressionInfo { key_id: *key_id };
+                HybridInfo {
+                    impression,
+                    conversion,
+                }
+            }
+            TestHybridRecord::TestConversion {
+                match_key: _,
+                value: _,
+                key_id,
+                conversion_site_domain,
+                timestamp,
+                epsilon,
+                sensitivity,
+            } => {
+                let key_id = *key_id;
+                let conversion_site_domain = conversion_site_domain.to_string();
+                let timestamp = *timestamp;
+                let epsilon = *epsilon;
+                let sensitivity = *sensitivity;
+                let impression = HybridImpressionInfo { key_id };
+                let conversion = HybridConversionInfo {
+                    key_id,
+                    conversion_site_domain,
+                    timestamp,
+                    epsilon,
+                    sensitivity,
+                };
+                HybridInfo {
+                    impression,
+                    conversion,
+                }
             }
         }
     }
