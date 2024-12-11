@@ -153,7 +153,6 @@ where
         let breakdown_key =
             Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + bk_sz]))
             .map_err(|e| InvalidHybridReportError::DeserializationError("breakdown_key", e.into()))?;
-        //let info = HybridImpressionInfo::from_bytes(&buf[mk_sz + bk_sz..])?;
 
         Ok(Self { match_key, breakdown_key })
     }
@@ -183,7 +182,7 @@ where
     /// # Panics
     /// If report length does not fit in `u16`.
     pub fn encrypted_len(&self) -> u16 {
-        self.ciphertext_len() //+ u16::try_from(self.info.byte_len()).unwrap()
+        self.ciphertext_len()
     }
 
     /// # Errors

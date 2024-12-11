@@ -171,14 +171,6 @@ where
                         HybridReport::Conversion::<BK, V>(HybridConversionReport {
                             match_key: match_key_share,
                             value: value_share,
-                            /*info: HybridConversionInfo::new(
-                                key_id,
-                                &conversion_site_domain,
-                                timestamp,
-                                epsilon,
-                                sensitivity,
-                            )
-                            .unwrap(),*/
                         })
                     })
                     .collect::<Vec<_>>()
