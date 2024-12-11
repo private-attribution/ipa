@@ -197,7 +197,7 @@ where
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
-        out.put_u16_le((self.encrypted_len() + info.byte_len()).try_into().unwrap());
+        out.put_u16_le(self.encrypted_len() + info.byte_len());
         self.encrypt_to(key_id, key_registry, info, rng, out)
     }
 
@@ -581,10 +581,10 @@ where
     /// ## Panics
     /// Should not panic. Only panics if a `Report` constructor failed to validate the
     /// contents properly, which would be a bug.
-    pub fn decrypt<P: PrivateKeyRegistry>(
+    pub fn decrypt_and_return_info<P: PrivateKeyRegistry>(
         &self,
         key_registry: &P,
-    ) -> Result<HybridImpressionReport<BK>, InvalidHybridReportError> {
+    ) -> Result<(HybridImpressionReport<BK>, HybridImpressionInfo), InvalidHybridReportError> {
         type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
         type CTBTTLength<BK> = <<Replicated<BK> as Serializable>::Size as Add<TagSize>>::Output;
 
@@ -605,16 +605,35 @@ where
 
         let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info_enc_bytes)?;
 
-        Ok(HybridImpressionReport::<BK> {
-            match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
-                plaintext_mk,
-            )),
-            breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(plaintext_btt))
+        Ok((
+            HybridImpressionReport::<BK> {
+                match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
+                    plaintext_mk,
+                )),
+                breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(
+                    plaintext_btt,
+                ))
                 .map_err(|e| {
-                InvalidHybridReportError::DeserializationError("is_trigger", e.into())
-            })?,
-            //info,
-        })
+                    InvalidHybridReportError::DeserializationError("is_trigger", e.into())
+                })?,
+                //info,
+            },
+            info,
+        ))
+    }
+
+    /// ## Errors
+    /// If the match key shares in the report cannot be decrypted (e.g. due to a
+    /// failure of the authenticated encryption).
+    /// ## Panics
+    /// Should not panic. Only panics if a `Report` constructor failed to validate the
+    /// contents properly, which would be a bug.
+    pub fn decrypt<P: PrivateKeyRegistry>(
+        &self,
+        key_registry: &P,
+    ) -> Result<HybridImpressionReport<BK>, InvalidHybridReportError> {
+        let (report, _) = self.decrypt_and_return_info(key_registry)?;
+        Ok(report)
     }
 }
 
@@ -686,10 +705,10 @@ where
     /// ## Panics
     /// Should not panic. Only panics if a `Report` constructor failed to validate the
     /// contents properly, which would be a bug.
-    pub fn decrypt<P: PrivateKeyRegistry>(
+    pub fn decrypt_and_return_info<P: PrivateKeyRegistry>(
         &self,
         key_registry: &P,
-    ) -> Result<HybridConversionReport<V>, InvalidHybridReportError> {
+    ) -> Result<(HybridConversionReport<V>, HybridConversionInfo), InvalidHybridReportError> {
         type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
         type CTBTTLength<V> = <<Replicated<V> as Serializable>::Size as Add<TagSize>>::Output;
 
@@ -709,15 +728,33 @@ where
             GenericArray::from_slice(self.btt_ciphertext()).clone();
         let plaintext_btt = open_in_place(sk, self.encap_key_btt(), &mut ct_btt, &info_enc_bytes)?;
 
-        Ok(HybridConversionReport::<V> {
-            match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
-                plaintext_mk,
-            )),
-            value: Replicated::<V>::deserialize(GenericArray::from_slice(plaintext_btt)).map_err(
-                |e| InvalidHybridReportError::DeserializationError("trigger_value", e.into()),
-            )?,
-            //info,
-        })
+        Ok((
+            HybridConversionReport::<V> {
+                match_key: Replicated::<BA64>::deserialize_infallible(GenericArray::from_slice(
+                    plaintext_mk,
+                )),
+                value: Replicated::<V>::deserialize(GenericArray::from_slice(plaintext_btt))
+                    .map_err(|e| {
+                        InvalidHybridReportError::DeserializationError("trigger_value", e.into())
+                    })?,
+                //info,
+            },
+            info,
+        ))
+    }
+
+    /// ## Errors
+    /// If the match key shares in the report cannot be decrypted (e.g. due to a
+    /// failure of the authenticated encryption).
+    /// ## Panics
+    /// Should not panic. Only panics if a `Report` constructor failed to validate the
+    /// contents properly, which would be a bug.
+    pub fn decrypt<P: PrivateKeyRegistry>(
+        &self,
+        key_registry: &P,
+    ) -> Result<HybridConversionReport<V>, InvalidHybridReportError> {
+        let (report, _) = self.decrypt_and_return_info(key_registry)?;
+        Ok(report)
     }
 }
 
@@ -1083,6 +1120,28 @@ where
             }
         }
     }
+    /// ## Errors
+    /// If the match key shares in the report cannot be decrypted (e.g. due to a
+    /// failure of the authenticated encryption).
+    /// ## Panics
+    /// Should not panic. Only panics if a `Report` constructor failed to validate the
+    /// contents properly, which would be a bug.
+    pub fn decrypt_and_return_info<P: PrivateKeyRegistry>(
+        &self,
+        key_registry: &P,
+    ) -> Result<(HybridReport<BK, V>, HybridInfo), InvalidHybridReportError> {
+        match self {
+            EncryptedHybridReport::Impression(impression_report) => {
+                let (report, info) = impression_report.decrypt_and_return_info(key_registry)?;
+                Ok((HybridReport::Impression(report), info.into()))
+            }
+            EncryptedHybridReport::Conversion(conversion_report) => {
+                let (report, info) = conversion_report.decrypt_and_return_info(key_registry)?;
+                Ok((HybridReport::Conversion(report), info.into()))
+            }
+        }
+    }
+
     /// ## Errors
     /// If the match key shares in the report cannot be decrypted (e.g. due to a
     /// failure of the authenticated encryption).

@@ -190,6 +190,7 @@ where
 }
 
 impl TestHybridRecord {
+    #[must_use]
     pub fn create_hybrid_info(&self) -> HybridInfo {
         match self {
             TestHybridRecord::TestImpression {
@@ -198,15 +199,13 @@ impl TestHybridRecord {
                 key_id,
             } => {
                 let conversion = HybridConversionInfo {
-                    key_id: key_id.clone(),
-                    conversion_site_domain: "".to_string(),
+                    key_id: *key_id,
+                    conversion_site_domain: String::new(),
                     timestamp: 0,
                     epsilon: 0.0,
                     sensitivity: 0.0,
                 };
-                let impression = HybridImpressionInfo {
-                    key_id: key_id.clone(),
-                };
+                let impression = HybridImpressionInfo { key_id: *key_id };
                 HybridInfo {
                     impression,
                     conversion,
@@ -221,11 +220,11 @@ impl TestHybridRecord {
                 epsilon,
                 sensitivity,
             } => {
-                let key_id = key_id.clone();
-                let conversion_site_domain = conversion_site_domain.clone();
-                let timestamp = timestamp.clone();
-                let epsilon = epsilon.clone();
-                let sensitivity = sensitivity.clone();
+                let key_id = *key_id;
+                let conversion_site_domain = conversion_site_domain.to_string();
+                let timestamp = *timestamp;
+                let epsilon = *epsilon;
+                let sensitivity = *sensitivity;
                 let impression = HybridImpressionInfo { key_id };
                 let conversion = HybridConversionInfo {
                     key_id,

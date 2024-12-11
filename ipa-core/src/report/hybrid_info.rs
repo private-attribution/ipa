@@ -254,6 +254,34 @@ impl HybridInfo {
     }
 }
 
+impl From<HybridImpressionInfo> for HybridInfo {
+    fn from(impression: HybridImpressionInfo) -> Self {
+        let conversion = HybridConversionInfo {
+            key_id: impression.key_id,
+            conversion_site_domain: String::new(),
+            timestamp: 0,
+            epsilon: 0.0,
+            sensitivity: 0.0,
+        };
+        Self {
+            impression,
+            conversion,
+        }
+    }
+}
+
+impl From<HybridConversionInfo> for HybridInfo {
+    fn from(conversion: HybridConversionInfo) -> Self {
+        let impression = HybridImpressionInfo {
+            key_id: conversion.key_id,
+        };
+        Self {
+            impression,
+            conversion,
+        }
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use super::*;
