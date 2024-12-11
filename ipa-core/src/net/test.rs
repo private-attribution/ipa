@@ -263,7 +263,11 @@ impl TestApp {
             shard_server.start_on(&IpaRuntime::current(), self.shard_server.socket.take(), ()),
         )
         .await;
-        setup.connect(transport, shard_transport)
+
+        let metrics_handle = install_collector().unwrap();
+        let logging_handle = LoggingHandle { metrics_handle };
+
+        setup.connect(transport, shard_transport, logging_handle)
     }
 }
 
