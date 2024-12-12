@@ -20,10 +20,10 @@ impl HybridImpressionInfo {
     #[must_use]
     /// # Panics
     /// If report length does not fit in `u16`.
-    pub fn byte_len(&self) -> u16 {
+    pub fn byte_len(&self) -> usize {
         let out_len = std::mem::size_of_val(&self.key_id);
         debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
-        out_len.try_into().unwrap()
+        out_len
     }
 
     // Converts this instance into an owned byte slice. DO NOT USE AS INPUT TO HPKE
@@ -101,9 +101,7 @@ impl HybridConversionInfo {
     }
 
     #[must_use]
-    /// # Panics
-    /// If report length does not fit in `u16`.
-    pub fn byte_len(&self) -> u16 {
+    pub fn byte_len(&self) -> usize {
         let out_len = std::mem::size_of_val(&self.key_id)
         + 1 // delimiter
         + self.conversion_site_domain.len()
@@ -111,7 +109,7 @@ impl HybridConversionInfo {
         + std::mem::size_of_val(&self.epsilon)
         + std::mem::size_of_val(&self.sensitivity);
         debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
-        out_len.try_into().unwrap()
+        out_len
     }
 
     // Converts this instance into an owned byte slice. DO NOT USE AS INPUT TO HPKE

@@ -187,6 +187,8 @@ where
 
     /// # Errors
     /// If there is a problem encrypting the report.
+    /// # Panics
+    /// If info length + report length does not fit in `u16`.
     pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
         &self,
         key_id: KeyIdentifier,
@@ -195,12 +197,14 @@ where
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
-        out.put_u16_le(self.encrypted_len() + info.byte_len());
+        out.put_u16_le(self.encrypted_len() + u16::try_from(info.byte_len()).unwrap());
         self.encrypt_to(key_id, key_registry, info, rng, out)
     }
 
     /// # Errors
     /// If there is a problem encrypting the report.
+    /// # Panics
+    /// If info length + report length does not fit in `u16`.
     pub fn encrypt<R: CryptoRng + RngCore>(
         &self,
         key_id: KeyIdentifier,
@@ -208,9 +212,9 @@ where
         info: &HybridImpressionInfo,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidHybridReportError> {
-        let mut out = Vec::with_capacity(usize::from(self.encrypted_len() + info.byte_len()));
+        let mut out = Vec::with_capacity(usize::from(self.encrypted_len() + u16::try_from(info.byte_len()).unwrap()));
         self.encrypt_to(key_id, key_registry, info, rng, &mut out)?;
-        debug_assert_eq!(out.len(), usize::from(self.encrypted_len() + info.byte_len()));
+        debug_assert_eq!(out.len(), usize::from(self.encrypted_len() + u16::try_from(info.byte_len()).unwrap()));
         Ok(out)
     }
 
@@ -335,6 +339,8 @@ where
 
     /// # Errors
     /// If there is a problem encrypting the report.
+    /// # Panics
+    /// If info length + report length does not fit in `u16`.
     pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
         &self,
         key_id: KeyIdentifier,
@@ -343,12 +349,14 @@ where
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidHybridReportError> {
-        out.put_u16_le(self.encrypted_len() + info.byte_len());
+        out.put_u16_le(self.encrypted_len() + u16::try_from(info.byte_len()).unwrap());
         self.encrypt_to(key_id, key_registry, info, rng, out)
     }
 
     /// # Errors
     /// If there is a problem encrypting the report.
+    /// # Panics
+    /// If info length + report length does not fit in `u16`.
     pub fn encrypt<R: CryptoRng + RngCore>(
         &self,
         key_id: KeyIdentifier,
@@ -356,9 +364,9 @@ where
         info: &HybridConversionInfo,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidHybridReportError> {
-        let mut out = Vec::with_capacity(usize::from(self.ciphertext_len() + info.byte_len()));
+        let mut out = Vec::with_capacity(usize::from(self.ciphertext_len() + u16::try_from(info.byte_len()).unwrap()));
         self.encrypt_to(key_id, key_registry, info, rng, &mut out)?;
-        debug_assert_eq!(out.len(), usize::from(self.encrypted_len() + info.byte_len()));
+        debug_assert_eq!(out.len(), usize::from(self.encrypted_len() + u16::try_from(info.byte_len()).unwrap()));
         Ok(out)
     }
 
@@ -448,6 +456,8 @@ where
 
     /// # Errors
     /// If there is a problem encrypting the report.
+    /// # Panics
+    /// If info length + report length does not fit in `u16`.
     pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
         &self,
         key_id: KeyIdentifier,
@@ -458,12 +468,12 @@ where
     ) -> Result<(), InvalidHybridReportError> {
         match self {
             HybridReport::Impression(impression_report) => {
-                out.put_u16_le(self.encrypted_len() + info.impression.byte_len());
+                out.put_u16_le(self.encrypted_len() + u16::try_from(info.impression.byte_len()).unwrap());
                 out.put_u8(HybridEventType::Impression as u8);
                 impression_report.encrypt_to(key_id, key_registry, &info.impression, rng, out)
             },
             HybridReport::Conversion(conversion_report) => {
-                out.put_u16_le(self.encrypted_len() + info.conversion.byte_len());
+                out.put_u16_le(self.encrypted_len() + u16::try_from(info.conversion.byte_len()).unwrap());
                 out.put_u8(HybridEventType::Conversion as u8);
                 conversion_report.encrypt_to(key_id, key_registry, &info.conversion, rng, out)
             },
