@@ -25,8 +25,6 @@ pub struct Verbosity {
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 
-    /// This option is mutually exclusive with console logging. If set,
-    /// no console output will be produced
     #[arg(long, help = "Specify the output file for logs")]
     log_file: Option<PathBuf>,
 }
