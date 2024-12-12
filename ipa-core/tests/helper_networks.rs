@@ -123,13 +123,13 @@ fn keygen_confgen() {
     }
 
     exec_conf_gen(false);
-    let helpers = spawn_helpers(path, &sockets, true);
+    let helpers = spawn_helpers(path, &sockets, true, None);
     test_multiply(path, true);
     drop(helpers);
 
     // now overwrite the configuration file and try again
     exec_conf_gen(true);
-    let helpers = spawn_helpers(path, &sockets, true);
+    let helpers = spawn_helpers(path, &sockets, true, None);
     test_multiply(path, true);
     drop(helpers);
 }

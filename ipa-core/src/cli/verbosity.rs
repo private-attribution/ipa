@@ -1,4 +1,8 @@
-use std::io::{stderr, IsTerminal};
+use std::{
+    fs::OpenOptions,
+    io::{stderr, IsTerminal},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use tracing::{info, metadata::LevelFilter, Level};
@@ -20,6 +24,9 @@ pub struct Verbosity {
     /// Verbose mode (-v, or -vv for even more verbose)
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
+
+    #[arg(long, help = "Specify the output file for logs")]
+    log_file: Option<PathBuf>,
 }
 
 pub struct LoggingHandle {
@@ -36,15 +43,33 @@ impl Verbosity {
         let filter_layer = self.log_filter();
         info!("Logging setup at level {}", filter_layer);
 
-        let fmt_layer = fmt::layer()
+        let stderr_writer = fmt::layer()
             .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
             .with_ansi(std::io::stderr().is_terminal())
             .with_writer(stderr);
 
-        tracing_subscriber::registry()
+        let registry = tracing_subscriber::registry()
             .with(filter_layer)
-            .with(fmt_layer)
-            .init();
+            .with(stderr_writer);
+
+        if let Some(path) = &self.log_file {
+            let log_file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(path)
+                .unwrap_or_else(|e| panic!("failed to open log file {path:?}: {e}"));
+            let file_writer = fmt::layer()
+                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+                .with_ansi(false)
+                .with_writer(log_file);
+
+            // that's the only stderr message that should appear to give a hint where
+            // the logs are written to
+            tracing::info!("Logs will be written to {path:?}");
+            registry.with(file_writer).init();
+        } else {
+            registry.init();
+        }
 
         let metrics_handle = install_collector().expect("Can install metrics");
 
