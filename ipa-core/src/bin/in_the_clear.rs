@@ -49,9 +49,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let input = InputSource::from(&args.input);
 
-    let input_rows = input.iter::<TestHybridRecord>().collect::<Vec<_>>();
+    let input_rows = input.iter::<TestHybridRecord>();
     let expected = hybrid_in_the_clear(
-        &input_rows,
+        input_rows,
         usize::try_from(args.max_breakdown_key.get()).unwrap(),
     );
 
