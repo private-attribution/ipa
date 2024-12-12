@@ -1,12 +1,12 @@
 use std::{
     array,
     error::Error,
-    io::{self, Write},
+    io::{self, Read, Write},
     net::TcpListener,
     ops::Deref,
     os::fd::AsRawFd,
-    path::Path,
-    process::{Child, Command, ExitStatus, Stdio},
+    path::{Path, PathBuf},
+    process::{Child, ChildStderr, Command, ExitStatus, Stdio},
 };
 
 use command_fds::CommandFdExt;
@@ -83,6 +83,9 @@ impl Drop for TerminateOnDrop {
     fn drop(&mut self) {
         if let Some(mut child) = self.0.take() {
             eprintln!("killing process {}", child.id());
+            if std::thread::panicking() {
+                print_stderr(child.stderr.as_mut());
+            }
             let _ = child.kill();
         }
     }
@@ -232,17 +235,23 @@ pub fn spawn_helpers(
     // (mpc port + shard port) for 3 helpers
     sockets: &[ShardTcpListeners; 3],
     https: bool,
+    log_files: Option<[PathBuf; 3]>,
 ) -> Vec<TerminateOnDrop> {
     sockets
         .iter()
         .enumerate()
-        .map(|(id, ShardTcpListeners { mpc, shard })| {
+        .zip(
+            log_files
+                .map(|v| v.map(Some))
+                .unwrap_or_else(|| [None, None, None]),
+        )
+        .map(|((id, ShardTcpListeners { mpc, shard }), log_file)| {
             let id = id + 1;
             let mut command = Command::new(HELPER_BIN);
             command
+                .stderr(Stdio::piped())
                 .args(["-i", &id.to_string()])
-                .args(["--network".into(), config_path.join("network.toml")])
-                .silent();
+                .args(["--network".into(), config_path.join("network.toml")]);
 
             if https {
                 command
@@ -260,6 +269,10 @@ pub fn spawn_helpers(
                 command.arg("--disable-https");
             }
 
+            if let Some(log_file) = log_file {
+                command.args(["--log-file".into(), log_file]);
+            }
+
             command.preserved_fds(vec![mpc.as_raw_fd(), shard.as_raw_fd()]);
             command.args(["--server-socket-fd", &mpc.as_raw_fd().to_string()]);
             command.args(["--shard-server-socket-fd", &shard.as_raw_fd().to_string()]);
@@ -267,6 +280,7 @@ pub fn spawn_helpers(
             // something went wrong if command is terminated at this point.
             let mut child = command.spawn().unwrap();
             if let Ok(Some(status)) = child.try_wait() {
+                print_stderr(child.stderr.as_mut());
                 panic!("Helper binary terminated early with status = {status}");
             }
 
@@ -316,10 +330,25 @@ pub fn test_network<T: NetworkTest>(https: bool) {
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
+    let log_files = [
+        path.join("h1.log"),
+        path.join("h2.log"),
+        path.join("h3.log"),
+    ];
     let sockets = test_setup(path);
-    let _helpers = spawn_helpers(path, &sockets, https);
+    let _helpers = spawn_helpers(path, &sockets, https, Some(log_files.clone()));
 
     T::execute(path, https);
+
+    // check that helpers logged something
+    for log_file in log_files {
+        assert!(log_file.exists(), "log file {log_file:?} does not exist");
+        let log = std::fs::read_to_string(&log_file).unwrap();
+        assert!(
+            log.contains("server listening on"),
+            "Logs don't indicate that HTTP server has started: {log}"
+        );
+    }
 }
 
 pub fn test_sharded_network<const SHARDS: usize, T: NetworkTest<SHARDS>>(https: bool) {
@@ -364,7 +393,7 @@ pub fn test_ipa_with_config(
 
     println!("generating configuration in {}", path.display());
     let sockets = test_setup(path);
-    let _helpers = spawn_helpers(path, &sockets, https);
+    let _helpers = spawn_helpers(path, &sockets, https, None);
 
     // Gen inputs
     let inputs_file = dir.path().join("ipa_inputs.txt");
@@ -525,4 +554,11 @@ impl<const SHARDS: usize> NetworkTest<SHARDS> for ShardedShuffle {
             .unwrap();
         TerminateOnDrop::wait(test_mpc).unwrap_status();
     }
+}
+
+fn print_stderr(err_pipe: Option<&mut ChildStderr>) {
+    let stderr = err_pipe.unwrap();
+    let mut buf = String::new();
+    stderr.read_to_string(&mut buf).unwrap();
+    println!("stderr output:\n==begin==\n{buf}\n==end==")
 }
