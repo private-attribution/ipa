@@ -154,8 +154,8 @@ enum ReportCollectorCommand {
 
         // If set, use the specified fixed polling interval when running a query.
         // Otherwise, use exponential backoff.
-        #[arg(long, default_value_t = 0)]
-        set_fixed_polling_ms: u64,
+        #[clap(long)]
+        set_fixed_polling_ms: Option<u64>,
     },
 }
 
@@ -428,7 +428,7 @@ async fn hybrid(
     helper_clients: Vec<[IpaHttpClient<Helper>; 3]>,
     encrypted_inputs: &EncryptedInputs,
     count: usize,
-    set_fixed_polling_ms: u64,
+    set_fixed_polling_ms: Option<u64>,
 ) -> Result<(), Box<dyn Error>> {
     let query_type = QueryType::MaliciousHybrid(hybrid_query_config);
 

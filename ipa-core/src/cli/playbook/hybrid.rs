@@ -31,7 +31,7 @@ pub async fn run_hybrid_query_and_validate<HV>(
     clients: Vec<[IpaHttpClient<Helper>; 3]>,
     query_id: QueryId,
     query_config: HybridQueryParams,
-    set_fixed_polling_ms: u64,
+    set_fixed_polling_ms: Option<u64>,
 ) -> HybridQueryResult
 where
     HV: SharedValue + U128Conversions,
@@ -56,11 +56,10 @@ where
     .unwrap();
 
     let leader_clients = &clients[0];
-    let exponential_backoff = set_fixed_polling_ms == 0;
-    let mut delay = if exponential_backoff {
-        Duration::from_millis(125)
-    } else {
-        Duration::from_millis(set_fixed_polling_ms)
+
+    let (exponential_backoff, mut delay) = match set_fixed_polling_ms {
+        Some(specified_delay) => (false, Duration::from_millis(specified_delay)),
+        None => (true, Duration::from_millis(125)),
     };
 
     loop {
