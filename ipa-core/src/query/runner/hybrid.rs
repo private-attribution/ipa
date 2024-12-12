@@ -10,16 +10,20 @@ use generic_array::ArrayLength;
 
 use super::QueryResult;
 use crate::{
-    error::{Error, LengthError}, ff::{
+    error::{Error, LengthError},
+    ff::{
         boolean::Boolean,
         boolean_array::{BooleanArray, BA3, BA32, BA8},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
         Serializable, U128Conversions,
-    }, helpers::{
+    },
+    helpers::{
         query::{DpMechanism, HybridQueryParams, QueryConfig, QuerySize},
         setup_cross_shard_prss, BodyStream, Gateway, LengthDelimitedStream,
-    }, hpke::PrivateKeyRegistry, protocol::{
+    },
+    hpke::PrivateKeyRegistry,
+    protocol::{
         basics::{shard_fin::FinalizerContext, BooleanArrayMul, BooleanProtocols, Reveal},
         context::{
             DZKPUpgraded, MacUpgraded, ShardedContext, ShardedMaliciousContext, UpgradableContext,
@@ -33,12 +37,17 @@ use crate::{
         prss::{Endpoint, FromPrss},
         step::ProtocolStep::Hybrid,
         Gate,
-    }, query::runner::reshard_tag::reshard_aad, report::hybrid::{
+    },
+    query::runner::reshard_tag::reshard_aad,
+    report::hybrid::{
         EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
-    }, secret_sharing::{
+    },
+    secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
         Vectorizable,
-    }, seq_join::seq_join, sharding::{ShardConfiguration, Sharded}
+    },
+    seq_join::seq_join,
+    sharding::{ShardConfiguration, Sharded},
 };
 
 #[allow(dead_code)]
