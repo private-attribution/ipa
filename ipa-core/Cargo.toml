@@ -177,6 +177,11 @@ tempfile = "3"
 ipa-metrics-tracing = { path = "../ipa-metrics-tracing" }
 ipa-metrics = { path = "../ipa-metrics", features = ["partitions"] }
 
+[profile.release]
+# The reason for this is that we are moving towards the direction when helper processes are created per query
+# in this case there is no reason to try and preserve the helper instance to serve other queries. Aborting
+# makes dealing with the corrupted state easier
+panic = 'abort'
 
 [lib]
 path = "src/lib.rs"
