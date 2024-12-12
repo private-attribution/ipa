@@ -141,12 +141,8 @@ where
         )
         .await?;
 
-        // this should use ? but until this returns a result,
-        //we want to capture the panic for the test
         let mut unique_encrypted_hybrid_reports = UniqueTagValidator::new(resharded_tags.len());
-        unique_encrypted_hybrid_reports
-            .check_duplicates(&resharded_tags)
-            .unwrap();
+        unique_encrypted_hybrid_reports.check_duplicates(&resharded_tags)?;
 
         let indistinguishable_reports: Vec<IndistinguishableHybridReport<BA8, BA3>> =
             decrypted_reports.into_iter().map(Into::into).collect();
