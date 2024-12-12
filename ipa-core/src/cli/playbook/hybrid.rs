@@ -31,6 +31,7 @@ pub async fn run_hybrid_query_and_validate<HV>(
     clients: Vec<[IpaHttpClient<Helper>; 3]>,
     query_id: QueryId,
     query_config: HybridQueryParams,
+    set_fixed_polling_ms: u64,
 ) -> HybridQueryResult
 where
     HV: SharedValue + U128Conversions,
@@ -55,8 +56,13 @@ where
     .unwrap();
 
     let leader_clients = &clients[0];
+    let exponential_backoff = set_fixed_polling_ms == 0;
+    let mut delay = if exponential_backoff {
+        Duration::from_millis(125)
+    } else {
+        Duration::from_millis(set_fixed_polling_ms)
+    };
 
-    let mut delay = Duration::from_millis(125);
     loop {
         if try_join_all(
             leader_clients
@@ -72,7 +78,9 @@ where
         }
 
         sleep(delay).await;
-        delay = min(Duration::from_secs(5), delay * 2);
+        if exponential_backoff {
+            delay = min(Duration::from_secs(5), delay * 2);
+        }
         // TODO: Add a timeout of some sort. Possibly, add some sort of progress indicator to
         // the status API so we can check whether the query is making progress.
     }

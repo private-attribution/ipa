@@ -151,6 +151,11 @@ enum ReportCollectorCommand {
         /// Number of records to aggregate
         #[clap(long, short = 'n')]
         count: u32,
+
+        // If set, use the specified fixed polling interval when running a query.
+        // Otherwise, use exponential backoff.
+        #[arg(long, default_value_t = 0)]
+        set_fixed_polling_ms: u64,
     },
 }
 
@@ -264,6 +269,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             ref encrypted_inputs,
             hybrid_query_config,
             count,
+            set_fixed_polling_ms,
         } => {
             hybrid(
                 &args,
@@ -271,6 +277,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 clients,
                 encrypted_inputs,
                 count.try_into().expect("u32 should fit into usize"),
+                set_fixed_polling_ms,
             )
             .await?
         }
@@ -421,6 +428,7 @@ async fn hybrid(
     helper_clients: Vec<[IpaHttpClient<Helper>; 3]>,
     encrypted_inputs: &EncryptedInputs,
     count: usize,
+    set_fixed_polling_ms: u64,
 ) -> Result<(), Box<dyn Error>> {
     let query_type = QueryType::MaliciousHybrid(hybrid_query_config);
 
@@ -471,6 +479,7 @@ async fn hybrid(
         helper_clients,
         query_id,
         hybrid_query_config,
+        set_fixed_polling_ms,
     )
     .await;
 
