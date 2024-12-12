@@ -347,7 +347,7 @@ mod tests {
     }
 
     // cannot test for Err directly because join3v calls unwrap. This should be sufficient.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
     #[should_panic(expected = "DuplicateBytes")]
     async fn duplicate_encrypted_hybrid_reports() {
         const SHARDS: usize = 2;
