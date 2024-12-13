@@ -18,6 +18,7 @@ use crate::{
     },
     report::hybrid::{AggregateableHybridReport, PrfHybridReport},
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    utils::non_zero_prev_power_of_two,
 };
 
 enum MatchEntry<BK, V>
@@ -112,7 +113,8 @@ where
 {
     let report_pairs = group_report_pairs_ordered(reports);
 
-    let chunk_size: usize = TARGET_PROOF_SIZE / (BK::BITS as usize + V::BITS as usize);
+    let chunk_size =
+        non_zero_prev_power_of_two(TARGET_PROOF_SIZE / (BK::BITS as usize + V::BITS as usize));
 
     let ctx = ctx.set_total_records(TotalRecords::specified(report_pairs.len())?);
 
@@ -121,7 +123,7 @@ where
             protocol: &HybridStep::GroupBySum,
             validate: &HybridStep::GroupBySumValidate,
         },
-        chunk_size.next_power_of_two(),
+        chunk_size,
     );
 
     let agg_ctx = dzkp_validator.context();
