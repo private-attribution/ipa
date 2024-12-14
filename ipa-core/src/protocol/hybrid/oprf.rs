@@ -37,7 +37,7 @@ use crate::{
         replicated::{malicious, semi_honest::AdditiveShare as Replicated},
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
-    seq_join::seq_join,
+    seq_join::{seq_join, SeqJoin},
     utils::non_zero_prev_power_of_two,
 };
 
@@ -130,7 +130,7 @@ where
     let m_ctx = validator.context();
 
     let curve_pts = seq_join(
-        ctx.active_work(),
+        m_ctx.active_work(),
         process_slice_by_chunks(
             &input_rows,
             move |idx, records: ChunkData<_, CONV_CHUNK>| {
