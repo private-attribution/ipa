@@ -30,9 +30,13 @@ use ipa_core::{
 use tokio::runtime::Runtime;
 use tracing::{error, info};
 
-#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
+#[cfg(jemalloc)]
 #[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[derive(Debug, Parser)]
 #[clap(
