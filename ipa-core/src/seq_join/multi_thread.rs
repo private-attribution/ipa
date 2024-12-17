@@ -134,6 +134,7 @@ where
                 None => None,
             })
         } else if this.source.is_done() {
+            periodic_memory_report(*this.spawned);
             Poll::Ready(None)
         } else {
             Poll::Pending

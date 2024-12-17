@@ -32,6 +32,7 @@ mod seq_join;
 mod serde;
 pub mod sharding;
 pub mod utils;
+
 pub use app::{AppConfig, HelperApp, Setup as AppSetup};
 pub use utils::NonZeroU32PowerOfTwo;
 
@@ -347,6 +348,21 @@ pub(crate) mod test_executor {
 }
 
 pub const CRATE_NAME: &str = env!("CARGO_CRATE_NAME");
+
+/// This macro should be called in a binary that uses `ipa_core`, if that binary wishes
+/// to use jemalloc.
+///
+/// Besides declaring the `#[global_allocator]`, the macro also activates some memory
+/// reporting.
+#[macro_export]
+macro_rules! use_jemalloc {
+    () => {
+        #[global_allocator]
+        static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+        $crate::telemetry::memory::jemalloc::activate();
+    };
+}
 
 #[macro_export]
 macro_rules! const_assert {

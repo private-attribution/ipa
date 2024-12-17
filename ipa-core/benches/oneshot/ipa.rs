@@ -14,18 +14,11 @@ use ipa_core::{
         ipa::{ipa_in_the_clear, test_oprf_ipa, CappingOrder, IpaSecurityModel},
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
+    use_jemalloc,
 };
 use ipa_step::StepNarrow;
 use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
-
-#[cfg(jemalloc)]
-#[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
 
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
@@ -165,6 +158,13 @@ async fn run(args: Args) -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
+    #[cfg(jemalloc)]
+    use_jemalloc!();
+
+    #[cfg(feature = "dhat-heap")]
+    #[global_allocator]
+    static ALLOC: dhat::Alloc = dhat::Alloc;
+
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 

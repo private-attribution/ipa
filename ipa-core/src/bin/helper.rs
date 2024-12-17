@@ -25,18 +25,10 @@ use ipa_core::{
         ShardHttpTransport,
     },
     sharding::ShardIndex,
-    AppConfig, AppSetup, NonZeroU32PowerOfTwo,
+    use_jemalloc, AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tokio::runtime::Runtime;
 use tracing::{error, info};
-
-#[cfg(jemalloc)]
-#[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -369,6 +361,13 @@ fn new_query_runtime(logging_handle: &LoggingHandle) -> Runtime {
 /// runtimes to use in MPC queries and HTTP.
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    #[cfg(jemalloc)]
+    use_jemalloc!();
+
+    #[cfg(feature = "dhat-heap")]
+    #[global_allocator]
+    static ALLOC: dhat::Alloc = dhat::Alloc;
+
     let args = Args::parse();
     let handle = args.logging.setup_logging();
 
