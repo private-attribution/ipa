@@ -64,7 +64,7 @@ enable-benches = ["cli", "in-memory-infra", "test-fixture", "criterion", "iai"]
 in-memory-infra = []
 real-world-infra = []
 # Force use of jemalloc on non-Linux platforms. jemalloc is used by default on Linux.
-jemalloc = ["tikv-jemallocator", "tikv-jemalloc-ctl"]
+jemalloc = ["jemalloc_pprof", "tikv-jemallocator", "tikv-jemalloc-ctl"]
 dhat-heap = ["cli", "dhat", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
@@ -148,6 +148,7 @@ subtle = "2.6"
 thiserror = "1.0"
 tikv-jemallocator = { version = "0.6", optional = true, features = ["profiling"] }
 tikv-jemalloc-ctl = { version = "0.6", optional = true, features = ["stats"] }
+jemalloc_pprof = { version = "0.6", optional = true }
 time = { version = "0.3", optional = true }
 tokio = { version = "1.42", features = ["fs", "rt", "rt-multi-thread", "macros"] }
 tokio-rustls = { version = "0.26", optional = true }
@@ -164,6 +165,7 @@ x25519-dalek = "2.0.0-rc.3"
 [target.'cfg(all(not(target_env = "msvc"), not(target_os = "macos")))'.dependencies]
 tikv-jemallocator = { version = "0.6", features = ["profiling"] }
 tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
+jemalloc_pprof = { version = "0.6" }
 
 [build-dependencies]
 cfg_aliases = "0.1.1"
