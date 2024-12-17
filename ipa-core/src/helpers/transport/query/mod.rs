@@ -246,22 +246,21 @@ impl QueryInputRequest {
     }
 }
 
-/*
-impl From<(Addr<HelperIdentity>, BodyStream)> for QueryInput {
-    fn from((addr, body): (Addr<HelperIdentity>, BodyStream)) -> Self {
-        if addr.params.is_empty() {
-            QueryInput::Inline { addr.query_id, input_stream: body },
-        } else {
-            QueryInput::FromUrl { query_id, url },
-        }
-    }
-}
-*/
-
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-        //write!(f, "query_inputs[{:?}]", self.query_id)
+        match self {
+            QueryInput::Inline { query_id, input_stream: _ } => {
+                f.debug_struct("QueryInput::Inline")
+                    .field("query_id", query_id)
+                    .finish()
+            }
+            QueryInput::FromUrl { query_id, url } => {
+                f.debug_struct("QueryInput::FromUrl")
+                    .field("query_id", query_id)
+                    .field("url", url)
+                    .finish()
+            }
+        }
     }
 }
 

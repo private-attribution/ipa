@@ -382,13 +382,6 @@ pub mod query {
                 self.0
             }
         }
-
-        // TODO: remove this if unused
-        impl QueryInputUrl {
-            pub fn as_ref(&self) -> Option<&Uri> {
-                self.0.as_ref()
-            }
-        }
     }
 
     pub mod step {
