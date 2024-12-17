@@ -312,9 +312,13 @@ pub mod query {
     }
 
     pub mod input {
+        use axum::async_trait;
         use axum::{body::Body, http::uri};
+        use axum::{extract::FromRequestParts, http::request::Parts};
         use hyper::header::CONTENT_TYPE;
+        use hyper::Uri;
 
+        use crate::net::{Error, HTTP_QUERY_INPUT_URL_HEADER};
         use crate::{
             helpers::query::QueryInput,
             net::{http_serde::query::BASE_AXUM_PATH, APPLICATION_OCTET_STREAM},
@@ -341,7 +345,7 @@ pub mod query {
                     .path_and_query(format!(
                         "{}/{}/input",
                         BASE_AXUM_PATH,
-                        self.query_input.query_id.as_ref(),
+                        self.query_input.query_id().as_ref(),
                     ))
                     .build()?;
                 let body = Body::from_stream(self.query_input.input_stream);
@@ -352,6 +356,37 @@ pub mod query {
         }
 
         pub const AXUM_PATH: &str = "/:query_id/input";
+
+        pub struct QueryInputUrl(Option<Uri>);
+
+        #[async_trait]
+        impl<S: Send + Sync> FromRequestParts<S> for QueryInputUrl {
+            type Rejection = Error;
+
+            async fn from_request_parts(req: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+                match req.headers.get(&HTTP_QUERY_INPUT_URL_HEADER) {
+                    None => Ok(QueryInputUrl(None)),
+                    Some(value) => {
+                        let value_str = value.to_str()?;
+                        let uri = value_str.parse()?;
+                        Ok(QueryInputUrl(Some(uri)))
+                    }
+                }
+            }
+        }
+
+        impl Into<Option<Uri>> for QueryInputUrl {
+            fn into(self) -> Option<Uri> {
+                self.0
+            }
+        }
+
+        // TODO: remove this if unused
+        impl QueryInputUrl {
+            pub fn as_ref(&self) -> Option<&Uri> {
+                self.0.as_ref()
+            }
+        }
     }
 
     pub mod step {

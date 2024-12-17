@@ -106,6 +106,8 @@ pub enum QueryInputError {
         #[from]
         source: StateError,
     },
+    #[error("Bad request")]
+    BadRequest,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -303,12 +305,14 @@ impl Processor {
         input: QueryInput,
     ) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
-        match queries.entry(input.query_id) {
+        let query_id = input.query_id();
+        let input_stream = input.input_stream();
+        match queries.entry(query_id) {
             Entry::Occupied(entry) => {
                 let state = entry.remove();
                 if let QueryState::AwaitingInputs(query_id, config, role_assignment) = state {
                     assert_eq!(
-                        input.query_id, query_id,
+                        query_id, query_id,
                         "received inputs for a different query"
                     );
                     let mut gateway_config = GatewayConfig::default();
@@ -325,13 +329,13 @@ impl Processor {
                         shard_transport,
                     );
                     queries.insert(
-                        input.query_id,
+                        query_id,
                         QueryState::Running(executor::execute(
                             &self.runtime,
                             config,
                             Arc::clone(&self.key_registry),
                             gateway,
-                            input.input_stream,
+                            input_stream,
                         )),
                     );
                     Ok(())
@@ -340,11 +344,11 @@ impl Processor {
                         from: QueryStatus::from(&state),
                         to: QueryStatus::Running,
                     };
-                    queries.insert(input.query_id, state);
+                    queries.insert(query_id, state);
                     Err(QueryInputError::StateError { source: error })
                 }
             }
-            Entry::Vacant(_) => Err(QueryInputError::NoSuchQuery(input.query_id)),
+            Entry::Vacant(_) => Err(QueryInputError::NoSuchQuery(query_id)),
         }
     }
 

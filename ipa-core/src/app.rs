@@ -12,7 +12,7 @@ use crate::{
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
-    query::{NewQueryError, QueryProcessor, QueryStatus},
+    query::{NewQueryError, QueryInputError, QueryProcessor, QueryStatus},
     sharding::ShardIndex,
     sync::Arc,
     utils::NonZeroU32PowerOfTwo,
@@ -250,15 +250,17 @@ impl RequestHandler<HelperIdentity> for Inner {
                 )
             }
             RouteId::QueryInput => {
-                let query_id = ext_query_id(&req)?;
-                HelperResponse::from(qp.receive_inputs(
-                    Transport::clone_ref(&self.mpc_transport),
-                    Transport::clone_ref(&self.shard_transport),
-                    QueryInput {
-                        query_id,
-                        input_stream: data,
-                    },
-                )?)
+                HelperResponse::from(
+                    QueryInput::from_addr(req, data)
+                        .ok_or(QueryInputError::BadRequest)
+                        .and_then(|input| {
+                            qp.receive_inputs(
+                                Transport::clone_ref(&self.mpc_transport),
+                                Transport::clone_ref(&self.shard_transport),
+                                input,
+                            )
+                        })?
+                )
             }
             RouteId::QueryStatus => {
                 let query_id = ext_query_id(&req)?;

@@ -6,13 +6,13 @@ use std::{
 };
 
 pub use hybrid::HybridQueryParams;
+use hyper::Uri;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
-        RoleAssignment, RouteParams,
+        routing::Addr, transport::{routing::RouteId, BodyStream, NoQueryId, NoStep}, HelperIdentity, RoleAssignment, RouteParams
     },
     protocol::QueryId,
     query::QueryStatus,
@@ -184,14 +184,108 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     }
 }
 
-pub struct QueryInput {
-    pub query_id: QueryId,
-    pub input_stream: BodyStream,
+
+pub enum QueryInputRequest {
+    FromUrl {
+        query_id: QueryId,
+        url: Uri,
+    },
+    Inline {
+        query_id: QueryId,
+    },
 }
+
+pub enum QueryInput {
+    FromUrl {
+        query_id: QueryId,
+        url: Uri,
+    },
+    Inline {
+        query_id: QueryId,
+        input_stream: BodyStream,
+    },
+}
+
+impl QueryInput {
+    pub fn query_id(&self) -> QueryId {
+        match self {
+            Self::FromUrl { query_id, .. } | Self::Inline { query_id, ..} => *query_id,
+        }
+    }
+
+    pub fn input_stream(self) -> BodyStream {
+        match self {
+            Self::FromUrl { .. } => BodyStream::empty(),
+            Self::Inline { input_stream, .. } => input_stream,
+        }
+    }
+
+    // It would be better to return an error here, but `helpers::error::Error` doesn't
+    // have the variants we need.
+    //
+    // When handling actual requests, the request is parsed once and then stuffed into
+    // `Addr` before it gets here, so parsing shouldn't fail at this point. Some of
+    // this stuff is in need of a refactor (see #994).
+    pub fn from_addr(addr: Addr<HelperIdentity>, input_stream: BodyStream) -> Option<Self> {
+        let query_id = addr.query_id?;
+
+        if addr.params.is_empty() {
+            Some(Self::Inline { query_id, input_stream })
+        } else {
+            let url = addr.params.parse().ok()?;
+            Some(Self::FromUrl { query_id, url })
+        }
+    }
+}
+
+impl QueryInputRequest {
+    pub fn query_id(&self) -> QueryId {
+        match self {
+            Self::FromUrl { query_id, .. } | Self::Inline { query_id, ..} => *query_id,
+        }
+    }
+}
+
+/*
+impl From<(Addr<HelperIdentity>, BodyStream)> for QueryInput {
+    fn from((addr, body): (Addr<HelperIdentity>, BodyStream)) -> Self {
+        if addr.params.is_empty() {
+            QueryInput::Inline { addr.query_id, input_stream: body },
+        } else {
+            QueryInput::FromUrl { query_id, url },
+        }
+    }
+}
+*/
 
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "query_inputs[{:?}]", self.query_id)
+        todo!()
+        //write!(f, "query_inputs[{:?}]", self.query_id)
+    }
+}
+
+impl RouteParams<RouteId, QueryId, NoStep> for QueryInputRequest {
+    type Params = String;
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::QueryInput
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.query_id()
+    }
+
+    fn gate(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        use QueryInputRequest::*;
+        match self {
+            FromUrl { url, .. } => url.to_string(),
+            Inline { .. } => String::new(),
+        }
     }
 }
 

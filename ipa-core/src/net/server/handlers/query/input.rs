@@ -2,25 +2,24 @@ use axum::{extract::Path, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::QueryInput, routing::RouteId, BodyStream},
-    net::{http_serde, transport::MpcHttpTransport, Error},
+    helpers::{query::QueryInputRequest, routing::RouteId, BodyStream},
+    net::{http_serde::{self, query::input::QueryInputUrl}, transport::MpcHttpTransport, Error},
     protocol::QueryId,
 };
 
 async fn handler(
     transport: Extension<MpcHttpTransport>,
     Path(query_id): Path<QueryId>,
+    input_url: QueryInputUrl,
     input_stream: BodyStream,
 ) -> Result<(), Error> {
-    let query_input = QueryInput {
-        query_id,
-        input_stream,
+    let query_input = if let Some(url) = input_url.into() {
+        QueryInputRequest::FromUrl { query_id, url }
+    } else {
+        QueryInputRequest::Inline { query_id }
     };
     let _ = transport
-        .dispatch(
-            (RouteId::QueryInput, query_input.query_id),
-            query_input.input_stream,
-        )
+        .dispatch(query_input, input_stream)
         .await
         .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
