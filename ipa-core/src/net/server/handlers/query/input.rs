@@ -2,7 +2,7 @@ use axum::{extract::Path, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::QueryInputRequest, routing::RouteId, BodyStream},
+    helpers::{query::QueryInputRequest, BodyStream},
     net::{http_serde::{self, query::input::QueryInputUrl}, transport::MpcHttpTransport, Error},
     protocol::QueryId,
 };
@@ -56,7 +56,7 @@ mod tests {
     async fn input_test() {
         let expected_query_id = QueryId;
         let expected_input = &[4u8; 4];
-        let req = http_serde::query::input::Request::new(QueryInput {
+        let req = http_serde::query::input::Request::new(QueryInput::Inline {
             query_id: expected_query_id,
             input_stream: expected_input.to_vec().into(),
         });

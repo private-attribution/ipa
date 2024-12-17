@@ -213,10 +213,10 @@ impl QueryInput {
         }
     }
 
-    pub fn input_stream(self) -> BodyStream {
+    pub fn input_stream(self) -> Option<BodyStream> {
         match self {
-            Self::FromUrl { .. } => BodyStream::empty(),
-            Self::Inline { input_stream, .. } => input_stream,
+            Self::Inline { input_stream, .. } => Some(input_stream),
+            Self::FromUrl { .. } => None,
         }
     }
 

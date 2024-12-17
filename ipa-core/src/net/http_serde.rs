@@ -348,7 +348,9 @@ pub mod query {
                         self.query_input.query_id().as_ref(),
                     ))
                     .build()?;
-                let body = Body::from_stream(self.query_input.input_stream);
+                let body = self.query_input.input_stream()
+                    .map(Body::from_stream)
+                    .unwrap_or_else(Body::empty);
                 Ok(hyper::Request::post(uri)
                     .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM)
                     .body(body)?)

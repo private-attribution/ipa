@@ -11,10 +11,7 @@ use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
-        routing::RouteId,
-        BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
-        RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput}, routing::RouteId, BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -306,7 +303,7 @@ impl Processor {
     ) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
         let query_id = input.query_id();
-        let input_stream = input.input_stream();
+        let input_stream = input.input_stream().unwrap_or_else(|| BodyStream::empty());
         match queries.entry(query_id) {
             Entry::Occupied(entry) => {
                 let state = entry.remove();
