@@ -5,6 +5,7 @@ use std::{
     fs::{File, OpenOptions},
     io,
     io::{stdout, BufReader, Write},
+    num::NonZeroUsize,
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -15,8 +16,8 @@ use ipa_core::{
     cli::{
         playbook::{
             make_clients, make_sharded_clients, playbook_oprf_ipa, run_hybrid_query_and_validate,
-            run_query_and_validate, validate, validate_dp, HybridQueryResult, InputSource,
-            RoundRobinSubmission, StreamingSubmission,
+            run_query_and_validate, validate, validate_dp, BufferedRoundRobinSubmission,
+            HybridQueryResult, InputSource, StreamingSubmission,
         },
         CsvSerializer, IpaQueryResult, Verbosity,
     },
@@ -430,6 +431,9 @@ async fn hybrid(
     count: usize,
     set_fixed_polling_ms: Option<u64>,
 ) -> Result<(), Box<dyn Error>> {
+    // twice the size of TCP MSS. This may get messed up if TCP options are used which is not
+    // in our control, but hopefully fragmentation is not too bad
+    const BUF_SIZE: NonZeroUsize = NonZeroUsize::new(1072).unwrap();
     let query_type = QueryType::MaliciousHybrid(hybrid_query_config);
 
     let [h1_streams, h2_streams, h3_streams] = [
@@ -439,7 +443,7 @@ async fn hybrid(
     ]
     .map(|path| {
         let file = File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
-        RoundRobinSubmission::new(BufReader::new(file))
+        BufferedRoundRobinSubmission::new(BufReader::new(file), BUF_SIZE)
     })
     .map(|s| s.into_byte_streams(args.shard_count));
 
