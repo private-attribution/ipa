@@ -1,6 +1,8 @@
 #[cfg(feature = "web-app")]
 mod axum_body;
 mod box_body;
+#[allow(dead_code)]
+mod buffered;
 mod collection;
 mod input;
 
