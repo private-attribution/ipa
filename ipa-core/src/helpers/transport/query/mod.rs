@@ -220,6 +220,13 @@ impl QueryInput {
         }
     }
 
+    pub fn url(&self) -> Option<&Uri> {
+        match self {
+            Self::FromUrl { url, .. } => Some(url),
+            Self::Inline { .. } => None,
+        }
+    }
+
     // It would be better to return an error here, but `helpers::error::Error` doesn't
     // have the variants we need.
     //

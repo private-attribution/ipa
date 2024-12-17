@@ -53,7 +53,7 @@ mod tests {
     };
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn input_test() {
+    async fn input_inline() {
         let expected_query_id = QueryId;
         let expected_input = &[4u8; 4];
         let req = http_serde::query::input::Request::new(QueryInput::Inline {
@@ -72,6 +72,30 @@ mod tests {
                 }),
                 expected_input
             );
+
+            Ok(HelperResponse::ok())
+        });
+        let req = req
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
+            .unwrap();
+        assert_success_with(req, req_handler).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn input_from_url() {
+        let expected_query_id = QueryId;
+        let expected_url = "https://storage.example/ipa-reports";
+        let req = http_serde::query::input::Request::new(QueryInput::FromUrl {
+            query_id: expected_query_id,
+            url: expected_url.parse().unwrap(),
+        });
+        let req_handler = make_owned_handler(move |addr, _body| async move {
+            let RouteId::QueryInput = addr.route else {
+                panic!("unexpected call");
+            };
+
+            assert_eq!(addr.query_id, Some(expected_query_id));
+            assert_eq!(addr.params, expected_url);
 
             Ok(HelperResponse::ok())
         });

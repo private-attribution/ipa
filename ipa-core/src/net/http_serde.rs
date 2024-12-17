@@ -315,7 +315,7 @@ pub mod query {
         use axum::async_trait;
         use axum::{body::Body, http::uri};
         use axum::{extract::FromRequestParts, http::request::Parts};
-        use hyper::header::CONTENT_TYPE;
+        use hyper::header::{CONTENT_TYPE, HeaderValue};
         use hyper::Uri;
 
         use crate::net::{Error, HTTP_QUERY_INPUT_URL_HEADER};
@@ -348,12 +348,16 @@ pub mod query {
                         self.query_input.query_id().as_ref(),
                     ))
                     .build()?;
+                let query_input_url = self.query_input.url().cloned();
                 let body = self.query_input.input_stream()
                     .map(Body::from_stream)
                     .unwrap_or_else(Body::empty);
-                Ok(hyper::Request::post(uri)
-                    .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM)
-                    .body(body)?)
+                let mut request = hyper::Request::post(uri)
+                    .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM);
+                if let Some(url) = query_input_url {
+                    request.headers_mut().unwrap().insert(&HTTP_QUERY_INPUT_URL_HEADER, HeaderValue::try_from(url.to_string()).unwrap());
+                }
+                Ok(request.body(body)?)
             }
         }
 
