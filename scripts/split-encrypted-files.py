@@ -1,5 +1,6 @@
 import argparse
 import binascii
+import os
 
 try:
     from tqdm import tqdm
@@ -22,8 +23,13 @@ def split_hex_file(input_filename, output_stem, num_files):
         open(f"{output_stem}_shard_{i}.bin", "wb") for i in range(num_files)
     ]
 
+    input_filesize = os.path.getsize(input_filename)
+    # estimation each line is about 250 bits
+    approx_row_count = input_filesize / 250
     with open(input_filename, "r") as input_file:
-        for i, line in enumerate(tqdm(input_file, desc="Processing lines")):
+        for i, line in enumerate(
+            tqdm(input_file, desc="Processing lines", total=approx_row_count)
+        ):
             # Remove any leading or trailing whitespace from the line
             line = line.strip()
 
@@ -31,7 +37,7 @@ def split_hex_file(input_filename, output_stem, num_files):
             data = binascii.unhexlify(line)
 
             # Write the length of the data as a 2-byte integer (big-endian)
-            output_files[i % num_files].write(len(data).to_bytes(2, byteorder="big"))
+            output_files[i % num_files].write(len(data).to_bytes(2, byteorder="little"))
 
             # Write the data itself
             output_files[i % num_files].write(data)
