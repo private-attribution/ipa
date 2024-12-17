@@ -118,11 +118,11 @@ mod tests {
     fn success() {
         run(|| async move {
             verify_success(infallible_stream(11, 2), 3).await;
-            // verify_success(infallible_stream(12, 3), 3).await;
-            // verify_success(infallible_stream(12, 5), 12).await;
-            // verify_success(infallible_stream(12, 12), 12).await;
-            // verify_success(infallible_stream(24, 12), 12).await;
-            // verify_success(infallible_stream(24, 12), 1).await;
+            verify_success(infallible_stream(12, 3), 3).await;
+            verify_success(infallible_stream(12, 5), 12).await;
+            verify_success(infallible_stream(12, 12), 12).await;
+            verify_success(infallible_stream(24, 12), 12).await;
+            verify_success(infallible_stream(24, 12), 1).await;
         });
     }
 
