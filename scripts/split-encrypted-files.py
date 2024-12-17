@@ -46,7 +46,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    try:
-        split_hex_file(args.input, args.num_files)
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    split_hex_file(args.input, args.num_files)
