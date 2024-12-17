@@ -18,7 +18,6 @@ default = [
     "tracing/max_level_trace",
     "tracing/release_max_level_info",
     "stall-detection",
-    "ipa-prf",
     "descriptive-gate",
 ]
 cli = ["comfy-table", "clap", "num_cpus"]
@@ -74,14 +73,6 @@ multi-threading = ["async-scoped"]
 # RUSTFLAGS="--cfg tokio_unstable" cargo run ... --features="tokio-console ...".
 # Note that if there are other flags enabled on your platform in .cargo/config.toml, you need to include them as well.
 tokio-console = ["console-subscriber", "tokio/tracing"]
-
-# If this flag is used, then the new breakdown reveal based aggregation is used
-reveal-aggregation = []
-# Standalone aggregation protocol. We use IPA infra for communication
-# but it has nothing to do with IPA.
-aggregate-circuit = []
-# IPA protocol based on OPRF
-ipa-prf = []
 # relaxed DP, off by default
 relaxed-dp = []
 
