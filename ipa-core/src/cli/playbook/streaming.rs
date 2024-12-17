@@ -29,9 +29,19 @@ pub struct BufferedRoundRobinSubmission<R> {
 }
 
 impl<R: BufRead> BufferedRoundRobinSubmission<R> {
+    // Standard buffer size for file and network is 8Kb, so we are aligning this value with it.
+    // Tokio and standard bufer also use 8Kb buffers.
+    // If other value gives better performance, we should use it instead
+    const DEFAULT_BUF_SIZE: NonZeroUsize = NonZeroUsize::new(8192).unwrap();
+
+    /// Create a new instance with the default buffer size.
+    pub fn new(read_from: R) -> Self {
+        Self::new_with_buf_size(read_from, Self::DEFAULT_BUF_SIZE)
+    }
+
     /// Creates a new instance with the specified buffer size. All streams created
     /// using [`StreamingSubmission::into_byte_streams`] will have their own buffer set.
-    pub fn new(read_from: R, buf_size: NonZeroUsize) -> Self {
+    fn new_with_buf_size(read_from: R, buf_size: NonZeroUsize) -> Self {
         Self {
             inner: read_from,
             buf_size,
@@ -388,9 +398,11 @@ mod tests {
     async fn verify_buffered<R: AsRef<[u8]>>(input: Vec<R>, count: usize, buf_size: usize) {
         assert!(count > 0);
         let data = encoded(input.iter().map(AsRef::as_ref)).join("\n");
-        let streams =
-            BufferedRoundRobinSubmission::new(data.as_bytes(), buf_size.try_into().unwrap())
-                .into_byte_streams(count);
+        let streams = BufferedRoundRobinSubmission::new_with_buf_size(
+            data.as_bytes(),
+            buf_size.try_into().unwrap(),
+        )
+        .into_byte_streams(count);
         let mut expected: Vec<Vec<u8>> = vec![vec![]; count];
         for (i, next) in input.into_iter().enumerate() {
             expected[i % count].extend(next.as_ref());
