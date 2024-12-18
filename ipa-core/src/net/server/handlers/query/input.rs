@@ -2,8 +2,8 @@ use axum::{extract::Path, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::QueryInputRequest, BodyStream},
-    net::{http_serde::{self, query::input::QueryInputUrl}, transport::MpcHttpTransport, Error},
+    helpers::{routing::RouteId, BodyStream},
+    net::{http_serde::{self, query::input::QueryInputUrl}, query_input::stream_query_input_from_url, transport::MpcHttpTransport, Error},
     protocol::QueryId,
 };
 
@@ -13,13 +13,13 @@ async fn handler(
     input_url: QueryInputUrl,
     input_stream: BodyStream,
 ) -> Result<(), Error> {
-    let query_input = if let Some(url) = input_url.into() {
-        QueryInputRequest::FromUrl { query_id, url }
+    let input_stream = if let Some(url) = input_url.into() {
+        stream_query_input_from_url(&url).await?
     } else {
-        QueryInputRequest::Inline { query_id }
+        input_stream
     };
     let _ = transport
-        .dispatch(query_input, input_stream)
+        .dispatch((RouteId::QueryInput, query_id), input_stream)
         .await
         .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
@@ -81,29 +81,9 @@ mod tests {
         assert_success_with(req, req_handler).await;
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn input_from_url() {
-        let expected_query_id = QueryId;
-        let expected_url = "https://storage.example/ipa-reports";
-        let req = http_serde::query::input::Request::new(QueryInput::FromUrl {
-            query_id: expected_query_id,
-            url: expected_url.parse().unwrap(),
-        });
-        let req_handler = make_owned_handler(move |addr, _body| async move {
-            let RouteId::QueryInput = addr.route else {
-                panic!("unexpected call");
-            };
-
-            assert_eq!(addr.query_id, Some(expected_query_id));
-            assert_eq!(addr.params, expected_url);
-
-            Ok(HelperResponse::ok())
-        });
-        let req = req
-            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
-            .unwrap();
-        assert_success_with(req, req_handler).await;
-    }
+    // It is not possible to test input from URL with this style of test, because these
+    // tests don't actually invoke the handler defined in this file, and that is where
+    // we handle URL input.
 
     struct OverrideReq {
         query_id: String,

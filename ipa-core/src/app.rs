@@ -12,7 +12,7 @@ use crate::{
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
-    query::{NewQueryError, QueryInputError, QueryProcessor, QueryStatus},
+    query::{NewQueryError, QueryProcessor, QueryStatus},
     sharding::ShardIndex,
     sync::Arc,
     utils::NonZeroU32PowerOfTwo,
@@ -139,9 +139,12 @@ impl HelperApp {
     pub fn execute_query(&self, input: QueryInput) -> Result<(), ApiError> {
         let mpc_transport = self.inner.mpc_transport.clone_ref();
         let shard_transport = self.inner.shard_transport.clone_ref();
+        let QueryInput::Inline { query_id, input_stream } = input else {
+            panic!("this client does not support pulling query input from a URL");
+        };
         self.inner
             .query_processor
-            .receive_inputs(mpc_transport, shard_transport, input)?;
+            .receive_inputs(mpc_transport, shard_transport, query_id, input_stream)?;
         Ok(())
     }
 
@@ -250,17 +253,13 @@ impl RequestHandler<HelperIdentity> for Inner {
                 )
             }
             RouteId::QueryInput => {
-                HelperResponse::from(
-                    QueryInput::from_addr(req, data)
-                        .ok_or(QueryInputError::BadRequest)
-                        .and_then(|input| {
-                            qp.receive_inputs(
-                                Transport::clone_ref(&self.mpc_transport),
-                                Transport::clone_ref(&self.shard_transport),
-                                input,
-                            )
-                        })?
-                )
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.receive_inputs(
+                    Transport::clone_ref(&self.mpc_transport),
+                    Transport::clone_ref(&self.shard_transport),
+                    query_id,
+                    data,
+                )?)
             }
             RouteId::QueryStatus => {
                 let query_id = ext_query_id(&req)?;

@@ -185,6 +185,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
 }
 
 
+/*
 pub enum QueryInputRequest {
     FromUrl {
         query_id: QueryId,
@@ -194,6 +195,7 @@ pub enum QueryInputRequest {
         query_id: QueryId,
     },
 }
+*/
 
 pub enum QueryInput {
     FromUrl {
@@ -245,6 +247,7 @@ impl QueryInput {
     }
 }
 
+/*
 impl QueryInputRequest {
     pub fn query_id(&self) -> QueryId {
         match self {
@@ -252,6 +255,7 @@ impl QueryInputRequest {
         }
     }
 }
+*/
 
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -271,6 +275,7 @@ impl Debug for QueryInput {
     }
 }
 
+/*
 impl RouteParams<RouteId, QueryId, NoStep> for QueryInputRequest {
     type Params = String;
 
@@ -294,6 +299,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for QueryInputRequest {
         }
     }
 }
+*/
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]

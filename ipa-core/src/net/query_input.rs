@@ -4,10 +4,10 @@ use hyper::Uri;
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::{client::legacy::Client, rt::{TokioExecutor, TokioTimer}};
 
-use crate::{helpers::{query::QueryInput, BodyStream}, net::Error};
+use crate::{helpers::BodyStream, net::Error};
 
 /// Download query input from a remote URL.
-async fn stream_query_input_from_url(uri: &Uri) -> Result<BodyStream, Error> {
+pub async fn stream_query_input_from_url(uri: &Uri) -> Result<BodyStream, Error> {
     let mut builder = Client::builder(TokioExecutor::new());
     // the following timer is necessary for http2, in particular for any timeouts
     // and waits the clients will need to make
@@ -43,9 +43,11 @@ async fn stream_query_input_from_url(uri: &Uri) -> Result<BodyStream, Error> {
     Ok(BodyStream::from_bytes_stream(resp.into_body().map_err(BoxError::from).into_data_stream()))
 }
 
+/*
 pub async fn stream_query_input(query_input: QueryInput) -> Result<BodyStream, Error> {
     match query_input {
         QueryInput::Inline { input_stream, .. } => Ok(input_stream),
         QueryInput::FromUrl { url, .. } => stream_query_input_from_url(&url).await,
     }
 }
+*/
