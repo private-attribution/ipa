@@ -355,7 +355,7 @@ pub mod query {
                         self.query_input.query_id().as_ref(),
                     ))
                     .build()?;
-                let query_input_url = self.query_input.url().cloned();
+                let query_input_url = self.query_input.url().map(ToOwned::to_owned);
                 let body = self
                     .query_input
                     .input_stream()
@@ -365,7 +365,7 @@ pub mod query {
                 if let Some(url) = query_input_url {
                     request.headers_mut().unwrap().insert(
                         &HTTP_QUERY_INPUT_URL_HEADER,
-                        HeaderValue::try_from(url.to_string()).unwrap(),
+                        HeaderValue::try_from(url).unwrap(),
                     );
                 }
                 Ok(request.body(body)?)

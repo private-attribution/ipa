@@ -6,7 +6,6 @@ use std::{
 };
 
 pub use hybrid::HybridQueryParams;
-use hyper::Uri;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
@@ -188,7 +187,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
 pub enum QueryInput {
     FromUrl {
         query_id: QueryId,
-        url: Uri,
+        url: String,
     },
     Inline {
         query_id: QueryId,
@@ -197,12 +196,14 @@ pub enum QueryInput {
 }
 
 impl QueryInput {
+    #[must_use]
     pub fn query_id(&self) -> QueryId {
         match self {
             Self::FromUrl { query_id, .. } | Self::Inline { query_id, .. } => *query_id,
         }
     }
 
+    #[must_use]
     pub fn input_stream(self) -> Option<BodyStream> {
         match self {
             Self::Inline { input_stream, .. } => Some(input_stream),
@@ -210,7 +211,8 @@ impl QueryInput {
         }
     }
 
-    pub fn url(&self) -> Option<&Uri> {
+    #[must_use]
+    pub fn url(&self) -> Option<&str> {
         match self {
             Self::FromUrl { url, .. } => Some(url),
             Self::Inline { .. } => None,

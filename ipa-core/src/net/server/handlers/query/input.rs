@@ -127,9 +127,7 @@ mod tests {
             "http://localhost:{}{}/{QUERY_ID}/input",
             addr.to_ip().unwrap().port(),
             http_serde::query::BASE_AXUM_PATH,
-        )
-        .parse()
-        .unwrap();
+        );
         let req = http_serde::query::input::Request::new(QueryInput::FromUrl {
             query_id: QUERY_ID,
             url,
