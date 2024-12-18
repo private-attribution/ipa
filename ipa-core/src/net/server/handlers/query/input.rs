@@ -34,10 +34,15 @@ pub fn router(transport: MpcHttpTransport) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::thread;
+
     use axum::{
         body::Body,
         http::uri::{Authority, Scheme},
     };
+    use bytes::BytesMut;
+    use futures::TryStreamExt;
+    use http_body_util::BodyExt;
     use hyper::StatusCode;
     use tokio::runtime::Handle;
 
@@ -47,25 +52,22 @@ mod tests {
         },
         net::{
             http_serde,
-            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with},
+            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with}, test::TestServer,
         },
         protocol::QueryId,
     };
 
     #[tokio::test(flavor = "multi_thread")]
     async fn input_inline() {
-        let expected_query_id = QueryId;
+        const QUERY_ID: QueryId = QueryId;
         let expected_input = &[4u8; 4];
-        let req = http_serde::query::input::Request::new(QueryInput::Inline {
-            query_id: expected_query_id,
-            input_stream: expected_input.to_vec().into(),
-        });
+
         let req_handler = make_owned_handler(move |addr, data| async move {
             let RouteId::QueryInput = addr.route else {
                 panic!("unexpected call");
             };
 
-            assert_eq!(addr.query_id, Some(expected_query_id));
+            assert_eq!(addr.query_id, Some(QUERY_ID));
             assert_eq!(
                 tokio::task::block_in_place(move || {
                     Handle::current().block_on(async move { data.to_vec().await })
@@ -75,15 +77,70 @@ mod tests {
 
             Ok(HelperResponse::ok())
         });
-        let req = req
+
+        let req = http_serde::query::input::Request::new(QueryInput::Inline {
+            query_id: QUERY_ID,
+            input_stream: expected_input.to_vec().into(),
+        });
+        let hyper_req = req
             .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
-        assert_success_with(req, req_handler).await;
+
+        assert_success_with(hyper_req, req_handler).await;
     }
 
-    // It is not possible to test input from URL with this style of test, because these
-    // tests don't actually invoke the handler defined in this file, and that is where
-    // we handle URL input.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn input_from_url() {
+        const QUERY_ID: QueryId = QueryId;
+        const DATA: &'static str = "input records";
+
+        let server = tiny_http::Server::http("localhost:0").unwrap();
+        let addr = server.server_addr();
+        thread::spawn(move || {
+            let request = server.recv().unwrap();
+            let response = tiny_http::Response::from_string(DATA);
+            request.respond(response).unwrap();
+        });
+
+        let req_handler = make_owned_handler(move |addr, body| async move {
+            let RouteId::QueryInput = addr.route else {
+                panic!("unexpected call");
+            };
+
+            assert_eq!(addr.query_id, Some(QUERY_ID));
+            assert_eq!(body.try_collect::<BytesMut>().await.unwrap(), DATA);
+
+            Ok(HelperResponse::ok())
+        });
+        let test_server = TestServer::builder()
+            .with_request_handler(req_handler)
+            .build()
+            .await;
+
+        let url = format!(
+            "http://localhost:{}{}/{QUERY_ID}/input",
+            addr.to_ip().unwrap().port(),
+            http_serde::query::BASE_AXUM_PATH,
+        )
+        .parse()
+        .unwrap();
+        let req = http_serde::query::input::Request::new(QueryInput::FromUrl {
+            query_id: QUERY_ID,
+            url,
+        });
+        let hyper_req = req.try_into_http_request(
+            Scheme::HTTP,
+            Authority::from_static("localhost"),
+        ).unwrap();
+
+        let resp = test_server.server.handle_req(hyper_req).await;
+        if !resp.status().is_success() {
+            let (head, body) = resp.into_parts();
+            let body_bytes = body.collect().await.unwrap().to_bytes();
+            let body = String::from_utf8_lossy(&body_bytes);
+            panic!("{head:?}\n{body}");
+        }
+    }
 
     struct OverrideReq {
         query_id: String,

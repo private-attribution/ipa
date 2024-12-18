@@ -172,6 +172,7 @@ rustls = { version = "0.23" }
 tempfile = "3"
 ipa-metrics-tracing = { path = "../ipa-metrics-tracing" }
 ipa-metrics = { path = "../ipa-metrics", features = ["partitions"] }
+tiny_http = "0.12"
 
 [lib]
 path = "src/lib.rs"
