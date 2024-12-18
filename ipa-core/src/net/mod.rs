@@ -18,6 +18,7 @@ use crate::{
 mod client;
 mod error;
 mod http_serde;
+pub mod query_input;
 mod server;
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test;
