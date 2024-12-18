@@ -11,7 +11,10 @@ use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig}, routing::RouteId, BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig},
+        routing::RouteId,
+        BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl,
+        Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -309,10 +312,7 @@ impl Processor {
             Entry::Occupied(entry) => {
                 let state = entry.remove();
                 if let QueryState::AwaitingInputs(query_id, config, role_assignment) = state {
-                    assert_eq!(
-                        query_id, query_id,
-                        "received inputs for a different query"
-                    );
+                    assert_eq!(query_id, query_id, "received inputs for a different query");
                     let mut gateway_config = GatewayConfig::default();
                     if let Some(active_work) = self.active_work {
                         gateway_config.active = active_work;

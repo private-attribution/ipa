@@ -12,7 +12,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     ff::FieldType,
     helpers::{
-        routing::Addr, transport::{routing::RouteId, BodyStream, NoQueryId, NoStep}, HelperIdentity, RoleAssignment, RouteParams
+        routing::Addr,
+        transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
+        HelperIdentity, RoleAssignment, RouteParams,
     },
     protocol::QueryId,
     query::QueryStatus,
@@ -184,7 +186,6 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     }
 }
 
-
 /*
 pub enum QueryInputRequest {
     FromUrl {
@@ -211,7 +212,7 @@ pub enum QueryInput {
 impl QueryInput {
     pub fn query_id(&self) -> QueryId {
         match self {
-            Self::FromUrl { query_id, .. } | Self::Inline { query_id, ..} => *query_id,
+            Self::FromUrl { query_id, .. } | Self::Inline { query_id, .. } => *query_id,
         }
     }
 
@@ -239,7 +240,10 @@ impl QueryInput {
         let query_id = addr.query_id?;
 
         if addr.params.is_empty() {
-            Some(Self::Inline { query_id, input_stream })
+            Some(Self::Inline {
+                query_id,
+                input_stream,
+            })
         } else {
             let url = addr.params.parse().ok()?;
             Some(Self::FromUrl { query_id, url })
@@ -260,17 +264,18 @@ impl QueryInputRequest {
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            QueryInput::Inline { query_id, input_stream: _ } => {
-                f.debug_struct("QueryInput::Inline")
-                    .field("query_id", query_id)
-                    .finish()
-            }
-            QueryInput::FromUrl { query_id, url } => {
-                f.debug_struct("QueryInput::FromUrl")
-                    .field("query_id", query_id)
-                    .field("url", url)
-                    .finish()
-            }
+            QueryInput::Inline {
+                query_id,
+                input_stream: _,
+            } => f
+                .debug_struct("QueryInput::Inline")
+                .field("query_id", query_id)
+                .finish(),
+            QueryInput::FromUrl { query_id, url } => f
+                .debug_struct("QueryInput::FromUrl")
+                .field("query_id", query_id)
+                .field("url", url)
+                .finish(),
         }
     }
 }

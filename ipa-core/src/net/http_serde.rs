@@ -312,16 +312,23 @@ pub mod query {
     }
 
     pub mod input {
-        use axum::async_trait;
-        use axum::{body::Body, http::uri};
-        use axum::{extract::FromRequestParts, http::request::Parts};
-        use hyper::header::{CONTENT_TYPE, HeaderValue};
-        use hyper::Uri;
+        use axum::{
+            async_trait,
+            body::Body,
+            extract::FromRequestParts,
+            http::{request::Parts, uri},
+        };
+        use hyper::{
+            header::{HeaderValue, CONTENT_TYPE},
+            Uri,
+        };
 
-        use crate::net::{Error, HTTP_QUERY_INPUT_URL_HEADER};
         use crate::{
             helpers::query::QueryInput,
-            net::{http_serde::query::BASE_AXUM_PATH, APPLICATION_OCTET_STREAM},
+            net::{
+                http_serde::query::BASE_AXUM_PATH, Error, APPLICATION_OCTET_STREAM,
+                HTTP_QUERY_INPUT_URL_HEADER,
+            },
         };
 
         #[derive(Debug)]
@@ -349,13 +356,18 @@ pub mod query {
                     ))
                     .build()?;
                 let query_input_url = self.query_input.url().cloned();
-                let body = self.query_input.input_stream()
+                let body = self
+                    .query_input
+                    .input_stream()
                     .map(Body::from_stream)
                     .unwrap_or_else(Body::empty);
-                let mut request = hyper::Request::post(uri)
-                    .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM);
+                let mut request =
+                    hyper::Request::post(uri).header(CONTENT_TYPE, APPLICATION_OCTET_STREAM);
                 if let Some(url) = query_input_url {
-                    request.headers_mut().unwrap().insert(&HTTP_QUERY_INPUT_URL_HEADER, HeaderValue::try_from(url.to_string()).unwrap());
+                    request.headers_mut().unwrap().insert(
+                        &HTTP_QUERY_INPUT_URL_HEADER,
+                        HeaderValue::try_from(url.to_string()).unwrap(),
+                    );
                 }
                 Ok(request.body(body)?)
             }
@@ -369,7 +381,10 @@ pub mod query {
         impl<S: Send + Sync> FromRequestParts<S> for QueryInputUrl {
             type Rejection = Error;
 
-            async fn from_request_parts(req: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+            async fn from_request_parts(
+                req: &mut Parts,
+                _state: &S,
+            ) -> Result<Self, Self::Rejection> {
                 match req.headers.get(&HTTP_QUERY_INPUT_URL_HEADER) {
                     None => Ok(QueryInputUrl(None)),
                     Some(value) => {

@@ -3,7 +3,12 @@ use hyper::StatusCode;
 
 use crate::{
     helpers::{routing::RouteId, BodyStream},
-    net::{http_serde::{self, query::input::QueryInputUrl}, query_input::stream_query_input_from_url, transport::MpcHttpTransport, Error},
+    net::{
+        http_serde::{self, query::input::QueryInputUrl},
+        query_input::stream_query_input_from_url,
+        transport::MpcHttpTransport,
+        Error,
+    },
     protocol::QueryId,
 };
 
@@ -52,7 +57,8 @@ mod tests {
         },
         net::{
             http_serde,
-            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with}, test::TestServer,
+            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with},
+            test::TestServer,
         },
         protocol::QueryId,
     };
@@ -128,10 +134,9 @@ mod tests {
             query_id: QUERY_ID,
             url,
         });
-        let hyper_req = req.try_into_http_request(
-            Scheme::HTTP,
-            Authority::from_static("localhost"),
-        ).unwrap();
+        let hyper_req = req
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
+            .unwrap();
 
         let resp = test_server.server.handle_req(hyper_req).await;
         if !resp.status().is_success() {
