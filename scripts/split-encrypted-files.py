@@ -20,7 +20,7 @@ def split_hex_file(input_filename, output_stem, num_files):
     :param num_files: The number of output files to split the input into.
     """
     output_files = [
-        open(f"{output_stem}_shard_{i}.bin", "wb") for i in range(num_files)
+        open(f"{output_stem}_shard_{i:03d}.bin", "wb") for i in range(num_files)
     ]
 
     input_filesize = os.path.getsize(input_filename)
