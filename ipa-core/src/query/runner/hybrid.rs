@@ -241,8 +241,15 @@ mod tests {
         let shares: [Vec<HybridReport<BA8, BA3>>; 3] = records.iter().cloned().share();
         for (buf, shares) in zip(&mut buffers, shares) {
             for (i, share) in shares.into_iter().enumerate() {
+                let info = records[i].create_hybrid_info();
                 share
-                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, &mut buf[i % s])
+                    .delimited_encrypt_to(
+                        key_id,
+                        key_registry.as_ref(),
+                        &info,
+                        &mut rng,
+                        &mut buf[i % s],
+                    )
                     .unwrap();
             }
         }

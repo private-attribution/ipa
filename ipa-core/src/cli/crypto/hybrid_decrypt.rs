@@ -14,7 +14,10 @@ use crate::{
         U128Conversions,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
-    report::hybrid::{EncryptedHybridReport, HybridReport},
+    report::{
+        hybrid::{EncryptedHybridReport, HybridReport},
+        hybrid_info::HybridInfo,
+    },
     test_fixture::Reconstruct,
 };
 
@@ -104,7 +107,7 @@ impl HybridDecryptArgs {
         for (dec_report1, (dec_report2, dec_report3)) in
             decrypted_reports1.zip(decrypted_reports2.zip(decrypted_reports3))
         {
-            match (dec_report1, dec_report2, dec_report3) {
+            match (dec_report1.0, dec_report2.0, dec_report3.0) {
                 (
                     HybridReport::Impression(impression_report1),
                     HybridReport::Impression(impression_report2),
@@ -125,7 +128,7 @@ impl HybridDecryptArgs {
                     ]
                     .reconstruct()
                     .as_u128();
-                    let key_id = impression_report1.info.key_id;
+                    let key_id = dec_report1.1.impression.key_id;
 
                     writeln!(writer, "i,{match_key},{breakdown_key},{key_id}")?;
                 }
@@ -149,11 +152,13 @@ impl HybridDecryptArgs {
                     ]
                     .reconstruct()
                     .as_u128();
-                    let key_id = conversion_report1.info.key_id;
-                    let conversion_site_domain = conversion_report1.info.conversion_site_domain;
-                    let timestamp = conversion_report1.info.timestamp;
-                    let epsilon = conversion_report1.info.epsilon;
-                    let sensitivity = conversion_report1.info.sensitivity;
+
+                    let key_id = dec_report1.1.conversion.key_id;
+                    let conversion_site_domain = dec_report1.1.conversion.conversion_site_domain;
+                    let timestamp = dec_report1.1.conversion.timestamp;
+                    let epsilon = dec_report1.1.conversion.epsilon;
+                    let sensitivity = dec_report1.1.conversion.sensitivity;
+
                     writeln!(writer, "c,{match_key},{value},{key_id},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}")?;
                 }
                 _ => {
@@ -172,7 +177,7 @@ struct DecryptedHybridReports {
 }
 
 impl Iterator for DecryptedHybridReports {
-    type Item = HybridReport<BA8, BA3>;
+    type Item = (HybridReport<BA8, BA3>, HybridInfo);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut line = String::new();
@@ -180,9 +185,10 @@ impl Iterator for DecryptedHybridReports {
             let encrypted_report_bytes = hex::decode(line.trim()).unwrap();
             let enc_report =
                 EncryptedHybridReport::from_bytes(encrypted_report_bytes.into()).unwrap();
-            let dec_report: HybridReport<BA8, BA3> =
-                enc_report.decrypt(&self.key_registry).unwrap();
-            Some(dec_report)
+            let (dec_report, info) = enc_report
+                .decrypt_and_return_info(&self.key_registry)
+                .unwrap();
+            Some((dec_report, info))
         } else {
             None
         }
