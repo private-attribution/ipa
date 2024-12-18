@@ -229,6 +229,26 @@ where
     fn extra(&self) -> Self::Params;
 }
 
+impl RouteParams<RouteId, NoQueryId, NoStep> for RouteId {
+    type Params = &'static str;
+
+    fn resource_identifier(&self) -> RouteId {
+        *self
+    }
+
+    fn query_id(&self) -> NoQueryId {
+        NoQueryId
+    }
+
+    fn gate(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        ""
+    }
+}
+
 impl RouteParams<NoResourceIdentifier, QueryId, Gate> for (QueryId, Gate) {
     type Params = &'static str;
 

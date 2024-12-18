@@ -115,7 +115,10 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
                 let req = serde_json::from_str(route.extra().borrow())?;
                 self.clients[client_ix].status_match(req).await
             }
-            evt @ (RouteId::QueryInput | RouteId::ReceiveQuery | RouteId::KillQuery) => {
+            evt @ (RouteId::QueryInput
+            | RouteId::ReceiveQuery
+            | RouteId::KillQuery
+            | RouteId::Metrics) => {
                 unimplemented!(
                     "attempting to send client-specific request {evt:?} to another helper"
                 )

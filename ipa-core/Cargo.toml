@@ -81,6 +81,7 @@ ipa-metrics = { path = "../ipa-metrics" }
 ipa-metrics-tracing = { optional = true, path = "../ipa-metrics-tracing" }
 ipa-step = { version = "*", path = "../ipa-step" }
 ipa-step-derive = { version = "*", path = "../ipa-step-derive" }
+ipa-metrics-prometheus = { path = "../ipa-metrics-prometheus" }
 
 aes = "0.8.3"
 async-trait = "0.1.79"
@@ -172,6 +173,7 @@ rustls = { version = "0.23" }
 tempfile = "3"
 ipa-metrics-tracing = { path = "../ipa-metrics-tracing" }
 ipa-metrics = { path = "../ipa-metrics", features = ["partitions"] }
+ipa-metrics-prometheus = { path = "../ipa-metrics-prometheus" }
 
 [lib]
 path = "src/lib.rs"

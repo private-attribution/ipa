@@ -1,0 +1,16 @@
+[package]
+name = "ipa-metrics-prometheus"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+
+[dependencies]
+ipa-metrics = { path = "../ipa-metrics" }
+
+# Open telemetry crates: opentelemetry-prometheus crate implementation is based on Opentelemetry API and SDK 0.23. (TBC)
+opentelemetry = "0.24"
+opentelemetry_sdk = { version = "0.24", features = ["metrics", "rt-tokio"] }
+opentelemetry-prometheus = { version = "0.17" }
+prometheus = "0.13.3"

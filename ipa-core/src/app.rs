@@ -3,6 +3,7 @@ use std::sync::Weak;
 use async_trait::async_trait;
 
 use crate::{
+    cli::LoggingHandle,
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
@@ -65,6 +66,7 @@ struct Inner {
     /// the flamegraph
     mpc_transport: MpcTransportImpl,
     shard_transport: ShardTransportImpl,
+    logging_handle: LoggingHandle,
 }
 
 impl Setup {
@@ -96,11 +98,13 @@ impl Setup {
         self,
         mpc_transport: MpcTransportImpl,
         shard_transport: ShardTransportImpl,
+        logging_handle: LoggingHandle,
     ) -> HelperApp {
         let app = Arc::new(Inner {
             query_processor: self.query_processor,
             mpc_transport,
             shard_transport,
+            logging_handle,
         });
         self.mpc_handler
             .set_handler(Arc::downgrade(&app) as Weak<dyn RequestHandler<HelperIdentity>>);
@@ -276,6 +280,11 @@ impl RequestHandler<HelperIdentity> for Inner {
             RouteId::KillQuery => {
                 let query_id = ext_query_id(&req)?;
                 HelperResponse::from(qp.kill(query_id)?)
+            }
+            RouteId::Metrics => {
+                let logging_handler = &self.logging_handle;
+                let metrics_handle = &logging_handler.metrics_handle;
+                HelperResponse::from(metrics_handle.scrape_metrics())
             }
         })
     }
