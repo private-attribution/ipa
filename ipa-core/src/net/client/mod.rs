@@ -1,3 +1,5 @@
+mod dns;
+
 use std::{
     collections::HashMap,
     future::Future,
@@ -36,9 +38,14 @@ use crate::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
         TransportIdentity,
     },
-    net::{error::ShardQueryStatusMismatchError, http_serde, Error, CRYPTO_PROVIDER},
+    net::{
+        client::dns::CachingGaiResolver, error::ShardQueryStatusMismatchError, http_serde, Error,
+        CRYPTO_PROVIDER,
+    },
     protocol::{Gate, QueryId},
 };
+
+type DnsResolver = CachingGaiResolver;
 
 #[derive(Default)]
 pub enum ClientIdentity<F: ConnectionFlavor = Helper> {
@@ -179,7 +186,7 @@ async fn response_to_bytes(resp: ResponseFromEndpoint) -> Result<Bytes, Error> {
 ///       client can be configured to talk to all three helpers.
 #[derive(Debug, Clone)]
 pub struct IpaHttpClient<F: ConnectionFlavor> {
-    client: Client<HttpsConnector<HttpConnector>, Body>,
+    client: Client<HttpsConnector<HttpConnector<DnsResolver>>, Body>,
     scheme: uri::Scheme,
     authority: uri::Authority,
     auth_header: Option<(HeaderName, HeaderValue)>,
@@ -277,7 +284,7 @@ impl<F: ConnectionFlavor> IpaHttpClient<F> {
     fn new_internal<C: HyperClientConfigurator>(
         runtime: IpaRuntime,
         addr: Uri,
-        connector: HttpsConnector<HttpConnector>,
+        connector: HttpsConnector<HttpConnector<DnsResolver>>,
         auth_header: Option<(HeaderName, HeaderValue)>,
         conf: &C,
     ) -> Self {
@@ -536,8 +543,8 @@ impl IpaHttpClient<Shard> {
     }
 }
 
-fn make_http_connector() -> HttpConnector {
-    let mut connector = HttpConnector::new();
+fn make_http_connector() -> HttpConnector<DnsResolver> {
+    let mut connector = HttpConnector::new_with_resolver(DnsResolver::new());
     // IPA uses HTTP2 and it is sensitive to those delays especially in high-latency network
     // configurations.
     connector.set_nodelay(true);
