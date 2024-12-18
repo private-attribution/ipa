@@ -9,7 +9,13 @@ use hyper_util::{
 
 use crate::{helpers::BodyStream, net::Error};
 
-/// Download query input from a remote URL.
+/// Connect to a remote URL to download query input.
+///
+/// # Errors
+/// If the connection to the remote URL fails or returns an HTTP error.
+///
+/// # Panics
+/// If unable to create an HTTPS client using the system truststore.
 pub async fn stream_query_input_from_url(uri: &Uri) -> Result<BodyStream, Error> {
     let mut builder = Client::builder(TokioExecutor::new());
     // the following timer is necessary for http2, in particular for any timeouts

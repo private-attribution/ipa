@@ -359,8 +359,7 @@ pub mod query {
                 let body = self
                     .query_input
                     .input_stream()
-                    .map(Body::from_stream)
-                    .unwrap_or_else(Body::empty);
+                    .map_or_else(Body::empty, Body::from_stream);
                 let mut request =
                     hyper::Request::post(uri).header(CONTENT_TYPE, APPLICATION_OCTET_STREAM);
                 if let Some(url) = query_input_url {
@@ -396,9 +395,9 @@ pub mod query {
             }
         }
 
-        impl Into<Option<Uri>> for QueryInputUrl {
-            fn into(self) -> Option<Uri> {
-                self.0
+        impl From<QueryInputUrl> for Option<Uri> {
+            fn from(value: QueryInputUrl) -> Self {
+                value.0
             }
         }
     }

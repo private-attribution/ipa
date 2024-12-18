@@ -98,7 +98,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn input_from_url() {
         const QUERY_ID: QueryId = QueryId;
-        const DATA: &'static str = "input records";
+        const DATA: &str = "input records";
 
         let server = tiny_http::Server::http("localhost:0").unwrap();
         let addr = server.server_addr();

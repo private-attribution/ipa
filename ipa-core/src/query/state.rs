@@ -46,7 +46,7 @@ impl From<&QueryState> for QueryStatus {
         match source {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
             QueryState::Preparing(_) => QueryStatus::Preparing,
-            QueryState::AwaitingInputs(_, _, _) => QueryStatus::AwaitingInputs,
+            QueryState::AwaitingInputs(_, _) => QueryStatus::AwaitingInputs,
             QueryState::Running(_) => QueryStatus::Running,
             QueryState::AwaitingCompletion => QueryStatus::AwaitingCompletion,
             QueryState::Completed(_) => QueryStatus::Completed,
@@ -78,7 +78,7 @@ pub fn min_status(a: QueryStatus, b: QueryStatus) -> QueryStatus {
 pub enum QueryState {
     Empty,
     Preparing(QueryConfig),
-    AwaitingInputs(QueryId, QueryConfig, RoleAssignment),
+    AwaitingInputs(QueryConfig, RoleAssignment),
     Running(RunningQuery),
     AwaitingCompletion,
     Completed(QueryResult),
@@ -91,9 +91,9 @@ impl QueryState {
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
-            (Empty, Preparing(_) | AwaitingInputs(_, _, _))
-            | (Preparing(_), AwaitingInputs(_, _, _))
-            | (AwaitingInputs(_, _, _), Running(_)) => Ok(new_state),
+            (Empty, Preparing(_) | AwaitingInputs(_, _))
+            | (Preparing(_), AwaitingInputs(_, _))
+            | (AwaitingInputs(_, _), Running(_)) => Ok(new_state),
             (_, Preparing(_)) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.into(),

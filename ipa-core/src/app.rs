@@ -136,6 +136,8 @@ impl HelperApp {
     ///
     /// ## Errors
     /// Propagates errors from the helper.
+    /// ## Panics
+    /// If `input` asks to obtain query input from a remote URL.
     pub fn execute_query(&self, input: QueryInput) -> Result<(), ApiError> {
         let mpc_transport = self.inner.mpc_transport.clone_ref();
         let shard_transport = self.inner.shard_transport.clone_ref();

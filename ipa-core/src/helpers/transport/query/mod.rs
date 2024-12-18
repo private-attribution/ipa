@@ -12,9 +12,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     ff::FieldType,
     helpers::{
-        routing::Addr,
         transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
-        HelperIdentity, RoleAssignment, RouteParams,
+        RoleAssignment, RouteParams,
     },
     protocol::QueryId,
     query::QueryStatus,

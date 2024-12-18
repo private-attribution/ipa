@@ -213,7 +213,7 @@ impl Processor {
         // to rollback 1,2 and 3
         shard_transport.broadcast(prepare_request.clone()).await?;
 
-        handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
+        handle.set_state(QueryState::AwaitingInputs(req, roles))?;
 
         guard.restore();
         Ok(prepare_request)
@@ -249,11 +249,7 @@ impl Processor {
         // TODO: If shards 1,2 and 3 succeed but 4 fails, then we need to rollback 1,2 and 3.
         shard_transport.broadcast(req.clone()).await?;
 
-        handle.set_state(QueryState::AwaitingInputs(
-            req.query_id,
-            req.config,
-            req.roles,
-        ))?;
+        handle.set_state(QueryState::AwaitingInputs(req.config, req.roles))?;
 
         Ok(())
     }
@@ -280,11 +276,7 @@ impl Processor {
             return Err(PrepareQueryError::AlreadyRunning);
         }
 
-        handle.set_state(QueryState::AwaitingInputs(
-            req.query_id,
-            req.config,
-            req.roles,
-        ))?;
+        handle.set_state(QueryState::AwaitingInputs(req.config, req.roles))?;
 
         Ok(())
     }
@@ -307,8 +299,7 @@ impl Processor {
         match queries.entry(query_id) {
             Entry::Occupied(entry) => {
                 let state = entry.remove();
-                if let QueryState::AwaitingInputs(query_id, config, role_assignment) = state {
-                    assert_eq!(query_id, query_id, "received inputs for a different query");
+                if let QueryState::AwaitingInputs(config, role_assignment) = state {
                     let mut gateway_config = GatewayConfig::default();
                     if let Some(active_work) = self.active_work {
                         gateway_config.active = active_work;
