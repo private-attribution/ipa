@@ -11,10 +11,10 @@ use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig},
         routing::RouteId,
-        BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role,
-        RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
+        BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl,
+        Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -213,7 +213,7 @@ impl Processor {
         // to rollback 1,2 and 3
         shard_transport.broadcast(prepare_request.clone()).await?;
 
-        handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
+        handle.set_state(QueryState::AwaitingInputs(req, roles))?;
 
         guard.restore();
         Ok(prepare_request)
@@ -249,11 +249,7 @@ impl Processor {
         // TODO: If shards 1,2 and 3 succeed but 4 fails, then we need to rollback 1,2 and 3.
         shard_transport.broadcast(req.clone()).await?;
 
-        handle.set_state(QueryState::AwaitingInputs(
-            req.query_id,
-            req.config,
-            req.roles,
-        ))?;
+        handle.set_state(QueryState::AwaitingInputs(req.config, req.roles))?;
 
         Ok(())
     }
@@ -280,11 +276,7 @@ impl Processor {
             return Err(PrepareQueryError::AlreadyRunning);
         }
 
-        handle.set_state(QueryState::AwaitingInputs(
-            req.query_id,
-            req.config,
-            req.roles,
-        ))?;
+        handle.set_state(QueryState::AwaitingInputs(req.config, req.roles))?;
 
         Ok(())
     }
@@ -300,17 +292,14 @@ impl Processor {
         &self,
         mpc_transport: MpcTransportImpl,
         shard_transport: ShardTransportImpl,
-        input: QueryInput,
+        query_id: QueryId,
+        input_stream: BodyStream,
     ) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
-        match queries.entry(input.query_id) {
+        match queries.entry(query_id) {
             Entry::Occupied(entry) => {
                 let state = entry.remove();
-                if let QueryState::AwaitingInputs(query_id, config, role_assignment) = state {
-                    assert_eq!(
-                        input.query_id, query_id,
-                        "received inputs for a different query"
-                    );
+                if let QueryState::AwaitingInputs(config, role_assignment) = state {
                     let mut gateway_config = GatewayConfig::default();
                     if let Some(active_work) = self.active_work {
                         gateway_config.active = active_work;
@@ -325,13 +314,13 @@ impl Processor {
                         shard_transport,
                     );
                     queries.insert(
-                        input.query_id,
+                        query_id,
                         QueryState::Running(executor::execute(
                             &self.runtime,
                             config,
                             Arc::clone(&self.key_registry),
                             gateway,
-                            input.input_stream,
+                            input_stream,
                         )),
                     );
                     Ok(())
@@ -340,11 +329,11 @@ impl Processor {
                         from: QueryStatus::from(&state),
                         to: QueryStatus::Running,
                     };
-                    queries.insert(input.query_id, state);
+                    queries.insert(query_id, state);
                     Err(QueryInputError::StateError { source: error })
                 }
             }
-            Entry::Vacant(_) => Err(QueryInputError::NoSuchQuery(input.query_id)),
+            Entry::Vacant(_) => Err(QueryInputError::NoSuchQuery(query_id)),
         }
     }
 

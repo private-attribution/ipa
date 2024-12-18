@@ -322,12 +322,23 @@ pub mod query {
     }
 
     pub mod input {
-        use axum::{body::Body, http::uri};
-        use hyper::header::CONTENT_TYPE;
+        use axum::{
+            async_trait,
+            body::Body,
+            extract::FromRequestParts,
+            http::{request::Parts, uri},
+        };
+        use hyper::{
+            header::{HeaderValue, CONTENT_TYPE},
+            Uri,
+        };
 
         use crate::{
             helpers::query::QueryInput,
-            net::{http_serde::query::BASE_AXUM_PATH, APPLICATION_OCTET_STREAM},
+            net::{
+                http_serde::query::BASE_AXUM_PATH, Error, APPLICATION_OCTET_STREAM,
+                HTTP_QUERY_INPUT_URL_HEADER,
+            },
         };
 
         #[derive(Debug)]
@@ -351,17 +362,54 @@ pub mod query {
                     .path_and_query(format!(
                         "{}/{}/input",
                         BASE_AXUM_PATH,
-                        self.query_input.query_id.as_ref(),
+                        self.query_input.query_id().as_ref(),
                     ))
                     .build()?;
-                let body = Body::from_stream(self.query_input.input_stream);
-                Ok(hyper::Request::post(uri)
-                    .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM)
-                    .body(body)?)
+                let query_input_url = self.query_input.url().map(ToOwned::to_owned);
+                let body = self
+                    .query_input
+                    .input_stream()
+                    .map_or_else(Body::empty, Body::from_stream);
+                let mut request =
+                    hyper::Request::post(uri).header(CONTENT_TYPE, APPLICATION_OCTET_STREAM);
+                if let Some(url) = query_input_url {
+                    request.headers_mut().unwrap().insert(
+                        &HTTP_QUERY_INPUT_URL_HEADER,
+                        HeaderValue::try_from(url).unwrap(),
+                    );
+                }
+                Ok(request.body(body)?)
             }
         }
 
         pub const AXUM_PATH: &str = "/:query_id/input";
+
+        pub struct QueryInputUrl(Option<Uri>);
+
+        #[async_trait]
+        impl<S: Send + Sync> FromRequestParts<S> for QueryInputUrl {
+            type Rejection = Error;
+
+            async fn from_request_parts(
+                req: &mut Parts,
+                _state: &S,
+            ) -> Result<Self, Self::Rejection> {
+                match req.headers.get(&HTTP_QUERY_INPUT_URL_HEADER) {
+                    None => Ok(QueryInputUrl(None)),
+                    Some(value) => {
+                        let value_str = value.to_str()?;
+                        let uri = value_str.parse()?;
+                        Ok(QueryInputUrl(Some(uri)))
+                    }
+                }
+            }
+        }
+
+        impl From<QueryInputUrl> for Option<Uri> {
+            fn from(value: QueryInputUrl) -> Self {
+                value.0
+            }
+        }
     }
 
     pub mod step {

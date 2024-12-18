@@ -1,4 +1,13 @@
-use std::{error::Error, fmt::Debug, ops::Add, path::PathBuf};
+use std::{
+    error::Error,
+    fmt::Debug,
+    fs::File,
+    io::ErrorKind,
+    net::TcpListener,
+    ops::Add,
+    os::fd::{FromRawFd, RawFd},
+    path::PathBuf,
+};
 
 use clap::{Parser, Subcommand};
 use generic_array::ArrayLength;
@@ -21,6 +30,8 @@ use ipa_core::{
     net::{Helper, IpaHttpClient},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
 };
+use tiny_http::{Response, ResponseBox, Server, StatusCode};
+use tracing::{error, info};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -95,6 +106,23 @@ enum TestAction {
     /// This is exactly what shuffle does and that's why it is picked
     /// for this purpose.
     ShardedShuffle,
+    ServeInput(ServeInputArgs),
+}
+
+#[derive(Debug, clap::Args)]
+#[clap(about = "Run a simple HTTP server to serve query input files")]
+pub struct ServeInputArgs {
+    /// Port to listen on
+    #[arg(short, long)]
+    port: Option<u16>,
+
+    /// Listen on the supplied prebound socket instead of binding a new socket
+    #[arg(long, conflicts_with = "port")]
+    fd: Option<RawFd>,
+
+    /// Directory with input files to serve
+    #[arg(short, long = "dir")]
+    directory: PathBuf,
 }
 
 #[tokio::main]
@@ -129,6 +157,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await;
             sharded_shuffle(&args, clients).await
         }
+        TestAction::ServeInput(options) => serve_input(options),
     };
 
     Ok(())
@@ -203,4 +232,53 @@ async fn sharded_shuffle(args: &Args, helper_clients: Vec<[IpaHttpClient<Helper>
 
     assert_eq!(shuffled.len(), input_rows.len());
     assert_ne!(shuffled, input_rows);
+}
+
+fn not_found() -> ResponseBox {
+    Response::from_string("not found")
+        .with_status_code(StatusCode(404))
+        .boxed()
+}
+
+#[tracing::instrument("serve_input", skip_all)]
+fn serve_input(args: ServeInputArgs) {
+    let server = if let Some(port) = args.port {
+        Server::http(("localhost", port)).unwrap()
+    } else if let Some(fd) = args.fd {
+        Server::from_listener(unsafe { TcpListener::from_raw_fd(fd) }, None).unwrap()
+    } else {
+        Server::http("localhost:0").unwrap()
+    };
+
+    if args.port.is_none() {
+        info!(
+            "Listening on :{}",
+            server.server_addr().to_ip().unwrap().port()
+        );
+    }
+
+    loop {
+        let request = server.recv().unwrap();
+        tracing::info!(target: "request_url", "{}", request.url());
+
+        let url = request.url()[1..].to_owned();
+        let response = if url.contains('/') {
+            error!(target: "error", "Request URL contains a slash");
+            not_found()
+        } else {
+            match File::open(args.directory.join(&url)) {
+                Ok(file) => Response::from_file(file).boxed(),
+                Err(err) => {
+                    if err.kind() != ErrorKind::NotFound {
+                        error!(target: "error", "{err}");
+                    }
+                    not_found()
+                }
+            }
+        };
+
+        let _ = request.respond(response).map_err(|err| {
+            error!(target: "error", "{err}");
+        });
+    }
 }
