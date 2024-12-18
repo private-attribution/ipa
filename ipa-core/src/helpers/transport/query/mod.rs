@@ -186,18 +186,6 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     }
 }
 
-/*
-pub enum QueryInputRequest {
-    FromUrl {
-        query_id: QueryId,
-        url: Uri,
-    },
-    Inline {
-        query_id: QueryId,
-    },
-}
-*/
-
 pub enum QueryInput {
     FromUrl {
         query_id: QueryId,
@@ -229,37 +217,7 @@ impl QueryInput {
             Self::Inline { .. } => None,
         }
     }
-
-    // It would be better to return an error here, but `helpers::error::Error` doesn't
-    // have the variants we need.
-    //
-    // When handling actual requests, the request is parsed once and then stuffed into
-    // `Addr` before it gets here, so parsing shouldn't fail at this point. Some of
-    // this stuff is in need of a refactor (see #994).
-    pub fn from_addr(addr: Addr<HelperIdentity>, input_stream: BodyStream) -> Option<Self> {
-        let query_id = addr.query_id?;
-
-        if addr.params.is_empty() {
-            Some(Self::Inline {
-                query_id,
-                input_stream,
-            })
-        } else {
-            let url = addr.params.parse().ok()?;
-            Some(Self::FromUrl { query_id, url })
-        }
-    }
 }
-
-/*
-impl QueryInputRequest {
-    pub fn query_id(&self) -> QueryId {
-        match self {
-            Self::FromUrl { query_id, .. } | Self::Inline { query_id, ..} => *query_id,
-        }
-    }
-}
-*/
 
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -279,32 +237,6 @@ impl Debug for QueryInput {
         }
     }
 }
-
-/*
-impl RouteParams<RouteId, QueryId, NoStep> for QueryInputRequest {
-    type Params = String;
-
-    fn resource_identifier(&self) -> RouteId {
-        RouteId::QueryInput
-    }
-
-    fn query_id(&self) -> QueryId {
-        self.query_id()
-    }
-
-    fn gate(&self) -> NoStep {
-        NoStep
-    }
-
-    fn extra(&self) -> Self::Params {
-        use QueryInputRequest::*;
-        match self {
-            FromUrl { url, .. } => url.to_string(),
-            Inline { .. } => String::new(),
-        }
-    }
-}
-*/
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]

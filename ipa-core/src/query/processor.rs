@@ -106,8 +106,6 @@ pub enum QueryInputError {
         #[from]
         source: StateError,
     },
-    #[error("Bad request")]
-    BadRequest,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -306,8 +304,6 @@ impl Processor {
         input_stream: BodyStream,
     ) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
-        //let query_id = input.query_id();
-        //let input_stream = input.input_stream().unwrap_or_else(|| BodyStream::empty());
         match queries.entry(query_id) {
             Entry::Occupied(entry) => {
                 let state = entry.remove();

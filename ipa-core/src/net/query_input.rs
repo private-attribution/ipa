@@ -51,12 +51,3 @@ pub async fn stream_query_input_from_url(uri: &Uri) -> Result<BodyStream, Error>
         resp.into_body().map_err(BoxError::from).into_data_stream(),
     ))
 }
-
-/*
-pub async fn stream_query_input(query_input: QueryInput) -> Result<BodyStream, Error> {
-    match query_input {
-        QueryInput::Inline { input_stream, .. } => Ok(input_stream),
-        QueryInput::FromUrl { url, .. } => stream_query_input_from_url(&url).await,
-    }
-}
-*/
