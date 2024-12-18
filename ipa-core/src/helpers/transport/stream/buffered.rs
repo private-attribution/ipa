@@ -6,7 +6,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::Stream;
+use futures::{stream::Fuse, Stream, StreamExt};
 use pin_project::pin_project;
 
 use crate::helpers::BytesStream;
@@ -19,7 +19,7 @@ use crate::helpers::BytesStream;
 pub struct BufferedBytesStream<S> {
     /// Inner stream to poll
     #[pin]
-    inner: S,
+    inner: Fuse<S>,
     /// Buffer of bytes pending release
     buffer: Vec<u8>,
     /// Number of bytes released per single poll.
@@ -28,10 +28,10 @@ pub struct BufferedBytesStream<S> {
     sz: usize,
 }
 
-impl<S> BufferedBytesStream<S> {
-    fn new(inner: S, buf_size: NonZeroUsize) -> Self {
+impl<S: BytesStream> BufferedBytesStream<S> {
+    pub fn new(inner: S, buf_size: NonZeroUsize) -> Self {
         Self {
-            inner,
+            inner: inner.fuse(),
             buffer: Vec::with_capacity(buf_size.get()),
             sz: buf_size.get(),
         }
