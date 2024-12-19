@@ -7,7 +7,7 @@ usage="Usage: $0 <s3_uri> <output_file> [<expires_in>]"
 # ../scripts/presigned-s3-urls.sh s3://stg-ipa-encrypted-reports/testing-sharded-data/1B/30_shards presigned_urls_30_shards.txt
 
 # Check if the correct number of arguments were provided
-if [ $# -lt 2 ] || [ $# -gt 3]; then
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
   echo "$usage"
   exit 1
 fi
@@ -23,7 +23,7 @@ fi
 
 # default expires_in: 7 days (7 * 24 * 60 * 60) - 1. this is the max allowed
 expires_in="${3:-604799}"
-if [ $# -gt 604799]; then
+if [ $# -gt 604799 ]; then
     echo "expires_in must be less than 604800"
     exit 1
 fi
