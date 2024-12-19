@@ -1,7 +1,6 @@
 #[cfg(feature = "web-app")]
 mod axum_body;
 mod box_body;
-#[allow(dead_code)]
 mod buffered;
 mod collection;
 mod input;
@@ -14,6 +13,7 @@ use std::{
 #[cfg(feature = "web-app")]
 pub use axum_body::WrappedAxumBodyStream;
 pub use box_body::WrappedBoxBodyStream;
+pub use buffered::BufferedBytesStream;
 use bytes::Bytes;
 pub use collection::{StreamCollection, StreamKey};
 use futures::{stream::iter, Stream};
