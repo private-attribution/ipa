@@ -39,4 +39,4 @@ while IFS= read -r line; do
     # Call the aws s3 presign command and append the output to the output file
     aws s3 presign "$s3_uri/$filename" --expires-in "$expires_in" >> "$output_file"
   fi
-done < <(aws s3 ls "$s3_url")
+done < <(aws s3 ls "$s3_url" | awk '{print $4}')
