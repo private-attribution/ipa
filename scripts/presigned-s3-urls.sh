@@ -29,14 +29,11 @@ if [ $# -gt 604799 ]; then
 fi
 
 # Iterate over the files in the s3 bucket
-while IFS= read -r line; do
-  # Extract the file name from the aws s3 ls output
-  filename=$(echo "$line" | awk '{print $NF}')
-
+aws s3 ls "$s3_url" | awk '{print $4}' | while read -r line; do
 # Skip directories (they end with a slash)
-  if [[ "$filename" != */ ]]; then
-    echo "Processing: $(basename "$filename")"
+  if [[ "$line" != */ ]]; then
+    echo "Processing: $(basename "$s3_uri""$line")"
     # Call the aws s3 presign command and append the output to the output file
-    aws s3 presign "$s3_uri/$filename" --expires-in "$expires_in" >> "$output_file"
+    aws s3 presign "$s3_uri$line" --expires-in "$expires_in" >> "$output_file"
   fi
-done < <(aws s3 ls "$s3_url" | awk '{print $4}')
+done
