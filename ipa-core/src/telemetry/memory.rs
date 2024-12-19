@@ -26,6 +26,9 @@ pub mod jemalloc {
     static CONTROLS: RwLock<Option<JemallocControls>> = RwLock::new(None);
 
     /// Activates periodic memory usage reporting during `seq_join`.
+    ///
+    /// # Panics
+    /// If `RwLock` is poisoned.
     pub fn activate() {
         let mut controls = CONTROLS.write().unwrap();
 
@@ -59,6 +62,9 @@ pub mod jemalloc {
     /// As `count` increases, so does the report interval. This results in
     /// a tolerable amount of log messages for loops with many iterations,
     /// while still providing some reporting for shorter loops.
+    ///
+    /// # Panics
+    /// If `RwLock` is poisoned.
     pub fn periodic_memory_report(count: usize) {
         let controls_opt = CONTROLS.read().unwrap();
         if let Some(controls) = controls_opt.as_ref() {

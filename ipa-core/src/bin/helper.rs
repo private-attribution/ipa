@@ -25,7 +25,7 @@ use ipa_core::{
         ShardHttpTransport,
     },
     sharding::ShardIndex,
-    use_jemalloc, AppConfig, AppSetup, NonZeroU32PowerOfTwo,
+    AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tokio::runtime::Runtime;
 use tracing::{error, info};
@@ -362,7 +362,7 @@ fn new_query_runtime(logging_handle: &LoggingHandle) -> Runtime {
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() {
     #[cfg(jemalloc)]
-    use_jemalloc!();
+    ipa_core::use_jemalloc!();
 
     #[cfg(feature = "dhat-heap")]
     #[global_allocator]

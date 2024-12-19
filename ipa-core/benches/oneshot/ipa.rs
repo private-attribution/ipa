@@ -14,7 +14,6 @@ use ipa_core::{
         ipa::{ipa_in_the_clear, test_oprf_ipa, CappingOrder, IpaSecurityModel},
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
-    use_jemalloc,
 };
 use ipa_step::StepNarrow;
 use rand::{random, rngs::StdRng, SeedableRng};
@@ -159,7 +158,7 @@ async fn run(args: Args) -> Result<(), Error> {
 
 fn main() -> Result<(), Error> {
     #[cfg(jemalloc)]
-    use_jemalloc!();
+    ipa_core::use_jemalloc!();
 
     #[cfg(feature = "dhat-heap")]
     #[global_allocator]
