@@ -146,7 +146,7 @@ enum ReportCollectorCommand {
     },
     MaliciousHybrid {
         #[clap(flatten)]
-        encrypted_inputs: EncryptedInputs,
+        encrypted_inputs: Option<EncryptedInputs>,
 
         #[arg(
             long,
@@ -289,12 +289,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 |query_id| {
                     if let Some(ref url_file_list) = url_file_list {
                         inputs_from_url_file(&url_file_list, query_id, args.shard_count)
-                    } else {
+                    } else if let Some(ref encrypted_inputs) = encrypted_inputs {
                         Ok(inputs_from_encrypted_inputs(
                             encrypted_inputs,
                             query_id,
                             args.shard_count,
                         ))
+                    } else {
+                        panic!("Either --url-file-list or --enc-input-file1, --enc-input-file2, and --enc-input-file3 must be provided");
                     }
                 },
                 // encrypted_inputs,
