@@ -29,7 +29,7 @@ if [ $# -gt 604799 ]; then
 fi
 
 # Iterate over the files in the s3 bucket
-aws s3 ls "$s3_url" | awk '{print $4}' | while read -r line; do
+aws s3 ls "$s3_uri" | awk '{print $4}' | while read -r line; do
 # Skip directories (they end with a slash)
   if [[ "$line" != */ ]]; then
     echo "Processing: $(basename "$s3_uri""$line")"
