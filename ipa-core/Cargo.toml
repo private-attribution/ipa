@@ -41,6 +41,7 @@ web-app = [
     "rustls",
     "rustls-pemfile",
     "time",
+    "tiny_http",
     "tokio-rustls",
     "toml",
     "tower",
@@ -141,6 +142,7 @@ thiserror = "1.0"
 tikv-jemallocator = { version = "0.6", optional = true, features = ["profiling"] }
 tikv-jemalloc-ctl = { version = "0.6", optional = true, features = ["stats"] }
 time = { version = "0.3", optional = true }
+tiny_http = { version = "0.12", optional = true }
 tokio = { version = "1.42", features = ["fs", "rt", "rt-multi-thread", "macros"] }
 tokio-rustls = { version = "0.26", optional = true }
 tokio-stream = "0.1.14"
