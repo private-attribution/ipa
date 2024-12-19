@@ -288,7 +288,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 clients,
                 |query_id| {
                     if let Some(ref url_file_list) = url_file_list {
-                        inputs_from_url_file(&url_file_list, query_id, args.shard_count)
+                        inputs_from_url_file(url_file_list, query_id, args.shard_count)
                     } else if let Some(ref encrypted_inputs) = encrypted_inputs {
                         Ok(inputs_from_encrypted_inputs(
                             encrypted_inputs,
@@ -318,19 +318,19 @@ fn inputs_from_url_file(
     let mut file = BufReader::new(File::open(url_file_path)?);
     let mut buf = String::new();
     let mut inputs = [Vec::new(), Vec::new(), Vec::new()];
-    for helper_id in 0..3 {
+    for (helper_id, helper_input) in inputs.iter_mut().enumerate() {
         for _ in 0..shard_count {
             buf.clear();
             if file.read_line(&mut buf)? == 0 {
                 break;
             }
-            inputs[helper_id]
+            helper_input
                 .push(Uri::try_from(buf.trim()).map_err(|e| format!("Invalid URL {buf:?}: {e}"))?);
         }
-        if inputs[helper_id].len() != shard_count {
+        if helper_input.len() != shard_count {
             return Err(format!(
                 "Helper {helper_id} does not have enough input. Expected {shard_count}, got {}",
-                inputs[helper_id].len()
+                helper_input.len()
             )
             .into());
         }
@@ -376,8 +376,8 @@ fn inputs_from_encrypted_inputs(
     // create byte streams for each shard
     h1_streams
         .into_iter()
-        .zip(h2_streams.into_iter())
-        .zip(h3_streams.into_iter())
+        .zip(h2_streams)
+        .zip(h3_streams)
         .map(|((s1, s2), s3)| {
             [
                 QueryInput::Inline {
