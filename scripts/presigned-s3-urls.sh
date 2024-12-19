@@ -24,6 +24,6 @@ for file in "$dir_path"/*; do
   filename=$(basename "$file")
   echo "Processing: $(basename "$file")"
   # Call the aws s3 presign command and append the output to the output file
-  # expires in 14 days (14 * 24 * 60 * 60)
-  aws s3 presign "$s3_uri/$filename" --expires-in 1209600 >> "$output_file"
+  # expires in 7 days (7 * 24 * 60 * 60) - 1. this is the max allowed
+  aws s3 presign "$s3_uri/$filename" --expires-in 604799 >> "$output_file"
 done
