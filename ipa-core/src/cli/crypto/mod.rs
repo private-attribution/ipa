@@ -345,9 +345,14 @@ mod tests {
         let input = hybrid_sample_data::test_hybrid_data().take(10);
         let input_file = hybrid_sample_data::write_csv(input).unwrap();
         let network_file = hybrid_sample_data::test_keys().network_config();
-        HybridEncryptArgs::new(input_file.path(), output_dir.path(), network_file.path())
-            .encrypt()
-            .unwrap();
+        HybridEncryptArgs::new(
+            input_file.path(),
+            output_dir.path(),
+            network_file.path(),
+            false,
+        )
+        .encrypt()
+        .unwrap();
 
         let decrypt_output = output_dir.path().join("output");
         let enc1 = output_dir.path().join("helper1.enc");

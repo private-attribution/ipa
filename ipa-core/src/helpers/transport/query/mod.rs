@@ -184,14 +184,58 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     }
 }
 
-pub struct QueryInput {
-    pub query_id: QueryId,
-    pub input_stream: BodyStream,
+pub enum QueryInput {
+    FromUrl {
+        query_id: QueryId,
+        url: String,
+    },
+    Inline {
+        query_id: QueryId,
+        input_stream: BodyStream,
+    },
+}
+
+impl QueryInput {
+    #[must_use]
+    pub fn query_id(&self) -> QueryId {
+        match self {
+            Self::FromUrl { query_id, .. } | Self::Inline { query_id, .. } => *query_id,
+        }
+    }
+
+    #[must_use]
+    pub fn input_stream(self) -> Option<BodyStream> {
+        match self {
+            Self::Inline { input_stream, .. } => Some(input_stream),
+            Self::FromUrl { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn url(&self) -> Option<&str> {
+        match self {
+            Self::FromUrl { url, .. } => Some(url),
+            Self::Inline { .. } => None,
+        }
+    }
 }
 
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "query_inputs[{:?}]", self.query_id)
+        match self {
+            QueryInput::Inline {
+                query_id,
+                input_stream: _,
+            } => f
+                .debug_struct("QueryInput::Inline")
+                .field("query_id", query_id)
+                .finish(),
+            QueryInput::FromUrl { query_id, url } => f
+                .debug_struct("QueryInput::FromUrl")
+                .field("query_id", query_id)
+                .field("url", url)
+                .finish(),
+        }
     }
 }
 
