@@ -35,7 +35,7 @@ while IFS= read -r line; do
 
 # Skip directories (they end with a slash)
   if [[ "$filename" != */ ]]; then
-    echo "Processing: $(basename "$file")"
+    echo "Processing: $(basename "$filename")"
     # Call the aws s3 presign command and append the output to the output file
     aws s3 presign "$s3_uri/$filename" --expires-in "$expires_in" >> "$output_file"
   fi
