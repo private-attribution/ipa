@@ -44,7 +44,7 @@ where
         |(shard_clients, shard_inputs)| {
             try_join_all(shard_clients.iter().zip(shard_inputs.into_iter()).map(
                 |(client, input)| {
-                    client.query_input(QueryInput {
+                    client.query_input(QueryInput::Inline {
                         query_id,
                         input_stream: input,
                     })
