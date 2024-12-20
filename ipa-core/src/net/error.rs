@@ -54,7 +54,7 @@ pub enum Error {
         status: hyper::StatusCode,
         reason: String,
     },
-    #[error("Failed to connect to {dest}: {inner}")]
+    #[error("Failed to connect to {dest}: {inner:?}")]
     ConnectError {
         dest: String,
         #[source]
