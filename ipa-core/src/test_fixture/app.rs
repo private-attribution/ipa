@@ -112,7 +112,7 @@ impl TestApp {
             .into_iter()
             .enumerate()
             .map(|(i, input)| {
-                self.drivers[i].execute_query(QueryInput {
+                self.drivers[i].execute_query(QueryInput::Inline {
                     query_id,
                     input_stream: input.into(),
                 })

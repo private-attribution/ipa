@@ -45,7 +45,7 @@ where
                 let shared = chunk.iter().copied().share();
                 try_join_all(mpc_clients.each_ref().iter().zip(shared).map(
                     |(mpc_client, input)| {
-                        mpc_client.query_input(QueryInput {
+                        mpc_client.query_input(QueryInput::Inline {
                             query_id,
                             input_stream: BodyStream::from_serializable_iter(input),
                         })

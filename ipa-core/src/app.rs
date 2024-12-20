@@ -140,12 +140,24 @@ impl HelperApp {
     ///
     /// ## Errors
     /// Propagates errors from the helper.
+    /// ## Panics
+    /// If `input` asks to obtain query input from a remote URL.
     pub fn execute_query(&self, input: QueryInput) -> Result<(), ApiError> {
         let mpc_transport = self.inner.mpc_transport.clone_ref();
         let shard_transport = self.inner.shard_transport.clone_ref();
-        self.inner
-            .query_processor
-            .receive_inputs(mpc_transport, shard_transport, input)?;
+        let QueryInput::Inline {
+            query_id,
+            input_stream,
+        } = input
+        else {
+            panic!("this client does not support pulling query input from a URL");
+        };
+        self.inner.query_processor.receive_inputs(
+            mpc_transport,
+            shard_transport,
+            query_id,
+            input_stream,
+        )?;
         Ok(())
     }
 
@@ -258,10 +270,8 @@ impl RequestHandler<HelperIdentity> for Inner {
                 HelperResponse::from(qp.receive_inputs(
                     Transport::clone_ref(&self.mpc_transport),
                     Transport::clone_ref(&self.shard_transport),
-                    QueryInput {
-                        query_id,
-                        input_stream: data,
-                    },
+                    query_id,
+                    data,
                 )?)
             }
             RouteId::QueryStatus => {

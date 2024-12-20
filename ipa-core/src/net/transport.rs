@@ -577,7 +577,7 @@ mod tests {
 
         let mut handle_resps = Vec::with_capacity(helper_shares.len());
         for (i, input_stream) in helper_shares.into_iter().enumerate() {
-            let data = QueryInput {
+            let data = QueryInput::Inline {
                 query_id,
                 input_stream,
             };
@@ -589,7 +589,7 @@ mod tests {
         // convention - first client is shard leader, and we submitted the inputs to it.
         try_join_all(clients.iter().skip(1).map(|ring| {
             try_join_all(ring.each_ref().map(|shard_client| {
-                shard_client.query_input(QueryInput {
+                shard_client.query_input(QueryInput::Inline {
                     query_id,
                     input_stream: BodyStream::empty(),
                 })
@@ -641,7 +641,7 @@ mod tests {
                 |(helper, shard_streams)| async move {
                     try_join_all(shard_streams.into_iter().enumerate().map(
                         |(shard, input_stream)| {
-                            clients[shard][helper].query_input(QueryInput {
+                            clients[shard][helper].query_input(QueryInput::Inline {
                                 query_id,
                                 input_stream,
                             })

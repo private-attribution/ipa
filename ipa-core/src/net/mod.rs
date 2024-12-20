@@ -18,6 +18,7 @@ use crate::{
 mod client;
 mod error;
 mod http_serde;
+pub mod query_input;
 mod server;
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test;
@@ -32,6 +33,7 @@ const APPLICATION_JSON: &str = "application/json";
 const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
 static HTTP_HELPER_ID_HEADER: HeaderName = HeaderName::from_static("x-unverified-helper-identity");
 static HTTP_SHARD_INDEX_HEADER: HeaderName = HeaderName::from_static("x-unverified-shard-index");
+static HTTP_QUERY_INPUT_URL_HEADER: HeaderName = HeaderName::from_static("x-query-input-url");
 
 /// This has the same meaning as const defined in h2 crate, but we don't import it directly.
 /// According to the [`spec`] it cannot exceed 2^31 - 1.
