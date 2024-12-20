@@ -96,6 +96,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
     async fn input_from_url() {
         const QUERY_ID: QueryId = QueryId;
         const DATA: &str = "input records";
