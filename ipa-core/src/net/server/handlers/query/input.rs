@@ -98,7 +98,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn input_from_url() {
         const QUERY_ID: QueryId = QueryId;
-        const DATA: &str = "input records";
+        const DATA: &str = "<input records>";
 
         let server = tiny_http::Server::http("localhost:0").unwrap();
         let addr = server.server_addr();
@@ -124,9 +124,8 @@ mod tests {
             .await;
 
         let url = format!(
-            "http://localhost:{}{}/{QUERY_ID}/input",
+            "http://localhost:{}/input-data",
             addr.to_ip().unwrap().port(),
-            http_serde::query::BASE_AXUM_PATH,
         );
         let req = http_serde::query::input::Request::new(QueryInput::FromUrl {
             query_id: QUERY_ID,
