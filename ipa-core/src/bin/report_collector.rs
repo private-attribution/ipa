@@ -299,7 +299,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         panic!("Either --url-file-list or --enc-input-file1, --enc-input-file2, and --enc-input-file3 must be provided");
                     }
                 },
-                // encrypted_inputs,
                 count.try_into().expect("u32 should fit into usize"),
                 set_fixed_polling_ms,
             )
@@ -318,7 +317,7 @@ fn inputs_from_url_file(
     let mut file = BufReader::new(File::open(url_file_path)?);
     let mut buf = String::new();
     let mut inputs = [Vec::new(), Vec::new(), Vec::new()];
-    for (helper_id, helper_input) in inputs.iter_mut().enumerate() {
+    for helper_input in inputs.iter_mut() {
         for _ in 0..shard_count {
             buf.clear();
             if file.read_line(&mut buf)? == 0 {
@@ -327,13 +326,15 @@ fn inputs_from_url_file(
             helper_input
                 .push(Uri::try_from(buf.trim()).map_err(|e| format!("Invalid URL {buf:?}: {e}"))?);
         }
-        if helper_input.len() != shard_count {
-            return Err(format!(
-                "Helper {helper_id} does not have enough input. Expected {shard_count}, got {}",
-                helper_input.len()
-            )
-            .into());
-        }
+    }
+
+    // make sure all helpers have the expected number of inputs (one per shard)
+    let all_rows = inputs.iter().map(|v| v.len()).sum::<usize>();
+    if all_rows != 3 * shard_count {
+        return Err(format!(
+            "The number of URLs in {url_file_path:?} '{all_rows}' is less than 3*{shard_count}."
+        )
+        .into());
     }
 
     let [h1, h2, h3] = inputs;

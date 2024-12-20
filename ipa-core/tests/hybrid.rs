@@ -234,7 +234,7 @@ fn test_hybrid_poll() {
         ])
         .silent();
 
-    let _server_handle = command.spawn().unwrap();
+    let _server_handle = command.spawn().unwrap().terminate_on_drop();
 
     // Run Hybrid
     let mut command = Command::new(TEST_RC_BIN);
@@ -348,7 +348,6 @@ fn create_upload_file<const SHARDS: usize>(
 
     // update manifest file
     for (path, mut file) in files {
-        // let path = path.strip_prefix(dest_dir).unwrap().to_str().unwrap();
         file.flush()?;
         let path = path.file_name().and_then(|p| p.to_str()).unwrap();
         writeln!(metadata_file, "http://localhost:{port}/{path}")?;
