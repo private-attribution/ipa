@@ -26,7 +26,7 @@ pub async fn stream_query_input_from_url(uri: &Uri) -> Result<BodyStream, Error>
         HttpsConnectorBuilder::default()
             .with_native_roots()
             .expect("System truststore is required")
-            .https_only()
+            .https_or_http()
             .enable_all_versions()
             .build(),
     );
