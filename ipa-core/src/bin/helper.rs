@@ -30,14 +30,6 @@ use ipa_core::{
 use tokio::runtime::Runtime;
 use tracing::{error, info};
 
-#[cfg(jemalloc)]
-#[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
-
 #[derive(Debug, Parser)]
 #[clap(
     name = "helper",
@@ -369,6 +361,13 @@ fn new_query_runtime(logging_handle: &LoggingHandle) -> Runtime {
 /// runtimes to use in MPC queries and HTTP.
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    #[cfg(jemalloc)]
+    ipa_core::use_jemalloc!();
+
+    #[cfg(feature = "dhat-heap")]
+    #[global_allocator]
+    static ALLOC: dhat::Alloc = dhat::Alloc;
+
     let args = Args::parse();
     let handle = args.logging.setup_logging();
 
