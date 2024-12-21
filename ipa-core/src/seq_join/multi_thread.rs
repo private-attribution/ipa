@@ -9,6 +9,8 @@ use futures::{stream::Fuse, Stream, StreamExt};
 use pin_project::pin_project;
 use tracing::{Instrument, Span};
 
+use crate::telemetry::memory::periodic_memory_report;
+
 #[cfg(feature = "shuttle")]
 mod shuttle_spawner {
     use std::future::Future;
@@ -62,6 +64,7 @@ where
     #[pin]
     source: Fuse<S>,
     capacity: usize,
+    spawned: usize,
 }
 
 impl<S, F> SequentialFutures<'_, S, F>
@@ -75,6 +78,7 @@ where
             spawner: unsafe { create_spawner() },
             source: source.fuse(),
             capacity: active.get(),
+            spawned: 0,
         }
     }
 }
@@ -103,11 +107,14 @@ where
                 // a dependency between futures, pending one will never complete.
                 // Cancellable futures will be cancelled when spawner is dropped which is
                 // the behavior we want.
-                let task_index = this.spawner.len();
+                let task_index = *this.spawned;
                 this.spawner
                     .spawn_cancellable(f.into_future().instrument(Span::current()), move || {
                         panic!("SequentialFutures: spawned task {task_index} cancelled")
                     });
+
+                periodic_memory_report(*this.spawned);
+                *this.spawned += 1;
             } else {
                 break;
             }
@@ -127,6 +134,7 @@ where
                 None => None,
             })
         } else if this.source.is_done() {
+            periodic_memory_report(*this.spawned);
             Poll::Ready(None)
         } else {
             Poll::Pending
