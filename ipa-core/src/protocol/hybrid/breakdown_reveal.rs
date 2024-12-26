@@ -14,11 +14,9 @@ use crate::{
             dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
             ShardedContext, UpgradableContext,
         },
+        hybrid::step::AggregationStep as Step,
         ipa_prf::{
-            aggregation::{
-                aggregate_values, aggregate_values_proof_chunk, step::AggregationStep as Step,
-                AGGREGATE_DEPTH,
-            },
+            aggregation::{aggregate_values, aggregate_values_proof_chunk, AGGREGATE_DEPTH},
             oprf_padding::{apply_dp_padding, PaddingParameters},
             shuffle::ShardedShuffle,
         },

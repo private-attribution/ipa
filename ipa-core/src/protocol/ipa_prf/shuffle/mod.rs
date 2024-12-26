@@ -9,7 +9,7 @@ use crate::{
         context::{Context, MaliciousContext, SemiHonestContext},
         ipa_prf::shuffle::sharded::ShuffleContext,
     },
-    sharding::{Sharded},
+    sharding::Sharded,
 };
 
 mod base;
@@ -21,6 +21,7 @@ use base::shuffle_protocol as base_shuffle;
 use malicious::{malicious_sharded_shuffle, malicious_shuffle};
 use sharded::shuffle as sharded_shuffle;
 pub use sharded::{MaliciousShuffleable, Shuffleable};
+
 use crate::sharding::NotSharded;
 
 /// This struct stores some intermediate messages during the shuffle.
