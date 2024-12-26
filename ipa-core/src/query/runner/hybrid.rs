@@ -35,7 +35,7 @@ use crate::{
             oprf::{CONV_CHUNK, PRF_CHUNK},
             step::HybridStep,
         },
-        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::Shuffle},
+        ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::ShardedShuffle},
         prss::{Endpoint, FromPrss},
         step::ProtocolStep::Hybrid,
         Gate,
@@ -73,7 +73,7 @@ impl<C, HV, R: PrivateKeyRegistry> Query<C, HV, R> {
 impl<C, HV, R> Query<C, HV, R>
 where
     C: UpgradableContext
-        + Shuffle
+        + ShardedShuffle
         + ShardedContext
         + FinalizerContext<FinalizingContext = DZKPUpgraded<C>>,
     HV: BooleanArray + U128Conversions,

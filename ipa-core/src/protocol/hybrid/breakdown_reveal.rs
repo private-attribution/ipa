@@ -20,7 +20,7 @@ use crate::{
                 AGGREGATE_DEPTH,
             },
             oprf_padding::{apply_dp_padding, PaddingParameters},
-            shuffle::Shuffle,
+            shuffle::ShardedShuffle,
         },
         BooleanProtocols, RecordId,
     },
@@ -66,7 +66,7 @@ pub async fn breakdown_reveal_aggregation<C, BK, V, HV, const B: usize>(
     padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradableContext + Shuffle + ShardedContext,
+    C: UpgradableContext + ShardedShuffle + ShardedContext,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     BK: BooleanArray + U128Conversions,
@@ -94,7 +94,7 @@ where
 
     let attributions = ctx
         .narrow(&Step::Shuffle)
-        .shuffle(attributed_values_padded)
+        .sharded_shuffle(attributed_values_padded)
         .instrument(info_span!("shuffle_attribution_outputs"))
         .await?;
 
