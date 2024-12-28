@@ -29,6 +29,9 @@ pub(crate) enum VerifyShuffleStep {
 
 #[derive(CompactStep)]
 pub(crate) enum ShardedShuffleStep {
+    SetupKeys,
+    #[step(child = crate::protocol::boolean::step::EightBitStep)]
+    GenerateTags,
     /// Depending on the helper position inside the MPC ring, generate Ã, B̃ or both.
     PseudoRandomTable,
     /// Permute the input according to the PRSS shared between H1 and H2.
@@ -46,6 +49,8 @@ pub(crate) enum ShardedShuffleStep {
     TransferXY,
     /// H2 and H3 interaction - Exchange `C_1` and `C_2`.
     TransferC,
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::VerifyShuffleStep)]
+    VerifyShuffle,
 }
 
 #[derive(CompactStep)]

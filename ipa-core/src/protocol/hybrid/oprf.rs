@@ -181,9 +181,11 @@ where
 
     // reshard reports based on OPRF values. This ensures at the end of this function
     // reports with the same value end up on the same shard.
-    reshard_try_stream(ctx, report_stream, |ctx, _, report| {
-        report.match_key % ctx.shard_count()
-    })
+    reshard_try_stream(
+        ctx.narrow(&HybridStep::ReshardByPrf),
+        report_stream,
+        |ctx, _, report| report.match_key % ctx.shard_count(),
+    )
     .await
 }
 

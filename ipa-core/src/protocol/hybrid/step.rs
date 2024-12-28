@@ -5,7 +5,7 @@ pub(crate) enum HybridStep {
     ReshardByTag,
     #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="report_padding_dp")]
     PaddingDp,
-    #[step(child = crate::protocol::ipa_prf::shuffle::step::OPRFShuffleStep)]
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::ShardedShuffleStep)]
     InputShuffle,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::Fp25519ConversionStep)]
     ConvertFp25519,
@@ -19,7 +19,7 @@ pub(crate) enum HybridStep {
     GroupBySum,
     #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     GroupBySumValidate,
-    #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
+    #[step(child = AggregationStep)]
     Aggregate,
     #[step(child = FinalizeSteps)]
     Finalize,
@@ -39,4 +39,19 @@ pub(crate) enum FinalizeSteps {
     Add,
     #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     Validate,
+}
+
+#[derive(CompactStep)]
+pub(crate) enum AggregationStep {
+    #[step(child = crate::protocol::ipa_prf::oprf_padding::step::PaddingDpStep, name="padding_dp")]
+    PaddingDp,
+    #[step(child = crate::protocol::ipa_prf::shuffle::step::ShardedShuffleStep)]
+    Shuffle,
+    Reveal,
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    RevealValidate, // only partly used -- see code
+    #[step(count = 4, child = crate::protocol::ipa_prf::aggregation::step::AggregateChunkStep, name = "chunks")]
+    Aggregate(usize),
+    #[step(count = 4, child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    AggregateValidate(usize),
 }
