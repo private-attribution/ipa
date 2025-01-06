@@ -156,6 +156,7 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
 impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
     type Identity = I;
     type RecordsStream = ReceiveRecords<I, InMemoryStream>;
+    type SendResponse = InMemoryStream;
     type Error = Error<I>;
 
     fn identity(&self) -> I {
@@ -172,7 +173,7 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
             .into_iter()
     }
 
-    async fn send<
+    async fn send_and_receive<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
         S: StepBinding,
@@ -182,7 +183,7 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         dest: I,
         route: R,
         data: D,
-    ) -> Result<(), Error<I>>
+    ) -> Result<Option<Self::SendResponse>, Error<I>>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -225,7 +226,7 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
                 inner: e.into(),
             })?;
 
-        Ok(())
+        Ok(None)
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(

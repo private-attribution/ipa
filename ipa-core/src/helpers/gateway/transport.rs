@@ -34,6 +34,7 @@ pub(super) struct Transports<M: Transport<Identity = Role>, S: Transport<Identit
 impl Transport for RoleResolvingTransport {
     type Identity = Role;
     type RecordsStream = <MpcTransportImpl as Transport>::RecordsStream;
+    type SendResponse = <MpcTransportImpl as Transport>::SendResponse;
     type Error = SendToRoleError;
 
     fn identity(&self) -> Role {
@@ -50,7 +51,7 @@ impl Transport for RoleResolvingTransport {
         self.inner.peer_count()
     }
 
-    async fn send<
+    async fn send_and_receive<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
         S: StepBinding,
@@ -60,7 +61,7 @@ impl Transport for RoleResolvingTransport {
         dest: Role,
         route: R,
         data: D,
-    ) -> Result<(), Self::Error>
+    ) -> Result<Option<Self::SendResponse>, Self::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -72,7 +73,7 @@ impl Transport for RoleResolvingTransport {
             "can't send message to itself"
         );
         self.inner
-            .send(dest_helper, route, data)
+            .send_and_receive(dest_helper, route, data)
             .await
             .map_err(|e| SendToRoleError(dest, e))
     }

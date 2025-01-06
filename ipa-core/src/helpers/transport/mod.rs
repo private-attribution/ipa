@@ -326,6 +326,7 @@ impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> 
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
     type RecordsStream: BytesStream;
+    type SendResponse: BytesStream;
     type Error: Debug + Send;
 
     /// Return my identity in the network (MPC or Sharded)
@@ -356,6 +357,27 @@ pub trait Transport: Clone + Send + Sync + 'static {
         Q: QueryIdBinding,
         S: StepBinding,
         R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static 
+    {
+        self.send_and_receive(dest, route, data).await?;
+        Ok(()) // Todo, error if data found
+    }
+    
+    /// Sends a new request to the given destination helper party.
+    /// Depending on the specific request, it may or may not require acknowledgment by the remote
+    /// party
+    async fn send_and_receive<D, Q, S, R>(
+        &self,
+        dest: Self::Identity,
+        route: R,
+        data: D,
+    ) -> Result<Option<Self::SendResponse>, Self::Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
         D: Stream<Item = Vec<u8>> + Send + 'static;
 
     /// Return the stream of records to be received from another helper for the specific query
@@ -371,7 +393,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
     async fn broadcast<Q, S, R>(
         &self,
         route: R,
-    ) -> Result<(), BroadcastError<Self::Identity, Self::Error>>
+    ) -> Result<Vec<(Self::Identity, Option<Self::SendResponse>)>, BroadcastError<Self::Identity, Self::Error>>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -382,20 +404,22 @@ pub trait Transport: Clone + Send + Sync + 'static {
         let mut futs = FuturesUnordered::new();
         for peer_identity in self.peers() {
             futs.push(
-                Self::send(self, peer_identity, route.clone(), futures::stream::empty())
+                Self::send_and_receive(self, peer_identity, route.clone(), futures::stream::empty())
                     .map(move |v| (peer_identity, v)),
             );
         }
 
         let mut errs = Vec::new();
+        let mut responses = Vec::new();
         while let Some(r) = futs.next().await {
-            if let Err(e) = r.1 {
-                errs.push((r.0, e));
+            match r.1 {
+                Err(e) => errs.push((r.0, e)),
+                Ok(re) => responses.push((r.0, re)),
             }
         }
 
         if errs.is_empty() {
-            Ok(())
+            Ok(responses)
         } else {
             Err(errs.into())
         }
