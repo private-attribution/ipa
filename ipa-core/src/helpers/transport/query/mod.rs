@@ -239,7 +239,7 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/*#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct CompareStatusRequest {
     pub query_id: QueryId,
@@ -264,7 +264,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for CompareStatusRequest {
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
     }
-}
+}*/
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]

@@ -6,12 +6,12 @@ use std::{
 use futures::{future::try_join, stream};
 use serde::Serialize;
 
-use super::min_status;
+use super::{min_status, state::read_query_status};
 use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig},
+        query::{PrepareQuery, QueryConfig},
         routing::RouteId,
         BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl,
         Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
@@ -118,11 +118,12 @@ pub enum QueryStatusError {
     NotLeader(ShardIndex),
     #[error("This is the leader shard")]
     Leader,
-    #[error("My status {my_status:?} for query {query_id:?} differs from {other_status:?}")]
-    DifferentStatus {
-        query_id: QueryId,
-        my_status: QueryStatus,
-        other_status: QueryStatus,
+    #[error("No response from shard {0:?}")]
+    NoResponse(ShardIndex),
+    #[error(transparent)]
+    UnexpectedResponse {
+        #[from]
+        source: crate::error::BoxError,
     },
 }
 
@@ -354,48 +355,6 @@ impl Processor {
         Some(status)
     }
 
-    /// This helper function is used to transform a [`BoxError`] into a
-    /// [`QueryStatusError::DifferentStatus`] and retrieve it's internal state. Returns [`None`]
-    /// if not possible.
-    #[cfg(feature = "in-memory-infra")]
-    fn downcast_state_error(box_error: &crate::error::BoxError) -> Option<QueryStatus> {
-        use crate::helpers::ApiError;
-        let api_error = box_error.downcast_ref::<ApiError>();
-        if let Some(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
-            my_status, ..
-        })) = api_error
-        {
-            return Some(*my_status);
-        }
-        None
-    }
-
-    /// This helper is used by the in-memory stack to obtain the state of other shards via a
-    /// [`QueryStatusError::DifferentStatus`] error.
-    /// TODO: Ideally broadcast should return a value, that we could use to parse the state instead
-    /// of relying on errors.
-    #[cfg(feature = "in-memory-infra")]
-    fn get_state_from_error(
-        error: &crate::helpers::InMemoryTransportError<ShardIndex>,
-    ) -> Option<QueryStatus> {
-        if let crate::helpers::InMemoryTransportError::Rejected { inner, .. } = error {
-            return Self::downcast_state_error(inner);
-        }
-        None
-    }
-
-    /// This helper is used by the HTTP stack to obtain the state of other shards via a
-    /// [`QueryStatusError::DifferentStatus`] error.
-    /// TODO: Ideally broadcast should return a value, that we could use to parse the state instead
-    /// of relying on errors.
-    #[cfg(feature = "real-world-infra")]
-    fn get_state_from_error(shard_error: &crate::net::ShardError) -> Option<QueryStatus> {
-        if let crate::net::Error::ShardQueryStatusMismatch { error, .. } = &shard_error.source {
-            return Some(error.actual);
-        }
-        None
-    }
-
     /// Returns the query status in this helper, by querying all shards.
     ///
     /// ## Errors
@@ -412,29 +371,24 @@ impl Processor {
         if shard_index != ShardIndex::FIRST {
             return Err(QueryStatusError::NotLeader(shard_index));
         }
-
         let mut status = self
             .get_status(query_id)
             .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
 
-        let shard_query_status_req = CompareStatusRequest { query_id, status };
-
-        let shard_responses = shard_transport.broadcast(shard_query_status_req).await;
-        if let Err(e) = shard_responses {
-            for (shard, failure) in &e.failures {
-                if let Some(other) = Self::get_state_from_error(failure) {
-                    status = min_status(status, other);
-                } else {
-                    tracing::error!("failed to get status from shard {shard}: {failure:?}");
-                    return Err(e.into());
-                }
+        let shard_responses = shard_transport.broadcast((RouteId::QueryStatus, query_id)).await?;
+        for (i, o) in shard_responses {
+            if o.is_none() {
+                return Err(QueryStatusError::NoResponse(i));
             }
+            let other: QueryStatus = read_query_status(o.unwrap())
+                .await.unwrap(); //TODO handle error
+            status = min_status(status, other);
         }
 
         Ok(status)
     }
 
-    /// Compares this shard status against the given type. Returns an error if different.
+    /// Returns the status of this shard for a query.
     ///
     /// ## Errors
     /// If query is not registered on this helper or
@@ -444,22 +398,16 @@ impl Processor {
     pub fn shard_status(
         &self,
         shard_transport: &ShardTransportImpl,
-        req: &CompareStatusRequest,
+        query_id: QueryId,
     ) -> Result<QueryStatus, QueryStatusError> {
         let shard_index = shard_transport.identity();
         if shard_index == ShardIndex::FIRST {
             return Err(QueryStatusError::Leader);
         }
         let status = self
-            .get_status(req.query_id)
-            .ok_or(QueryStatusError::NoSuchQuery(req.query_id))?;
-        if req.status != status {
-            return Err(QueryStatusError::DifferentStatus {
-                query_id: req.query_id,
-                my_status: status,
-                other_status: req.status,
-            });
-        }
+            .get_status(query_id)
+            .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
+
         Ok(status)
     }
 
@@ -1127,7 +1075,7 @@ mod tests {
     mod query_status {
 
         use super::*;
-        use crate::{helpers::query::CompareStatusRequest, protocol::QueryId};
+        use crate::{protocol::QueryId};
 
         /// * From the standpoint of leader shard in Helper 1
         /// * On query_status
@@ -1142,21 +1090,9 @@ mod tests {
                 const THIRD_SHARD: ShardIndex = ShardIndex::from_u32(2);
                 create_handler(move |_| async move {
                     match si {
-                        FOURTH_SHARD => {
-                            Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
-                                query_id: QueryId,
-                                my_status: QueryStatus::Completed,
-                                other_status: QueryStatus::Preparing,
-                            }))
-                        }
-                        THIRD_SHARD => {
-                            Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
-                                query_id: QueryId,
-                                my_status: QueryStatus::Running,
-                                other_status: QueryStatus::Preparing,
-                            }))
-                        }
-                        _ => Ok(HelperResponse::ok()),
+                        FOURTH_SHARD => Ok(HelperResponse::from(QueryStatus::Completed)),
+                        THIRD_SHARD => Ok(HelperResponse::from(QueryStatus::Running)),
+                        _ =>Ok(HelperResponse::from(QueryStatus::AwaitingInputs)),
                     }
                 })
             }
@@ -1206,13 +1142,9 @@ mod tests {
                             QueryId,
                         )))
                     } else if si == ShardIndex::from(2) {
-                        Err(ApiError::QueryStatus(QueryStatusError::DifferentStatus {
-                            query_id: QueryId,
-                            my_status: QueryStatus::Running,
-                            other_status: QueryStatus::Preparing,
-                        }))
+                        Ok(HelperResponse::from(QueryStatus::Running))
                     } else {
-                        Ok(HelperResponse::ok())
+                        Ok(HelperResponse::from(QueryStatus::AwaitingInputs))
                     }
                 })
             }
@@ -1266,17 +1198,13 @@ mod tests {
         /// call. Only non-leaders (1,2,3...) should handle those calls.
         #[tokio::test]
         async fn shard_not_leader() {
-            let req = CompareStatusRequest {
-                query_id: QueryId,
-                status: QueryStatus::Running,
-            };
             let t = TestComponents::new(TestComponentsArgs::default());
             assert!(matches!(
                 t.processor
                     .shard_status(
                         &t.shard_network
                             .transport(HelperIdentity::TWO, ShardIndex::FIRST),
-                        &req
+                            QueryId
                     )
                     .unwrap_err(),
                 QueryStatusError::Leader

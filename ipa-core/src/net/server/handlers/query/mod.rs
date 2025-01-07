@@ -4,7 +4,6 @@ mod kill;
 mod prepare;
 mod results;
 mod status;
-mod status_match;
 mod step;
 
 use std::marker::PhantomData;
@@ -62,7 +61,6 @@ pub fn s2s_router(transport: Arc<HttpTransport<Shard>>) -> Router {
         .merge(step::router(Arc::clone(&transport)))
         .merge(prepare::router(Arc::clone(&transport)))
         .merge(results::router(Arc::clone(&transport)))
-        .merge(status_match::router(transport))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
 }
 

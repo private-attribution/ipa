@@ -114,8 +114,9 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
                 Ok(None)
             }
             RouteId::QueryStatus => {
-                let req = serde_json::from_str(route.extra().borrow())?;
-                self.clients[client_ix].status_match(req).await?;
+                let query_id = <Option<QueryId>>::from(route.query_id())
+                    .expect("query_id is required to call complete query API");
+                self.clients[client_ix].query_status(query_id).await?;
                 Ok(None)
             }
             evt @ (RouteId::QueryInput
