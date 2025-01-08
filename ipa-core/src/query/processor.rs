@@ -6,15 +6,12 @@ use std::{
 use futures::{future::try_join, stream};
 use serde::Serialize;
 
-use super::{min_status, state::read_query_status};
+use super::min_status;
 use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{PrepareQuery, QueryConfig},
-        routing::RouteId,
-        BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl,
-        Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
+        query::{PrepareQuery, QueryConfig}, routing::RouteId, BodyStream, BroadcastError, Gateway, GatewayConfig, HelperResponse, MpcTransportError, MpcTransportImpl, Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -380,8 +377,8 @@ impl Processor {
             if o.is_none() {
                 return Err(QueryStatusError::NoResponse(i));
             }
-            let other: QueryStatus = read_query_status(o.unwrap())
-                .await.unwrap(); //TODO handle error
+            let r = HelperResponse::from_bytesstream(o.unwrap()).await?;
+            let other = QueryStatus::from(r);
             status = min_status(status, other);
         }
 
@@ -541,7 +538,7 @@ mod tests {
     }
 
     fn shard_respond_ok(_si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-        create_handler(|_| async { Ok(HelperResponse::ok()) })
+        create_handler(|_| async { Ok(HelperResponse::from(QueryStatus::Completed)) })
     }
 
     fn test_multiply_config() -> QueryConfig {
@@ -647,7 +644,7 @@ mod tests {
             let processor = Processor::default();
             let query_config = test_multiply_config();
             let [t0, t1, t2] = mpc_network.transports();
-            let shard_transport = shard_network.transport(HelperIdentity::ONE, ShardIndex::FIRST);
+            let shard_transport = shard_network.transport(HelperIdentity::ONE, ShardIndex::LEADER);
             TestComponents {
                 processor,
                 query_config,
@@ -1086,13 +1083,11 @@ mod tests {
         #[tokio::test]
         async fn combined_status_response() {
             fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
-                const FOURTH_SHARD: ShardIndex = ShardIndex::from_u32(3);
-                const THIRD_SHARD: ShardIndex = ShardIndex::from_u32(2);
                 create_handler(move |_| async move {
                     match si {
-                        FOURTH_SHARD => Ok(HelperResponse::from(QueryStatus::Completed)),
-                        THIRD_SHARD => Ok(HelperResponse::from(QueryStatus::Running)),
-                        _ =>Ok(HelperResponse::from(QueryStatus::AwaitingInputs)),
+                        ShardIndex::FOURTH => Ok(HelperResponse::from(QueryStatus::Completed)),
+                        ShardIndex::THIRD => Ok(HelperResponse::from(QueryStatus::Running)),
+                        _ => Ok(HelperResponse::from(QueryStatus::AwaitingInputs)),
                     }
                 })
             }
@@ -1109,7 +1104,7 @@ mod tests {
             t.processor
                 .prepare_shard(
                     &t.shard_network
-                        .transport(HelperIdentity::ONE, ShardIndex::from(1)),
+                        .transport(HelperIdentity::ONE, ShardIndex::SECOND),
                     req,
                 )
                 .unwrap();

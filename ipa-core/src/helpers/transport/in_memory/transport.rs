@@ -12,7 +12,7 @@ use ::tokio::sync::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::{stream, Stream, StreamExt};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_stream::wrappers::ReceiverStream;
@@ -100,6 +100,7 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
             {
                 let streams = self.record_streams.clone();
                 async move {
+                    // A tuple with these 3 things is sent from send
                     while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 
@@ -215,18 +216,20 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
             })?;
 
-        ack_rx
+        let res = ack_rx
             .await
             .map_err(|_recv_error| Error::Rejected {
                 dest,
                 inner: "channel closed".into(),
-            })?
-            .map_err(|e| Error::Rejected {
-                dest,
-                inner: e.into(),
-            })?;
-
-        Ok(None)
+            })?.map_err(|e| Error::Rejected {
+            dest,
+            inner: e.into(),
+        })?;
+        let body_bytes = res.into_body();
+        if body_bytes.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(InMemoryStream::wrap_bytes(body_bytes)))
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
@@ -248,6 +251,10 @@ pub struct InMemoryStream {
 }
 
 impl InMemoryStream {
+    fn wrap_bytes(bytes: Vec<u8>) -> Self {
+        InMemoryStream::wrap(stream::once(async { Ok(Bytes::from(bytes))}))
+    }
+
     fn wrap<S: Stream<Item = StreamItem> + Send + 'static>(value: S) -> Self {
         Self {
             inner: Box::pin(value),

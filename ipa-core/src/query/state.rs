@@ -10,7 +10,7 @@ use futures::{ready, FutureExt, TryFutureExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::BoxError, executor::IpaJoinHandle, helpers::{query::QueryConfig, BytesStream, RoleAssignment}, protocol::QueryId, query::runner::QueryResult, sync::Mutex
+    error::BoxError, executor::IpaJoinHandle, helpers::{query::QueryConfig, BytesStream, HelperResponse, RoleAssignment}, protocol::QueryId, query::runner::QueryResult, sync::Mutex
 };
 
 /// The status of query processing
@@ -48,12 +48,6 @@ impl From<&QueryState> for QueryStatus {
             QueryState::Completed(_) => QueryStatus::Completed,
         }
     }
-}
-
-pub async fn read_query_status<B: BytesStream>(value: B) -> Result<QueryStatus, BoxError> {
-    let bytes: bytes::BytesMut = value.try_collect().await?;
-    let qs : QueryStatus = serde_json::from_slice(bytes.as_ref())?;
-    Ok(qs)
 }
 
 /// This function is used, among others, by the [`Processor`] to return a unified response when

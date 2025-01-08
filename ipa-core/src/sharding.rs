@@ -46,7 +46,13 @@ impl ShardedHelperIdentity {
 pub struct ShardIndex(u32);
 
 impl ShardIndex {
-    pub const FIRST: Self = Self(0);
+    /// Shard with index 0, the first, is special as its the main entry point and coordinator
+    /// for all shards in a helper.
+    pub const LEADER: Self = Self(0);
+    pub const FIRST: Self = ShardIndex::LEADER;
+    pub const SECOND: Self = Self(1);
+    pub const THIRD: Self = Self(2);
+    pub const FOURTH: Self = Self(3);
 
     /// Returns an iterator over all shard indices that precede this one, excluding this one.
     pub fn iter(self) -> impl Iterator<Item = Self> {
