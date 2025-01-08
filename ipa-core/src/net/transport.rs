@@ -116,8 +116,8 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
             RouteId::QueryStatus => {
                 let query_id = <Option<QueryId>>::from(route.query_id())
                     .expect("query_id is required to call complete query API");
-                self.clients[client_ix].query_status(query_id).await?;
-                Ok(None)
+                let response = self.clients[client_ix].query_status_bytes(query_id).await?;
+                Ok(Some(response))
             }
             evt @ (RouteId::QueryInput
             | RouteId::ReceiveQuery
@@ -421,21 +421,16 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::{boolean_array::BA64, FieldType, Fp31, Serializable},
-        helpers::{
+        ff::{boolean_array::BA64, FieldType, Fp31, Serializable}, helpers::{
             make_owned_handler,
             query::{
                 QueryInput,
                 QueryType::{TestMultiply, TestShardedShuffle},
             },
-        },
-        net::{
+        }, net::{
             client::ClientIdentity,
             test::{TestConfig, TestConfigBuilder, TestServer},
-        },
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-        test_fixture::Reconstruct,
-        HelperApp,
+        }, query::QueryStatus, secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares}, test_fixture::Reconstruct, HelperApp
     };
 
     static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
@@ -642,6 +637,8 @@ mod tests {
                 .collect::<Vec<_>>()
         });
 
+        assert_eq!(leader_client.query_status(QueryId).await.unwrap(), QueryStatus::AwaitingInputs);
+
         let _ =
             try_join_all(helper_shares.into_iter().enumerate().map(
                 |(helper, shard_streams)| async move {
@@ -658,6 +655,8 @@ mod tests {
             ))
             .await
             .unwrap();
+
+            assert_eq!(leader_client.query_status(QueryId).await.unwrap(), QueryStatus::Running);
 
         let result: [_; 3] = join_all(leader_ring_clients.each_ref().map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();

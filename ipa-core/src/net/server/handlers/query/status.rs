@@ -6,25 +6,27 @@ use crate::{
     net::{
         http_serde::query::status::{self, Request},
         server::Error,
-        transport::MpcHttpTransport,
+        ConnectionFlavor, HttpTransport,
+        server::ClientIdentity,
     },
     protocol::QueryId,
+    sync::Arc,
 };
 
-async fn handler(
-    transport: Extension<MpcHttpTransport>,
+async fn handler<F: ConnectionFlavor>(
+    transport: Extension<Arc<HttpTransport<F>>>,
     Path(query_id): Path<QueryId>,
 ) -> Result<Json<status::ResponseBody>, Error> {
     let req = Request { query_id };
-    match transport.dispatch(req, BodyStream::empty()).await {
+    match Arc::clone(&transport).dispatch(req, BodyStream::empty()).await {
         Ok(state) => Ok(Json(status::ResponseBody::from(state))),
         Err(e) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
 
-pub fn router(transport: MpcHttpTransport) -> Router {
+pub fn router<F: ConnectionFlavor>(transport: Arc<HttpTransport<F>>) -> Router {
     Router::new()
-        .route(status::AXUM_PATH, get(handler))
+        .route(status::AXUM_PATH, get(handler::<F>))
         .layer(Extension(transport))
 }
 

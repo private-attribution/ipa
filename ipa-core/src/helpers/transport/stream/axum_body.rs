@@ -16,7 +16,7 @@ use crate::{error::BoxError, helpers::BytesStream};
 pub struct WrappedAxumBodyStream(#[pin] BodyDataStream);
 
 impl WrappedAxumBodyStream {
-    pub(super) fn new(b: Body) -> Self {
+    pub fn new(b: Body) -> Self {
         Self(b.into_data_stream())
     }
 

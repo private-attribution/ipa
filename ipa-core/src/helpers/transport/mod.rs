@@ -310,7 +310,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("One or more peers rejected the request: {failures:?}")]
+#[error("One or more peer shards rejected the breadcast: {failures:?}")]
 pub struct BroadcastError<I: TransportIdentity, E: Debug> {
     pub failures: Vec<(I, E)>,
 }

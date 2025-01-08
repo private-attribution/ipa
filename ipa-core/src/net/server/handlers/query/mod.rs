@@ -36,9 +36,9 @@ pub fn query_router(transport: MpcHttpTransport) -> Router {
     Router::new()
         .merge(create::router(transport.clone()))
         .merge(input::router(transport.clone()))
-        .merge(status::router(transport.clone()))
         .merge(kill::router(transport.clone()))
-        .merge(results::router(transport.inner_transport))
+        .merge(results::router(Arc::clone(&transport.inner_transport)))
+        .merge(status::router(transport.inner_transport))
 }
 
 /// Construct router for helper-to-helper communications
@@ -60,6 +60,7 @@ pub fn s2s_router(transport: Arc<HttpTransport<Shard>>) -> Router {
     Router::new()
         .merge(step::router(Arc::clone(&transport)))
         .merge(prepare::router(Arc::clone(&transport)))
+        .merge(status::router(Arc::clone(&transport)))
         .merge(results::router(Arc::clone(&transport)))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
 }
