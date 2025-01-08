@@ -10,6 +10,8 @@ use std::{
 use futures::{stream::Fuse, Future, Stream, StreamExt};
 use pin_project::pin_project;
 
+use crate::telemetry::memory::periodic_memory_report;
+
 enum ActiveItem<F: IntoFuture> {
     Pending(Pin<Box<F::IntoFuture>>),
     Resolved(F::Output),
@@ -56,6 +58,7 @@ where
     #[pin]
     source: Fuse<S>,
     active: VecDeque<ActiveItem<F>>,
+    spawned: usize,
     _marker: PhantomData<fn(&'unused ()) -> &'unused ()>,
 }
 
@@ -68,6 +71,7 @@ where
         Self {
             source: source.fuse(),
             active: VecDeque::with_capacity(active.get()),
+            spawned: 0,
             _marker: PhantomData,
         }
     }
@@ -88,6 +92,8 @@ where
             if let Poll::Ready(Some(f)) = this.source.as_mut().poll_next(cx) {
                 this.active
                     .push_back(ActiveItem::Pending(Box::pin(f.into_future())));
+                periodic_memory_report(*this.spawned);
+                *this.spawned += 1;
             } else {
                 break;
             }
@@ -104,6 +110,7 @@ where
                 Poll::Pending
             }
         } else if this.source.is_done() {
+            periodic_memory_report(*this.spawned);
             Poll::Ready(None)
         } else {
             Poll::Pending

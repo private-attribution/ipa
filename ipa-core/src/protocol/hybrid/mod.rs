@@ -33,7 +33,7 @@ use crate::{
         ipa_prf::{
             oprf_padding::{apply_dp_padding, PaddingParameters},
             prf_eval::PrfSharing,
-            shuffle::Shuffle,
+            shuffle::ShardedShuffle,
         },
         prss::FromPrss,
         BooleanProtocols,
@@ -79,7 +79,7 @@ pub async fn hybrid_protocol<'ctx, C, BK, V, HV, const SS_BITS: usize, const B: 
 where
     C: UpgradableContext
         + 'ctx
-        + Shuffle
+        + ShardedShuffle
         + ShardedContext
         + FinalizerContext<FinalizingContext = DZKPUpgraded<C>>,
     BK: BreakdownKey<B>,
@@ -121,7 +121,7 @@ where
 
     let shuffled_input_rows = ctx
         .narrow(&Step::InputShuffle)
-        .shuffle(padded_input_rows)
+        .sharded_shuffle(padded_input_rows)
         .instrument(info_span!("shuffle_inputs"))
         .await?;
 

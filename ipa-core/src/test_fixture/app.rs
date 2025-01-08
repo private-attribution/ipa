@@ -6,6 +6,7 @@ use typenum::Unsigned;
 
 use crate::{
     app::AppConfig,
+    cli::{install_collector, LoggingHandle},
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
@@ -68,8 +69,15 @@ impl Default for TestApp {
 
         let mpc_network = InMemoryMpcNetwork::new(handlers.map(Some));
         let shard_network = InMemoryShardNetwork::with_shards(1);
-        let drivers = zip3(mpc_network.transports().each_ref(), setup)
-            .map(|(t, s)| s.connect(Clone::clone(t), shard_network.transport(t.identity(), 0)));
+        let drivers = zip3(mpc_network.transports().each_ref(), setup).map(|(t, s)| {
+            let metrics_handle = install_collector().unwrap();
+            let logging_handle = LoggingHandle { metrics_handle };
+            s.connect(
+                Clone::clone(t),
+                shard_network.transport(t.identity(), 0),
+                logging_handle,
+            )
+        });
 
         Self {
             drivers,
@@ -104,7 +112,7 @@ impl TestApp {
             .into_iter()
             .enumerate()
             .map(|(i, input)| {
-                self.drivers[i].execute_query(QueryInput {
+                self.drivers[i].execute_query(QueryInput::Inline {
                     query_id,
                     input_stream: input.into(),
                 })

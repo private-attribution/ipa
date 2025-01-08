@@ -226,9 +226,14 @@ mod tests {
 
         let output_dir = tempdir().unwrap();
         let network_file = hybrid_sample_data::test_keys().network_config();
-        HybridEncryptArgs::new(input_file.path(), output_dir.path(), network_file.path())
-            .encrypt()
-            .unwrap();
+        HybridEncryptArgs::new(
+            input_file.path(),
+            output_dir.path(),
+            network_file.path(),
+            false,
+        )
+        .encrypt()
+        .unwrap();
 
         let decrypt_output = output_dir.path().join("output");
         let enc1 = output_dir.path().join("DOES_NOT_EXIST.enc");
@@ -258,9 +263,14 @@ mod tests {
 
         let network_file = hybrid_sample_data::test_keys().network_config();
         let output_dir = tempdir().unwrap();
-        HybridEncryptArgs::new(input_file.path(), output_dir.path(), network_file.path())
-            .encrypt()
-            .unwrap();
+        HybridEncryptArgs::new(
+            input_file.path(),
+            output_dir.path(),
+            network_file.path(),
+            false,
+        )
+        .encrypt()
+        .unwrap();
 
         let decrypt_output = output_dir.path().join("output");
         let enc1 = output_dir.path().join("helper1.enc");

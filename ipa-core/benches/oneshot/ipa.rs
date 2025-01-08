@@ -19,18 +19,6 @@ use ipa_step::StepNarrow;
 use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
 
-#[cfg(all(
-    not(target_env = "msvc"),
-    not(feature = "dhat-heap"),
-    not(target_os = "macos")
-))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
-
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
 #[command(about, long_about = None)]
@@ -169,6 +157,13 @@ async fn run(args: Args) -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
+    #[cfg(jemalloc)]
+    ipa_core::use_jemalloc!();
+
+    #[cfg(feature = "dhat-heap")]
+    #[global_allocator]
+    static ALLOC: dhat::Alloc = dhat::Alloc;
+
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 

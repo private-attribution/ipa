@@ -47,10 +47,21 @@ fn main() {
         descriptive_gate: { all(not(feature = "compact-gate"), feature = "descriptive-gate") },
         unit_test: { all(not(feature = "shuttle"), feature = "in-memory-infra", descriptive_gate) },
         web_test: { all(not(feature = "shuttle"), feature = "real-world-infra") },
+        jemalloc: { all(
+            not(feature = "dhat-heap"),
+            any(
+                feature = "jemalloc",
+                all(
+                    not(target_env = "msvc"),
+                    not(target_os = "macos")
+                )
+            )
+        ) },
     }
     println!("cargo::rustc-check-cfg=cfg(descriptive_gate)");
     println!("cargo::rustc-check-cfg=cfg(compact_gate)");
     println!("cargo::rustc-check-cfg=cfg(unit_test)");
     println!("cargo::rustc-check-cfg=cfg(web_test)");
+    println!("cargo::rustc-check-cfg=cfg(jemalloc)");
     println!("cargo::rustc-check-cfg=cfg(coverage)");
 }

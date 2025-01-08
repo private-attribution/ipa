@@ -3,6 +3,7 @@ use std::sync::Weak;
 use async_trait::async_trait;
 
 use crate::{
+    cli::LoggingHandle,
     executor::IpaRuntime,
     helpers::{
         query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
@@ -65,6 +66,7 @@ struct Inner {
     /// the flamegraph
     mpc_transport: MpcTransportImpl,
     shard_transport: ShardTransportImpl,
+    logging_handle: LoggingHandle,
 }
 
 impl Setup {
@@ -96,11 +98,13 @@ impl Setup {
         self,
         mpc_transport: MpcTransportImpl,
         shard_transport: ShardTransportImpl,
+        logging_handle: LoggingHandle,
     ) -> HelperApp {
         let app = Arc::new(Inner {
             query_processor: self.query_processor,
             mpc_transport,
             shard_transport,
+            logging_handle,
         });
         self.mpc_handler
             .set_handler(Arc::downgrade(&app) as Weak<dyn RequestHandler<HelperIdentity>>);
@@ -136,12 +140,24 @@ impl HelperApp {
     ///
     /// ## Errors
     /// Propagates errors from the helper.
+    /// ## Panics
+    /// If `input` asks to obtain query input from a remote URL.
     pub fn execute_query(&self, input: QueryInput) -> Result<(), ApiError> {
         let mpc_transport = self.inner.mpc_transport.clone_ref();
         let shard_transport = self.inner.shard_transport.clone_ref();
-        self.inner
-            .query_processor
-            .receive_inputs(mpc_transport, shard_transport, input)?;
+        let QueryInput::Inline {
+            query_id,
+            input_stream,
+        } = input
+        else {
+            panic!("this client does not support pulling query input from a URL");
+        };
+        self.inner.query_processor.receive_inputs(
+            mpc_transport,
+            shard_transport,
+            query_id,
+            input_stream,
+        )?;
         Ok(())
     }
 
@@ -254,10 +270,8 @@ impl RequestHandler<HelperIdentity> for Inner {
                 HelperResponse::from(qp.receive_inputs(
                     Transport::clone_ref(&self.mpc_transport),
                     Transport::clone_ref(&self.shard_transport),
-                    QueryInput {
-                        query_id,
-                        input_stream: data,
-                    },
+                    query_id,
+                    data,
                 )?)
             }
             RouteId::QueryStatus => {
@@ -276,6 +290,11 @@ impl RequestHandler<HelperIdentity> for Inner {
             RouteId::KillQuery => {
                 let query_id = ext_query_id(&req)?;
                 HelperResponse::from(qp.kill(query_id)?)
+            }
+            RouteId::Metrics => {
+                let logging_handler = &self.logging_handle;
+                let metrics_handle = &logging_handler.metrics_handle;
+                HelperResponse::from(metrics_handle.scrape_metrics())
             }
         })
     }

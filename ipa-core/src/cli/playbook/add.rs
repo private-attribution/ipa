@@ -47,7 +47,7 @@ where
             .into_iter()
             .zip(clients)
             .map(|(input_stream, client)| {
-                client.query_input(QueryInput {
+                client.query_input(QueryInput::Inline {
                     query_id,
                     input_stream,
                 })

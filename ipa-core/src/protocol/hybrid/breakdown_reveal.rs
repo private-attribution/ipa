@@ -14,13 +14,11 @@ use crate::{
             dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
             ShardedContext, UpgradableContext,
         },
+        hybrid::step::AggregationStep as Step,
         ipa_prf::{
-            aggregation::{
-                aggregate_values, aggregate_values_proof_chunk, step::AggregationStep as Step,
-                AGGREGATE_DEPTH,
-            },
+            aggregation::{aggregate_values, aggregate_values_proof_chunk, AGGREGATE_DEPTH},
             oprf_padding::{apply_dp_padding, PaddingParameters},
-            shuffle::Shuffle,
+            shuffle::ShardedShuffle,
         },
         BooleanProtocols, RecordId,
     },
@@ -66,7 +64,7 @@ pub async fn breakdown_reveal_aggregation<C, BK, V, HV, const B: usize>(
     padding_params: &PaddingParameters,
 ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
 where
-    C: UpgradableContext + Shuffle + ShardedContext,
+    C: UpgradableContext + ShardedShuffle + ShardedContext,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<DZKPUpgraded<C>, B>,
     BK: BooleanArray + U128Conversions,
@@ -94,7 +92,7 @@ where
 
     let attributions = ctx
         .narrow(&Step::Shuffle)
-        .shuffle(attributed_values_padded)
+        .sharded_shuffle(attributed_values_padded)
         .instrument(info_span!("shuffle_attribution_outputs"))
         .await?;
 
@@ -628,7 +626,7 @@ mod proptests {
                 } = input_struct;
                 let config = TestWorldConfig {
                     seed,
-                    timeout: Some(Duration::from_secs(20)),
+                    timeout: Some(Duration::from_secs(30)),
                     ..Default::default()
                 };
                 let result = TestWorld::<WithShards<PROP_SHARDS>>::with_config(&config)

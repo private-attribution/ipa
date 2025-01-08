@@ -9,7 +9,7 @@ use crate::{
         context::{Context, MaliciousContext, SemiHonestContext},
         ipa_prf::shuffle::sharded::ShuffleContext,
     },
-    sharding::{ShardBinding, Sharded},
+    sharding::Sharded,
 };
 
 mod base;
@@ -21,6 +21,8 @@ use base::shuffle_protocol as base_shuffle;
 use malicious::{malicious_sharded_shuffle, malicious_shuffle};
 use sharded::shuffle as sharded_shuffle;
 pub use sharded::{MaliciousShuffleable, Shuffleable};
+
+use crate::sharding::NotSharded;
 
 /// This struct stores some intermediate messages during the shuffle.
 /// In a maliciously secure shuffle,
@@ -63,7 +65,7 @@ pub trait Shuffle: Context {
         S: MaliciousShuffleable;
 }
 
-impl<T: ShardBinding> Shuffle for SemiHonestContext<'_, T> {
+impl Shuffle for SemiHonestContext<'_, NotSharded> {
     fn shuffle<S>(self, shares: Vec<S>) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
@@ -73,7 +75,7 @@ impl<T: ShardBinding> Shuffle for SemiHonestContext<'_, T> {
     }
 }
 
-impl<T: ShardBinding> Shuffle for MaliciousContext<'_, T> {
+impl Shuffle for MaliciousContext<'_, NotSharded> {
     fn shuffle<S>(self, shares: Vec<S>) -> impl Future<Output = Result<Vec<S>, Error>> + Send
     where
         S: MaliciousShuffleable,
@@ -84,7 +86,6 @@ impl<T: ShardBinding> Shuffle for MaliciousContext<'_, T> {
 
 /// Trait used by protocols to invoke either semi-honest or malicious sharded shuffle,
 /// depending on the type of context being used.
-#[allow(dead_code)]
 pub trait ShardedShuffle: ShuffleContext {
     fn sharded_shuffle<S>(
         self,

@@ -726,7 +726,7 @@ pub(crate) mod tests {
         };
         test_query_command(
             |client| async move {
-                let data = QueryInput {
+                let data = QueryInput::Inline {
                     query_id: expected_query_id,
                     input_stream: expected_input.to_vec().into(),
                 };

@@ -976,7 +976,11 @@ mod test {
 
         type OutputValue = BA32;
         const NUM_BREAKDOWNS: u32 = 32;
-        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
+        let world = TestWorld::new_with(
+            TestWorldConfig::default()
+                .with_timeout_secs(30)
+                .enable_metrics(),
+        );
 
         let num_bernoulli: u32 = 1_000;
         let result: [Vec<Replicated<OutputValue>>; 3] = world

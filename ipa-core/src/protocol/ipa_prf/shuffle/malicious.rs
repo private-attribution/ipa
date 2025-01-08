@@ -30,7 +30,7 @@ use crate::{
                 h1_shuffle_for_shard, h2_shuffle_for_shard, h3_shuffle_for_shard,
                 MaliciousShuffleable, ShuffleShare, Shuffleable,
             },
-            step::{OPRFShuffleStep, VerifyShuffleStep},
+            step::{OPRFShuffleStep, ShardedShuffleStep, VerifyShuffleStep},
             IntermediateShuffleMessages,
         },
         prss::SharedRandomness,
@@ -179,11 +179,11 @@ where
 
     // prepare keys
     let amount_of_keys: usize = (usize::try_from(S::Share::BITS).unwrap() + 31) / 32;
-    let keys = setup_keys(ctx.narrow(&OPRFShuffleStep::SetupKeys), amount_of_keys).await?;
+    let keys = setup_keys(ctx.narrow(&ShardedShuffleStep::SetupKeys), amount_of_keys).await?;
 
     // compute and append tags to rows
     let shares_and_tags: Vec<Pair<S::ShareAndTag>> =
-        compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares).await?;
+        compute_and_add_tags(ctx.narrow(&ShardedShuffleStep::GenerateTags), &keys, shares).await?;
 
     let (shuffled_shares, messages) = match ctx.role() {
         Role::H1 => h1_shuffle_for_shard(ctx.clone(), shares_and_tags).await,
@@ -193,7 +193,7 @@ where
 
     // verify the shuffle
     verify_shuffle::<_, S>(
-        ctx.narrow(&OPRFShuffleStep::VerifyShuffle),
+        ctx.narrow(&ShardedShuffleStep::VerifyShuffle),
         &keys,
         &shuffled_shares,
         messages,

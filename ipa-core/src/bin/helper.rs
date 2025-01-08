@@ -30,10 +30,6 @@ use ipa_core::{
 use tokio::runtime::Runtime;
 use tracing::{error, info};
 
-#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
 #[derive(Debug, Parser)]
 #[clap(
     name = "helper",
@@ -271,7 +267,7 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
         Some(shard_handler),
     );
 
-    let _app = setup.connect(transport.clone(), shard_transport.clone());
+    let _app = setup.connect(transport.clone(), shard_transport.clone(), logging_handle);
 
     let listener = create_listener(args.server_socket_fd)?;
     let shard_listener = create_listener(args.shard_server_socket_fd)?;
@@ -365,6 +361,13 @@ fn new_query_runtime(logging_handle: &LoggingHandle) -> Runtime {
 /// runtimes to use in MPC queries and HTTP.
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    #[cfg(jemalloc)]
+    ipa_core::use_jemalloc!();
+
+    #[cfg(feature = "dhat-heap")]
+    #[global_allocator]
+    static ALLOC: dhat::Alloc = dhat::Alloc;
+
     let args = Args::parse();
     let handle = args.logging.setup_logging();
 

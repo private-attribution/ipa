@@ -1,3 +1,4 @@
+pub mod memory;
 pub mod stats;
 mod step_stats;
 
