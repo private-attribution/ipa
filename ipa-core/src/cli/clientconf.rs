@@ -189,7 +189,7 @@ fn find_file_with_extension(path: &PathBuf, extension: &str) -> Option<String> {
         if path.is_file()
             && path
                 .extension()
-                .map_or(false, |ext| ext.to_str().unwrap() == extension)
+                .is_some_and(|ext| ext.to_str().unwrap() == extension)
         {
             return Some(path.file_stem().unwrap().to_str().unwrap().to_string());
         }

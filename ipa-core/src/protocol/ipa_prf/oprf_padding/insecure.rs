@@ -385,7 +385,7 @@ mod test {
         const CHI2_INV_LB: f64 = 10_686.0;
 
         let mut rng = StdRng::seed_from_u64(seed);
-        let mut sample = [0_f64; N];
+        let mut sample = vec![0_f64; N];
         let dp = Dp::new(f64::from(epsilon), delta, f64::from(cap)).unwrap();
         #[allow(clippy::cast_precision_loss)]
         let n = N as f64;
@@ -433,7 +433,7 @@ mod test {
         #[allow(clippy::cast_precision_loss)]
         for epsilon in 1..11_u8 {
             let mut rng = thread_rng();
-            let mut sample = [0; N];
+            let mut sample = vec![0; N];
             let dp = DiscreteDp::new(f64::from(epsilon), delta, f64::from(cap)).unwrap();
             let n = N as f64;
             dp.apply(&mut sample, &mut rng);
