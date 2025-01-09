@@ -365,6 +365,7 @@ mod tests {
         helpers::stream::process_slice_by_chunks,
         protocol::{
             context::{dzkp_validator::DZKPValidator, UpgradableContext, TEST_DZKP_STEPS},
+            hybrid::oprf::conv_proof_chunk,
             ipa_prf::{CONV_CHUNK, PRF_CHUNK},
         },
         rand::thread_rng,
@@ -374,7 +375,6 @@ mod tests {
         test_executor::run,
         test_fixture::{ReconstructArr, Runner, TestWorld, TestWorldConfig},
     };
-    use crate::protocol::hybrid::oprf::conv_proof_chunk;
 
     #[test]
     fn test_semi_honest_convert_to_fp25519() {

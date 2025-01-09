@@ -16,17 +16,13 @@ use ipa_core::{
     cli::{
         playbook::{
             make_clients, make_sharded_clients, run_hybrid_query_and_validate,
-            BufferedRoundRobinSubmission, HybridQueryResult, InputSource,
-            StreamingSubmission,
+            BufferedRoundRobinSubmission, HybridQueryResult, InputSource, StreamingSubmission,
         },
         CsvSerializer, Verbosity,
     },
     ff::{boolean_array::BA32, FieldType},
     helpers::{
-        query::{
-            HybridQueryParams, QueryConfig, QueryInput, QuerySize,
-            QueryType,
-        },
+        query::{HybridQueryParams, QueryConfig, QueryInput, QuerySize, QueryType},
         BodyStream,
     },
     net::{Helper, IpaHttpClient},

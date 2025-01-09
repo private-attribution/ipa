@@ -1,4 +1,4 @@
-use std::iter::{zip};
+use std::iter::zip;
 
 use crate::{
     ff::{
@@ -7,11 +7,8 @@ use crate::{
     },
     rand::Rng,
     report::{EventType, OprfReport},
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated},
-        IntoShares,
-    },
-    test_fixture::{ipa::TestRawDataRecord},
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    test_fixture::ipa::TestRawDataRecord,
 };
 
 const DOMAINS: &[&str] = &[

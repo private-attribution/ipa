@@ -12,7 +12,6 @@ pub use malicious_security::{
     CompressedProofGenerator, FirstProofGenerator, LagrangeTable, ProverTableIndices,
     VerifierTableIndices,
 };
-pub use shuffle::Shuffle;
 
 use crate::{
     ff::{

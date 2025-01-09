@@ -1,9 +1,4 @@
-use std::{
-    borrow::Borrow,
-    fmt::Debug,
-    future::{Future},
-    pin::Pin,
-};
+use std::{borrow::Borrow, fmt::Debug, future::Future, pin::Pin};
 
 use ::tokio::{
     runtime::{Handle, RuntimeFlavor},
@@ -25,17 +20,14 @@ use typenum::Unsigned;
 use crate::ff::FieldType;
 use crate::{
     executor::IpaRuntime,
-    ff::{Serializable},
+    ff::Serializable,
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
         BodyStream, Gateway,
     },
     hpke::PrivateKeyRegistry,
-    protocol::{
-        prss::Endpoint as PrssEndpoint,
-        Gate,
-    },
+    protocol::{prss::Endpoint as PrssEndpoint, Gate},
     query::{
         runner::{execute_hybrid_protocol, QueryResult},
         state::RunningQuery,

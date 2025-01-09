@@ -580,17 +580,10 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod tests {
-    use rand::{thread_rng, Rng};
 
     use crate::{
-        ff::{
-            boolean_array::{BA64, BA8},
-            U128Conversions,
-        },
-        protocol::ipa_prf::shuffle::{
-            base::test_helpers::{extract_shuffle_results, ExtractedShuffleResults},
-            sharded::shuffle,
-        },
+        ff::{boolean_array::BA8, U128Conversions},
+        protocol::ipa_prf::shuffle::sharded::shuffle,
         test_executor::run,
         test_fixture::{
             Distribute, RandomInputDistribution, Reconstruct, RoundRobinInputDistribution, Runner,
@@ -665,60 +658,6 @@ mod tests {
             assert!(result.is_empty());
             let result = sharded_shuffle::<3, RandomInputDistribution>(Vec::new()).await;
             assert!(result.is_empty());
-        });
-    }
-
-    #[test]
-    fn check_intermediate_messages() {
-        const SHARDS: usize = 3;
-        const RECORD_AMOUNT: usize = 100;
-        type Distribution = RandomInputDistribution;
-        run(|| async {
-            let mut rng = thread_rng();
-            let mut records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA64>>();
-
-            let sharded_results = TestWorld::<WithShards<SHARDS, Distribution>>::with_shards(
-                TestWorldConfig::default(),
-            )
-            .semi_honest(records.clone().into_iter(), |ctx, input| async move {
-                shuffle(ctx, input).await.unwrap()
-            })
-            .await;
-
-            assert_eq!(sharded_results.len(), SHARDS);
-
-            let results = sharded_results
-                .into_iter()
-                .map(extract_shuffle_results)
-                .fold(ExtractedShuffleResults::empty(), |mut acc, results| {
-                    let ExtractedShuffleResults {
-                        x1_xor_y1,
-                        x2_xor_y2,
-                        a_xor_b_xor_c,
-                    } = results;
-
-                    acc.x1_xor_y1.extend(x1_xor_y1);
-                    acc.x2_xor_y2.extend(x2_xor_y2);
-                    acc.a_xor_b_xor_c.extend(a_xor_b_xor_c);
-
-                    acc
-                });
-
-            let ExtractedShuffleResults {
-                mut x1_xor_y1,
-                mut x2_xor_y2,
-                mut a_xor_b_xor_c,
-            } = results;
-
-            // unshuffle by sorting
-            records.sort_by_key(U128Conversions::as_u128);
-            x1_xor_y1.sort_by_key(U128Conversions::as_u128);
-            x2_xor_y2.sort_by_key(U128Conversions::as_u128);
-            a_xor_b_xor_c.sort_by_key(U128Conversions::as_u128);
-
-            assert_eq!(records, a_xor_b_xor_c);
-            assert_eq!(records, x1_xor_y1);
-            assert_eq!(records, x2_xor_y2);
         });
     }
 }

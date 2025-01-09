@@ -20,6 +20,7 @@ use crate::{
             UpgradableContext,
         },
         dp::step::{ApplyDpNoise, DPStep},
+        hybrid::step::HybridStep,
         ipa_prf::{
             aggregation::{aggregate_values, aggregate_values_proof_chunk},
             boolean_ops::addition_sequential::integer_add,
@@ -33,7 +34,6 @@ use crate::{
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
 };
-use crate::protocol::hybrid::step::HybridStep;
 
 /// For documentation on the Binomial DP noise generation in MPC see
 /// [draft-case-ppm-binomial-dp-latest](https://private-attribution.github.io/i-d/draft-case-ppm-binomial-dp.html)

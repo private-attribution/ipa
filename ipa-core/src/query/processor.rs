@@ -1376,9 +1376,7 @@ mod tests {
         use super::*;
         use crate::{
             error::BoxError,
-            ff::{
-                Fp31, U128Conversions,
-            },
+            ff::{Fp31, U128Conversions},
             secret_sharing::replicated::semi_honest,
             test_fixture::{Reconstruct, TestApp},
         };

@@ -4,12 +4,9 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
 
 use crate::{
-    error::{Error},
+    error::Error,
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::{
-        stream::{FixedLength},
-        TotalRecords,
-    },
+    helpers::{stream::FixedLength, TotalRecords},
     protocol::{
         basics::BooleanProtocols,
         boolean::{step::ThirtyTwoBitStep, NBitStep},
@@ -27,7 +24,6 @@ use crate::{
 };
 
 pub(crate) mod step;
-
 
 /// A vector of histogram contributions for each output bucket.
 ///

@@ -19,18 +19,14 @@ use crate::{
     helpers::{Direction, Role, TotalRecords},
     protocol::{
         context::{prss::InstrumentedSequentialSharedRandomness, Context},
-        ipa_prf::{
-            oprf_padding::{
-                insecure::OPRFPaddingDp,
-                step::{PaddingDpStep, SendTotalRows},
-            },
+        ipa_prf::oprf_padding::{
+            insecure::OPRFPaddingDp,
+            step::{PaddingDpStep, SendTotalRows},
         },
         RecordId,
     },
     report::hybrid::IndistinguishableHybridReport,
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-    },
+    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
 
 /// Parameter struct for padding parameters.
@@ -414,11 +410,9 @@ mod tests {
         helpers::{Direction, Role, TotalRecords},
         protocol::{
             context::Context,
-            ipa_prf::{
-                oprf_padding::{
-                    apply_dp_padding_pass, insecure, insecure::OPRFPaddingDp, AggregationPadding,
-                    OPRFPadding, PaddingParameters,
-                },
+            ipa_prf::oprf_padding::{
+                apply_dp_padding_pass, insecure, insecure::OPRFPaddingDp, AggregationPadding,
+                OPRFPadding, PaddingParameters,
             },
             RecordId,
         },

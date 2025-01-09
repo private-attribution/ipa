@@ -97,15 +97,11 @@ impl EncryptArgs {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{io::Write};
+    use std::io::Write;
 
     use tempfile::{tempdir, NamedTempFile};
 
-    use crate::{
-        cli::{
-            crypto::{encrypt::EncryptArgs, sample_data},
-        },
-    };
+    use crate::cli::crypto::{encrypt::EncryptArgs, sample_data};
 
     #[test]
     #[should_panic = "Failed to open network file:"]

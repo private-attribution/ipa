@@ -1,24 +1,5 @@
 use ipa_step_derive::CompactStep;
 
-// Note: the stream interception tests for malicious shuffles require that the
-// `TransferXY` and `TransferC` steps have the same name in `OPRFShuffleStep` and
-// `ShardedShuffleStep`.
-
-#[derive(CompactStep)]
-pub(crate) enum OPRFShuffleStep {
-    SetupKeys,
-    ApplyPermutations,
-    GenerateAHat,
-    GenerateBHat,
-    GenerateZ,
-    TransferXY, // Transfer of X2 and Y1
-    TransferC,  // Exchange of `C_1` and `C_2`
-    #[step(child = crate::protocol::boolean::step::EightBitStep)]
-    GenerateTags,
-    #[step(child = crate::protocol::ipa_prf::shuffle::step::VerifyShuffleStep)]
-    VerifyShuffle,
-}
-
 #[derive(CompactStep)]
 pub(crate) enum VerifyShuffleStep {
     RevealMACKey,
