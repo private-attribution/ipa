@@ -78,7 +78,7 @@ pub const PRF_CHUNK: usize = 16;
 /// `CONV_CHUNK`*512*len ≈ 50M for a reasonably-sized proof. There is also a constraint
 /// on proof chunks to be powers of two, and we don't want to compute a proof chunk
 /// of zero when `TARGET_PROOF_SIZE` is smaller for tests.
-fn conv_proof_chunk() -> usize {
+pub fn conv_proof_chunk() -> usize {
     non_zero_prev_power_of_two(max(2, TARGET_PROOF_SIZE / CONV_CHUNK / 512))
 }
 

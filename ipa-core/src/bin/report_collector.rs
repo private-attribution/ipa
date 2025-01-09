@@ -15,26 +15,23 @@ use hyper::{http::uri::Scheme, Uri};
 use ipa_core::{
     cli::{
         playbook::{
-            make_clients, make_sharded_clients, playbook_oprf_ipa, run_hybrid_query_and_validate,
-            run_query_and_validate, validate, validate_dp, BufferedRoundRobinSubmission,
-            HybridQueryResult, InputSource, StreamingSubmission,
+            make_clients, make_sharded_clients, run_hybrid_query_and_validate,
+            BufferedRoundRobinSubmission, HybridQueryResult, InputSource,
+            StreamingSubmission,
         },
-        CsvSerializer, IpaQueryResult, Verbosity,
+        CsvSerializer, Verbosity,
     },
-    config::{KeyRegistries, NetworkConfig},
     ff::{boolean_array::BA32, FieldType},
     helpers::{
         query::{
-            DpMechanism, HybridQueryParams, IpaQueryConfig, QueryConfig, QueryInput, QuerySize,
+            HybridQueryParams, QueryConfig, QueryInput, QuerySize,
             QueryType,
         },
         BodyStream,
     },
     net::{Helper, IpaHttpClient},
     protocol::QueryId,
-    report::{EncryptedOprfReportStreams, DEFAULT_KEY_ID},
     test_fixture::{
-        ipa::{ipa_in_the_clear, CappingOrder, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig, HybridEventGenerator, HybridGeneratorConfig,
     },
 };
@@ -96,6 +93,7 @@ impl From<&CommandInput> for InputSource {
 #[derive(Debug, Subcommand)]
 enum ReportCollectorCommand {
     /// Generate inputs for IPA
+    /// TODO: delete
     GenIpaInputs {
         /// Number of records to generate
         #[clap(long, short = 'n')]
@@ -119,30 +117,6 @@ enum ReportCollectorCommand {
 
         #[clap(flatten)]
         gen_args: HybridGeneratorConfig,
-    },
-    /// Execute OPRF IPA in a semi-honest majority setting with known test data
-    /// and compare results against expectation
-    SemiHonestOprfIpaTest(IpaQueryConfig),
-    /// Execute OPRF IPA in an honest majority (one malicious helper) setting
-    /// with known test data and compare results against expectation
-    MaliciousOprfIpaTest(IpaQueryConfig),
-    /// Execute OPRF IPA in a semi-honest majority setting with unknown encrypted data
-    #[command(visible_alias = "oprf-ipa")]
-    SemiHonestOprfIpa {
-        #[clap(flatten)]
-        encrypted_inputs: EncryptedInputs,
-
-        #[clap(flatten)]
-        ipa_query_config: IpaQueryConfig,
-    },
-    /// Execute OPRF IPA in an honest majority (one malicious helper) setting
-    /// with unknown encrypted data
-    MaliciousOprfIpa {
-        #[clap(flatten)]
-        encrypted_inputs: EncryptedInputs,
-
-        #[clap(flatten)]
-        ipa_query_config: IpaQueryConfig,
     },
     MaliciousHybrid {
         #[clap(flatten)]
@@ -204,7 +178,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Scheme::HTTPS
     };
 
-    let (clients, networks) = if args.shard_count == 1 {
+    let (clients, _networks) = if args.shard_count == 1 {
         let (c, n) = make_clients(args.network.as_deref(), scheme, args.wait).await;
         (vec![c], vec![n])
     } else {
@@ -229,52 +203,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             seed,
             gen_args,
         } => gen_hybrid_inputs(count, seed, args.output_file, gen_args)?,
-        ReportCollectorCommand::SemiHonestOprfIpaTest(config) => {
-            ipa_test(
-                &args,
-                &networks[0],
-                IpaSecurityModel::SemiHonest,
-                config,
-                &clients[0],
-            )
-            .await?
-        }
-        ReportCollectorCommand::MaliciousOprfIpaTest(config) => {
-            ipa_test(
-                &args,
-                &networks[0],
-                IpaSecurityModel::Malicious,
-                config,
-                &clients[0],
-            )
-            .await?
-        }
-        ReportCollectorCommand::MaliciousOprfIpa {
-            ref encrypted_inputs,
-            ipa_query_config,
-        } => {
-            ipa(
-                &args,
-                IpaSecurityModel::Malicious,
-                ipa_query_config,
-                &clients[0],
-                encrypted_inputs,
-            )
-            .await?
-        }
-        ReportCollectorCommand::SemiHonestOprfIpa {
-            ref encrypted_inputs,
-            ipa_query_config,
-        } => {
-            ipa(
-                &args,
-                IpaSecurityModel::SemiHonest,
-                ipa_query_config,
-                &clients[0],
-                encrypted_inputs,
-            )
-            .await?
-        }
         ReportCollectorCommand::MaliciousHybrid {
             ref encrypted_inputs,
             ref url_file_list,
@@ -449,52 +377,6 @@ fn gen_inputs(
     Ok(())
 }
 
-fn get_query_type(security_model: IpaSecurityModel, ipa_query_config: IpaQueryConfig) -> QueryType {
-    match security_model {
-        IpaSecurityModel::SemiHonest => QueryType::SemiHonestOprfIpa(ipa_query_config),
-        IpaSecurityModel::Malicious => QueryType::MaliciousOprfIpa(ipa_query_config),
-    }
-}
-
-fn write_ipa_output_file(
-    path: &PathBuf,
-    query_result: &IpaQueryResult,
-) -> Result<(), Box<dyn Error>> {
-    // it will be sad to lose the results if file already exists.
-    let path = if Path::is_file(path) {
-        let mut new_file_name = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(5)
-            .map(char::from)
-            .collect::<String>();
-        let file_name = path.file_stem().ok_or("not a file")?;
-
-        new_file_name.insert(0, '-');
-        new_file_name.insert_str(0, &file_name.to_string_lossy());
-        tracing::warn!(
-            "{} file exists, renaming to {:?}",
-            path.display(),
-            new_file_name
-        );
-
-        // it will not be 100% accurate until file_prefix API is stabilized
-        Cow::Owned(
-            path.with_file_name(&new_file_name)
-                .with_extension(path.extension().unwrap_or("".as_ref())),
-        )
-    } else {
-        Cow::Borrowed(path)
-    };
-    let mut file = File::options()
-        .write(true)
-        .create_new(true)
-        .open(path.deref())
-        .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
-
-    write!(file, "{}", serde_json::to_string_pretty(query_result)?)?;
-    Ok(())
-}
-
 fn write_hybrid_output_file(
     path: &PathBuf,
     query_result: &HybridQueryResult,
@@ -575,135 +457,5 @@ async fn hybrid<F: FnOnce(QueryId) -> Result<Vec<[QueryInput; 3]>, Box<dyn Error
     } else {
         println!("{}", serde_json::to_string_pretty(&actual)?);
     }
-    Ok(())
-}
-
-async fn ipa(
-    args: &Args,
-    security_model: IpaSecurityModel,
-    ipa_query_config: IpaQueryConfig,
-    helper_clients: &[IpaHttpClient<Helper>; 3],
-    encrypted_inputs: &EncryptedInputs,
-) -> Result<(), Box<dyn Error>> {
-    let query_type = get_query_type(security_model, ipa_query_config);
-
-    let files = [
-        &encrypted_inputs.enc_input_file1,
-        &encrypted_inputs.enc_input_file2,
-        &encrypted_inputs.enc_input_file3,
-    ];
-
-    let encrypted_oprf_report_streams = EncryptedOprfReportStreams::from(files);
-
-    let query_config = QueryConfig {
-        size: QuerySize::try_from(encrypted_oprf_report_streams.query_size).unwrap(),
-        field_type: FieldType::Fp32BitPrime,
-        query_type,
-    };
-
-    let query_id = helper_clients[0]
-        .create_query(query_config)
-        .await
-        .expect("Unable to create query!");
-
-    tracing::info!("Starting query for OPRF");
-    // the value for histogram values (BA32) must be kept in sync with the server-side
-    // implementation, otherwise a runtime reconstruct error will be generated.
-    // see ipa-core/src/query/executor.rs
-    let actual = run_query_and_validate::<BA32>(
-        encrypted_oprf_report_streams.streams,
-        encrypted_oprf_report_streams.query_size,
-        helper_clients,
-        query_id,
-        ipa_query_config,
-    )
-    .await;
-
-    if let Some(ref path) = args.output_file {
-        write_ipa_output_file(path, &actual)?;
-    } else {
-        println!("{}", serde_json::to_string_pretty(&actual)?);
-    }
-    Ok(())
-}
-
-async fn ipa_test(
-    args: &Args,
-    network: &NetworkConfig<Helper>,
-    security_model: IpaSecurityModel,
-    ipa_query_config: IpaQueryConfig,
-    helper_clients: &[IpaHttpClient<Helper>; 3],
-) -> Result<(), Box<dyn Error>> {
-    let input = InputSource::from(&args.input);
-    let query_type = get_query_type(security_model, ipa_query_config);
-
-    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
-    let query_config = QueryConfig {
-        size: QuerySize::try_from(input_rows.len()).unwrap(),
-        field_type: FieldType::Fp32BitPrime,
-        query_type,
-    };
-    let query_id = helper_clients[0]
-        .create_query(query_config)
-        .await
-        .expect("Unable to create query!");
-
-    let expected = {
-        let mut r = ipa_in_the_clear(
-            &input_rows,
-            ipa_query_config.per_user_credit_cap,
-            ipa_query_config.attribution_window_seconds,
-            ipa_query_config.max_breakdown_key,
-            &CappingOrder::CapMostRecentFirst,
-        );
-
-        // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
-        // truncate shouldn't happen unless in_the_clear is badly broken
-        r.resize(
-            usize::try_from(ipa_query_config.max_breakdown_key).unwrap(),
-            0,
-        );
-        r
-    };
-
-    let key_registries = KeyRegistries::default();
-    let Some(key_registries) = key_registries.init_from(network) else {
-        panic!("could not load network file")
-    };
-    // the value for histogram values (BA32) must be kept in sync with the server-side
-    // implementation, otherwise a runtime reconstruct error will be generated.
-    // see ipa-core/src/query/executor.rs
-    let actual = playbook_oprf_ipa::<BA32, _>(
-        input_rows,
-        helper_clients,
-        query_id,
-        ipa_query_config,
-        Some((DEFAULT_KEY_ID, key_registries.each_ref())),
-    )
-    .await;
-
-    if let Some(ref path) = args.output_file {
-        write_ipa_output_file(path, &actual)?;
-    }
-
-    tracing::info!("{m:?}", m = ipa_query_config);
-
-    match ipa_query_config.with_dp {
-        0 => {
-            validate(&expected, &actual.breakdowns);
-        }
-        _ => {
-            validate_dp(
-                expected,
-                actual.breakdowns,
-                ipa_query_config.epsilon,
-                ipa_query_config.per_user_credit_cap,
-                DpMechanism::DiscreteLaplace {
-                    epsilon: ipa_query_config.epsilon,
-                },
-            );
-        }
-    }
-
     Ok(())
 }

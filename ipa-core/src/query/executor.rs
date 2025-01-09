@@ -1,7 +1,7 @@
 use std::{
     borrow::Borrow,
     fmt::Debug,
-    future::{ready, Future},
+    future::{Future},
     pin::Pin,
 };
 
@@ -10,7 +10,6 @@ use ::tokio::{
     sync::oneshot,
     task::block_in_place,
 };
-use futures::FutureExt;
 use generic_array::GenericArray;
 use ipa_step::StepNarrow;
 use rand::rngs::StdRng;
@@ -26,7 +25,7 @@ use typenum::Unsigned;
 use crate::ff::FieldType;
 use crate::{
     executor::IpaRuntime,
-    ff::{boolean_array::BA32, Serializable},
+    ff::{Serializable},
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
@@ -34,12 +33,11 @@ use crate::{
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        context::{MaliciousContext, SemiHonestContext},
         prss::Endpoint as PrssEndpoint,
         Gate,
     },
     query::{
-        runner::{execute_hybrid_protocol, OprfIpaQuery, QueryResult},
+        runner::{execute_hybrid_protocol, QueryResult},
         state::RunningQuery,
     },
     sync::Arc,
@@ -133,36 +131,6 @@ pub fn execute<R: PrivateKeyRegistry>(
                 Box::pin(test_add_in_prime_field::<Fp32BitPrime>(
                     prss, gateway, input,
                 ))
-            },
-        ),
-        // TODO(953): This is really using BA32, not Fp32bitPrime. The `FieldType` mechanism needs
-        // to be reworked.
-        (QueryType::SemiHonestOprfIpa(ipa_config), _) => do_query(
-            runtime,
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        (QueryType::MaliciousOprfIpa(ipa_config), _) => do_query(
-            runtime,
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = MaliciousContext::new(prss, gateway);
-                Box::pin(
-                    OprfIpaQuery::<_, BA32, R>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
             },
         ),
         (QueryType::MaliciousHybrid(ipa_config), _) => do_query(

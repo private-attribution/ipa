@@ -97,123 +97,15 @@ impl EncryptArgs {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{io::Write, sync::Arc};
+    use std::{io::Write};
 
-    use hpke::Deserializable;
     use tempfile::{tempdir, NamedTempFile};
 
     use crate::{
         cli::{
             crypto::{encrypt::EncryptArgs, sample_data},
-            CsvSerializer,
         },
-        ff::{boolean_array::BA16, U128Conversions},
-        helpers::query::{IpaQueryConfig, QuerySize},
-        hpke::{IpaPrivateKey, KeyRegistry, PrivateKeyOnly},
-        query::OprfIpaQuery,
-        report::EncryptedOprfReportStreams,
-        test_fixture::{ipa::TestRawDataRecord, join3v, Reconstruct, TestWorld},
     };
-
-    #[tokio::test]
-    async fn encrypt_and_execute_query() {
-        const EXPECTED: &[u128] = &[0, 2, 5];
-
-        let records = vec![
-            TestRawDataRecord {
-                timestamp: 0,
-                user_id: 12345,
-                is_trigger_report: false,
-                breakdown_key: 2,
-                trigger_value: 0,
-            },
-            TestRawDataRecord {
-                timestamp: 4,
-                user_id: 68362,
-                is_trigger_report: false,
-                breakdown_key: 1,
-                trigger_value: 0,
-            },
-            TestRawDataRecord {
-                timestamp: 10,
-                user_id: 12345,
-                is_trigger_report: true,
-                breakdown_key: 0,
-                trigger_value: 5,
-            },
-            TestRawDataRecord {
-                timestamp: 12,
-                user_id: 68362,
-                is_trigger_report: true,
-                breakdown_key: 0,
-                trigger_value: 2,
-            },
-        ];
-        let query_size = QuerySize::try_from(records.len()).unwrap();
-        let mut input_file = NamedTempFile::new().unwrap();
-
-        for event in records {
-            event.to_csv(input_file.as_file_mut()).unwrap();
-            writeln!(input_file.as_file()).unwrap();
-        }
-        input_file.flush().unwrap();
-
-        let output_dir = tempdir().unwrap();
-        let network_file = sample_data::test_keys().network_config();
-
-        EncryptArgs::new(input_file.path(), output_dir.path(), network_file.path())
-            .encrypt()
-            .unwrap();
-
-        let files = [
-            &output_dir.path().join("helper1.enc"),
-            &output_dir.path().join("helper2.enc"),
-            &output_dir.path().join("helper3.enc"),
-        ];
-
-        let world = TestWorld::default();
-
-        let mk_private_keys = [
-            "53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff",
-            "3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569",
-            "1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7",
-        ];
-
-        #[allow(clippy::large_futures)]
-        let results = join3v(
-            EncryptedOprfReportStreams::from(files)
-                .streams
-                .into_iter()
-                .zip(world.contexts())
-                .zip(mk_private_keys.into_iter())
-                .map(|((input, ctx), mk_private_key)| {
-                    let mk_private_key = hex::decode(mk_private_key)
-                        .map(|bytes| IpaPrivateKey::from_bytes(&bytes).unwrap())
-                        .unwrap();
-                    let query_config = IpaQueryConfig {
-                        max_breakdown_key: 3,
-                        with_dp: 0,
-                        epsilon: 1.0,
-                        ..Default::default()
-                    };
-
-                    OprfIpaQuery::<_, BA16, _>::new(
-                        query_config,
-                        Arc::new(KeyRegistry::from_keys([PrivateKeyOnly(mk_private_key)])),
-                    )
-                    .execute(ctx, query_size, input)
-                }),
-        )
-        .await;
-
-        assert_eq!(
-            results.reconstruct()[0..3]
-                .iter()
-                .map(U128Conversions::as_u128)
-                .collect::<Vec<u128>>(),
-            EXPECTED
-        );
-    }
 
     #[test]
     #[should_panic = "Failed to open network file:"]

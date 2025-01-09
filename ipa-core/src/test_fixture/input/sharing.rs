@@ -1,19 +1,17 @@
-use std::iter::{repeat, zip};
+use std::iter::{zip};
 
 use crate::{
     ff::{
-        boolean::Boolean,
         boolean_array::{BooleanArray, BA64},
         U128Conversions,
     },
-    protocol::ipa_prf::OPRFIPAInputRow,
     rand::Rng,
     report::{EventType, OprfReport},
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        replicated::{semi_honest::AdditiveShare as Replicated},
         IntoShares,
     },
-    test_fixture::{ipa::TestRawDataRecord, Reconstruct},
+    test_fixture::{ipa::TestRawDataRecord},
 };
 
 const DOMAINS: &[&str] = &[
@@ -66,86 +64,5 @@ where
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
-    }
-}
-
-impl<BK, TV, TS> IntoShares<OPRFIPAInputRow<BK, TV, TS>> for TestRawDataRecord
-where
-    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
-    TV: BooleanArray + U128Conversions + IntoShares<Replicated<TV>>,
-    TS: BooleanArray + U128Conversions + IntoShares<Replicated<TS>>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [OPRFIPAInputRow<BK, TV, TS>; 3] {
-        let is_trigger = Replicated::new(
-            Boolean::from(self.is_trigger_report),
-            Boolean::from(self.is_trigger_report),
-        );
-        let match_key = BA64::try_from(u128::from(self.user_id))
-            .unwrap()
-            .share_with(rng);
-        let timestamp: [Replicated<TS>; 3] = TS::try_from(u128::from(self.timestamp))
-            .unwrap()
-            .share_with(rng);
-        let breakdown_key = BK::try_from(u128::from(self.breakdown_key))
-            .unwrap()
-            .share_with(rng);
-        let trigger_value = TV::try_from(u128::from(self.trigger_value))
-            .unwrap()
-            .share_with(rng);
-
-        zip(
-            zip(zip(match_key, zip(timestamp, breakdown_key)), trigger_value),
-            repeat(is_trigger),
-        )
-        .map(
-            |(((match_key_share, (ts_share, bk_share)), tv_share), is_trigger_share)| {
-                OPRFIPAInputRow {
-                    timestamp: ts_share,
-                    match_key: match_key_share,
-                    is_trigger: is_trigger_share,
-                    breakdown_key: bk_share,
-                    trigger_value: tv_share,
-                }
-            },
-        )
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
-    }
-}
-
-impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [&OPRFIPAInputRow<BK, TV, TS>; 3]
-where
-    BK: BooleanArray + U128Conversions + IntoShares<Replicated<BK>>,
-    TV: BooleanArray + U128Conversions + IntoShares<Replicated<TV>>,
-    TS: BooleanArray + U128Conversions + IntoShares<Replicated<TS>>,
-{
-    fn reconstruct(&self) -> TestRawDataRecord {
-        let [s0, s1, s2] = self;
-
-        let is_trigger_report = [&s0.is_trigger, &s1.is_trigger, &s2.is_trigger].reconstruct();
-
-        let user_id = [&s0.match_key, &s1.match_key, &s2.match_key]
-            .reconstruct()
-            .as_u128();
-
-        let breakdown_key = [&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key]
-            .reconstruct()
-            .as_u128();
-
-        let trigger_value = [&s0.trigger_value, &s1.trigger_value, &s2.trigger_value]
-            .reconstruct()
-            .as_u128();
-        let timestamp = [&s0.timestamp, &s1.timestamp, &s2.timestamp]
-            .reconstruct()
-            .as_u128();
-
-        TestRawDataRecord {
-            user_id: user_id.try_into().unwrap(),
-            is_trigger_report: is_trigger_report.into(),
-            breakdown_key: breakdown_key.try_into().unwrap(),
-            trigger_value: trigger_value.try_into().unwrap(),
-            timestamp: timestamp.try_into().unwrap(),
-        }
     }
 }
