@@ -1,6 +1,5 @@
-use crate::report::{
-    hybrid::{InvalidHybridReportError, NonAsciiStringError, HELPER_ORIGIN},
-    KeyIdentifier,
+use crate::report::hybrid::{
+    InvalidHybridReportError, KeyIdentifier, NonAsciiStringError, HELPER_ORIGIN,
 };
 
 const DOMAIN: &str = "private-attribution";

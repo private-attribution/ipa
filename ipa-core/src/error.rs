@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::{
     helpers::{Role, ZeroRecordsError},
     protocol::RecordId,
-    report::{hybrid::InvalidHybridReportError, InvalidReportError},
+    report::hybrid::InvalidHybridReportError,
     sharding::ShardIndex,
     task::JoinError,
 };
@@ -65,8 +65,6 @@ pub enum Error {
     FieldValueTruncation(String),
     #[error("Invalid query parameter: {0}")]
     InvalidQueryParameter(BoxError),
-    #[error("invalid report: {0}")]
-    InvalidReport(#[from] InvalidReportError),
     #[error("invalid hybrid report: {0}")]
     InvalidHybridReport(#[from] InvalidHybridReportError),
     #[error("unsupported: {0}")]

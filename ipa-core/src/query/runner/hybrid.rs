@@ -215,7 +215,7 @@ mod tests {
         },
         hpke::{KeyPair, KeyRegistry},
         query::runner::hybrid::Query as HybridQuery,
-        report::{hybrid::HybridReport, DEFAULT_KEY_ID},
+        report::hybrid::{HybridReport, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
         test_executor::run,
         test_fixture::{

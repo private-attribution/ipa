@@ -1,4 +1,3 @@
-pub mod input;
 mod sharing;
 #[cfg(feature = "in-memory-infra")]
 mod world;
