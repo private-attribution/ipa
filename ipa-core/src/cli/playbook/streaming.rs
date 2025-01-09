@@ -1,5 +1,6 @@
 use std::{
     io::BufRead,
+    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll, Waker},
 };
@@ -9,7 +10,7 @@ use futures::Stream;
 
 use crate::{
     error::BoxError,
-    helpers::BytesStream,
+    helpers::{BufferedBytesStream, BytesStream},
     sync::{Arc, Mutex},
 };
 
@@ -18,6 +19,44 @@ use crate::{
 pub trait StreamingSubmission {
     /// Spits itself into `count` instances of [`BytesStream`].
     fn into_byte_streams(self, count: usize) -> Vec<impl BytesStream>;
+}
+
+/// Same as [`RoundRobinSubmission`] but buffers the destination stream
+/// until it accumulates at least `buf_size` bytes of data
+pub struct BufferedRoundRobinSubmission<R> {
+    inner: R,
+    buf_size: NonZeroUsize,
+}
+
+impl<R: BufRead> BufferedRoundRobinSubmission<R> {
+    // Standard buffer size for file and network is 8Kb, so we are aligning this value with it.
+    // Tokio and standard bufer also use 8Kb buffers.
+    // If other value gives better performance, we should use it instead
+    const DEFAULT_BUF_SIZE: NonZeroUsize = NonZeroUsize::new(8192).unwrap();
+
+    /// Create a new instance with the default buffer size.
+    pub fn new(read_from: R) -> Self {
+        Self::new_with_buf_size(read_from, Self::DEFAULT_BUF_SIZE)
+    }
+
+    /// Creates a new instance with the specified buffer size. All streams created
+    /// using [`StreamingSubmission::into_byte_streams`] will have their own buffer set.
+    fn new_with_buf_size(read_from: R, buf_size: NonZeroUsize) -> Self {
+        Self {
+            inner: read_from,
+            buf_size,
+        }
+    }
+}
+
+impl<R: BufRead + Send> StreamingSubmission for BufferedRoundRobinSubmission<R> {
+    fn into_byte_streams(self, count: usize) -> Vec<impl BytesStream> {
+        RoundRobinSubmission::new(self.inner)
+            .into_byte_streams(count)
+            .into_iter()
+            .map(|s| BufferedBytesStream::new(s, self.buf_size))
+            .collect()
+    }
 }
 
 /// Round-Robin strategy to read off the provided buffer
@@ -149,6 +188,7 @@ impl<R: BufRead> State<R> {
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::{
+        collections::HashSet,
         fs::File,
         io::{BufReader, Write},
         iter,
@@ -159,24 +199,98 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::{
-        cli::playbook::streaming::{RoundRobinSubmission, StreamingSubmission},
+        cli::playbook::streaming::{
+            BufferedRoundRobinSubmission, RoundRobinSubmission, StreamingSubmission,
+        },
         helpers::BytesStream,
         test_executor::run,
     };
 
-    async fn drain_all<S: BytesStream>(streams: Vec<S>) -> Vec<String> {
+    async fn drain_all_buffered<S: BytesStream>(
+        streams: Vec<S>,
+        buf_size: Option<usize>,
+    ) -> Vec<Vec<u8>> {
         let mut futs = FuturesOrdered::default();
         for s in streams {
-            futs.push_back(s.try_fold(String::new(), |mut acc, chunk| async move {
-                // remove RLE decoding
-                let len = usize::from(u16::from_le_bytes(chunk[..2].try_into().unwrap()));
-                assert_eq!(len, chunk.len() - 2);
-                acc.push_str(&String::from_utf8_lossy(&chunk[2..]));
-                Ok(acc)
-            }));
-        }
+            futs.push_back(s.try_fold(
+                (Vec::new(), HashSet::new(), 0, 0),
+                |(mut acc, mut sizes, mut leftover, mut pending_len), mut chunk| async move {
+                    // keep track of chunk sizes we've seen from the stream. Only the last chunk
+                    // can have size that is not equal to `buf_size`
+                    sizes.insert(chunk.len());
 
-        futs.try_collect::<Vec<_>>().await.unwrap()
+                    // if we have a leftover from previous buffer, push it first
+                    if leftover > 0 {
+                        let next_chunk = std::cmp::min(leftover, chunk.len());
+                        leftover -= next_chunk;
+                        acc.extend(&chunk.split_to(next_chunk));
+                    }
+
+                    while !chunk.is_empty() {
+                        // remove RLE decoding
+                        let len = if pending_len > 0 {
+                            // len (2 byte value) can be fragmented as well
+                            let next_byte =
+                                u8::from_le_bytes(chunk.split_to(1).as_ref().try_into().unwrap());
+                            let r = u16::from_le_bytes([pending_len, next_byte]);
+                            pending_len = 0;
+                            r
+                        } else if chunk.len() > 1 {
+                            let len =
+                                u16::from_le_bytes(chunk.split_to(2).as_ref().try_into().unwrap());
+                            len
+                        } else {
+                            pending_len =
+                                u8::from_le_bytes(chunk.split_to(1).as_ref().try_into().unwrap());
+                            assert!(chunk.is_empty());
+                            break;
+                        };
+
+                        let len = usize::from(len);
+
+                        // the next item may span across multiple buffers
+                        let take_len = if len > chunk.len() {
+                            leftover = len - chunk.len();
+                            chunk.len()
+                        } else {
+                            len
+                        };
+                        acc.extend(&chunk.split_to(take_len));
+                    }
+
+                    Ok((acc, sizes, leftover, pending_len))
+                },
+            ));
+        }
+        futs.try_collect::<Vec<_>>()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(s, sizes, leftover, pending_len)| {
+                assert_eq!(0, leftover);
+                assert_eq!(0, pending_len);
+
+                // We can have only one chunk that can be at or less than `buf_size`.
+                // If there are multiple chunks, then at least one must have `buf_size` and there
+                // can be at most two chunks.
+                if let Some(buf_size) = buf_size {
+                    assert!(sizes.len() <= 2);
+                    if sizes.len() > 1 {
+                        assert!(sizes.contains(&buf_size));
+                    }
+                }
+
+                s
+            })
+            .collect()
+    }
+
+    async fn drain_all<S: BytesStream>(streams: Vec<S>) -> Vec<String> {
+        drain_all_buffered(streams, None)
+            .await
+            .into_iter()
+            .map(|v| String::from_utf8_lossy(&v).to_string())
+            .collect()
     }
 
     fn encoded<I: IntoIterator<Item: AsRef<[u8]>>>(input: I) -> Vec<String> {
@@ -186,6 +300,12 @@ mod tests {
     #[test]
     fn basic() {
         run(|| verify_one(vec!["foo", "bar", "baz", "qux", "quux"], 3));
+    }
+
+    #[test]
+    fn basic_buffered() {
+        run(|| verify_buffered(vec!["foo", "bar", "baz", "qux", "quux"], 1, 1));
+        run(|| verify_buffered(vec!["foo", "bar", "baz", "qux", "quux"], 3, 5));
     }
 
     #[test]
@@ -272,11 +392,36 @@ mod tests {
         assert_eq!(expected, drain_all(streams).await);
     }
 
+    /// The reason we work with bytes is that string character may span multiple bytes,
+    /// making [`String::from_utf8`] method work incorrectly as it is not commutative with
+    /// buffering.
+    async fn verify_buffered<R: AsRef<[u8]>>(input: Vec<R>, count: usize, buf_size: usize) {
+        assert!(count > 0);
+        let data = encoded(input.iter().map(AsRef::as_ref)).join("\n");
+        let streams = BufferedRoundRobinSubmission::new_with_buf_size(
+            data.as_bytes(),
+            buf_size.try_into().unwrap(),
+        )
+        .into_byte_streams(count);
+        let mut expected: Vec<Vec<u8>> = vec![vec![]; count];
+        for (i, next) in input.into_iter().enumerate() {
+            expected[i % count].extend(next.as_ref());
+        }
+        assert_eq!(expected, drain_all_buffered(streams, Some(buf_size)).await);
+    }
+
     proptest! {
         #[test]
         fn proptest_round_robin(input: Vec<String>, count in 1_usize..953) {
             run(move || async move {
                 verify_one(input, count).await;
+            });
+        }
+
+        #[test]
+        fn proptest_round_robin_buffered(input: Vec<Vec<u8>>, count in 1_usize..953, buf_size in 1_usize..1024) {
+            run(move || async move {
+                verify_buffered(input, count, buf_size).await;
             });
         }
     }

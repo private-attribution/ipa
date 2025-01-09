@@ -75,11 +75,11 @@ pub use transport::{
     InMemoryTransportError,
 };
 pub use transport::{
-    make_owned_handler, query, routing, ApiError, BodyStream, BroadcastError, BytesStream,
-    HandlerBox, HandlerRef, HelperResponse, Identity as TransportIdentity, LengthDelimitedStream,
-    LogErrors, NoQueryId, NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords,
-    RecordsStream, RequestHandler, RouteParams, SingleRecordStream, StepBinding, StreamCollection,
-    StreamKey, Transport, WrappedBoxBodyStream,
+    make_owned_handler, query, routing, ApiError, BodyStream, BroadcastError, BufferedBytesStream,
+    BytesStream, HandlerBox, HandlerRef, HelperResponse, Identity as TransportIdentity,
+    LengthDelimitedStream, LogErrors, NoQueryId, NoResourceIdentifier, NoStep, QueryIdBinding,
+    ReceiveRecords, RecordsStream, RequestHandler, RouteParams, SingleRecordStream, StepBinding,
+    StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
 };
 use typenum::{Const, ToUInt, Unsigned, U8};
 use x25519_dalek::PublicKey;

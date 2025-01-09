@@ -16,8 +16,8 @@ use ipa_core::{
     cli::{
         playbook::{
             make_clients, make_sharded_clients, playbook_oprf_ipa, run_hybrid_query_and_validate,
-            run_query_and_validate, validate, validate_dp, HybridQueryResult, InputSource,
-            RoundRobinSubmission, StreamingSubmission,
+            run_query_and_validate, validate, validate_dp, BufferedRoundRobinSubmission,
+            HybridQueryResult, InputSource, StreamingSubmission,
         },
         CsvSerializer, IpaQueryResult, Verbosity,
     },
@@ -370,7 +370,7 @@ fn inputs_from_encrypted_inputs(
     ]
     .map(|path| {
         let file = File::open(path).unwrap_or_else(|e| panic!("unable to open file {path:?}. {e}"));
-        RoundRobinSubmission::new(BufReader::new(file))
+        BufferedRoundRobinSubmission::new(BufReader::new(file))
     })
     .map(|s| s.into_byte_streams(shard_count));
 
