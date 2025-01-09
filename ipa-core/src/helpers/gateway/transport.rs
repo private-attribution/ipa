@@ -51,7 +51,7 @@ impl Transport for RoleResolvingTransport {
         self.inner.peer_count()
     }
 
-    async fn send_and_receive<
+    async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
         S: StepBinding,
@@ -73,7 +73,7 @@ impl Transport for RoleResolvingTransport {
             "can't send message to itself"
         );
         self.inner
-            .send_and_receive(dest_helper, route, data)
+            .send(dest_helper, route, data)
             .await
             .map_err(|e| SendToRoleError(dest, e))
     }

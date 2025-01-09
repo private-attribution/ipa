@@ -174,7 +174,7 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
             .into_iter()
     }
 
-    async fn send_and_receive<
+    async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
         S: StepBinding,

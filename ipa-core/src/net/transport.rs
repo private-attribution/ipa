@@ -295,7 +295,7 @@ impl Transport for MpcHttpTransport {
         2
     }
 
-    async fn send_and_receive<
+    async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
         S: StepBinding,
@@ -374,7 +374,7 @@ impl Transport for ShardHttpTransport {
         u32::from(self.shard_count).saturating_sub(1)
     }
 
-    async fn send_and_receive<D, Q, S, R>(
+    async fn send<D, Q, S, R>(
         &self,
         dest: Self::Identity,
         route: R,
