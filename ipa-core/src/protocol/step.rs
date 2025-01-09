@@ -6,8 +6,6 @@ use ipa_step_derive::{CompactGate, CompactStep};
 pub enum ProtocolStep {
     Prss,
     CrossShardPrss,
-    #[step(child = crate::protocol::ipa_prf::step::IpaPrfStep)]
-    IpaPrf,
     #[step(child = crate::protocol::hybrid::step::HybridStep)]
     Hybrid,
     Multiply,
@@ -37,8 +35,6 @@ impl<'de> serde::Deserialize<'de> for ProtocolGate {
 pub enum DeadCodeStep {
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::SaturatedSubtractionStep)]
     SaturatedSubtraction,
-    #[step(child = crate::protocol::ipa_prf::prf_sharding::step::FeatureLabelDotProductStep)]
-    FeatureLabelDotProduct,
     #[step(child = crate::protocol::ipa_prf::boolean_ops::step::MultiplicationStep)]
     Multiplication,
 }

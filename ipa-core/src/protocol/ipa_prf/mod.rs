@@ -2,10 +2,8 @@ pub(crate) mod aggregation;
 pub mod boolean_ops;
 pub mod oprf_padding;
 pub mod prf_eval;
-pub mod prf_sharding;
 
 mod malicious_security;
-mod quicksort;
 pub(crate) mod shuffle;
 pub(crate) mod step;
 pub mod validation_protocol;

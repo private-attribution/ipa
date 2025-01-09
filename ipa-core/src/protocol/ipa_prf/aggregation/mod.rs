@@ -4,10 +4,10 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use tracing::Instrument;
 
 use crate::{
-    error::{Error, LengthError},
+    error::{Error},
     ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
     helpers::{
-        stream::{ChunkBuffer, FixedLength},
+        stream::{FixedLength},
         TotalRecords,
     },
     protocol::{
@@ -17,72 +17,17 @@ use crate::{
         ipa_prf::{
             aggregation::step::{AggregateChunkStep, AggregateValuesStep},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
-            prf_sharding::AttributionOutputs,
         },
         RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        SharedValue, TransposeFrom, Vectorizable,
     },
     utils::non_zero_prev_power_of_two,
 };
 
-pub(crate) mod breakdown_reveal;
 pub(crate) mod step;
 
-type AttributionOutputsChunk<const N: usize> = AttributionOutputs<
-    BitDecomposed<Replicated<Boolean, N>>,
-    BitDecomposed<Replicated<Boolean, N>>,
->;
-
-impl<BK, TV, const N: usize> ChunkBuffer<N>
-    for AttributionOutputs<Vec<Replicated<BK>>, Vec<Replicated<TV>>>
-where
-    Boolean: Vectorizable<N>,
-    BK: SharedValue,
-    TV: SharedValue,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
-    BitDecomposed<Replicated<Boolean, N>>:
-        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
-{
-    type Item = AttributionOutputs<Replicated<BK>, Replicated<TV>>;
-    type Chunk = AttributionOutputsChunk<N>;
-
-    fn push(&mut self, item: Self::Item) {
-        self.attributed_breakdown_key_bits
-            .push(item.attributed_breakdown_key_bits);
-        self.capped_attributed_trigger_value
-            .push(item.capped_attributed_trigger_value);
-    }
-
-    fn len(&self) -> usize {
-        assert_eq!(
-            self.attributed_breakdown_key_bits.len(),
-            self.capped_attributed_trigger_value.len()
-        );
-        self.attributed_breakdown_key_bits.len()
-    }
-
-    fn resize_with<F: Fn() -> Self::Item>(&mut self, len: usize, f: F) {
-        while self.attributed_breakdown_key_bits.len() < len {
-            <Self as ChunkBuffer<N>>::push(self, f());
-        }
-    }
-
-    fn take(&mut self) -> Result<Self::Chunk, LengthError> {
-        // Aggregation input transpose
-        let bk = BitDecomposed::transposed_from(&self.attributed_breakdown_key_bits)?;
-        let tv = BitDecomposed::transposed_from(&self.capped_attributed_trigger_value)?;
-        self.attributed_breakdown_key_bits = Vec::with_capacity(N);
-        self.capped_attributed_trigger_value = Vec::with_capacity(N);
-        Ok(AttributionOutputsChunk {
-            attributed_breakdown_key_bits: bk,
-            capped_attributed_trigger_value: tv,
-        })
-    }
-}
 
 /// A vector of histogram contributions for each output bucket.
 ///

@@ -2,8 +2,6 @@ use std::{collections::HashMap, num::NonZeroU32};
 
 use rand::{thread_rng, Rng};
 
-use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum IpaSecurityModel {
@@ -18,12 +16,6 @@ pub struct TestRawDataRecord {
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
     pub trigger_value: u32,
-}
-
-impl GroupingKey for TestRawDataRecord {
-    fn get_grouping_key(&self) -> u64 {
-        self.user_id
-    }
 }
 
 /// Insert `record` into `user_records`, maintaining timestamp order.

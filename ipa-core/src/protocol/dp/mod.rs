@@ -24,7 +24,6 @@ use crate::{
             aggregation::{aggregate_values, aggregate_values_proof_chunk},
             boolean_ops::addition_sequential::integer_add,
             oprf_padding::insecure::OPRFPaddingDp,
-            step::IpaPrfStep,
         },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
@@ -34,6 +33,7 @@ use crate::{
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
     },
 };
+use crate::protocol::hybrid::step::HybridStep;
 
 /// For documentation on the Binomial DP noise generation in MPC see
 /// [draft-case-ppm-binomial-dp-latest](https://private-attribution.github.io/i-d/draft-case-ppm-binomial-dp.html)
@@ -243,8 +243,8 @@ where
         for<'a> TransposeFrom<&'a [Replicated<OV>; B], Error = Infallible>,
 {
     let steps = MaliciousProtocolSteps {
-        protocol: &IpaPrfStep::DifferentialPrivacy,
-        validate: &IpaPrfStep::DifferentialPrivacyValidate,
+        protocol: &HybridStep::DifferentialPrivacy,
+        validate: &HybridStep::DifferentialPrivacyValidate,
     };
     match dp_params {
         DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),
