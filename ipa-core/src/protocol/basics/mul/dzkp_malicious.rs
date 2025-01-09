@@ -28,8 +28,8 @@ use crate::{
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn zkp_multiply<'a, B, F, const N: usize>(
-    ctx: DZKPUpgradedMaliciousContext<'a, B>,
+pub async fn zkp_multiply<B, F, const N: usize>(
+    ctx: DZKPUpgradedMaliciousContext<'_, B>,
     record_id: RecordId,
     a: &Replicated<F, N>,
     b: &Replicated<F, N>,

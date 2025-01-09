@@ -878,7 +878,7 @@ impl<S: ShardingScheme> ShardWorld<S> {
     }
 
     /// See `Runner` above.
-    async fn run_either<'a, C, A, O, H, R>(
+    async fn run_either<C, A, O, H, R>(
         contexts: [C; 3],
         span: Span,
         input_shares: [A; 3],
