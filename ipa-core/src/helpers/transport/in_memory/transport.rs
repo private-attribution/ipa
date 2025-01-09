@@ -100,7 +100,6 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
             {
                 let streams = self.record_streams.clone();
                 async move {
-                    // A tuple with these 3 things is sent from send
                     while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 

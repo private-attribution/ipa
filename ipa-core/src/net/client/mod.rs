@@ -397,7 +397,6 @@ impl<F: ConnectionFlavor> IpaHttpClient<F> {
             let bytes = response_to_bytes(resp).await?;
             let bs = BodyStream::from(bytes.to_vec());
             Ok(bs)
-            //Ok(response_to_bytes(resp).await?);
         } else {
             Err(Error::from_failed_resp(resp).await)
         }

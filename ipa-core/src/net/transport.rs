@@ -69,7 +69,7 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
 }
 
 impl<F: ConnectionFlavor> HttpTransport<F> {
-    async fn send_and_receive<
+    async fn send<
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
         S: StepBinding,
@@ -310,7 +310,7 @@ impl Transport for MpcHttpTransport {
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
     {
-        self.inner_transport.send_and_receive(dest, route, data).await
+        self.inner_transport.send(dest, route, data).await
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
@@ -389,7 +389,7 @@ impl Transport for ShardHttpTransport {
         D: Stream<Item = Vec<u8>> + Send + 'static,
     {
         self.inner_transport
-            .send_and_receive(dest, route, data)
+            .send(dest, route, data)
             .map_err(|source| ShardError {
                 shard_index: self.identity(),
                 source,

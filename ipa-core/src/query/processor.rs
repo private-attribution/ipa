@@ -644,7 +644,7 @@ mod tests {
             let processor = Processor::default();
             let query_config = test_multiply_config();
             let [t0, t1, t2] = mpc_network.transports();
-            let shard_transport = shard_network.transport(HelperIdentity::ONE, ShardIndex::LEADER);
+            let shard_transport = shard_network.transport(HelperIdentity::ONE, ShardIndex::FIRST);
             TestComponents {
                 processor,
                 query_config,
@@ -1084,9 +1084,11 @@ mod tests {
         async fn combined_status_response() {
             fn shard_handle(si: ShardIndex) -> Arc<dyn RequestHandler<ShardIndex>> {
                 create_handler(move |_| async move {
+                    const FOURTH_SHARD: ShardIndex = ShardIndex::from_u32(3);
+                    const THIRD_SHARD: ShardIndex = ShardIndex::from_u32(2);
                     match si {
-                        ShardIndex::FOURTH => Ok(HelperResponse::from(QueryStatus::Completed)),
-                        ShardIndex::THIRD => Ok(HelperResponse::from(QueryStatus::Running)),
+                        FOURTH_SHARD => Ok(HelperResponse::from(QueryStatus::Completed)),
+                        THIRD_SHARD => Ok(HelperResponse::from(QueryStatus::Running)),
                         _ => Ok(HelperResponse::from(QueryStatus::AwaitingInputs)),
                     }
                 })
