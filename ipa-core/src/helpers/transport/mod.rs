@@ -372,7 +372,10 @@ pub trait Transport: Clone + Send + Sync + 'static {
     async fn broadcast<Q, S, R>(
         &self,
         route: R,
-    ) -> Result<Vec<(Self::Identity, Option<Self::SendResponse>)>, BroadcastError<Self::Identity, Self::Error>>
+    ) -> Result<
+        Vec<(Self::Identity, Option<Self::SendResponse>)>,
+        BroadcastError<Self::Identity, Self::Error>,
+    >
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,

@@ -7,7 +7,6 @@ use crate::{
         http_serde::query::status::{self, Request},
         server::Error,
         ConnectionFlavor, HttpTransport,
-        server::ClientIdentity,
     },
     protocol::QueryId,
     sync::Arc,
@@ -18,7 +17,10 @@ async fn handler<F: ConnectionFlavor>(
     Path(query_id): Path<QueryId>,
 ) -> Result<Json<status::ResponseBody>, Error> {
     let req = Request { query_id };
-    match Arc::clone(&transport).dispatch(req, BodyStream::empty()).await {
+    match Arc::clone(&transport)
+        .dispatch(req, BodyStream::empty())
+        .await
+    {
         Ok(state) => Ok(Json(status::ResponseBody::from(state))),
         Err(e) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }

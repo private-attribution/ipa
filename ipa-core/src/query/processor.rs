@@ -11,7 +11,10 @@ use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{PrepareQuery, QueryConfig}, routing::RouteId, BodyStream, BroadcastError, Gateway, GatewayConfig, HelperResponse, MpcTransportError, MpcTransportImpl, Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport
+        query::{PrepareQuery, QueryConfig},
+        routing::RouteId,
+        BodyStream, BroadcastError, Gateway, GatewayConfig, HelperResponse, MpcTransportError,
+        MpcTransportImpl, Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -372,7 +375,9 @@ impl Processor {
             .get_status(query_id)
             .ok_or(QueryStatusError::NoSuchQuery(query_id))?;
 
-        let shard_responses = shard_transport.broadcast((RouteId::QueryStatus, query_id)).await?;
+        let shard_responses = shard_transport
+            .broadcast((RouteId::QueryStatus, query_id))
+            .await?;
         for (i, o) in shard_responses {
             if o.is_none() {
                 return Err(QueryStatusError::NoResponse(i));
@@ -1072,7 +1077,7 @@ mod tests {
     mod query_status {
 
         use super::*;
-        use crate::{protocol::QueryId};
+        use crate::protocol::QueryId;
 
         /// * From the standpoint of leader shard in Helper 1
         /// * On query_status
@@ -1106,7 +1111,7 @@ mod tests {
             t.processor
                 .prepare_shard(
                     &t.shard_network
-                        .transport(HelperIdentity::ONE, ShardIndex::SECOND),
+                        .transport(HelperIdentity::ONE, ShardIndex::from_u32(1)),
                     req,
                 )
                 .unwrap();
@@ -1201,7 +1206,7 @@ mod tests {
                     .shard_status(
                         &t.shard_network
                             .transport(HelperIdentity::TWO, ShardIndex::FIRST),
-                            QueryId
+                        QueryId
                     )
                     .unwrap_err(),
                 QueryStatusError::Leader

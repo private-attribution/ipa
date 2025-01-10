@@ -1,10 +1,11 @@
 use std::{fmt::Debug, future::Future, marker::PhantomData};
 
 use async_trait::async_trait;
+use futures_util::TryStreamExt;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
-use futures_util::TryStreamExt;
 
+use super::BytesStream;
 use crate::{
     error::BoxError,
     helpers::{
@@ -17,8 +18,6 @@ use crate::{
     },
     sync::{Arc, Mutex, Weak},
 };
-
-use super::BytesStream;
 
 /// Represents some response sent from MPC helper acting on a given request. It is rudimental now
 /// because we sent everything as HTTP body, but it could evolve.
@@ -119,7 +118,9 @@ impl HelperResponse {
 
     pub async fn from_bytesstream<B: BytesStream>(value: B) -> Result<HelperResponse, BoxError> {
         let bytes: bytes::BytesMut = value.try_collect().await?;
-        Ok(Self { body: bytes.to_vec() })
+        Ok(Self {
+            body: bytes.to_vec(),
+        })
     }
 }
 
@@ -143,9 +144,7 @@ struct QueryStatusResponse {
 
 impl From<QueryStatus> for HelperResponse {
     fn from(value: QueryStatus) -> Self {
-        let response = QueryStatusResponse {
-            status: value
-        };
+        let response = QueryStatusResponse { status: value };
         let v = serde_json::to_vec(&response).unwrap();
         Self { body: v }
     }

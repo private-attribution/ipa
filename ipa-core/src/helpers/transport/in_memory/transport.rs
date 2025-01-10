@@ -220,10 +220,11 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
             .map_err(|_recv_error| Error::Rejected {
                 dest,
                 inner: "channel closed".into(),
-            })?.map_err(|e| Error::Rejected {
-            dest,
-            inner: e.into(),
-        })?;
+            })?
+            .map_err(|e| Error::Rejected {
+                dest,
+                inner: e.into(),
+            })?;
         let body_bytes = res.into_body();
         if body_bytes.is_empty() {
             return Ok(None);
@@ -251,7 +252,7 @@ pub struct InMemoryStream {
 
 impl InMemoryStream {
     fn wrap_bytes(bytes: Vec<u8>) -> Self {
-        InMemoryStream::wrap(stream::once(async { Ok(Bytes::from(bytes))}))
+        InMemoryStream::wrap(stream::once(async { Ok(Bytes::from(bytes)) }))
     }
 
     fn wrap<S: Stream<Item = StreamItem> + Send + 'static>(value: S) -> Self {

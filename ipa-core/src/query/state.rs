@@ -10,7 +10,12 @@ use futures::{ready, FutureExt, TryFutureExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::BoxError, executor::IpaJoinHandle, helpers::{query::QueryConfig, BytesStream, HelperResponse, RoleAssignment}, protocol::QueryId, query::runner::QueryResult, sync::Mutex
+    error::BoxError,
+    executor::IpaJoinHandle,
+    helpers::{query::QueryConfig, BytesStream, HelperResponse, RoleAssignment},
+    protocol::QueryId,
+    query::runner::QueryResult,
+    sync::Mutex,
 };
 
 /// The status of query processing

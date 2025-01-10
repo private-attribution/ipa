@@ -33,7 +33,8 @@ use crate::{
     },
     executor::IpaRuntime,
     helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput}, BodyStream, TransportIdentity, WrappedAxumBodyStream
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        BodyStream, TransportIdentity, WrappedAxumBodyStream,
     },
     net::{http_serde, Error, CRYPTO_PROVIDER},
     protocol::{Gate, QueryId},
@@ -384,10 +385,7 @@ impl<F: ConnectionFlavor> IpaHttpClient<F> {
         resp_ok(resp).await
     }
 
-    pub async fn query_status_bytes(
-        &self,
-        query_id: QueryId,
-    ) -> Result<BodyStream, Error> {
+    pub async fn query_status_bytes(&self, query_id: QueryId) -> Result<BodyStream, Error> {
         let req = http_serde::query::status::Request::new(query_id);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
 

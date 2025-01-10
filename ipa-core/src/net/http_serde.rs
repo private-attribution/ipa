@@ -668,5 +668,4 @@ pub mod query {
 
         pub const AXUM_PATH: &str = "/:query_id/kill";
     }
-
 }
