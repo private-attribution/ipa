@@ -237,12 +237,6 @@ harness = false
 required-features = ["enable-benches"]
 
 [[bench]]
-name = "oneshot_ipa"
-path = "benches/oneshot/ipa.rs"
-harness = false
-required-features = ["enable-benches"]
-
-[[bench]]
 name = "transpose"
 harness = false
 required-features = ["enable-benches"]
@@ -262,26 +256,6 @@ required-features = [
     "test-fixture",
 ]
 
-[[test]]
-name = "compact_gate"
-required-features = [
-    "cli",
-    "compact-gate",
-    "web-app",
-    "real-world-infra",
-    "test-fixture",
-]
-
-[[test]]
-name = "ipa_with_relaxed_dp"
-required-features = [
-    "cli",
-    "compact-gate",
-    "web-app",
-    "real-world-infra",
-    "test-fixture",
-    "relaxed-dp",
-]
 
 [[test]]
 name = "hybrid"

@@ -3,10 +3,10 @@ mod common;
 use std::{array, path::Path, process::Command};
 
 use common::{
-    spawn_helpers, tempdir::TempDir, test_ipa, test_multiply, test_network, CommandExt,
-    UnwrapStatusExt, HELPER_BIN,
+    spawn_helpers, tempdir::TempDir, test_multiply, test_network, CommandExt, UnwrapStatusExt,
+    HELPER_BIN,
 };
-use ipa_core::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
+use ipa_core::{cli::CliPaths, helpers::HelperIdentity};
 
 use crate::common::{
     test_sharded_network, AddInPrimeField, Multiply, ShardTcpListeners, ShardedShuffle,
@@ -42,25 +42,6 @@ fn http_network_large_input() {
     // 2^31 / (2*sizeof(Fp32BitPrime)) - to exceed the limit for a single chunk on HTTP
     const N: u32 = 268_435_456;
     test_network::<AddInPrimeField<N>>(false);
-}
-
-#[test]
-#[cfg(all(test, web_test))]
-fn http_semi_honest_ipa() {
-    test_ipa(IpaSecurityModel::SemiHonest, false, false);
-}
-
-#[test]
-#[cfg(all(test, web_test))]
-fn https_semi_honest_ipa() {
-    test_ipa(IpaSecurityModel::SemiHonest, true, true);
-}
-
-#[test]
-#[cfg(all(test, web_test))]
-#[ignore]
-fn https_malicious_ipa() {
-    test_ipa(IpaSecurityModel::Malicious, true, true);
 }
 
 #[test]

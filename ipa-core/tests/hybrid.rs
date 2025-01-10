@@ -2,6 +2,9 @@
 #[allow(dead_code)]
 mod common;
 
+const CRYPTO_UTIL_BIN: &str = env!("CARGO_BIN_EXE_crypto_util");
+const TEST_RC_BIN: &str = env!("CARGO_BIN_EXE_report_collector");
+
 use std::{
     fs::File,
     io::{BufReader, Read, Write},
@@ -16,7 +19,7 @@ use bytes::Bytes;
 use command_fds::CommandFdExt;
 use common::{
     spawn_shards, tempdir::TempDir, test_sharded_setup, CommandExt, TerminateOnDropExt,
-    UnwrapStatusExt, CRYPTO_UTIL_BIN, TEST_RC_BIN,
+    UnwrapStatusExt,
 };
 use futures_util::{StreamExt, TryStreamExt};
 use ipa_core::{

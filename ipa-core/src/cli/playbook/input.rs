@@ -7,9 +7,8 @@ use std::{
 };
 
 use crate::{
-    cli::playbook::generator::U128Generator,
-    ff::U128Conversions,
-    test_fixture::{hybrid::TestHybridRecord, ipa::TestRawDataRecord},
+    cli::playbook::generator::U128Generator, ff::U128Conversions,
+    test_fixture::hybrid::TestHybridRecord,
 };
 
 pub trait InputItem {
@@ -35,24 +34,6 @@ impl<I: InputItem> InputItem for (I, I) {
             (I::from_str(left), I::from_str(right))
         } else {
             panic!("{s} is not a valid tuple of input elements");
-        }
-    }
-}
-
-impl InputItem for TestRawDataRecord {
-    fn from_str(s: &str) -> Self {
-        if let [ts, match_key, is_trigger_bit, breakdown_key, trigger_value] =
-            s.splitn(5, ',').collect::<Vec<_>>()[..]
-        {
-            TestRawDataRecord {
-                user_id: match_key.parse().unwrap(),
-                timestamp: ts.parse().unwrap(),
-                is_trigger_report: is_trigger_bit.parse::<u8>().unwrap() == 1,
-                breakdown_key: breakdown_key.parse().unwrap(),
-                trigger_value: trigger_value.parse().unwrap(),
-            }
-        } else {
-            panic!("{s} is not a valid {}", type_name::<Self>())
         }
     }
 }

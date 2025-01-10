@@ -27,9 +27,7 @@ use ipa_core::{
     },
     net::{Helper, IpaHttpClient},
     protocol::QueryId,
-    test_fixture::{
-        EventGenerator, EventGeneratorConfig, HybridEventGenerator, HybridGeneratorConfig,
-    },
+    test_fixture::{HybridEventGenerator, HybridGeneratorConfig},
 };
 use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
 use rand_core::SeedableRng;
@@ -88,20 +86,6 @@ impl From<&CommandInput> for InputSource {
 
 #[derive(Debug, Subcommand)]
 enum ReportCollectorCommand {
-    /// Generate inputs for IPA
-    /// TODO: delete
-    GenIpaInputs {
-        /// Number of records to generate
-        #[clap(long, short = 'n')]
-        count: u32,
-
-        /// The seed for random generator.
-        #[clap(long, short = 's')]
-        seed: Option<u64>,
-
-        #[clap(flatten)]
-        gen_args: EventGeneratorConfig,
-    },
     GenHybridInputs {
         /// Number of records to generate
         #[clap(long, short = 'n')]
@@ -137,15 +121,6 @@ enum ReportCollectorCommand {
         #[clap(long)]
         set_fixed_polling_ms: Option<u64>,
     },
-}
-
-#[derive(Debug, clap::Args)]
-struct GenInputArgs {
-    /// Maximum records per user
-    #[clap(long)]
-    max_per_user: u32,
-    /// number of breakdowns
-    breakdowns: u32,
 }
 
 #[derive(Debug, Parser)]
@@ -189,11 +164,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     match args.action {
-        ReportCollectorCommand::GenIpaInputs {
-            count,
-            seed,
-            gen_args,
-        } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::GenHybridInputs {
             count,
             seed,
@@ -333,32 +303,6 @@ fn gen_hybrid_inputs(
         .unwrap_or_else(StdRng::from_entropy);
     let event_gen = HybridEventGenerator::with_config(rng, args).take(count as usize);
 
-    let mut writer: Box<dyn Write> = if let Some(path) = output_file {
-        Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
-    } else {
-        Box::new(stdout().lock())
-    };
-
-    for event in event_gen {
-        event.to_csv(&mut writer)?;
-        writer.write_all(b"\n")?;
-    }
-
-    Ok(())
-}
-
-fn gen_inputs(
-    count: u32,
-    seed: Option<u64>,
-    output_file: Option<PathBuf>,
-    args: EventGeneratorConfig,
-) -> io::Result<()> {
-    let rng = seed
-        .map(StdRng::seed_from_u64)
-        .unwrap_or_else(StdRng::from_entropy);
-    let event_gen = EventGenerator::with_config(rng, args)
-        .take(count as usize)
-        .collect::<Vec<_>>();
     let mut writer: Box<dyn Write> = if let Some(path) = output_file {
         Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
     } else {
