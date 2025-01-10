@@ -116,6 +116,11 @@ impl HelperResponse {
         serde_json::from_slice(&self.body)
     }
 
+    /// Asynchronously collects and returns a newly created `HelperResponse`.
+    ///
+    /// # Errors
+    ///
+    /// If the `BytesStream` cannot be collected into a `BytesMut`, an error is returned.
     pub async fn from_bytesstream<B: BytesStream>(value: B) -> Result<HelperResponse, BoxError> {
         let bytes: bytes::BytesMut = value.try_collect().await?;
         Ok(Self {

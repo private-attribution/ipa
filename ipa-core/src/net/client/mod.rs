@@ -34,7 +34,7 @@ use crate::{
     executor::IpaRuntime,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        BodyStream, TransportIdentity, WrappedAxumBodyStream,
+        BodyStream, TransportIdentity,
     },
     net::{http_serde, Error, CRYPTO_PROVIDER},
     protocol::{Gate, QueryId},
@@ -385,41 +385,43 @@ impl<F: ConnectionFlavor> IpaHttpClient<F> {
         resp_ok(resp).await
     }
 
-    pub async fn query_status_bytes(&self, query_id: QueryId) -> Result<BodyStream, Error> {
+    /// Sends a query status request and returns the response bytes.
+    ///
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    async fn query_status_impl(&self, query_id: QueryId) -> Result<Bytes, Error> {
         let req = http_serde::query::status::Request::new(query_id);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            //let wabs = WrappedAxumBodyStream::new(resp.inner.into_body());
-            let bytes = response_to_bytes(resp).await?;
-            let bs = BodyStream::from(bytes.to_vec());
-            Ok(bs)
+            Ok(response_to_bytes(resp).await?)
         } else {
             Err(Error::from_failed_resp(resp).await)
         }
     }
-
-    /// Retrieve the status of a query.
+    /// Retrieves the status of a query as a byte stream.
     ///
-    /// ## Errors
+    /// This function calls `query_status_impl` and returns the response bytes as a `BodyStream`.
+    ///
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    pub async fn query_status_bytes(&self, query_id: QueryId) -> Result<BodyStream, Error> {
+        let bytes = self.query_status_impl(query_id).await?;
+        Ok(BodyStream::from(bytes.to_vec()))
+    }
+    /// Retrieves the status of a query.
+    ///
+    /// This function calls `query_status_impl` and deserializes the response bytes into a `QueryStatus` struct.
+    ///
+    /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn query_status(
         &self,
         query_id: QueryId,
     ) -> Result<crate::query::QueryStatus, Error> {
-        let req = http_serde::query::status::Request::new(query_id);
-        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-
-        let resp = self.request(req).await?;
-        if resp.status().is_success() {
-            let bytes = response_to_bytes(resp).await?;
-            let http_serde::query::status::ResponseBody { status } =
-                serde_json::from_slice(&bytes)?;
-            Ok(status)
-        } else {
-            Err(Error::from_failed_resp(resp).await)
-        }
+        let bytes = self.query_status_impl(query_id).await?;
+        let http_serde::query::status::ResponseBody { status } = serde_json::from_slice(&bytes)?;
+        Ok(status)
     }
 }
 

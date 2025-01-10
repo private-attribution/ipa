@@ -15,7 +15,6 @@ use crate::{
         RoleAssignment, RouteParams,
     },
     protocol::QueryId,
-    query::QueryStatus,
 };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]

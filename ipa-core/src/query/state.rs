@@ -6,13 +6,12 @@ use std::{
 };
 
 use ::tokio::sync::oneshot::{error::TryRecvError, Receiver};
-use futures::{ready, FutureExt, TryFutureExt, TryStreamExt};
+use futures::{ready, FutureExt};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::BoxError,
     executor::IpaJoinHandle,
-    helpers::{query::QueryConfig, BytesStream, HelperResponse, RoleAssignment},
+    helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
     query::runner::QueryResult,
     sync::Mutex,

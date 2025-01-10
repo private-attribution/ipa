@@ -61,7 +61,7 @@ pub fn s2s_router(transport: Arc<HttpTransport<Shard>>) -> Router {
         .merge(step::router(Arc::clone(&transport)))
         .merge(prepare::router(Arc::clone(&transport)))
         .merge(status::router(Arc::clone(&transport)))
-        .merge(results::router(Arc::clone(&transport)))
+        .merge(results::router(transport))
         .layer(layer_fn(HelperAuthentication::<_, Shard>::new))
 }
 
