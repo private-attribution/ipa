@@ -310,7 +310,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("One or more peer shards rejected the breadcast: {failures:?}")]
+#[error("One or more peer shards rejected the broadcast request: {failures:?}")]
 pub struct BroadcastError<I: TransportIdentity, E: Debug> {
     pub failures: Vec<(I, E)>,
 }
@@ -325,7 +325,9 @@ impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> 
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
+    /// They type used by [`receive`].
     type RecordsStream: BytesStream;
+    /// The type used for responses to [`send`] and [`broadcast`].
     type SendResponse: BytesStream;
     type Error: Debug + Send;
 
