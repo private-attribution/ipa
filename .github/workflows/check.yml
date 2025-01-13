@@ -191,9 +191,10 @@ jobs:
       - name: Integration Tests - IPA with Relaxed DP
         run: cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 
-  # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
+  # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699,
+  # and are broken on ubuntu 24.04 https://github.com/rust-lang/rust/issues/111073#issuecomment-2561607617
   sanitize:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
