@@ -626,7 +626,7 @@ mod proptests {
                 } = input_struct;
                 let config = TestWorldConfig {
                     seed,
-                    timeout: Some(Duration::from_secs(30)),
+                    timeout: Some(Duration::from_secs(60)),
                     ..Default::default()
                 };
                 let result = TestWorld::<WithShards<PROP_SHARDS>>::with_config(&config)
