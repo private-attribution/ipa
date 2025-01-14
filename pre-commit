@@ -111,22 +111,12 @@ then
   check "Concurrency tests" \
       cargo test -p ipa-core --release --features "shuttle multi-threading"
 
-  check "IPA benchmark" \
-      cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- -n 62 -c 16
-
   check "Arithmetic circuit benchmark" \
       cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
-
-  check "Slow tests: Compact Gate" \
-      cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
   check "Slow tests: Helper Networks" \
       cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
   check "Slow tests: Hybrid tests" \
       cargo test --release --test "hybrid" --no-default-features --features "cli compact-gate web-app real-world-infra test-fixture relaxed-dp"
-
-
-  check "Slow tests: IPA with Relaxed DP" \
-      cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
 fi

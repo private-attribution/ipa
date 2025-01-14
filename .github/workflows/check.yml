@@ -142,9 +142,6 @@ jobs:
       - name: Build concurrency tests (debug mode)
         run: cargo build --features shuttle
 
-      - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features "enable-benches compact-gate"
-
       - name: Run arithmetic bench
         run: cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches compact-gate"
 
@@ -178,9 +175,6 @@ jobs:
 
       - name: Slow Unit Tests
         run: cargo test -p ipa-core --lib -- mpc_proptest semi_honest_with_dp_slow gen_binomial_noise_16_breakdowns
-
-      - name: Integration Tests - Compact Gate
-        run: cargo test --release --test "compact_gate" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
       - name: Integration Tests - Helper Networks
         run: cargo test --release --test "helper_networks" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
