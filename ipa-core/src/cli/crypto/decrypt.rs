@@ -14,7 +14,7 @@ use crate::{
         U128Conversions,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
-    report::{EncryptedOprfReport, EventType, OprfReport},
+    report::{EncryptedOprfReport, EventType, InvalidReportError, OprfReport},
     test_fixture::Reconstruct,
 };
 
@@ -104,54 +104,58 @@ impl DecryptArgs {
         for (dec_report1, (dec_report2, dec_report3)) in
             decrypted_reports1.zip(decrypted_reports2.zip(decrypted_reports3))
         {
-            let timestamp = [
-                dec_report1.timestamp,
-                dec_report2.timestamp,
-                dec_report3.timestamp,
-            ]
-            .reconstruct()
-            .as_u128();
+            if let (Ok(dec_report1), Ok(dec_report2), Ok(dec_report3)) =
+                (dec_report1, dec_report2, dec_report3)
+            {
+                let timestamp = [
+                    dec_report1.timestamp,
+                    dec_report2.timestamp,
+                    dec_report3.timestamp,
+                ]
+                .reconstruct()
+                .as_u128();
 
-            let match_key = [
-                dec_report1.match_key,
-                dec_report2.match_key,
-                dec_report3.match_key,
-            ]
-            .reconstruct()
-            .as_u128();
+                let match_key = [
+                    dec_report1.match_key,
+                    dec_report2.match_key,
+                    dec_report3.match_key,
+                ]
+                .reconstruct()
+                .as_u128();
 
-            // these aren't reconstucted, so we explictly make sure
-            // they are consistent across all three files, then set
-            // it to the first one (without loss of generality)
-            assert_eq!(dec_report1.event_type, dec_report2.event_type);
-            assert_eq!(dec_report2.event_type, dec_report3.event_type);
-            let is_trigger_report = dec_report1.event_type == EventType::Trigger;
+                // these aren't reconstucted, so we explictly make sure
+                // they are consistent across all three files, then set
+                // it to the first one (without loss of generality)
+                assert_eq!(dec_report1.event_type, dec_report2.event_type);
+                assert_eq!(dec_report2.event_type, dec_report3.event_type);
+                let is_trigger_report = dec_report1.event_type == EventType::Trigger;
 
-            let breakdown_key = [
-                dec_report1.breakdown_key,
-                dec_report2.breakdown_key,
-                dec_report3.breakdown_key,
-            ]
-            .reconstruct()
-            .as_u128();
+                let breakdown_key = [
+                    dec_report1.breakdown_key,
+                    dec_report2.breakdown_key,
+                    dec_report3.breakdown_key,
+                ]
+                .reconstruct()
+                .as_u128();
 
-            let trigger_value = [
-                dec_report1.trigger_value,
-                dec_report2.trigger_value,
-                dec_report3.trigger_value,
-            ]
-            .reconstruct()
-            .as_u128();
+                let trigger_value = [
+                    dec_report1.trigger_value,
+                    dec_report2.trigger_value,
+                    dec_report3.trigger_value,
+                ]
+                .reconstruct()
+                .as_u128();
 
-            writeln!(
-                writer,
-                "{},{},{},{},{}",
-                timestamp,
-                match_key,
-                u8::from(is_trigger_report),
-                breakdown_key,
-                trigger_value,
-            )?;
+                writeln!(
+                    writer,
+                    "{},{},{},{},{}",
+                    timestamp,
+                    match_key,
+                    u8::from(is_trigger_report),
+                    breakdown_key,
+                    trigger_value,
+                )?;
+            }
         }
 
         Ok(())
@@ -159,22 +163,34 @@ impl DecryptArgs {
 }
 
 struct DecryptedReports {
+    filename: PathBuf,
     reader: BufReader<File>,
     key_registry: KeyRegistry<PrivateKeyOnly>,
+    iter_index: usize,
 }
 
 impl Iterator for DecryptedReports {
-    type Item = OprfReport<BA8, BA3, BA20>;
+    type Item = Result<OprfReport<BA8, BA3, BA20>, InvalidReportError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut line = String::new();
         if self.reader.read_line(&mut line).unwrap() > 0 {
+            self.iter_index += 1;
             let encrypted_report_bytes = hex::decode(line.trim()).unwrap();
             let enc_report =
                 EncryptedOprfReport::from_bytes(encrypted_report_bytes.as_slice()).unwrap();
-            let dec_report: OprfReport<BA8, BA3, BA20> =
-                enc_report.decrypt(&self.key_registry).unwrap();
-            Some(dec_report)
+            let dec_report = enc_report.decrypt(&self.key_registry);
+            match dec_report {
+                Ok(dec_report) => Some(Ok(dec_report)),
+                Err(e) => {
+                    eprintln!(
+                        "Decryption failed: File: {0}. Record: {1}. Error: {e}.",
+                        self.filename.display(),
+                        self.iter_index
+                    );
+                    Some(Err(e))
+                }
+            }
         } else {
             None
         }
@@ -187,8 +203,10 @@ impl DecryptedReports {
             .unwrap_or_else(|e| panic!("unable to open file {filename:?}. {e}"));
         let reader = BufReader::new(file);
         Self {
+            filename: filename.clone(),
             reader,
             key_registry,
+            iter_index: 0,
         }
     }
 }
@@ -203,6 +221,10 @@ async fn build_hpke_registry(
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs::File,
+        io::{BufRead, BufReader},
+    };
 
     use tempfile::tempdir;
 
@@ -240,7 +262,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic = "called `Result::unwrap()` on an `Err` value: Crypt(Other)"]
     async fn decrypt_bad_private_key() {
         let input_file = sample_data::write_csv(sample_data::test_ipa_data().take(10)).unwrap();
 
@@ -274,5 +295,9 @@ mod tests {
         .decrypt_and_reconstruct()
         .await
         .unwrap();
+
+        let file = File::open(decrypt_output).unwrap();
+        let reader = BufReader::new(file);
+        assert_eq!(reader.lines().count(), 0);
     }
 }
