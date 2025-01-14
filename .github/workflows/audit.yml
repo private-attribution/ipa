@@ -24,6 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: cargo audit
-        run: |
-          cargo audit
+      - uses: dtolnay/rust-toolchain@stable
+        id: rust-toolchain
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-${{ steps.rust-toolchain.outputs.cachekey }}-audit
+
+      - uses: rustsec/audit-check@v1.4.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
