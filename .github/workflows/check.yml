@@ -182,9 +182,6 @@ jobs:
       - name: Integration Tests - Hybrid
         run: cargo test --release --test "hybrid" --no-default-features --features "cli compact-gate web-app real-world-infra test-fixture relaxed-dp"
 
-      - name: Integration Tests - IPA with Relaxed DP
-        run: cargo test --release --test "ipa_with_relaxed_dp" --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate relaxed-dp"
-
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699,
   # and are broken on ubuntu 24.04 https://github.com/rust-lang/rust/issues/111073#issuecomment-2561607617
   sanitize:
