@@ -1376,14 +1376,9 @@ mod tests {
         use super::*;
         use crate::{
             error::BoxError,
-            ff::{
-                boolean_array::{BA20, BA3, BA8},
-                Fp31, U128Conversions,
-            },
-            helpers::query::{IpaQueryConfig, QueryType},
-            protocol::ipa_prf::OPRFIPAInputRow,
+            ff::{Fp31, U128Conversions},
             secret_sharing::replicated::semi_honest,
-            test_fixture::{ipa::TestRawDataRecord, Reconstruct, TestApp},
+            test_fixture::{Reconstruct, TestApp},
         };
 
         #[tokio::test]
@@ -1428,82 +1423,6 @@ mod tests {
                 &[Fp31::truncate_from(20u128)] as &[_],
                 results.reconstruct()
             );
-
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn complete_query_ipa() -> Result<(), BoxError> {
-            let app = TestApp::default();
-            ipa_query(&app).await
-        }
-
-        #[tokio::test]
-        async fn complete_query_twice() -> Result<(), BoxError> {
-            let app = TestApp::default();
-            ipa_query(&app).await?;
-            ipa_query(&app).await
-        }
-
-        async fn ipa_query(app: &TestApp) -> Result<(), BoxError> {
-            let records = vec![
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 2,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 68362,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 5,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 68362,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 2,
-                },
-            ];
-            let record_count = records.len();
-
-            let _results = app
-                // Achtung: OPRF IPA executor assumes BA8, BA3, BA20 to be the encodings of
-                // inputs - using anything else will lead to a padding error.
-                .execute_query::<_, Vec<OPRFIPAInputRow<BA8, BA3, BA20>>>(
-                    records.into_iter(),
-                    QueryConfig {
-                        size: record_count.try_into().unwrap(),
-                        field_type: FieldType::Fp31,
-                        query_type: QueryType::SemiHonestOprfIpa(IpaQueryConfig {
-                            per_user_credit_cap: 8,
-                            max_breakdown_key: 3,
-                            attribution_window_seconds: None,
-                            with_dp: 0,
-                            epsilon: 5.0,
-                            plaintext_match_keys: true,
-                        }),
-                    },
-                )
-                .await?;
 
             Ok(())
         }

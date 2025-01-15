@@ -25,12 +25,11 @@ use crate::{
         boolean::step::EightBitStep,
         context::{Context, ShardedContext},
         ipa_prf::shuffle::{
-            base::shuffle_protocol,
             sharded::{
                 h1_shuffle_for_shard, h2_shuffle_for_shard, h3_shuffle_for_shard,
                 MaliciousShuffleable, ShuffleShare, Shuffleable,
             },
-            step::{OPRFShuffleStep, ShardedShuffleStep, VerifyShuffleStep},
+            step::{ShardedShuffleStep, VerifyShuffleStep},
             IntermediateShuffleMessages,
         },
         prss::SharedRandomness,
@@ -80,48 +79,6 @@ impl<S: ShuffleShare + SharedValue> From<Pair<S>> for AdditiveShare<S> {
     fn from(value: Pair<S>) -> Self {
         ReplicatedSecretSharing::new(value.left, value.right)
     }
-}
-
-/// This function executes the maliciously secure shuffle protocol on the input: `shares`.
-///
-/// ## Errors
-/// Propagates network, multiplication and conversion errors from sub functions.
-///
-/// ## Panics
-/// Panics when `S::Bits + 32 != B::Bits` or type conversions fail.
-pub(super) async fn malicious_shuffle<C, S>(ctx: C, shares: Vec<S>) -> Result<Vec<S>, Error>
-where
-    C: Context,
-    S: MaliciousShuffleable,
-{
-    // assert lengths
-    assert_eq!(S::Share::BITS + 32, <S::ShareAndTag as ShuffleShare>::BITS);
-    // compute amount of MAC keys
-    let amount_of_keys: usize = (usize::try_from(S::Share::BITS).unwrap() + 31) / 32;
-    // // generate MAC keys
-    let keys = (0..amount_of_keys)
-        .map(|i| ctx.prss().generate(RecordId::from(i)))
-        .collect::<Vec<AdditiveShare<Gf32Bit>>>();
-
-    // compute and append tags to rows
-    let shares_and_tags: Vec<Pair<S::ShareAndTag>> =
-        compute_and_add_tags(ctx.narrow(&OPRFShuffleStep::GenerateTags), &keys, shares).await?;
-
-    // shuffle
-    let (shuffled_shares, messages) = shuffle_protocol(ctx.clone(), shares_and_tags).await?;
-
-    // verify the shuffle
-    verify_shuffle::<_, S>(
-        ctx.narrow(&OPRFShuffleStep::VerifyShuffle),
-        &keys,
-        shuffled_shares.as_slice(),
-        messages,
-    )
-    .await?;
-
-    // truncate tags from output_shares
-    // verify_shuffle ensures that truncate_tags yields the correct rows
-    Ok(truncate_tags(&shuffled_shares))
 }
 
 async fn setup_keys<C>(ctx: C, amount_of_keys: usize) -> Result<Vec<AdditiveShare<Gf32Bit>>, Error>
@@ -600,14 +557,13 @@ mod tests {
     use super::*;
     use crate::{
         ff::{
-            boolean_array::{BA112, BA144, BA32, BA64},
+            boolean_array::{BA112, BA144, BA32},
             Serializable, U128Conversions,
         },
         helpers::{
             in_memory_config::{MaliciousHelper, MaliciousHelperContext},
             Role,
         },
-        protocol::ipa_prf::shuffle::base::shuffle_protocol,
         secret_sharing::{IntoShares, SharedValue},
         test_executor::{run, run_random},
         test_fixture::{
@@ -636,7 +592,7 @@ mod tests {
 
                     // compute and append tags to rows
                     let shares_and_tags: Vec<AdditiveShare<BA144>> = compute_and_add_tags(
-                        ctx.narrow(&OPRFShuffleStep::GenerateTags),
+                        ctx.narrow(&ShardedShuffleStep::GenerateTags),
                         &keys,
                         vec![record],
                     )
@@ -668,94 +624,6 @@ mod tests {
             ))
             .unwrap();
             assert_eq!(tag, tag_mpc[0]);
-        });
-    }
-
-    /// This test checks the correctness of the malicious shuffle.
-    /// It does not check the security against malicious behavior.
-    #[test]
-    fn check_shuffle_correctness() {
-        const RECORD_AMOUNT: usize = 10;
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-            let mut records = (0..RECORD_AMOUNT)
-                .map(|_| rng.gen())
-                .collect::<Vec<BA112>>();
-
-            let mut result = world
-                .semi_honest(records.clone().into_iter(), |ctx, records| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA112>>(ctx, records)
-                        .await
-                        .unwrap()
-                })
-                .await
-                .reconstruct();
-
-            records.sort_by_key(BA112::as_u128);
-            result.sort_by_key(BA112::as_u128);
-
-            assert_eq!(records, result);
-        });
-    }
-
-    #[test]
-    fn empty() {
-        run(|| async {
-            assert_eq!(
-                TestWorld::default()
-                    .semi_honest(iter::empty::<BA32>(), |ctx, records| async move {
-                        malicious_shuffle(ctx, records).await.unwrap()
-                    })
-                    .await
-                    .reconstruct(),
-                Vec::<BA32>::new(),
-            );
-        });
-    }
-
-    /// This test checks the correctness of the malicious shuffle
-    /// when all parties behave honestly
-    /// and all the MAC keys are `Gf32Bit::ONE`.
-    /// Further, each row consists of a `BA32` and a `BA32` tag.
-    #[test]
-    fn check_shuffle_with_simple_mac() {
-        const RECORD_AMOUNT: usize = 10;
-        run(|| async {
-            let world = TestWorld::default();
-            let mut rng = world.rng();
-            let records = (0..RECORD_AMOUNT)
-                .map(|_| {
-                    let entry = rng.gen::<[u8; 4]>();
-                    let mut entry_and_tag = [0u8; 8];
-                    entry_and_tag[0..4].copy_from_slice(&entry);
-                    entry_and_tag[4..8].copy_from_slice(&entry);
-                    BA64::deserialize_from_slice(&entry_and_tag)
-                })
-                .collect::<Vec<BA64>>();
-
-            let _ = world
-                .semi_honest(records.into_iter(), |ctx, rows| async move {
-                    // trivial shares of Gf32Bit::ONE
-                    let key_shares = vec![ReplicatedSecretSharing::new(Gf32Bit::ONE, Gf32Bit::ONE)];
-                    // run shuffle
-                    let (shares, messages) =
-                        shuffle_protocol(ctx.narrow("shuffle"), rows).await.unwrap();
-                    // verify it
-                    verify_shuffle::<_, AdditiveShare<BA32>>(
-                        ctx.narrow("verify"),
-                        &key_shares,
-                        shares
-                            .into_iter()
-                            .map(Pair::from)
-                            .collect::<Vec<_>>()
-                            .as_slice(),
-                        messages,
-                    )
-                    .await
-                    .unwrap();
-                })
-                .await;
         });
     }
 
@@ -856,7 +724,7 @@ mod tests {
                         let mac_key: Vec<AdditiveShare<Gf32Bit>> =
                             key_shares.to_gf32bit().unwrap().collect::<Vec<_>>();
                         compute_and_add_tags(
-                            ctx.narrow(&OPRFShuffleStep::GenerateTags),
+                            ctx.narrow(&ShardedShuffleStep::GenerateTags),
                             &mac_key,
                             row_shares,
                         )
@@ -940,97 +808,6 @@ mod tests {
         {
             data[0] ^= 1u8;
         }
-    }
-
-    /// This test checks that the malicious shuffle fails
-    /// under a simple bit flip attack by H1.
-    ///
-    /// `x2` will be inconsistent which is checked by `H2`.
-    #[test]
-    #[should_panic(expected = "X2 is inconsistent")]
-    fn fail_under_bit_flip_attack_on_x2() {
-        const RECORD_AMOUNT: usize = 10;
-
-        run(move || async move {
-            let mut config = TestWorldConfig::default();
-            config.stream_interceptor =
-                MaliciousHelper::new(Role::H1, config.role_assignment(), move |ctx, data| {
-                    interceptor_h1_to_h2(ctx, None, data);
-                });
-
-            let world = TestWorld::new_with(config);
-            let mut rng = world.rng();
-            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
-            let [_, h2, _] = world
-                .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
-                })
-                .await;
-
-            let _ = h2.unwrap();
-        });
-    }
-
-    /// This test checks that the malicious shuffle fails
-    /// under a simple bit flip attack by H2.
-    ///
-    /// `y1` will be inconsistent which is checked by `H1`.
-    #[test]
-    #[should_panic(expected = "Y1 is inconsistent")]
-    fn fail_under_bit_flip_attack_on_y1() {
-        const RECORD_AMOUNT: usize = 10;
-
-        run(move || async move {
-            let mut config = TestWorldConfig::default();
-            config.stream_interceptor =
-                MaliciousHelper::new(Role::H2, config.role_assignment(), move |ctx, data| {
-                    interceptor_h2_to_h3(ctx, None, data);
-                });
-
-            let world = TestWorld::new_with(config);
-            let mut rng = world.rng();
-            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
-            let [h1, _, _] = world
-                .malicious(records.into_iter(), |ctx, shares| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
-                })
-                .await;
-            let _ = h1.unwrap();
-        });
-    }
-
-    /// This test checks that the malicious shuffle fails
-    /// under a simple bit flip attack by H3.
-    ///
-    /// `c` from `H2` will be inconsistent
-    /// which is checked by `H1`.
-    #[test]
-    #[should_panic(expected = "C from H2 is inconsistent")]
-    fn fail_under_bit_flip_attack_on_c() {
-        const RECORD_AMOUNT: usize = 10;
-
-        run(move || async move {
-            let mut config = TestWorldConfig::default();
-            config.stream_interceptor =
-                MaliciousHelper::new(Role::H3, config.role_assignment(), move |ctx, data| {
-                    interceptor_h3_to_h2(ctx, None, data);
-                });
-
-            let world = TestWorld::new_with(config);
-            let mut rng = world.rng();
-            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
-            let [h1, h2, _] = world
-                .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    malicious_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
-                })
-                .await;
-
-            // x2 should be consistent with y2
-            let _ = h2.unwrap();
-
-            // but this should fail
-            let _ = h1.unwrap();
-        });
     }
 
     #[test]

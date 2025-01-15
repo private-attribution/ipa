@@ -1,4 +1,3 @@
-pub mod input;
 mod sharing;
 #[cfg(feature = "in-memory-infra")]
 mod world;
@@ -10,10 +9,8 @@ mod app;
 
 #[cfg(feature = "in-memory-infra")]
 pub mod circuit;
-mod event_gen;
 pub mod hybrid;
 pub mod hybrid_event_gen;
-pub mod ipa;
 pub mod logging;
 pub mod metrics;
 #[cfg(feature = "in-memory-infra")]
@@ -25,7 +22,6 @@ use std::{fmt::Debug, future::Future};
 
 #[cfg(feature = "in-memory-infra")]
 pub use app::TestApp;
-pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
 use futures::{FutureExt, TryFuture};
 pub use hybrid_event_gen::{
     Config as HybridGeneratorConfig, EventGenerator as HybridEventGenerator,

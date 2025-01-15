@@ -329,22 +329,6 @@ pub fn expand_shared_array_in_place<YS: BooleanArray, XS: BooleanArray>(
     }
 }
 
-// This function extracts shares of a small array from the larger array
-pub fn extract_from_shared_array<YS: BooleanArray, XS: BooleanArray>(
-    y: &AdditiveShare<YS>,
-    offset: usize,
-) -> AdditiveShare<XS> {
-    let mut x = AdditiveShare::<XS>::ZERO;
-    for i in 0..XS::BITS as usize {
-        ArrayAccess::set(
-            &mut x,
-            i,
-            ArrayAccess::get(y, i + offset).unwrap_or(AdditiveShare::<Boolean>::ZERO),
-        );
-    }
-    x
-}
-
 /// inserts a smaller array into a larger
 /// allows conversion between Boolean Array types like 'BA64' and 'BA256'
 /// we don't use it right except for testing purposes
@@ -381,7 +365,8 @@ mod tests {
         helpers::stream::process_slice_by_chunks,
         protocol::{
             context::{dzkp_validator::DZKPValidator, UpgradableContext, TEST_DZKP_STEPS},
-            ipa_prf::{conv_proof_chunk, CONV_CHUNK, PRF_CHUNK},
+            hybrid::oprf::conv_proof_chunk,
+            ipa_prf::{CONV_CHUNK, PRF_CHUNK},
         },
         rand::thread_rng,
         secret_sharing::SharedValue,

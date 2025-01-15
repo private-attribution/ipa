@@ -34,7 +34,6 @@ pub fn router(transport: MpcHttpTransport) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::num::NonZeroU32;
 
     use axum::body::Body;
     use hyper::{
@@ -46,7 +45,7 @@ mod tests {
         ff::FieldType,
         helpers::{
             make_owned_handler,
-            query::{IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
+            query::{PrepareQuery, QueryConfig, QueryType},
             routing::RouteId,
             HelperResponse, Role, RoleAssignment,
         },
@@ -83,83 +82,6 @@ mod tests {
     #[tokio::test]
     async fn create_test_multiply() {
         create_test(QueryConfig::new(QueryType::TestMultiply, FieldType::Fp31, 1).unwrap()).await;
-    }
-
-    #[tokio::test]
-    async fn create_test_ipa_no_attr_window() {
-        create_test(
-            QueryConfig::new(
-                QueryType::SemiHonestOprfIpa(IpaQueryConfig {
-                    per_user_credit_cap: 1,
-                    max_breakdown_key: 1,
-                    attribution_window_seconds: None,
-                    with_dp: 0,
-                    epsilon: 5.0,
-                    plaintext_match_keys: true,
-                }),
-                FieldType::Fp32BitPrime,
-                1,
-            )
-            .unwrap(),
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn create_test_semi_honest_ipa_no_attr_window_with_dp_default_padding() {
-        create_test(
-            QueryConfig::new(
-                QueryType::SemiHonestOprfIpa(IpaQueryConfig {
-                    per_user_credit_cap: 8,
-                    max_breakdown_key: 20,
-                    attribution_window_seconds: None,
-                    with_dp: 1,
-                    epsilon: 5.0,
-                    plaintext_match_keys: true,
-                }),
-                FieldType::Fp32BitPrime,
-                1,
-            )
-            .unwrap(),
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn create_test_malicious_ipa_no_attr_window_with_dp_default_padding() {
-        create_test(
-            QueryConfig::new(
-                QueryType::MaliciousOprfIpa(IpaQueryConfig {
-                    per_user_credit_cap: 8,
-                    max_breakdown_key: 20,
-                    attribution_window_seconds: None,
-                    with_dp: 1,
-                    epsilon: 5.0,
-                    plaintext_match_keys: true,
-                }),
-                FieldType::Fp32BitPrime,
-                1,
-            )
-            .unwrap(),
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn create_test_ipa_with_attr_window() {
-        create_test(QueryConfig {
-            size: 1.try_into().unwrap(),
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::SemiHonestOprfIpa(IpaQueryConfig {
-                per_user_credit_cap: 1,
-                max_breakdown_key: 1,
-                attribution_window_seconds: NonZeroU32::new(86_400),
-                with_dp: 0,
-                epsilon: 5.0,
-                plaintext_match_keys: true,
-            }),
-        })
-        .await;
     }
 
     struct OverrideReq {
@@ -257,7 +179,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 field_type: format!("{:?}", FieldType::Fp32BitPrime),
-                query_type: QueryType::SEMI_HONEST_OPRF_IPA_STR.to_string(),
+                query_type: QueryType::TEST_MULTIPLY_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
@@ -280,33 +202,6 @@ mod tests {
     async fn malformed_query_type_ipa() {
         let req = OverrideIPAReq {
             query_type: "not_ipa".into(),
-            ..Default::default()
-        };
-        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_per_user_credit_cap_ipa() {
-        let req = OverrideIPAReq {
-            per_user_credit_cap: "-1".into(),
-            ..Default::default()
-        };
-        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_max_breakdown_key_ipa() {
-        let req = OverrideIPAReq {
-            max_breakdown_key: "-1".into(),
-            ..Default::default()
-        };
-        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_attribution_window_seconds_ipa() {
-        let req = OverrideIPAReq {
-            attribution_window_seconds: Some("-1".to_string()),
             ..Default::default()
         };
         assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;

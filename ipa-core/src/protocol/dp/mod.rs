@@ -20,11 +20,11 @@ use crate::{
             UpgradableContext,
         },
         dp::step::{ApplyDpNoise, DPStep},
+        hybrid::step::HybridStep,
         ipa_prf::{
             aggregation::{aggregate_values, aggregate_values_proof_chunk},
             boolean_ops::addition_sequential::integer_add,
             oprf_padding::insecure::OPRFPaddingDp,
-            step::IpaPrfStep,
         },
         prss::{FromPrss, SharedRandomness},
         BooleanProtocols, RecordId,
@@ -243,8 +243,8 @@ where
         for<'a> TransposeFrom<&'a [Replicated<OV>; B], Error = Infallible>,
 {
     let steps = MaliciousProtocolSteps {
-        protocol: &IpaPrfStep::DifferentialPrivacy,
-        validate: &IpaPrfStep::DifferentialPrivacyValidate,
+        protocol: &HybridStep::DifferentialPrivacy,
+        validate: &HybridStep::DifferentialPrivacyValidate,
     };
     match dp_params {
         DpMechanism::NoDp => Ok(Vec::transposed_from(&histogram_bin_values)?),

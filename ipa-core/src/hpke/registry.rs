@@ -2,7 +2,8 @@ use std::ops::Deref;
 
 use hpke::Serializable;
 
-use super::{IpaPrivateKey, IpaPublicKey, KeyIdentifier};
+use super::{IpaPrivateKey, IpaPublicKey};
+use crate::report::hybrid::KeyIdentifier;
 
 /// A pair of secret key and public key. Public keys used by UA to encrypt the data towards helpers
 /// secret keys used by helpers to open the ciphertexts. Each helper needs access to both

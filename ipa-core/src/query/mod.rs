@@ -10,5 +10,4 @@ pub use processor::{
     NewQueryError, PrepareQueryError, Processor as QueryProcessor, QueryCompletionError,
     QueryInputError, QueryKillStatus, QueryKilled, QueryStatusError,
 };
-pub use runner::OprfIpaQuery;
 pub use state::{min_status, QueryStatus};

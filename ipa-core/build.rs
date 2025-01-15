@@ -19,7 +19,6 @@ track_steps!(
         hybrid::step,
         ipa_prf::{
             boolean_ops::step,
-            prf_sharding::step,
             shuffle::step,
             aggregation::step,
             oprf_padding::step,

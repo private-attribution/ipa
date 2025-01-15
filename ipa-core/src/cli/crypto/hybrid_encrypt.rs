@@ -360,7 +360,7 @@ mod tests {
 
     use crate::{
         cli::{
-            crypto::{hybrid_encrypt::HybridEncryptArgs, sample_data},
+            crypto::{hybrid_encrypt::HybridEncryptArgs, hybrid_sample_data},
             CsvSerializer,
         },
         test_fixture::hybrid::TestHybridRecord,
@@ -404,7 +404,7 @@ mod tests {
 
         let output_dir_1 = tempdir().unwrap();
         let output_dir_2 = tempdir().unwrap();
-        let network_file = sample_data::test_keys().network_config();
+        let network_file = hybrid_sample_data::test_keys().network_config();
 
         HybridEncryptArgs::new(
             input_file.path(),
@@ -427,7 +427,8 @@ mod tests {
     #[test]
     #[should_panic = "Failed to open network file:"]
     fn encrypt_no_network_file() {
-        let input_file = sample_data::write_csv(sample_data::test_ipa_data().take(10)).unwrap();
+        let input_file =
+            hybrid_sample_data::write_csv(hybrid_sample_data::test_hybrid_data().take(10)).unwrap();
 
         let output_dir = tempdir().unwrap();
         let network_dir = tempdir().unwrap();
@@ -440,7 +441,8 @@ mod tests {
     #[test]
     #[should_panic = "TOML parse error at"]
     fn encrypt_bad_network_file() {
-        let input_file = sample_data::write_csv(sample_data::test_ipa_data().take(10)).unwrap();
+        let input_file =
+            hybrid_sample_data::write_csv(hybrid_sample_data::test_hybrid_data().take(10)).unwrap();
         let output_dir = tempdir().unwrap();
         let network_data = r"
 this is not toml!
@@ -463,7 +465,8 @@ this is not toml!
     #[test]
     #[should_panic(expected = "Failed to parse network file into toml")]
     fn encrypt_incomplete_network_file() {
-        let input_file = sample_data::write_csv(sample_data::test_ipa_data().take(10)).unwrap();
+        let input_file =
+            hybrid_sample_data::write_csv(hybrid_sample_data::test_hybrid_data().take(10)).unwrap();
 
         let output_dir = tempdir().unwrap();
         let network_data = r#"

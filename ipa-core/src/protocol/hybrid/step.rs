@@ -19,6 +19,10 @@ pub(crate) enum HybridStep {
     GroupBySum,
     #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
     GroupBySumValidate,
+    #[step(child = crate::protocol::dp::step::DPStep, name = "dp")]
+    DifferentialPrivacy,
+    #[step(child = crate::protocol::context::step::DzkpValidationProtocolStep)]
+    DifferentialPrivacyValidate,
     #[step(child = AggregationStep)]
     Aggregate,
     #[step(child = FinalizeSteps)]

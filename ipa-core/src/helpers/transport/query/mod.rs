@@ -275,8 +275,6 @@ pub enum QueryType {
     TestAddInPrimeField,
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestShardedShuffle,
-    SemiHonestOprfIpa(IpaQueryConfig),
-    MaliciousOprfIpa(IpaQueryConfig),
     MaliciousHybrid(HybridQueryParams),
 }
 
@@ -285,8 +283,6 @@ impl QueryType {
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
     pub const TEST_ADD_STR: &'static str = "test-add";
     pub const TEST_SHARDED_SHUFFLE_STR: &'static str = "test-sharded-shuffle";
-    pub const SEMI_HONEST_OPRF_IPA_STR: &'static str = "semi-honest-oprf-ipa";
-    pub const MALICIOUS_OPRF_IPA_STR: &'static str = "malicious-oprf-ipa";
     pub const MALICIOUS_HYBRID_STR: &'static str = "malicious-hybrid";
 }
 
@@ -300,8 +296,6 @@ impl AsRef<str> for QueryType {
             QueryType::TestAddInPrimeField => Self::TEST_ADD_STR,
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestShardedShuffle => Self::TEST_SHARDED_SHUFFLE_STR,
-            QueryType::SemiHonestOprfIpa(_) => Self::SEMI_HONEST_OPRF_IPA_STR,
-            QueryType::MaliciousOprfIpa(_) => Self::MALICIOUS_OPRF_IPA_STR,
             QueryType::MaliciousHybrid(_) => Self::MALICIOUS_HYBRID_STR,
         }
     }

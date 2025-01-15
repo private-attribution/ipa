@@ -13,28 +13,20 @@ use crate::{
     error,
     error::Error,
     ff::{
-        boolean::Boolean,
         boolean_array::{BooleanArray, BA32, BA64},
         U128Conversions,
     },
     helpers::{Direction, Role, TotalRecords},
     protocol::{
         context::{prss::InstrumentedSequentialSharedRandomness, Context},
-        ipa_prf::{
-            oprf_padding::{
-                insecure::OPRFPaddingDp,
-                step::{PaddingDpStep, SendTotalRows},
-            },
-            prf_sharding::AttributionOutputs,
-            OPRFIPAInputRow,
+        ipa_prf::oprf_padding::{
+            insecure::OPRFPaddingDp,
+            step::{PaddingDpStep, SendTotalRows},
         },
         RecordId,
     },
     report::hybrid::IndistinguishableHybridReport,
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        SharedValue,
-    },
+    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
 
 /// Parameter struct for padding parameters.
@@ -274,148 +266,6 @@ where
     }
 }
 
-impl<BK, TV, TS> Paddable for OPRFIPAInputRow<BK, TV, TS>
-where
-    BK: BooleanArray + U128Conversions,
-    TV: BooleanArray,
-    TS: BooleanArray,
-{
-    fn add_padding_items<V: Extend<Self>, const B: usize>(
-        direction_to_excluded_helper: Direction,
-        padding_input_rows: &mut V,
-        padding_params: &PaddingParameters,
-        rng: &mut InstrumentedSequentialSharedRandomness,
-    ) -> Result<u32, Error> {
-        let mut total_number_of_fake_rows = 0;
-        match padding_params.oprf_padding {
-            OPRFPadding::NoOPRFPadding => {}
-            OPRFPadding::Parameters {
-                oprf_epsilon,
-                oprf_delta,
-                matchkey_cardinality_cap,
-                oprf_padding_sensitivity,
-            } => {
-                let oprf_padding =
-                    OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity)?;
-                for cardinality in 1..=matchkey_cardinality_cap {
-                    let sample = oprf_padding.sample(rng);
-                    total_number_of_fake_rows += sample * cardinality;
-
-                    // this means there will be `sample` many unique
-                    // matchkeys to add each with cardinality = `cardinality`
-                    for _ in 0..sample {
-                        let dummy_mk: BA64 = rng.gen();
-                        for _ in 0..cardinality {
-                            let match_key_shares = match direction_to_excluded_helper {
-                                Direction::Left => AdditiveShare::new(BA64::ZERO, dummy_mk),
-                                Direction::Right => AdditiveShare::new(dummy_mk, BA64::ZERO),
-                            };
-                            let row = OPRFIPAInputRow {
-                                match_key: match_key_shares,
-                                is_trigger: AdditiveShare::new(Boolean::FALSE, Boolean::FALSE),
-                                breakdown_key: AdditiveShare::new(BK::ZERO, BK::ZERO),
-                                trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
-                                timestamp: AdditiveShare::new(TS::ZERO, TS::ZERO),
-                            };
-                            padding_input_rows.extend(std::iter::once(row));
-                        }
-                    }
-                }
-            }
-        }
-        Ok(total_number_of_fake_rows)
-    }
-
-    fn add_zero_shares<V: Extend<Self>>(
-        padding_input_rows: &mut V,
-        total_number_of_fake_rows: u32,
-    ) {
-        for _ in 0..total_number_of_fake_rows as usize {
-            let row = OPRFIPAInputRow {
-                match_key: AdditiveShare::new(BA64::ZERO, BA64::ZERO),
-                is_trigger: AdditiveShare::new(Boolean::FALSE, Boolean::FALSE),
-                breakdown_key: AdditiveShare::new(BK::ZERO, BK::ZERO),
-                trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
-                timestamp: AdditiveShare::new(TS::ZERO, TS::ZERO),
-            };
-
-            padding_input_rows.extend(std::iter::once(row));
-        }
-    }
-}
-
-impl<BK, TV> Paddable for AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>
-where
-    BK: BooleanArray + U128Conversions,
-    TV: BooleanArray,
-{
-    fn add_padding_items<V: Extend<Self>, const B: usize>(
-        direction_to_excluded_helper: Direction,
-        padding_input_rows: &mut V,
-        padding_params: &PaddingParameters,
-        rng: &mut InstrumentedSequentialSharedRandomness,
-    ) -> Result<u32, Error> {
-        // padding for aggregation
-        let mut total_number_of_fake_rows = 0;
-        match padding_params.aggregation_padding {
-            AggregationPadding::NoAggPadding => {}
-            AggregationPadding::Parameters {
-                aggregation_epsilon,
-                aggregation_delta,
-                aggregation_padding_sensitivity,
-            } => {
-                let aggregation_padding = OPRFPaddingDp::new(
-                    aggregation_epsilon,
-                    aggregation_delta,
-                    aggregation_padding_sensitivity,
-                )?;
-                let num_breakdowns: u32 = u32::try_from(B).unwrap();
-                // for every breakdown, sample how many dummies will be added
-                for breakdownkey in 0..num_breakdowns {
-                    let sample = aggregation_padding.sample(rng);
-                    total_number_of_fake_rows += sample;
-
-                    // now add `sample` many fake rows with this `breakdownkey`
-                    for _ in 0..sample {
-                        let breakdownkey_shares = match direction_to_excluded_helper {
-                            Direction::Left => AdditiveShare::new(
-                                BK::ZERO,
-                                BK::truncate_from(u128::from(breakdownkey)),
-                            ),
-                            Direction::Right => AdditiveShare::new(
-                                BK::truncate_from(u128::from(breakdownkey)),
-                                BK::ZERO,
-                            ),
-                        };
-
-                        let row = AttributionOutputs {
-                            attributed_breakdown_key_bits: breakdownkey_shares,
-                            capped_attributed_trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
-                        };
-
-                        padding_input_rows.extend(std::iter::once(row));
-                    }
-                }
-            }
-        }
-        Ok(total_number_of_fake_rows)
-    }
-
-    fn add_zero_shares<V: Extend<Self>>(
-        padding_input_rows: &mut V,
-        total_number_of_fake_rows: u32,
-    ) {
-        for _ in 0..total_number_of_fake_rows as usize {
-            let row = AttributionOutputs {
-                attributed_breakdown_key_bits: AdditiveShare::new(BK::ZERO, BK::ZERO),
-                capped_attributed_trigger_value: AdditiveShare::new(TV::ZERO, TV::ZERO),
-            };
-
-            padding_input_rows.extend(std::iter::once(row));
-        }
-    }
-}
-
 /// # Errors
 /// Will propagate errors from `apply_dp_padding_pass`
 #[tracing::instrument(name = "apply_dp_padding", skip_all)]
@@ -554,47 +404,21 @@ mod tests {
     use crate::{
         error::Error,
         ff::{
-            boolean_array::{BooleanArray, BA20, BA3, BA32, BA8},
+            boolean_array::{BooleanArray, BA3, BA32, BA8},
             U128Conversions,
         },
         helpers::{Direction, Role, TotalRecords},
         protocol::{
             context::Context,
-            ipa_prf::{
-                oprf_padding::{
-                    apply_dp_padding_pass, insecure, insecure::OPRFPaddingDp, AggregationPadding,
-                    OPRFPadding, PaddingParameters,
-                },
-                prf_sharding::{tests::PreAggregationTestOutputInDecimal, AttributionOutputs},
-                OPRFIPAInputRow,
+            ipa_prf::oprf_padding::{
+                apply_dp_padding_pass, insecure, insecure::OPRFPaddingDp, AggregationPadding,
+                OPRFPadding, PaddingParameters,
             },
             RecordId,
         },
         report::hybrid::IndistinguishableHybridReport,
-        secret_sharing::replicated::semi_honest::AdditiveShare,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-
-    pub async fn set_up_apply_dp_padding_pass_for_oprf<C, BK, TV, TS, const B: usize>(
-        ctx: C,
-        padding_params: PaddingParameters,
-    ) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
-    where
-        C: Context,
-        BK: BooleanArray + U128Conversions,
-        TV: BooleanArray,
-        TS: BooleanArray,
-    {
-        let mut input: Vec<OPRFIPAInputRow<BK, TV, TS>> = Vec::new();
-        input = apply_dp_padding_pass::<C, OPRFIPAInputRow<BK, TV, TS>, B>(
-            ctx,
-            input,
-            Role::H3,
-            &padding_params,
-        )
-        .await?;
-        Ok(input)
-    }
 
     pub async fn set_up_apply_dp_padding_pass_for_indistinguishable_reports<
         C,
@@ -619,80 +443,6 @@ mod tests {
         )
         .await?;
         Ok(input)
-    }
-
-    #[tokio::test]
-    pub async fn oprf_noise_in_dp_padding_pass() {
-        type BK = BA8;
-        type TV = BA3;
-        type TS = BA20;
-        const B: usize = 256;
-        let world = TestWorld::default();
-        let oprf_epsilon = 1.0;
-        let oprf_delta = 1e-6;
-        let matchkey_cardinality_cap = 10;
-        let oprf_padding_sensitivity = 2;
-
-        let result = world
-            .semi_honest((), |ctx, ()| async move {
-                let padding_params = PaddingParameters {
-                    oprf_padding: OPRFPadding::Parameters {
-                        oprf_epsilon,
-                        oprf_delta,
-                        matchkey_cardinality_cap,
-                        oprf_padding_sensitivity,
-                    },
-                    aggregation_padding: AggregationPadding::NoAggPadding,
-                };
-                set_up_apply_dp_padding_pass_for_oprf::<_, BK, TV, TS, B>(ctx, padding_params).await
-            })
-            .await
-            .map(Result::unwrap);
-        // check that all three helpers added the same number of dummy shares
-        assert!(result[0].len() == result[1].len() && result[0].len() == result[2].len());
-
-        let result_reconstructed = result.reconstruct();
-        // check that all fields besides the matchkey are zero and matchkey is not zero
-        let mut user_id_counts: HashMap<u64, u32> = HashMap::new();
-        for row in result_reconstructed {
-            // println!("{row:?}");
-            assert!(row.timestamp == 0);
-            assert!(row.trigger_value == 0);
-            assert!(!row.is_trigger_report);
-            assert!(row.breakdown_key == 0); // since we set AggregationPadding::NoAggPadding
-            assert!(row.user_id != 0);
-
-            let count = user_id_counts.entry(row.user_id).or_insert(0);
-            *count += 1;
-        }
-        // Now look at now many times a user_id occured
-        let mut sample_per_cardinality: BTreeMap<u32, u32> = BTreeMap::new();
-        for cardinality in user_id_counts.values() {
-            let count = sample_per_cardinality.entry(*cardinality).or_insert(0);
-            *count += 1;
-        }
-        let mut distribution_of_samples: BTreeMap<u32, u32> = BTreeMap::new();
-
-        for (cardinality, sample) in sample_per_cardinality {
-            println!("{sample} user IDs occurred {cardinality} time(s)");
-            let count = distribution_of_samples.entry(sample).or_insert(0);
-            *count += 1;
-        }
-
-        let oprf_padding =
-            OPRFPaddingDp::new(oprf_epsilon, oprf_delta, oprf_padding_sensitivity).unwrap();
-
-        let (mean, std_bound) = oprf_padding.mean_and_std_bound();
-        let tolerance_bound = 12.0;
-        assert!(std_bound > 1.0); // bound on the std only holds if this is true.
-        println!("mean = {mean}, std_bound = {std_bound}");
-        for (sample, count) in &distribution_of_samples {
-            println!("An OPRFPadding sample value equal to {sample} occurred {count} time(s)",);
-            assert!(
-                (f64::from(*sample) - mean).abs() < tolerance_bound * std_bound,
-                "aggregation noise sample was not within {tolerance_bound} times the standard deviation bound from what was expected."
-            );
-        }
     }
 
     #[tokio::test]
@@ -768,91 +518,6 @@ mod tests {
             assert!(
                 (f64::from(*sample) - mean).abs() < tolerance_bound * std_bound,
                 "aggregation noise sample was not within {tolerance_bound} times the standard deviation bound from what was expected."
-            );
-        }
-    }
-
-    pub async fn set_up_apply_dp_padding_pass_for_agg<C, BK, TV, const B: usize>(
-        ctx: C,
-        padding_params: PaddingParameters,
-    ) -> Result<Vec<AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>>, Error>
-    where
-        C: Context,
-        BK: BooleanArray + U128Conversions,
-        TV: BooleanArray,
-    {
-        let mut input: Vec<AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>> = Vec::new();
-        input = apply_dp_padding_pass::<
-            C,
-            AttributionOutputs<AdditiveShare<BK>, AdditiveShare<TV>>,
-            B,
-        >(ctx, input, Role::H3, &padding_params)
-        .await?;
-        Ok(input)
-    }
-
-    #[tokio::test]
-    pub async fn aggregation_noise_in_dp_padding_pass() {
-        type BK = BA8;
-        type TV = BA3;
-        const B: usize = 256;
-        let world = TestWorld::default();
-        let aggregation_epsilon = 1.0;
-        let aggregation_delta = 1e-6;
-        let aggregation_padding_sensitivity = 2;
-
-        let result = world
-            .semi_honest((), |ctx, ()| async move {
-                let padding_params = PaddingParameters {
-                    oprf_padding: OPRFPadding::NoOPRFPadding,
-                    aggregation_padding: AggregationPadding::Parameters {
-                        aggregation_epsilon,
-                        aggregation_delta,
-                        aggregation_padding_sensitivity,
-                    },
-                };
-                set_up_apply_dp_padding_pass_for_agg::<_, BK, TV, B>(ctx, padding_params).await
-            })
-            .await
-            .map(Result::unwrap);
-
-        // check that all three helpers added the same number of dummy shares
-        assert!(result[0].len() == result[1].len() && result[0].len() == result[2].len());
-
-        let result_reconstructed: Vec<PreAggregationTestOutputInDecimal> = result.reconstruct();
-
-        let mut sample_per_breakdown: HashMap<u128, u32> = HashMap::new();
-        for row in result_reconstructed {
-            assert!(row.capped_attributed_trigger_value == 0);
-            let sample = sample_per_breakdown
-                .entry(row.attributed_breakdown_key)
-                .or_insert(0);
-            *sample += 1;
-        }
-        // check that all breakdowns had noise added
-        assert!(B == sample_per_breakdown.len());
-
-        let aggregation_padding = OPRFPaddingDp::new(
-            aggregation_epsilon,
-            aggregation_delta,
-            aggregation_padding_sensitivity,
-        )
-        .unwrap();
-
-        let (mean, std_bound) = aggregation_padding.mean_and_std_bound();
-        assert!(std_bound > 1.0); // bound on the std only holds if this is true.
-        let tolerance_factor = 12.0;
-        println!(
-            "mean = {mean}, std_bound = {std_bound}, {tolerance_factor} * std_bound = {}",
-            tolerance_factor * std_bound
-        );
-        for sample in sample_per_breakdown.values() {
-            assert!(
-                (f64::from(*sample) - mean).abs() < tolerance_factor * std_bound,
-                "aggregation noise sample = {} was not within {tolerance_factor} times the standard deviation bound \
-                ({tolerance_factor} * std_bound = {}) from what was expected (mean = {mean}). For Laplace this will fail ~ 0.03% of the time randomly.",
-                *sample,
-                tolerance_factor * std_bound,
             );
         }
     }

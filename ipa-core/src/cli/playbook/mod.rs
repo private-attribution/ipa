@@ -2,7 +2,6 @@ mod add;
 mod generator;
 mod hybrid;
 mod input;
-mod ipa;
 mod multiply;
 mod sharded_shuffle;
 #[allow(dead_code)]
@@ -21,7 +20,6 @@ use tokio::time::sleep;
 
 pub use self::{
     hybrid::{run_hybrid_query_and_validate, HybridQueryResult},
-    ipa::{playbook_oprf_ipa, run_query_and_validate},
     streaming::{BufferedRoundRobinSubmission, StreamingSubmission},
 };
 use crate::{
