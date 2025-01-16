@@ -1,9 +1,11 @@
 use std::{fmt::Debug, future::Future, marker::PhantomData};
 
 use async_trait::async_trait;
-use serde::de::DeserializeOwned;
+use futures_util::TryStreamExt;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 
+use super::BytesStream;
 use crate::{
     error::BoxError,
     helpers::{
@@ -113,6 +115,18 @@ impl HelperResponse {
     pub fn try_into_owned<T: DeserializeOwned>(self) -> Result<T, serde_json::Error> {
         serde_json::from_slice(&self.body)
     }
+
+    /// Asynchronously collects and returns a newly created `HelperResponse`.
+    ///
+    /// # Errors
+    ///
+    /// If the `BytesStream` cannot be collected into a `BytesMut`, an error is returned.
+    pub async fn from_bytesstream<B: BytesStream>(value: B) -> Result<HelperResponse, BoxError> {
+        let bytes: bytes::BytesMut = value.try_collect().await?;
+        Ok(Self {
+            body: bytes.to_vec(),
+        })
+    }
 }
 
 impl From<PrepareQuery> for HelperResponse {
@@ -128,10 +142,23 @@ impl From<()> for HelperResponse {
     }
 }
 
+#[derive(Deserialize, Serialize)]
+struct QueryStatusResponse {
+    status: QueryStatus,
+}
+
 impl From<QueryStatus> for HelperResponse {
     fn from(value: QueryStatus) -> Self {
-        let v = serde_json::to_vec(&json!({"status": value})).unwrap();
+        let response = QueryStatusResponse { status: value };
+        let v = serde_json::to_vec(&response).unwrap();
         Self { body: v }
+    }
+}
+
+impl From<HelperResponse> for QueryStatus {
+    fn from(value: HelperResponse) -> Self {
+        let response: QueryStatusResponse = serde_json::from_slice(value.body.as_ref()).unwrap();
+        response.status
     }
 }
 
