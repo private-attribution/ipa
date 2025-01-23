@@ -6,7 +6,7 @@ use crate::{
     cli::LoggingHandle,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
+        query::{PrepareQuery, QueryConfig, QueryInput},
         routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerBox, HandlerRef, HelperIdentity, HelperResponse,
         MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport, TransportIdentity,
@@ -208,8 +208,8 @@ impl RequestHandler<ShardIndex> for Inner {
                 HelperResponse::from(qp.prepare_shard(&self.shard_transport, req)?)
             }
             RouteId::QueryStatus => {
-                let req = req.into::<CompareStatusRequest>()?;
-                HelperResponse::from(qp.shard_status(&self.shard_transport, &req)?)
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.shard_status(&self.shard_transport, query_id)?)
             }
             RouteId::CompleteQuery => {
                 // The processing flow for this API is exactly the same, regardless
