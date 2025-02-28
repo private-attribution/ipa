@@ -404,7 +404,7 @@ pub mod tests {
                 let bit0 = (b0 >> j) & 1_u128;
                 let bit1 = (b1 >> j) & 1_u128;
                 let bit2 = (b2 >> j) & 1_u128;
-                let expected = bit2 << 2 | bit1 << 1 | bit0;
+                let expected = (bit2 << 2) | (bit1 << 1) | bit0;
                 let actual = (z >> i) & 0xf;
                 assert_eq!(
                     actual, expected,

@@ -6,7 +6,7 @@ version = "0.1.0"
 #    rust:slim-bullseye docker image is available.
 # 2. Update the rust version used for draft in
 #    https://github.com/private-attribution/draft/blob/main/sidecar/ansible/provision.yaml.
-rust-version = "1.84.0"
+rust-version = "1.85.0"
 edition = "2021"
 build = "build.rs"
 
