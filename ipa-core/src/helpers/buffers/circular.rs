@@ -462,7 +462,7 @@ mod test {
         assert!(buf.can_read());
 
         while buf.can_read() {
-            output.extend(CircularBuf::read_once(&mut buf).into_iter());
+            output.extend(CircularBuf::read_once(&mut buf));
         }
 
         assert!(buf.can_write());
