@@ -462,11 +462,7 @@ mod test {
         assert!(buf.can_read());
 
         while buf.can_read() {
-            output.extend(
-                CircularBuf::read_once(&mut buf)
-                    .into_iter()
-                    .map(usize::from),
-            );
+            output.extend(CircularBuf::read_once(&mut buf));
         }
 
         assert!(buf.can_write());
@@ -478,11 +474,7 @@ mod test {
         }
 
         assert!(buf.can_write());
-        output.extend(
-            CircularBuf::read_once(&mut buf)
-                .into_iter()
-                .map(usize::from),
-        );
+        output.extend(CircularBuf::read_once(&mut buf));
 
         assert!(buf.is_empty());
         assert_eq!(input, output);
@@ -521,14 +513,14 @@ mod test {
         Six::fill(&mut buf);
 
         let mut output = Vec::new();
-        output.extend(Six::read_once(&mut buf).into_iter().map(usize::from));
+        output.extend(Six::read_once(&mut buf));
         buf.next().write(&TwoBytes::from(&6));
         buf.next().write(&TwoBytes::from(&7));
         assert!(!buf.is_closed());
         buf.close();
         assert!(buf.is_closed());
 
-        output.extend(Six::read_once(&mut buf).into_iter().map(usize::from));
+        output.extend(Six::read_once(&mut buf));
 
         assert_eq!((0..8).collect::<Vec<_>>(), output);
     }

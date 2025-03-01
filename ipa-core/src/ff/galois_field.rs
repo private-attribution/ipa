@@ -131,7 +131,7 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
     let a = u128::from(a);
     let mut product = 0;
     for i in 0..GF::BITS {
-        let bit = u128::from(b >> i & 1);
+        let bit = u128::from((b >> i) & 1);
         product ^= bit * (a << i);
     }
     product

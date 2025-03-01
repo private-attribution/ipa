@@ -107,15 +107,15 @@ pub fn transpose_8x8<B: Borrow<[u8; 8]>>(x: B) -> [u8; 8] {
     let mut x = u64::from_le_bytes(*x.borrow());
 
     x = x & 0xaa55_aa55_aa55_aa55
-        | (x & 0x00aa_00aa_00aa_00aa) << 7
+        | ((x & 0x00aa_00aa_00aa_00aa) << 7)
         | (x >> 7) & 0x00aa_00aa_00aa_00aa;
 
     x = x & 0xcccc_3333_cccc_3333
-        | (x & 0x0000_cccc_0000_cccc) << 14
+        | ((x & 0x0000_cccc_0000_cccc) << 14)
         | (x >> 14) & 0x0000_cccc_0000_cccc;
 
     x = x & 0xf0f0_f0f0_0f0f_0f0f
-        | (x & 0x0000_0000_f0f0_f0f0) << 28
+        | ((x & 0x0000_0000_f0f0_f0f0) << 28)
         | (x >> 28) & 0x0000_0000_f0f0_f0f0;
 
     x.to_le_bytes()
@@ -138,11 +138,11 @@ pub fn transpose_16x16(src: &[u8; 32]) -> [u8; 32] {
     let s1 = 30;
     for i in 0..4 {
         y0[i] = x[i] & 0xaaaa_5555_aaaa_5555
-            | (x[i] & 0x0000_aaaa_0000_aaaa) << s0
+            | ((x[i] & 0x0000_aaaa_0000_aaaa) << s0)
             | (x[i] >> s0) & 0x0000_aaaa_0000_aaaa;
 
         y1[i] = y0[i] & 0xcccc_cccc_3333_3333
-            | (y0[i] & 0x0000_0000_cccc_cccc) << s1
+            | ((y0[i] & 0x0000_0000_cccc_cccc) << s1)
             | (y0[i] >> s1) & 0x0000_0000_cccc_cccc;
     }
 
@@ -158,15 +158,15 @@ pub fn transpose_16x16(src: &[u8; 32]) -> [u8; 32] {
     let s2 = 4;
     let mut y2 = [0u64; 4];
     for i in 0..4 {
-        y2[i] = y1[i] & m2a[i] | (y1_swp[i] << s2) & m2b[i] | (y1_swp[i] & m2c[i]) >> s2;
+        y2[i] = y1[i] & m2a[i] | (y1_swp[i] << s2) & m2b[i] | ((y1_swp[i] & m2c[i]) >> s2);
     }
 
     let mut y3 = [0u64; 4];
     for i in 0..2 {
-        y3[i] = y2[i] & 0x00ff_00ff_00ff_00ff | (y2[i + 2] & 0x00ff_00ff_00ff_00ff) << 8;
+        y3[i] = y2[i] & 0x00ff_00ff_00ff_00ff | ((y2[i + 2] & 0x00ff_00ff_00ff_00ff) << 8);
     }
     for i in 0..2 {
-        y3[i + 2] = (y2[i] & 0xff00_ff00_ff00_ff00) >> 8 | y2[i + 2] & 0xff00_ff00_ff00_ff00;
+        y3[i + 2] = ((y2[i] & 0xff00_ff00_ff00_ff00) >> 8) | y2[i + 2] & 0xff00_ff00_ff00_ff00;
     }
 
     let mut dst = [0u8; 32];
