@@ -129,14 +129,12 @@ impl KeyRegistry<KeyPair> {
 }
 
 impl PrivateKeyRegistry for KeyRegistry<KeyPair> {
-    #[must_use]
     fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
         self.key(key_id).map(|v| &v.sk)
     }
 }
 
 impl PrivateKeyRegistry for KeyRegistry<PrivateKeyOnly> {
-    #[must_use]
     fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
         self.key(key_id).map(|sk| &**sk)
     }
