@@ -15,7 +15,6 @@ use crate::{
         RoleAssignment, RouteParams,
     },
     protocol::QueryId,
-    query::QueryStatus,
 };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
@@ -236,33 +235,6 @@ impl Debug for QueryInput {
                 .field("url", url)
                 .finish(),
         }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-pub struct CompareStatusRequest {
-    pub query_id: QueryId,
-    pub status: QueryStatus,
-}
-
-impl RouteParams<RouteId, QueryId, NoStep> for CompareStatusRequest {
-    type Params = String;
-
-    fn resource_identifier(&self) -> RouteId {
-        RouteId::QueryStatus
-    }
-
-    fn query_id(&self) -> QueryId {
-        self.query_id
-    }
-
-    fn gate(&self) -> NoStep {
-        NoStep
-    }
-
-    fn extra(&self) -> Self::Params {
-        serde_json::to_string(self).unwrap()
     }
 }
 
