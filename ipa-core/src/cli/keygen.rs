@@ -8,12 +8,12 @@ use clap::Args;
 use rand::{thread_rng, Rng};
 use rand_core::CryptoRng;
 use rcgen::{
-    Certificate, CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, IsCa,
+    CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, Ia5String, IsCa,
     KeyUsagePurpose, SanType, SerialNumber, PKCS_ECDSA_P256_SHA256,
 };
 use time::{Duration, OffsetDateTime};
 
-use crate::{error::BoxError, hpke::KeyPair};
+use crate::error::BoxError;
 
 #[derive(Debug, Clone, Args)]
 #[clap(
@@ -63,8 +63,9 @@ fn create_new<P: AsRef<Path>>(path: P) -> io::Result<File> {
 /// # Panics
 /// If something that shouldn't happen goes wrong during key generation.
 pub fn keygen_tls<R: Rng + CryptoRng>(args: &KeygenArgs, rng: &mut R) -> Result<(), BoxError> {
+    let key = rcgen::KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
+
     let mut params = CertificateParams::default();
-    params.alg = &PKCS_ECDSA_P256_SHA256;
 
     params.is_ca = IsCa::NoCa;
     params.key_usages = vec![
@@ -86,21 +87,21 @@ pub fn keygen_tls<R: Rng + CryptoRng>(args: &KeygenArgs, rng: &mut R) -> Result<
     name.push(rcgen::DnType::CommonName, args.name.clone());
     params.distinguished_name = name;
 
-    params.subject_alt_names = vec![SanType::DnsName(args.name.clone())];
+    params.subject_alt_names = vec![SanType::DnsName(
+        Ia5String::try_from(args.name.clone()).unwrap(),
+    )];
 
-    let gen = Certificate::from_params(params)?;
+    let cert = params.self_signed(&key)?;
 
-    create_new(&args.tls_cert)?
-        .write_all(gen.serialize_pem().unwrap().replace('\r', "").as_bytes())?;
-    create_new(&args.tls_key)?
-        .write_all(gen.serialize_private_key_pem().replace('\r', "").as_bytes())?;
+    create_new(&args.tls_cert)?.write_all(cert.pem().replace('\r', "").as_bytes())?;
+    create_new(&args.tls_key)?.write_all(key.serialize_pem().replace('\r', "").as_bytes())?;
 
     Ok(())
 }
 
 /// Generates public and private key used for encrypting and decrypting match keys.
 fn keygen_matchkey<R: Rng + CryptoRng>(args: &KeygenArgs, mut rng: &mut R) -> Result<(), BoxError> {
-    let keypair = KeyPair::gen(&mut rng);
+    let keypair = crate::hpke::KeyPair::gen(&mut rng);
 
     if args.mk_public_key.is_some() && args.mk_private_key.is_some() {
         create_new(args.mk_public_key.as_ref().unwrap())?
