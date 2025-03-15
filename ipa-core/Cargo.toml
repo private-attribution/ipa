@@ -147,8 +147,8 @@ tokio = { version = "1.42", features = ["fs", "rt", "rt-multi-thread", "macros"]
 tokio-rustls = { version = "0.26", optional = true }
 tokio-stream = "0.1.14"
 toml = { version = "0.8", optional = true }
-tower = { version = "0.4.13", optional = true }
-tower-http = { version = "0.5", optional = true, features = ["trace"] }
+tower = { version = "0.5.2", optional = true, features = ["util"] }
+tower-http = { version = "0.6.2", optional = true, features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 typenum = { version = "1.17", features = ["i128"] }
