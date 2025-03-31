@@ -33,10 +33,10 @@ use crate::{
     },
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
-        TransportIdentity,
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        BodyStream, TransportIdentity,
     },
-    net::{error::ShardQueryStatusMismatchError, http_serde, Error, CRYPTO_PROVIDER},
+    net::{http_serde, Error, CRYPTO_PROVIDER},
     protocol::{Gate, QueryId},
 };
 
@@ -385,29 +385,43 @@ impl<F: ConnectionFlavor> IpaHttpClient<F> {
         resp_ok(resp).await
     }
 
-    /// This API is used by leader shards in MPC to request query status information on peers.
-    /// If a given peer has status that doesn't match the one provided by the leader, it responds
-    /// with 412 error and encodes its status inside the response body. Otherwise, 200 is returned.
+    /// Sends a query status request and returns the response bytes.
     ///
     /// # Errors
-    /// If the request has illegal arguments, or fails to be delivered
-    pub async fn status_match(&self, data: CompareStatusRequest) -> Result<(), Error> {
-        let req = http_serde::query::status_match::try_into_http_request(
-            &data,
-            self.scheme.clone(),
-            self.authority.clone(),
-        )?;
+    /// If the request has illegal arguments, or fails to deliver to helper
+    async fn query_status_impl(&self, query_id: QueryId) -> Result<Bytes, Error> {
+        let req = http_serde::query::status::Request::new(query_id);
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.request(req).await?;
-
-        match resp.status() {
-            StatusCode::OK => Ok(()),
-            StatusCode::PRECONDITION_FAILED => {
-                let bytes = response_to_bytes(resp).await?;
-                let err = serde_json::from_slice::<ShardQueryStatusMismatchError>(&bytes)?;
-                Err(err.into())
-            }
-            _ => Err(Error::from_failed_resp(resp).await),
+        if resp.status().is_success() {
+            Ok(response_to_bytes(resp).await?)
+        } else {
+            Err(Error::from_failed_resp(resp).await)
         }
+    }
+    /// Retrieves the status of a query as a byte stream.
+    ///
+    /// This function calls `query_status_impl` and returns the response bytes as a `BodyStream`.
+    ///
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    pub async fn query_status_bytes(&self, query_id: QueryId) -> Result<BodyStream, Error> {
+        let bytes = self.query_status_impl(query_id).await?;
+        Ok(BodyStream::from(bytes.to_vec()))
+    }
+    /// Retrieves the status of a query.
+    ///
+    /// This function calls `query_status_impl` and deserializes the response bytes into a `QueryStatus` struct.
+    ///
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    pub async fn query_status(
+        &self,
+        query_id: QueryId,
+    ) -> Result<crate::query::QueryStatus, Error> {
+        let bytes = self.query_status_impl(query_id).await?;
+        let http_serde::query::status::ResponseBody { status } = serde_json::from_slice(&bytes)?;
+        Ok(status)
     }
 }
 
@@ -465,29 +479,6 @@ impl IpaHttpClient<Helper> {
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.request(req).await?;
         resp_ok(resp).await
-    }
-
-    /// Retrieve the status of a query.
-    ///
-    /// ## Errors
-    /// If the request has illegal arguments, or fails to deliver to helper
-    #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))]
-    pub async fn query_status(
-        &self,
-        query_id: QueryId,
-    ) -> Result<crate::query::QueryStatus, Error> {
-        let req = http_serde::query::status::Request::new(query_id);
-        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-
-        let resp = self.request(req).await?;
-        if resp.status().is_success() {
-            let bytes = response_to_bytes(resp).await?;
-            let http_serde::query::status::ResponseBody { status } =
-                serde_json::from_slice(&bytes)?;
-            Ok(status)
-        } else {
-            Err(Error::from_failed_resp(resp).await)
-        }
     }
 
     /// Wait for completion of the query and pull the results of this query. This is a blocking

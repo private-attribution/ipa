@@ -79,7 +79,7 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
         dest: F::Identity,
         route: R,
         data: D,
-    ) -> Result<(), Error>
+    ) -> Result<Option<BodyStream>, Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -100,20 +100,24 @@ impl<F: ConnectionFlavor> HttpTransport<F> {
                 self.http_runtime
                     .spawn(resp_future.map_err(Into::into).and_then(resp_ok))
                     .await?;
-                Ok(())
+                Ok(None)
             }
             RouteId::PrepareQuery => {
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
-                self.clients[client_ix].prepare_query(req).await
+                self.clients[client_ix].prepare_query(req).await?;
+                Ok(None)
             }
             RouteId::CompleteQuery => {
                 let query_id = <Option<QueryId>>::from(route.query_id())
                     .expect("query_id is required to call complete query API");
-                self.clients[client_ix].complete_query(query_id).await
+                self.clients[client_ix].complete_query(query_id).await?;
+                Ok(None)
             }
             RouteId::QueryStatus => {
-                let req = serde_json::from_str(route.extra().borrow())?;
-                self.clients[client_ix].status_match(req).await
+                let query_id = <Option<QueryId>>::from(route.query_id())
+                    .expect("query_id is required to call complete query API");
+                let response = self.clients[client_ix].query_status_bytes(query_id).await?;
+                Ok(Some(response))
             }
             evt @ (RouteId::QueryInput
             | RouteId::ReceiveQuery
@@ -273,6 +277,7 @@ impl MpcHttpTransport {
 impl Transport for MpcHttpTransport {
     type Identity = HelperIdentity;
     type RecordsStream = ReceiveRecords<Self::Identity, BodyStream>;
+    type SendResponse = BodyStream;
     type Error = Error;
 
     fn identity(&self) -> Self::Identity {
@@ -300,7 +305,7 @@ impl Transport for MpcHttpTransport {
         dest: Self::Identity,
         route: R,
         data: D,
-    ) -> Result<(), Error>
+    ) -> Result<Option<Self::SendResponse>, Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -353,6 +358,7 @@ impl ShardHttpTransport {
 impl Transport for ShardHttpTransport {
     type Identity = ShardIndex;
     type RecordsStream = ReceiveRecords<ShardIndex, BodyStream>;
+    type SendResponse = BodyStream;
     type Error = ShardError;
 
     fn identity(&self) -> Self::Identity {
@@ -373,7 +379,7 @@ impl Transport for ShardHttpTransport {
         dest: Self::Identity,
         route: R,
         data: D,
-    ) -> Result<(), Self::Error>
+    ) -> Result<Option<Self::SendResponse>, Self::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -427,6 +433,7 @@ mod tests {
             client::ClientIdentity,
             test::{TestConfig, TestConfigBuilder, TestServer},
         },
+        query::QueryStatus,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::Reconstruct,
         HelperApp,
@@ -636,6 +643,11 @@ mod tests {
                 .collect::<Vec<_>>()
         });
 
+        assert_eq!(
+            leader_client.query_status(QueryId).await.unwrap(),
+            QueryStatus::AwaitingInputs
+        );
+
         let _ =
             try_join_all(helper_shares.into_iter().enumerate().map(
                 |(helper, shard_streams)| async move {
@@ -652,6 +664,11 @@ mod tests {
             ))
             .await
             .unwrap();
+
+        assert_eq!(
+            leader_client.query_status(QueryId).await.unwrap(),
+            QueryStatus::Running
+        );
 
         let result: [_; 3] = join_all(leader_ring_clients.each_ref().map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();

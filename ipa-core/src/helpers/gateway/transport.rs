@@ -34,6 +34,7 @@ pub(super) struct Transports<M: Transport<Identity = Role>, S: Transport<Identit
 impl Transport for RoleResolvingTransport {
     type Identity = Role;
     type RecordsStream = <MpcTransportImpl as Transport>::RecordsStream;
+    type SendResponse = <MpcTransportImpl as Transport>::SendResponse;
     type Error = SendToRoleError;
 
     fn identity(&self) -> Role {
@@ -60,7 +61,7 @@ impl Transport for RoleResolvingTransport {
         dest: Role,
         route: R,
         data: D,
-    ) -> Result<(), Self::Error>
+    ) -> Result<Option<Self::SendResponse>, Self::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,

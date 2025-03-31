@@ -310,7 +310,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("One or more peers rejected the request: {failures:?}")]
+#[error("One or more peer shards rejected the broadcast request: {failures:?}")]
 pub struct BroadcastError<I: TransportIdentity, E: Debug> {
     pub failures: Vec<(I, E)>,
 }
@@ -325,7 +325,10 @@ impl<I: TransportIdentity, E: Debug> From<Vec<(I, E)>> for BroadcastError<I, E> 
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
+    /// They type used by [`receive`].
     type RecordsStream: BytesStream;
+    /// The type used for responses to [`send`] and [`broadcast`].
+    type SendResponse: BytesStream;
     type Error: Debug + Send;
 
     /// Return my identity in the network (MPC or Sharded)
@@ -349,7 +352,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
         dest: Self::Identity,
         route: R,
         data: D,
-    ) -> Result<(), Self::Error>
+    ) -> Result<Option<Self::SendResponse>, Self::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -371,7 +374,10 @@ pub trait Transport: Clone + Send + Sync + 'static {
     async fn broadcast<Q, S, R>(
         &self,
         route: R,
-    ) -> Result<(), BroadcastError<Self::Identity, Self::Error>>
+    ) -> Result<
+        Vec<(Self::Identity, Option<Self::SendResponse>)>,
+        BroadcastError<Self::Identity, Self::Error>,
+    >
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -388,14 +394,16 @@ pub trait Transport: Clone + Send + Sync + 'static {
         }
 
         let mut errs = Vec::new();
+        let mut responses = Vec::new();
         while let Some(r) = futs.next().await {
-            if let Err(e) = r.1 {
-                errs.push((r.0, e));
+            match r.1 {
+                Err(e) => errs.push((r.0, e)),
+                Ok(re) => responses.push((r.0, re)),
             }
         }
 
         if errs.is_empty() {
-            Ok(())
+            Ok(responses)
         } else {
             Err(errs.into())
         }
