@@ -1,7 +1,7 @@
 [package]
 name = "ipa-metrics-tracing"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 # requires partitions feature because without it, it does not make sense to use
