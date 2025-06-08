@@ -30,7 +30,9 @@ pub async fn main() {
         let field_size = Fp31::BITS;
         let width = args.width;
         let depth = args.depth;
-        println!("benchmark parameters: Field size: {field_size} bits, circuit width: {width}, depth: {depth}");
+        println!(
+            "benchmark parameters: Field size: {field_size} bits, circuit width: {width}, depth: {depth}"
+        );
     }
 
     let input = circuit::arithmetic_setup(args.width, args.depth);

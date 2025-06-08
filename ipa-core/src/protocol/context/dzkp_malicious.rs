@@ -12,13 +12,13 @@ use crate::{
         Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd, ShardReceivingEnd, TotalRecords,
     },
     protocol::{
+        Gate, RecordId,
         context::{
-            dzkp_validator::{Batch, MaliciousDZKPValidatorInner, Segment},
-            prss::InstrumentedIndexedSharedRandomness,
             Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
             MaliciousContext, ShardedContext,
+            dzkp_validator::{Batch, MaliciousDZKPValidatorInner, Segment},
+            prss::InstrumentedIndexedSharedRandomness,
         },
-        Gate, RecordId,
     },
     seq_join::SeqJoin,
     sharding::{ShardBinding, ShardConfiguration, ShardIndex, Sharded},

@@ -1,6 +1,6 @@
 use crossbeam_channel::Sender;
 
-use crate::{context::CurrentThreadContext, MetricsStore};
+use crate::{MetricsStore, context::CurrentThreadContext};
 
 /// A handle to enable centralized metrics collection from the current thread.
 ///

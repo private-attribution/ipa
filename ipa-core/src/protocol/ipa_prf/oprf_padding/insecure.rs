@@ -319,7 +319,7 @@ mod test {
     use std::collections::BTreeMap;
 
     use proptest::{prelude::ProptestConfig, proptest};
-    use rand::{rngs::StdRng, thread_rng, Rng};
+    use rand::{Rng, rngs::StdRng, thread_rng};
     use rand_core::SeedableRng;
 
     use super::*;
@@ -350,7 +350,7 @@ mod test {
     #[test]
     fn dp_normal_distribution_generation_random() {
         let mut rng = thread_rng();
-        let cap: u32 = rng.gen();
+        let cap: u32 = rng.r#gen();
         let delta: f64 = rng.gen_range(1e-9..1e-6);
         let epsilon = f64::from(rng.gen_range(1..255_u8));
         let sensitivity = f64::from(cap);
@@ -549,7 +549,9 @@ mod test {
                     let (_, std) = truncated_discrete_laplace.mean_and_std();
                     let (first_moment, second_moment) = truncated_discrete_laplace
                         .first_second_moments_discrete_truncated_laplace();
-                    println!("std = {std}, std_bound = {std_bound}, first_moment = {first_moment}, second_moment = {second_moment}");
+                    println!(
+                        "std = {std}, std_bound = {std_bound}, first_moment = {first_moment}, second_moment = {second_moment}"
+                    );
                     if std_bound > 1.0 {
                         // otherwise the bound is not valid
                         assert!(std < std_bound + 0.00001);

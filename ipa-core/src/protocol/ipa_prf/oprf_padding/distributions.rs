@@ -4,8 +4,8 @@ use std::{
 };
 
 use rand::{
-    distributions::{Bernoulli, Distribution, Uniform},
     Rng,
+    distributions::{Bernoulli, Distribution, Uniform},
 };
 
 use crate::protocol::ipa_prf::oprf_padding::insecure::Error;
@@ -175,12 +175,12 @@ impl Distribution<u32> for TruncatedDoubleGeometric {
 mod tests {
     use std::{collections::HashMap, f64::consts::E, iter::repeat_with};
 
-    use rand::{distributions::Distribution, thread_rng, Rng};
+    use rand::{Rng, distributions::Distribution, thread_rng};
     use rand_core::RngCore;
 
     use crate::protocol::ipa_prf::oprf_padding::{
         distributions::{
-            is_close, BoxMuller, DoubleGeometric, Geometric, TruncatedDoubleGeometric,
+            BoxMuller, DoubleGeometric, Geometric, TruncatedDoubleGeometric, is_close,
         },
         insecure::Error,
     };
@@ -198,8 +198,8 @@ mod tests {
     fn dp_normal_distribution_sample_random() {
         let mut rng = thread_rng();
         let nd = BoxMuller {
-            mean: rng.gen(),
-            std: rng.gen::<f64>().abs().sqrt(),
+            mean: rng.r#gen(),
+            std: rng.r#gen::<f64>().abs().sqrt(),
         };
         check(&nd, &mut rng, 2_u8);
     }
@@ -220,8 +220,8 @@ mod tests {
     fn dp_rounded_normal_distribution_sample_random() {
         let mut rng = thread_rng();
         let nd = BoxMuller {
-            mean: rng.gen(),
-            std: rng.gen::<f64>().abs().sqrt(),
+            mean: rng.r#gen(),
+            std: rng.r#gen::<f64>().abs().sqrt(),
         };
         check(&nd, &mut rng, 1_u8);
     }
@@ -255,7 +255,9 @@ mod tests {
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             let expected_probability = (1.0 - p).powf(f64::from(x)) * p;
-            println!("x = {x}, Observed Probability = {observed_probability}, Expected Probability = {expected_probability}");
+            println!(
+                "x = {x}, Observed Probability = {observed_probability}, Expected Probability = {expected_probability}"
+            );
             assert!((observed_probability - expected_probability) <= TOLERANCE);
         }
     }
@@ -332,7 +334,9 @@ mod tests {
             samples_truncated_double_geometric.push(sample);
         }
         // Print the samples to the console
-        println!("Samples from generate_truncated_geometric with s={s}, n={n}: {samples_truncated_double_geometric:?}");
+        println!(
+            "Samples from generate_truncated_geometric with s={s}, n={n}: {samples_truncated_double_geometric:?}"
+        );
     }
     #[test]
     fn test_truncated_double_geometric_hoffding() {

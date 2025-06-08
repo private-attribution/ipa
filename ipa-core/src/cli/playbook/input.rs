@@ -2,7 +2,7 @@ use std::{
     any::type_name,
     fs::File,
     io,
-    io::{stdin, BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, stdin},
     path::PathBuf,
 };
 
@@ -66,8 +66,16 @@ impl InputItem for TestHybridRecord {
             }
 
             'c' => {
-                if let [_, match_key, number, key_id, conversion_site_domain, timestamp, epsilon, sensitivity] =
-                    s.splitn(8, ',').collect::<Vec<_>>()[..]
+                if let [
+                    _,
+                    match_key,
+                    number,
+                    key_id,
+                    conversion_site_domain,
+                    timestamp,
+                    epsilon,
+                    sensitivity,
+                ] = s.splitn(8, ',').collect::<Vec<_>>()[..]
                 {
                     let match_key: u64 = match_key
                         .parse()

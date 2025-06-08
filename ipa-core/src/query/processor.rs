@@ -11,17 +11,16 @@ use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig},
-        routing::RouteId,
         BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl,
         Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig},
+        routing::RouteId,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
     query::{
-        executor,
+        CompletionHandle, ProtocolResult, executor,
         state::{QueryState, QueryStatus, RemoveQuery, RunningQueries, StateError},
-        CompletionHandle, ProtocolResult,
     },
     sharding::ShardIndex,
     sync::Arc,
@@ -554,20 +553,19 @@ mod tests {
 
     use crate::{
         executor::IpaRuntime,
-        ff::{boolean_array::BA64, FieldType},
+        ff::{FieldType, boolean_array::BA64},
         helpers::{
-            make_owned_handler,
-            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            routing::Addr,
             ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
             InMemoryShardNetwork, InMemoryTransport, RequestHandler, RoleAssignment, Transport,
-            TransportIdentity,
+            TransportIdentity, make_owned_handler,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            routing::Addr,
         },
         protocol::QueryId,
         query::{
+            NewQueryError, PrepareQueryError, QueryStatus, QueryStatusError,
             processor::Processor,
             state::{QueryState, RunningQuery, StateError},
-            NewQueryError, PrepareQueryError, QueryStatus, QueryStatusError,
         },
         sharding::ShardIndex,
     };
@@ -927,13 +925,13 @@ mod tests {
     mod complete {
 
         use crate::{
-            helpers::{make_owned_handler, routing::RouteId, Transport},
+            helpers::{Transport, make_owned_handler, routing::RouteId},
             query::{
-                processor::{
-                    tests::{HelperResponse, TestComponents, TestComponentsArgs},
-                    QueryId,
-                },
                 ProtocolResult, QueryCompletionError,
+                processor::{
+                    QueryId,
+                    tests::{HelperResponse, TestComponents, TestComponentsArgs},
+                },
             },
             sharding::ShardIndex,
         };
@@ -1293,9 +1291,9 @@ mod tests {
             helpers::Transport,
             protocol::QueryId,
             query::{
+                QueryKillStatus,
                 processor::Processor,
                 state::{QueryState, RunningQuery},
-                QueryKillStatus,
             },
             test_executor::run,
         };

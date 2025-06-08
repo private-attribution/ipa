@@ -1,18 +1,18 @@
 use axum::{
+    Extension, Router,
     extract::{Path, Query},
     routing::get,
-    Extension, Router,
 };
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::CompareStatusRequest, ApiError, BodyStream},
+    helpers::{ApiError, BodyStream, query::CompareStatusRequest},
     net::{
+        HttpTransport, Shard,
         http_serde::query::status_match::{
             StatusQueryString, {self},
         },
         server::Error,
-        HttpTransport, Shard,
     },
     protocol::QueryId,
     query::QueryStatusError,
@@ -55,17 +55,16 @@ mod tests {
 
     use crate::{
         helpers::{
-            make_owned_handler,
+            ApiError, BodyStream, HelperResponse, RequestHandler, make_owned_handler,
             query::CompareStatusRequest,
             routing::{Addr, RouteId},
-            ApiError, BodyStream, HelperResponse, RequestHandler,
         },
         net::{
+            Error, Shard,
             error::ShardQueryStatusMismatchError,
             http_serde::query::status_match::try_into_http_request,
             server::ClientIdentity,
             test::{TestServer, TestServerBuilder},
-            Error, Shard,
         },
         protocol::QueryId,
         query::{QueryStatus, QueryStatusError},

@@ -13,20 +13,20 @@ use crate::{
     error,
     error::Error,
     ff::{
-        boolean_array::{BooleanArray, BA32, BA64},
         U128Conversions,
+        boolean_array::{BA32, BA64, BooleanArray},
     },
     helpers::{Direction, Role, TotalRecords},
     protocol::{
-        context::{prss::InstrumentedSequentialSharedRandomness, Context},
+        RecordId,
+        context::{Context, prss::InstrumentedSequentialSharedRandomness},
         ipa_prf::oprf_padding::{
             insecure::OPRFPaddingDp,
             step::{PaddingDpStep, SendTotalRows},
         },
-        RecordId,
     },
     report::hybrid::IndistinguishableHybridReport,
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    secret_sharing::replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
 };
 
 /// Parameter struct for padding parameters.
@@ -159,7 +159,7 @@ where
 
                     padding_input_rows.extend(
                         repeat_with(|| {
-                            let dummy_mk: BA64 = rng.gen();
+                            let dummy_mk: BA64 = rng.r#gen();
                             repeat(IndistinguishableHybridReport::from(
                                 AdditiveShare::new_excluding_direction(
                                     dummy_mk,
@@ -404,17 +404,17 @@ mod tests {
     use crate::{
         error::Error,
         ff::{
-            boolean_array::{BooleanArray, BA3, BA32, BA8},
             U128Conversions,
+            boolean_array::{BA3, BA8, BA32, BooleanArray},
         },
         helpers::{Direction, Role, TotalRecords},
         protocol::{
+            RecordId,
             context::Context,
             ipa_prf::oprf_padding::{
-                apply_dp_padding_pass, insecure, insecure::OPRFPaddingDp, AggregationPadding,
-                OPRFPadding, PaddingParameters,
+                AggregationPadding, OPRFPadding, PaddingParameters, apply_dp_padding_pass,
+                insecure, insecure::OPRFPaddingDp,
             },
-            RecordId,
         },
         report::hybrid::IndistinguishableHybridReport,
         test_fixture::{Reconstruct, Runner, TestWorld},

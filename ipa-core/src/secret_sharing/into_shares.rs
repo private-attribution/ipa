@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use crate::{
-    rand::{thread_rng, Rng},
+    rand::{Rng, thread_rng},
     secret_sharing::BitDecomposed,
 };
 

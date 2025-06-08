@@ -6,18 +6,18 @@ use crate::{
     error::Error,
     ff::{curve_points::RP25519, ec_prime_field::Fp25519},
     protocol::{
-        basics::{reveal, Reveal, SecureMul},
+        BasicProtocols, RecordId,
+        basics::{Reveal, SecureMul, reveal},
         context::{
-            upgrade::Upgradable, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext,
+            UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext, upgrade::Upgradable,
         },
         ipa_prf::step::PrfStep as Step,
         prss::{FromPrss, SharedRandomness},
-        BasicProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::{malicious, semi_honest::AdditiveShare},
         FieldSimd, Vectorizable,
+        replicated::{malicious, semi_honest::AdditiveShare},
     },
     sharding::{NotSharded, Sharded},
 };
@@ -163,16 +163,16 @@ mod test {
     use crate::{
         error::Error,
         ff::{curve_points::RP25519, ec_prime_field::Fp25519},
-        helpers::{in_memory_config::MaliciousHelper, Role},
+        helpers::{Role, in_memory_config::MaliciousHelper},
         protocol::{
             basics::Reveal,
             context::{Context, MacUpgraded, UpgradableContext, Validator},
             ipa_prf::{
-                prf_eval::{eval_dy_prf, PrfSharing},
+                prf_eval::{PrfSharing, eval_dy_prf},
                 step::PrfStep,
             },
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares, Vectorizable},
+        secret_sharing::{IntoShares, Vectorizable, replicated::semi_honest::AdditiveShare},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };

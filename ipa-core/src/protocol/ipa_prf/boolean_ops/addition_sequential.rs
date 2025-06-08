@@ -6,12 +6,12 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        basics::{BooleanProtocols, SecureMul},
-        boolean::{or::bool_or, NBitStep},
-        context::Context,
         Gate, RecordId,
+        basics::{BooleanProtocols, SecureMul},
+        boolean::{NBitStep, or::bool_or},
+        context::Context,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    secret_sharing::{BitDecomposed, FieldSimd, replicated::semi_honest::AdditiveShare},
 };
 
 /// Non-saturated unsigned integer addition
@@ -160,14 +160,14 @@ mod test {
 
     use crate::{
         ff::{
-            boolean_array::{BA16, BA32, BA64},
             ArrayAccess, U128Conversions,
+            boolean_array::{BA16, BA32, BA64},
         },
         protocol::{
+            RecordId,
             boolean::step::DefaultBitStep,
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
-            RecordId,
         },
         rand::thread_rng,
         secret_sharing::BitDecomposed,
@@ -183,8 +183,8 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let x_ba64 = rng.gen::<BA64>();
-            let y_ba64 = rng.gen::<BA64>();
+            let x_ba64 = rng.r#gen::<BA64>();
+            let y_ba64 = rng.r#gen::<BA64>();
             let x = x_ba64.as_u128();
             let y = y_ba64.as_u128();
 
@@ -221,8 +221,8 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let x_ba = rng.gen::<BA>();
-            let y_ba = rng.gen::<BA>();
+            let x_ba = rng.r#gen::<BA>();
+            let y_ba = rng.r#gen::<BA>();
             let x = x_ba.as_u128();
             let y = y_ba.as_u128();
             let z = 1_u128 << BITS;
@@ -260,8 +260,8 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let x_ba64 = rng.gen::<BA64>();
-            let y_ba32 = rng.gen::<BA32>();
+            let x_ba64 = rng.r#gen::<BA64>();
+            let y_ba32 = rng.r#gen::<BA32>();
             let x = x_ba64.as_u128();
             let y = y_ba32.as_u128();
 

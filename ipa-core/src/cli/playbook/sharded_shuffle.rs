@@ -8,12 +8,12 @@ use futures_util::future::try_join_all;
 use generic_array::ArrayLength;
 
 use crate::{
-    ff::{boolean_array::BooleanArray, Serializable},
-    helpers::{query::QueryInput, BodyStream},
+    ff::{Serializable, boolean_array::BooleanArray},
+    helpers::{BodyStream, query::QueryInput},
     net::{Helper, IpaHttpClient},
     protocol::QueryId,
     query::QueryStatus,
-    secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+    secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare},
     test_fixture::Reconstruct,
 };
 

@@ -55,7 +55,7 @@ mod tests {
     use crate::{
         ff::{Fp31, U128Conversions},
         secret_sharing::IntoShares,
-        test_fixture::{join3v, Reconstruct, TestWorld},
+        test_fixture::{Reconstruct, TestWorld, join3v},
     };
 
     #[tokio::test]

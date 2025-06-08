@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 use ipa_core::{
-    ff::boolean_array::{BA256, BA64, BA8},
+    ff::boolean_array::{BA8, BA64, BA256},
     protocol::{
-        prss::{Endpoint, IndexedSharedRandomness, KeyExchange, SharedRandomness},
         Gate,
+        prss::{Endpoint, IndexedSharedRandomness, KeyExchange, SharedRandomness},
     },
 };
 use rand::thread_rng;

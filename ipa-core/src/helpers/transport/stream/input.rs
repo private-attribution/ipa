@@ -12,12 +12,12 @@ use std::{
 
 use bytes::Bytes;
 use futures::{
-    stream::{iter, once, Fuse, FusedStream, Iter, Map, Once},
     Stream, StreamExt,
+    stream::{Fuse, FusedStream, Iter, Map, Once, iter, once},
 };
 use generic_array::GenericArray;
 use pin_project::pin_project;
-use typenum::{Unsigned, U2};
+use typenum::{U2, Unsigned};
 
 use crate::{error::BoxError, ff::Serializable, helpers::BytesStream};
 
@@ -416,7 +416,7 @@ where
                             return Poll::Ready(Some(Err(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 err,
-                            ))))
+                            ))));
                         }
                     }
                 }
@@ -657,7 +657,7 @@ mod test {
 
         use crate::{
             ff::{Fp31, Fp32BitPrime},
-            helpers::{transport::stream::input::Single, RecordsStream},
+            helpers::{RecordsStream, transport::stream::input::Single},
             secret_sharing::SharedValue,
         };
 
@@ -782,7 +782,7 @@ mod test {
     mod prop_test {
         use futures::TryStreamExt;
         use proptest::prelude::*;
-        use rand::{rngs::StdRng, SeedableRng};
+        use rand::{SeedableRng, rngs::StdRng};
 
         use super::*;
 
@@ -841,7 +841,7 @@ mod test {
         use bytes::BufMut;
         use futures::TryStreamExt;
         use proptest::prelude::*;
-        use rand::{rngs::StdRng, SeedableRng};
+        use rand::{SeedableRng, rngs::StdRng};
 
         use super::*;
 

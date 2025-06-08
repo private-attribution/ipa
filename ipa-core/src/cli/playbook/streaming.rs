@@ -194,7 +194,7 @@ mod tests {
         iter,
     };
 
-    use futures_util::{stream::FuturesOrdered, TryStreamExt};
+    use futures_util::{TryStreamExt, stream::FuturesOrdered};
     use proptest::proptest;
     use tempfile::TempDir;
 

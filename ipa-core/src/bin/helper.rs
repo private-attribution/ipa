@@ -11,12 +11,13 @@ use clap::{self, Parser, Subcommand};
 use futures::future::join;
 use hyper::http::uri::Scheme;
 use ipa_core::{
+    AppConfig, AppSetup, NonZeroU32PowerOfTwo,
     cli::{
+        ConfGenArgs, KeygenArgs, LoggingHandle, ShardedConfGenArgs, TestSetupArgs, Verbosity,
         client_config_setup, keygen, sharded_client_config_setup, sharded_server_from_toml_str,
-        test_setup, ConfGenArgs, KeygenArgs, LoggingHandle, ShardedConfGenArgs, TestSetupArgs,
-        Verbosity,
+        test_setup,
     },
-    config::{hpke_registry, HpkeServerConfig, ServerConfig, TlsConfig},
+    config::{HpkeServerConfig, ServerConfig, TlsConfig, hpke_registry},
     error::BoxError,
     executor::IpaRuntime,
     helpers::HelperIdentity,
@@ -25,7 +26,6 @@ use ipa_core::{
         ShardHttpTransport,
     },
     sharding::ShardIndex,
-    AppConfig, AppSetup, NonZeroU32PowerOfTwo,
 };
 use tokio::runtime::Runtime;
 use tracing::{error, info};

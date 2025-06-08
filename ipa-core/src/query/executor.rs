@@ -22,14 +22,13 @@ use crate::{
     executor::IpaRuntime,
     ff::Serializable,
     helpers::{
-        negotiate_prss,
+        BodyStream, Gateway, negotiate_prss,
         query::{QueryConfig, QueryType},
-        BodyStream, Gateway,
     },
     hpke::PrivateKeyRegistry,
-    protocol::{prss::Endpoint as PrssEndpoint, Gate},
+    protocol::{Gate, prss::Endpoint as PrssEndpoint},
     query::{
-        runner::{execute_hybrid_protocol, QueryResult},
+        runner::{QueryResult, execute_hybrid_protocol},
         state::RunningQuery,
     },
     sync::Arc,
@@ -219,11 +218,11 @@ mod tests {
         executor::IpaRuntime,
         ff::{FieldType, Fp31, U128Conversions},
         helpers::{
-            query::{QueryConfig, QueryType},
             BodyStream, Gateway, Role,
+            query::{QueryConfig, QueryType},
         },
-        query::{executor::do_query, state::RunningQuery, ProtocolResult},
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        query::{ProtocolResult, executor::do_query, state::RunningQuery},
+        secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare},
         test_fixture::TestWorld,
     };
 

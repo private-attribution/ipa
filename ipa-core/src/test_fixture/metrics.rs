@@ -4,7 +4,7 @@ use ipa_metrics::{
     MetricChannelType, MetricPartition, MetricsCollectorController, MetricsCurrentThreadContext,
     MetricsProducer,
 };
-use rand::Rng;
+use rand::{Rng, random};
 use tracing::{Level, Span};
 
 use crate::{rand::thread_rng, telemetry::stats::Metrics, test_fixture::logging};
@@ -36,7 +36,7 @@ impl MetricsHandle {
     #[must_use]
     pub fn new(level: Level) -> Self {
         MetricsHandle {
-            id: thread_rng().gen(),
+            id: random(),
             level,
         }
     }

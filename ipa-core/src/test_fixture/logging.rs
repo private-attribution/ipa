@@ -21,7 +21,7 @@ pub fn setup() {
 
             use tracing::Level;
             use tracing_subscriber::{
-                filter::Directive, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
+                EnvFilter, filter::Directive, fmt, layer::SubscriberExt, util::SubscriberInitExt,
             };
 
             let default_directive = if let Some(crate_name) = option_env!("CARGO_CRATE_NAME") {

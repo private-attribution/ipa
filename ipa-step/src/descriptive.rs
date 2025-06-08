@@ -3,7 +3,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use ipa_metrics::{label_hasher, LabelValue};
+use ipa_metrics::{LabelValue, label_hasher};
 use serde::Deserialize;
 
 use crate::{Gate, Step, StepNarrow};

@@ -384,7 +384,7 @@ mod tests {
 
     use crate::{
         cli::{
-            config_parse::{parse_sharded_network_toml, Error},
+            config_parse::{Error, parse_sharded_network_toml},
             sharded_server_from_toml_str,
         },
         config::HttpClientConfigurator,

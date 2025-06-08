@@ -12,21 +12,22 @@ use super::QueryResult;
 use crate::{
     error::{Error, LengthError},
     ff::{
+        Serializable, U128Conversions,
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA3, BA32, BA8},
+        boolean_array::{BA3, BA8, BA32, BooleanArray},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
-        Serializable, U128Conversions,
     },
     helpers::{
+        BodyStream, Gateway, LengthDelimitedStream,
         query::{DpMechanism, HybridQueryParams, QueryConfig, QuerySize},
         setup_cross_shard_prss,
         stream::TryFlattenItersExt,
-        BodyStream, Gateway, LengthDelimitedStream,
     },
     hpke::PrivateKeyRegistry,
     protocol::{
-        basics::{shard_fin::FinalizerContext, BooleanArrayMul, BooleanProtocols, Reveal},
+        Gate,
+        basics::{BooleanArrayMul, BooleanProtocols, Reveal, shard_fin::FinalizerContext},
         context::{
             DZKPUpgraded, MacUpgraded, ShardedContext, ShardedMaliciousContext, UpgradableContext,
         },
@@ -38,15 +39,14 @@ use crate::{
         ipa_prf::{oprf_padding::PaddingParameters, prf_eval::PrfSharing, shuffle::ShardedShuffle},
         prss::{Endpoint, FromPrss},
         step::ProtocolStep::Hybrid,
-        Gate,
     },
     query::runner::reshard_tag::reshard_aad,
     report::hybrid::{
         EncryptedHybridReport, IndistinguishableHybridReport, UniqueTag, UniqueTagValidator,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
-        Vectorizable,
+        BitDecomposed, TransposeFrom, Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated,
     },
     seq_join::seq_join,
     sharding::{ShardConfiguration, Sharded},
@@ -206,22 +206,22 @@ mod tests {
 
     use crate::{
         ff::{
-            boolean_array::{BA3, BA32, BA8},
             U128Conversions,
+            boolean_array::{BA3, BA8, BA32},
         },
         helpers::{
-            query::{HybridQueryParams, QuerySize},
             BodyStream,
+            query::{HybridQueryParams, QuerySize},
         },
         hpke::{KeyPair, KeyRegistry},
         query::runner::hybrid::Query as HybridQuery,
-        report::hybrid::{HybridReport, DEFAULT_KEY_ID},
+        report::hybrid::{DEFAULT_KEY_ID, HybridReport},
         secret_sharing::IntoShares,
         test_executor::run,
         test_fixture::{
-            flatten3v,
-            hybrid::{build_hybrid_records_and_expectation, TestHybridRecord},
             Reconstruct, RoundRobinInputDistribution, TestWorld, TestWorldConfig, WithShards,
+            flatten3v,
+            hybrid::{TestHybridRecord, build_hybrid_records_and_expectation},
         },
     };
 

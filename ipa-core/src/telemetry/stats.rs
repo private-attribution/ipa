@@ -1,7 +1,7 @@
 use std::{
     collections::{
-        hash_map::{Entry, Iter},
         HashMap,
+        hash_map::{Entry, Iter},
     },
     fmt::Display,
 };

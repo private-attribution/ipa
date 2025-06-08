@@ -13,11 +13,11 @@ use crate::{
         Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd, ShardReceivingEnd, TotalRecords,
     },
     protocol::{
+        Gate, RecordId,
         context::{
             Base, DZKPContext, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness,
         },
-        Gate, RecordId,
     },
     seq_join::SeqJoin,
     sharding::{ShardBinding, ShardConfiguration, ShardIndex, Sharded},

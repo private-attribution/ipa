@@ -15,7 +15,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-use futures::{future::try_join, stream, StreamExt};
+use futures::{StreamExt, future::try_join, stream};
 use rand::seq::SliceRandom;
 use typenum::Unsigned;
 
@@ -23,22 +23,22 @@ use crate::{
     const_assert_eq,
     error::LengthError,
     ff::{
-        boolean_array::{BA112, BA144, BA32, BA64, BA96},
         Gf32Bit, Serializable, U128Conversions,
+        boolean_array::{BA32, BA64, BA96, BA112, BA144},
     },
     helpers::{Direction, Error, Role, TotalRecords},
     protocol::{
-        context::{reshard_iter, ShardedContext},
+        RecordId,
+        context::{ShardedContext, reshard_iter},
         ipa_prf::shuffle::{
-            step::{ShardedShufflePermuteStep as PermuteStep, ShardedShuffleStep as ShuffleStep},
             IntermediateShuffleMessages,
+            step::{ShardedShufflePermuteStep as PermuteStep, ShardedShuffleStep as ShuffleStep},
         },
         prss::{FromRandom, SharedRandomness},
-        RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         Block, Sendable, SharedValue,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
     },
     seq_join::{assert_send, seq_join},
 };
@@ -582,7 +582,7 @@ where
 mod tests {
 
     use crate::{
-        ff::{boolean_array::BA8, U128Conversions},
+        ff::{U128Conversions, boolean_array::BA8},
         protocol::ipa_prf::shuffle::sharded::shuffle,
         test_executor::run,
         test_fixture::{

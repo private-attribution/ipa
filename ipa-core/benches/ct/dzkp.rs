@@ -2,26 +2,26 @@
 
 use std::iter::{repeat_with, zip};
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion, SamplingMode};
-use futures::{stream::iter, TryStreamExt};
+use criterion::{BatchSize, Criterion, SamplingMode, criterion_group, criterion_main};
+use futures::{TryStreamExt, stream::iter};
 use ipa_core::{
     ff::boolean_array::BA256,
     helpers::TotalRecords,
     protocol::{
+        RecordId,
         basics::BooleanArrayMul,
         context::{
+            Context, DZKPUpgradedMaliciousContext, UpgradableContext,
             dzkp_validator::{DZKPValidator, MultiplicationInputsBlock, TARGET_PROOF_SIZE},
             malicious::TEST_DZKP_STEPS,
-            Context, DZKPUpgradedMaliciousContext, UpgradableContext,
         },
-        RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+    secret_sharing::{SharedValue, replicated::semi_honest::AdditiveShare as Replicated},
     sharding::NotSharded,
     test_fixture::{Runner, TestWorld},
     utils::non_zero_prev_power_of_two,
 };
-use rand::{thread_rng, Rng};
+use rand::{Rng, random, thread_rng};
 use tokio::runtime::Builder;
 
 /// Benchmark for the table_indices_prover function in dzkp_field.rs.
@@ -29,7 +29,7 @@ fn benchmark_table_indices_prover(c: &mut Criterion) {
     let mut group = c.benchmark_group("benches");
     group.bench_function("table_indices_prover", |b| {
         b.iter_batched_ref(
-            || thread_rng().gen(),
+            || random(),
             |input: &mut MultiplicationInputsBlock| input.table_indices_prover(),
             BatchSize::SmallInput,
         )
@@ -60,8 +60,8 @@ fn benchmark_proof(c: &mut Criterion) {
             || {
                 let mut rng = thread_rng();
 
-                let a = repeat_with(|| rng.gen()).take(COUNT).collect::<Vec<BA>>();
-                let b = repeat_with(|| rng.gen()).take(COUNT).collect::<Vec<BA>>();
+                let a = repeat_with(|| rng.r#gen()).take(COUNT).collect::<Vec<BA>>();
+                let b = repeat_with(|| rng.r#gen()).take(COUNT).collect::<Vec<BA>>();
 
                 (a, b)
             },

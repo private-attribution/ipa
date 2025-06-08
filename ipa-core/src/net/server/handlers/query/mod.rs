@@ -10,20 +10,20 @@ mod step;
 use std::marker::PhantomData;
 
 use axum::{
-    response::{IntoResponse, Response},
     Router,
+    response::{IntoResponse, Response},
 };
 use futures_util::{
-    future::{ready, Either, Ready},
     FutureExt,
+    future::{Either, Ready, ready},
 };
 use hyper::{Request, StatusCode};
-use tower::{layer::layer_fn, Service};
+use tower::{Service, layer::layer_fn};
 
 use crate::{
     net::{
-        server::ClientIdentity, transport::MpcHttpTransport, ConnectionFlavor, Helper,
-        HttpTransport, Shard,
+        ConnectionFlavor, Helper, HttpTransport, Shard, server::ClientIdentity,
+        transport::MpcHttpTransport,
     },
     sync::Arc,
 };
@@ -127,11 +127,11 @@ pub mod test_helpers {
     use std::{any::Any, sync::Arc};
 
     use axum::body::Body;
-    use hyper::{http::request, StatusCode};
+    use hyper::{StatusCode, http::request};
 
     use crate::{
         helpers::{HelperIdentity, RequestHandler},
-        net::{test::TestServer, Helper},
+        net::{Helper, test::TestServer},
     };
 
     /// Helper trait for optionally adding an extension to a request.

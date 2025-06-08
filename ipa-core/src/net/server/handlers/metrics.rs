@@ -1,11 +1,11 @@
-use axum::{routing::get, Extension, Router};
+use axum::{Extension, Router, routing::get};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{routing::RouteId, BodyStream},
+    helpers::{BodyStream, routing::RouteId},
     net::{
-        http_serde::{self},
         Error, MpcHttpTransport,
+        http_serde::{self},
     },
 };
 
@@ -36,7 +36,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        helpers::{make_owned_handler, routing::Addr, HelperIdentity, HelperResponse},
+        helpers::{HelperIdentity, HelperResponse, make_owned_handler, routing::Addr},
         net::server::handlers::query::test_helpers::assert_success_with,
     };
 

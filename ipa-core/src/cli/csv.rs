@@ -27,7 +27,10 @@ impl Serializer for crate::test_fixture::hybrid::TestHybridRecord {
                 epsilon,
                 sensitivity,
             } => {
-                write!(buf, "c,{match_key},{value},{key_id},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}")?;
+                write!(
+                    buf,
+                    "c,{match_key},{value},{key_id},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}"
+                )?;
             }
         }
 

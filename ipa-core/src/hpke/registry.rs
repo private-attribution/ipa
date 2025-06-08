@@ -22,7 +22,7 @@ impl From<(IpaPrivateKey, IpaPublicKey)> for KeyPair {
 }
 
 impl KeyPair {
-    pub fn gen<R: rand::RngCore + rand::CryptoRng>(mut r: &mut R) -> Self {
+    pub fn r#gen<R: rand::RngCore + rand::CryptoRng>(mut r: &mut R) -> Self {
         <super::IpaKem as hpke::Kem>::gen_keypair(&mut r).into()
     }
 
@@ -120,7 +120,9 @@ impl<K> KeyRegistry<K> {
 impl KeyRegistry<KeyPair> {
     #[cfg(any(test, feature = "test-fixture"))]
     pub fn random<R: rand::RngCore + rand::CryptoRng>(keys_count: usize, r: &mut R) -> Self {
-        let keys = (0..keys_count).map(|_| KeyPair::gen(r)).collect::<Vec<_>>();
+        let keys = (0..keys_count)
+            .map(|_| KeyPair::r#gen(r))
+            .collect::<Vec<_>>();
 
         Self {
             keys: keys.into_boxed_slice(),
@@ -200,8 +202,8 @@ mod tests {
     #[test]
     fn encrypt_decrypt() {
         let mut rng = StdRng::seed_from_u64(42);
-        let keypair1 = KeyPair::gen(&mut rng);
-        let keypair2 = KeyPair::gen(&mut rng);
+        let keypair1 = KeyPair::r#gen(&mut rng);
+        let keypair2 = KeyPair::r#gen(&mut rng);
 
         let registry = KeyRegistry::<KeyPair>::from_keys([keypair1, keypair2]);
         let pt = b"This is a plaintext.";
@@ -216,7 +218,7 @@ mod tests {
             decrypt(registry.private_key(1).unwrap(), &ct_payload).unwrap_err()
         );
 
-        let keypair3 = KeyPair::gen(&mut rng);
+        let keypair3 = KeyPair::r#gen(&mut rng);
         let private_registry =
             KeyRegistry::<PrivateKeyOnly>::from_keys([PrivateKeyOnly(keypair3.sk)]);
 

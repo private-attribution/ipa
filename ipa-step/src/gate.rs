@@ -5,9 +5,9 @@ use std::{collections::HashMap, env, fs::write, path::PathBuf};
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse2, parse_str, Ident, Path};
+use syn::{Ident, Path, parse_str, parse2};
 
-use crate::{hash::HashingSteps, name::GateName, CompactGateIndex, CompactStep};
+use crate::{CompactGateIndex, CompactStep, hash::HashingSteps, name::GateName};
 
 fn crate_path(p: &str) -> String {
     let Some((_, p)) = p.split_once("::") else {

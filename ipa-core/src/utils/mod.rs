@@ -4,4 +4,4 @@ pub mod arraychunks;
 mod power_of_two;
 
 #[cfg(target_pointer_width = "64")]
-pub use power_of_two::{non_zero_prev_power_of_two, NonZeroU32PowerOfTwo};
+pub use power_of_two::{NonZeroU32PowerOfTwo, non_zero_prev_power_of_two};

@@ -9,26 +9,26 @@ use crate::{
     ff::Field,
     helpers::{Direction, TotalRecords},
     protocol::{
+        RecordId,
         basics::{check_zero::malicious_check_zero, malicious_reveal},
         context::{
+            Base, Context, MaliciousContext, UpgradedContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext,
             batcher::Batcher,
             malicious::MacBatcher,
             step::{MaliciousProtocolStep as Step, ValidateStep},
-            Base, Context, MaliciousContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext,
         },
         prss::{FromPrss, SharedRandomness},
-        RecordId,
     },
     secret_sharing::{
+        FieldSimd, SharedValue,
         replicated::{
+            ReplicatedSecretSharing,
             malicious::{
                 AdditiveShare as MaliciousReplicated, ExtendableField, ExtendableFieldSimd,
             },
             semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
         },
-        FieldSimd, SharedValue,
     },
     seq_join::SeqJoin,
     sharding::ShardBinding,
@@ -401,23 +401,23 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::Role,
         protocol::{
+            RecordId,
             basics::SecureMul,
             context::{
-                upgrade::Upgradable, validator::Validator, Context, UpgradableContext,
-                UpgradedContext,
+                Context, UpgradableContext, UpgradedContext, upgrade::Upgradable,
+                validator::Validator,
             },
-            RecordId,
         },
-        rand::{thread_rng, Rng},
+        rand::{Rng, thread_rng},
         secret_sharing::{
-            replicated::{
-                malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-                semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
-            },
             IntoShares,
+            replicated::{
+                ReplicatedSecretSharing, malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                semi_honest::AdditiveShare as Replicated,
+            },
         },
         seq_join::SeqJoin,
-        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld, join3v},
     };
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
@@ -440,8 +440,8 @@ mod tests {
         let context = world.malicious_contexts();
         let mut rng = thread_rng();
 
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
+        let a = rng.r#gen::<Fp31>();
+        let b = rng.r#gen::<Fp31>();
 
         let a_shares = a.share_with(&mut rng);
         let b_shares = b.share_with(&mut rng);
@@ -488,7 +488,7 @@ mod tests {
         let world = TestWorld::default();
         let mut rng = thread_rng();
 
-        let a = rng.gen::<Fp32BitPrime>();
+        let a = rng.r#gen::<Fp32BitPrime>();
 
         let result = world
             .malicious(a, |ctx, a| async move {
@@ -508,7 +508,7 @@ mod tests {
         let world = TestWorld::default();
         let mut rng = thread_rng();
 
-        let a = rng.gen::<Fp32BitPrime>();
+        let a = rng.r#gen::<Fp32BitPrime>();
 
         for malicious_actor in Role::all() {
             world
@@ -560,7 +560,7 @@ mod tests {
 
         let mut original_inputs = Vec::with_capacity(COUNT);
         for _ in 0..COUNT {
-            let x = rng.gen::<Fp31>();
+            let x = rng.r#gen::<Fp31>();
             original_inputs.push(x);
         }
         let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs

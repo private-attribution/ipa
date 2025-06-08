@@ -90,8 +90,10 @@ impl CircularBuf {
     /// * `read_size` is smaller than `write_size`
     /// * `read_size` is larger than `capacity`
     pub fn new(capacity: usize, write_size: usize, read_size: usize) -> Self {
-        debug_assert!(capacity > 0 && write_size > 0 && read_size > 0,
-                      "Capacity \"{capacity}\", write \"{write_size}\" and read size \"{read_size}\" must all be greater than zero"); // enforced at the level above, so debug_assert is fine
+        debug_assert!(
+            capacity > 0 && write_size > 0 && read_size > 0,
+            "Capacity \"{capacity}\", write \"{write_size}\" and read size \"{read_size}\" must all be greater than zero"
+        ); // enforced at the level above, so debug_assert is fine
         debug_assert!(
             capacity % write_size == 0,
             "\"{write_size}\" write size must divide capacity \"{capacity}\""
@@ -132,10 +134,11 @@ impl CircularBuf {
     /// [`can_write`]: Self::can_write
     pub fn next(&mut self) -> Next<'_> {
         debug_assert!(!self.closed, "Writing to a closed buffer");
-        debug_assert!(self.can_write(),
-                      "Not enough space for the next write: only {av} bytes available, but at least {req} is required",
-                      av = self.remaining(),
-                      req = self.write_size
+        debug_assert!(
+            self.can_write(),
+            "Not enough space for the next write: only {av} bytes available, but at least {req} is required",
+            av = self.remaining(),
+            req = self.write_size
         );
 
         Next {
@@ -311,7 +314,7 @@ mod test {
 
     use generic_array::GenericArray;
     use serde::Serializer;
-    use typenum::{Unsigned, U1, U2};
+    use typenum::{U1, U2, Unsigned};
 
     use super::CircularBuf;
     use crate::ff::Serializable;
@@ -543,7 +546,9 @@ mod test {
     #[test]
     fn panic_on_zero() {
         fn check_panic(capacity: usize, write_size: usize, read_size: usize) {
-            let err = format!("Capacity \"{capacity}\", write \"{write_size}\" and read size \"{read_size}\" must all be greater than zero");
+            let err = format!(
+                "Capacity \"{capacity}\", write \"{write_size}\" and read size \"{read_size}\" must all be greater than zero"
+            );
 
             assert_eq!(
                 err,
@@ -697,9 +702,9 @@ mod test {
 
         use proptest::{arbitrary::any, prop_compose, proptest, strategy::Just};
         use rand::{
+            Rng,
             distributions::{Distribution, Standard},
             rngs::StdRng,
-            Rng,
         };
         use rand_core::SeedableRng;
 
@@ -739,7 +744,7 @@ mod test {
 
         impl Distribution<Decision> for Standard {
             fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Decision {
-                if rng.gen() {
+                if rng.r#gen() {
                     Decision::Read
                 } else {
                     Decision::Write
@@ -771,7 +776,7 @@ mod test {
             let write_size = buf.write_size;
 
             for _ in 0..ops {
-                if rng.gen::<Decision>() == Decision::Write && buf.can_write() {
+                if rng.r#gen::<Decision>() == Decision::Write && buf.can_write() {
                     buf.next().write(pack(cnt.0, write_size).as_slice());
                     written.push(cnt.0);
                     cnt += 1;

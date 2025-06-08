@@ -1,7 +1,7 @@
 use std::io;
 
 use ipa_metrics::MetricsStore;
-use opentelemetry::{metrics::MeterProvider, KeyValue};
+use opentelemetry::{KeyValue, metrics::MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::{self, Encoder, TextEncoder};
 
@@ -48,7 +48,7 @@ mod test {
 
     use std::thread;
 
-    use ipa_metrics::{counter, install_new_thread, MetricChannelType};
+    use ipa_metrics::{MetricChannelType, counter, install_new_thread};
 
     use super::PrometheusMetricsExporter;
 

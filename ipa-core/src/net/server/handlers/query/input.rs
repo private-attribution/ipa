@@ -1,13 +1,13 @@
-use axum::{extract::Path, routing::post, Extension, Router};
+use axum::{Extension, Router, extract::Path, routing::post};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{routing::RouteId, BodyStream},
+    helpers::{BodyStream, routing::RouteId},
     net::{
+        Error,
         http_serde::{self, query::input::QueryInputUrl},
         query_input::stream_query_input_from_url,
         transport::MpcHttpTransport,
-        Error,
     },
     protocol::QueryId,
 };
@@ -53,7 +53,7 @@ mod tests {
 
     use crate::{
         helpers::{
-            make_owned_handler, query::QueryInput, routing::RouteId, BytesStream, HelperResponse,
+            BytesStream, HelperResponse, make_owned_handler, query::QueryInput, routing::RouteId,
         },
         net::{
             http_serde,

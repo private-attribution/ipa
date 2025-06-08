@@ -16,30 +16,30 @@ use ::tokio::{
     net::TcpStream,
 };
 use axum::{
+    Router,
     http::HeaderValue,
     response::{IntoResponse, Response},
     routing::IntoMakeService,
-    Router,
 };
 use axum_server::{
+    Handle, Server,
     accept::Accept,
     service::SendService,
     tls_rustls::{RustlsAcceptor, RustlsConfig},
-    Handle, Server,
 };
 use futures::{
-    future::{ready, BoxFuture, Either, Ready},
     FutureExt,
+    future::{BoxFuture, Either, Ready, ready},
 };
-use hyper::{body::Incoming, Request};
+use hyper::{Request, body::Incoming};
 use ipa_metrics::counter;
-use rustls::{server::WebPkiClientVerifier, RootCertStore};
+use rustls::{RootCertStore, server::WebPkiClientVerifier};
 use tokio_rustls::server::TlsStream;
-use tower::{layer::layer_fn, Service};
+use tower::{Service, layer::layer_fn};
 use tower_http::trace::TraceLayer;
-use tracing::{error, Span};
+use tracing::{Span, error};
 
-use super::{transport::MpcHttpTransport, HttpTransport, Shard};
+use super::{HttpTransport, Shard, transport::MpcHttpTransport};
 use crate::{
     config::{
         NetworkConfig, OwnedCertificate, OwnedPrivateKey, PeerConfig, ServerConfig, TlsConfig,
@@ -48,11 +48,11 @@ use crate::{
     executor::{IpaJoinHandle, IpaRuntime},
     helpers::TransportIdentity,
     net::{
-        parse_certificate_and_private_key_bytes, server::config::HttpServerConfig,
-        ConnectionFlavor, Error, Helper, CRYPTO_PROVIDER,
+        CRYPTO_PROVIDER, ConnectionFlavor, Error, Helper, parse_certificate_and_private_key_bytes,
+        server::config::HttpServerConfig,
     },
     sync::Arc,
-    telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
+    telemetry::metrics::{REQUESTS_RECEIVED, web::RequestProtocolVersion},
 };
 
 pub trait TracingSpanMaker: Send + Sync + Clone + 'static {
@@ -523,12 +523,12 @@ mod e2e_tests {
 
     use bytes::Buf;
     use http_body_util::BodyExt;
-    use hyper::{http::uri, StatusCode, Version};
+    use hyper::{StatusCode, Version, http::uri};
     use hyper_rustls::HttpsConnector;
     use hyper_util::{
         client::legacy::{
-            connect::{Connect, HttpConnector},
             Client,
+            connect::{Connect, HttpConnector},
         },
         rt::{TokioExecutor, TokioTimer},
     };

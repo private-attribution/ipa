@@ -4,8 +4,8 @@ use std::{
 };
 
 use futures::{
-    stream::{self, TryStreamExt},
     StreamExt,
+    stream::{self, TryStreamExt},
 };
 use futures_util::future::{try_join, try_join3};
 use generic_array::GenericArray;
@@ -16,28 +16,28 @@ use crate::{
     error::Error,
     ff::{Expand, Field, Gf32Bit, Serializable},
     helpers::{
-        hashing::{compute_possibly_empty_hash, Hash},
-        stream::{div_round_up, process_slice_by_chunks, TryFlattenItersExt},
         Direction, Role, TotalRecords,
+        hashing::{Hash, compute_possibly_empty_hash},
+        stream::{TryFlattenItersExt, div_round_up, process_slice_by_chunks},
     },
     protocol::{
+        RecordId,
         basics::{malicious_reveal, mul::semi_honest_multiply},
         boolean::step::EightBitStep,
         context::{Context, ShardedContext},
         ipa_prf::shuffle::{
+            IntermediateShuffleMessages,
             sharded::{
-                h1_shuffle_for_shard, h2_shuffle_for_shard, h3_shuffle_for_shard,
-                MaliciousShuffleable, ShuffleShare, Shuffleable,
+                MaliciousShuffleable, ShuffleShare, Shuffleable, h1_shuffle_for_shard,
+                h2_shuffle_for_shard, h3_shuffle_for_shard,
             },
             step::{ShardedShuffleStep, VerifyShuffleStep},
-            IntermediateShuffleMessages,
         },
         prss::SharedRandomness,
-        RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
     },
     seq_join::seq_join,
     sharding::ShardIndex,
@@ -552,17 +552,17 @@ fn concatenate_row_and_tag<S: MaliciousShuffleable>(
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use rand::{distributions::Standard, prelude::Distribution, Rng};
+    use rand::{Rng, distributions::Standard, prelude::Distribution};
 
     use super::*;
     use crate::{
         ff::{
-            boolean_array::{BA112, BA144, BA32},
             Serializable, U128Conversions,
+            boolean_array::{BA32, BA112, BA144},
         },
         helpers::{
-            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
             Role,
+            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
         },
         secret_sharing::{IntoShares, SharedValue},
         test_executor::{run, run_random},
@@ -578,7 +578,7 @@ mod tests {
             let world = TestWorld::default();
 
             let mut rng = world.rng();
-            let record = rng.gen::<BA112>();
+            let record = rng.r#gen::<BA112>();
 
             let (keys, result) = world
                 .semi_honest(record, |ctx, record| async move {
@@ -640,8 +640,8 @@ mod tests {
         S: MaliciousShuffleable,
         Standard: Distribution<S::Share>,
     {
-        let row = <S as Shuffleable>::new(rng.gen(), rng.gen());
-        let tag = AdditiveShare::<Gf32Bit>::new(rng.gen::<Gf32Bit>(), rng.gen::<Gf32Bit>());
+        let row = <S as Shuffleable>::new(rng.r#ggen(), rng.r#ggen());
+        let tag = AdditiveShare::<Gf32Bit>::new(rng.r#gen::<Gf32Bit>(), rng.r#gen::<Gf32Bit>());
         let row_and_tag: Pair<S::ShareAndTag> = concatenate_row_and_tag(&row, &tag);
 
         let mut buf = GenericArray::default();
@@ -689,12 +689,12 @@ mod tests {
             let world = TestWorld::default();
             let mut rng = world.rng();
             let records = (0..RECORD_AMOUNT)
-                .map(|_| rng.gen::<S::Share>())
+                .map(|_| rng.r#gen::<S::Share>())
                 .collect::<Vec<_>>();
             // last key is not uniform when S:Bits is not a multiple of 32
             // since there will be a padding with zeros
             // but that is ok for test
-            let keys = rng.gen::<S::Share>();
+            let keys = rng.r#gen::<S::Share>();
 
             // convert from S to Vec<Gf32Bit>
             let converted_keys: Vec<Gf32Bit> = keys.clone().try_into().unwrap();
@@ -820,7 +820,9 @@ mod tests {
                 TestWorldConfig::default(),
             );
             let mut rng = world.rng();
-            let mut records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let mut records = (0..RECORD_AMOUNT)
+                .map(|_| rng.r#gen())
+                .collect::<Vec<BA32>>();
             let sharded_result = world
                 .semi_honest(records.clone().into_iter(), |ctx, input| async move {
                     malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, input)
@@ -854,7 +856,9 @@ mod tests {
                 TestWorldConfig::default(),
             );
             let mut rng = world.rng();
-            let mut records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let mut records = (0..RECORD_AMOUNT)
+                .map(|_| rng.r#gen())
+                .collect::<Vec<BA32>>();
 
             let sharded_result = world
                 .semi_honest(records.clone().into_iter(), |ctx, input| async move {
@@ -892,14 +896,16 @@ mod tests {
 
         run_random(|mut rng| async move {
             let target_shard = ShardIndex::from(rng.gen_range(0..u32::try_from(SHARDS).unwrap()));
-            let mut config = TestWorldConfig::default().with_seed(rng.gen());
+            let mut config = TestWorldConfig::default().with_seed(rng.r#gen());
             config.stream_interceptor =
                 MaliciousHelper::new(Role::H1, config.role_assignment(), move |ctx, data| {
                     interceptor_h1_to_h2(ctx, Some(target_shard), data);
                 });
 
             let world = TestWorld::<WithShards<SHARDS, Distribution>>::with_shards(config);
-            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let records = (0..RECORD_AMOUNT)
+                .map(|_| rng.r#gen())
+                .collect::<Vec<BA32>>();
             let sharded_results = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
                     malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
@@ -924,14 +930,16 @@ mod tests {
 
         run_random(|mut rng| async move {
             let target_shard = ShardIndex::from(rng.gen_range(0..u32::try_from(SHARDS).unwrap()));
-            let mut config = TestWorldConfig::default().with_seed(rng.gen());
+            let mut config = TestWorldConfig::default().with_seed(rng.r#gen());
             config.stream_interceptor =
                 MaliciousHelper::new(Role::H2, config.role_assignment(), move |ctx, data| {
                     interceptor_h2_to_h3(ctx, Some(target_shard), data);
                 });
 
             let world = TestWorld::<WithShards<SHARDS, Distribution>>::with_shards(config);
-            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let records = (0..RECORD_AMOUNT)
+                .map(|_| rng.r#gen())
+                .collect::<Vec<BA32>>();
             let sharded_results = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
                     malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await
@@ -957,14 +965,16 @@ mod tests {
 
         run_random(|mut rng| async move {
             let target_shard = ShardIndex::from(rng.gen_range(0..u32::try_from(SHARDS).unwrap()));
-            let mut config = TestWorldConfig::default().with_seed(rng.gen());
+            let mut config = TestWorldConfig::default().with_seed(rng.r#gen());
             config.stream_interceptor =
                 MaliciousHelper::new(Role::H3, config.role_assignment(), move |ctx, data| {
                     interceptor_h3_to_h2(ctx, Some(target_shard), data);
                 });
 
             let world = TestWorld::<WithShards<SHARDS, Distribution>>::with_shards(config);
-            let records = (0..RECORD_AMOUNT).map(|_| rng.gen()).collect::<Vec<BA32>>();
+            let records = (0..RECORD_AMOUNT)
+                .map(|_| rng.r#gen())
+                .collect::<Vec<BA32>>();
             let sharded_results = world
                 .semi_honest(records.into_iter(), |ctx, shares| async move {
                     malicious_sharded_shuffle::<_, AdditiveShare<BA32>>(ctx, shares).await

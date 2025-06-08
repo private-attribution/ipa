@@ -43,13 +43,13 @@ use crate::{
     error::{LengthError, UnwrapInfallible},
     ff::{
         boolean::Boolean,
-        boolean_array::{BA16, BA256, BA3, BA32, BA5, BA64, BA8},
+        boolean_array::{BA3, BA5, BA8, BA16, BA32, BA64, BA256},
         ec_prime_field::Fp25519,
     },
     protocol::ipa_prf::{CONV_CHUNK, MK_BITS},
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         BitDecomposed, SharedValue, Vectorizable,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
     },
 };
 
@@ -906,13 +906,14 @@ mod tests {
     };
 
     use rand::{
+        Rng,
         distributions::{Distribution, Standard},
-        thread_rng, Rng,
+        thread_rng,
     };
 
     use super::*;
     use crate::{
-        ff::{boolean_array::BooleanArray, ArrayAccess},
+        ff::{ArrayAccess, boolean_array::BooleanArray},
         secret_sharing::Vectorizable,
     };
 
@@ -921,7 +922,7 @@ mod tests {
         Standard: Distribution<T>,
     {
         let mut rng = thread_rng();
-        array::from_fn(|_| rng.gen())
+        array::from_fn(|_| rng.r#gen())
     }
 
     trait ByteConversion {
@@ -1120,7 +1121,7 @@ mod tests {
         );
 
         let mut rng = thread_rng();
-        let m = repeat_with(|| rng.gen()).take(SM).collect::<Vec<_>>();
+        let m = repeat_with(|| rng.r#gen()).take(SM).collect::<Vec<_>>();
         let m_t = t_impl(<&[SR; SM]>::try_from(m.as_slice()).unwrap());
 
         verify_transpose(SM, DM, |i, j| m_t[i].get(j), |i, j| m[i].get(j));
@@ -1153,9 +1154,10 @@ mod tests {
 
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
-        let m = repeat_with(|| AdditiveShare::from_fns(|_| left_rng.gen(), |_| right_rng.gen()))
-            .take(SM)
-            .collect::<Vec<_>>();
+        let m =
+            repeat_with(|| AdditiveShare::from_fns(|_| left_rng.r#gen(), |_| right_rng.r#gen()))
+                .take(SM)
+                .collect::<Vec<_>>();
         let m_t = t_impl(<&[AdditiveShare<SR>; SM]>::try_from(m.as_slice()).unwrap());
 
         #[rustfmt::skip]
@@ -1193,9 +1195,10 @@ mod tests {
 
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
-        let m = repeat_with(|| AdditiveShare::from_fns(|_| left_rng.gen(), |_| right_rng.gen()))
-            .take(SM)
-            .collect::<Vec<_>>();
+        let m =
+            repeat_with(|| AdditiveShare::from_fns(|_| left_rng.r#gen(), |_| right_rng.r#gen()))
+                .take(SM)
+                .collect::<Vec<_>>();
         let m_t = t_impl(&m);
 
         #[rustfmt::skip]
@@ -1233,9 +1236,10 @@ mod tests {
 
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
-        let m = repeat_with(|| AdditiveShare::from_fns(|_| left_rng.gen(), |_| right_rng.gen()))
-            .take(SM)
-            .collect::<Vec<_>>();
+        let m =
+            repeat_with(|| AdditiveShare::from_fns(|_| left_rng.r#gen(), |_| right_rng.r#gen()))
+                .take(SM)
+                .collect::<Vec<_>>();
         let m_func = |i| AdditiveShare::<SR>::clone(&m[i]);
         let m_t = t_impl(&m_func);
 
@@ -1272,9 +1276,10 @@ mod tests {
 
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
-        let m = repeat_with(|| AdditiveShare::from_fns(|_| left_rng.gen(), |_| right_rng.gen()))
-            .take(SM)
-            .collect::<Vec<_>>();
+        let m =
+            repeat_with(|| AdditiveShare::from_fns(|_| left_rng.r#gen(), |_| right_rng.r#gen()))
+                .take(SM)
+                .collect::<Vec<_>>();
         let m_t = t_impl(<&[AdditiveShare<Boolean, DM>; SM]>::try_from(m.as_slice()).unwrap());
 
         #[rustfmt::skip]
@@ -1293,9 +1298,9 @@ mod tests {
         <Boolean as Vectorizable<SM>>::Array: BooleanArray,
         <Boolean as Vectorizable<DM>>::Array: BooleanArray,
         Vec<BitDecomposed<AdditiveShare<Boolean, SM>>>: for<'a> TransposeFrom<
-            &'a [BitDecomposed<AdditiveShare<Boolean, DM>>],
-            Error = Infallible,
-        >,
+                &'a [BitDecomposed<AdditiveShare<Boolean, DM>>],
+                Error = Infallible,
+            >,
     {
         let step = min(SM, DM);
 
@@ -1305,9 +1310,10 @@ mod tests {
         let m0 = bool_shares_test_matrix::<SM, DM>(step);
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
-        let m1 = repeat_with(|| AdditiveShare::from_fns(|_| left_rng.gen(), |_| right_rng.gen()))
-            .take(SM)
-            .collect::<Vec<_>>();
+        let m1 =
+            repeat_with(|| AdditiveShare::from_fns(|_| left_rng.r#gen(), |_| right_rng.r#gen()))
+                .take(SM)
+                .collect::<Vec<_>>();
 
         let mut m = Vec::with_capacity(SM);
         for (row0, row1) in zip(m0, m1.clone()) {

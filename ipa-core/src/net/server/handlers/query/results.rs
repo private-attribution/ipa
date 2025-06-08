@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use axum::{extract::Path, routing::get, Extension, Router};
+use axum::{Extension, Router, extract::Path, routing::get};
 use hyper::StatusCode;
 
 use crate::{
     helpers::BodyStream,
     net::{
+        ConnectionFlavor, HttpTransport,
         http_serde::{self, query::results::Request},
         server::Error,
-        ConnectionFlavor, HttpTransport,
     },
     protocol::QueryId,
 };
@@ -47,9 +47,8 @@ mod tests {
     use crate::{
         ff::Fp31,
         helpers::{
-            make_owned_handler,
+            BodyStream, HelperIdentity, HelperResponse, make_owned_handler,
             routing::{Addr, RouteId},
-            BodyStream, HelperIdentity, HelperResponse,
         },
         net::{
             http_serde,

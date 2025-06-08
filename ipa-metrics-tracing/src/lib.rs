@@ -4,4 +4,4 @@
 
 mod layer;
 
-pub use layer::{MetricsPartitioningLayer, FIELD as PARTITION_FIELD};
+pub use layer::{FIELD as PARTITION_FIELD, MetricsPartitioningLayer};

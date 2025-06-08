@@ -2,8 +2,8 @@ use std::convert::Infallible;
 
 use generic_array::GenericArray;
 use sha2::{
-    digest::{Output, OutputSizeUser},
     Digest, Sha256,
+    digest::{Output, OutputSizeUser},
 };
 use subtle::{Choice, ConstantTimeEq};
 
@@ -161,11 +161,11 @@ where
 mod test {
     use std::iter;
 
-    use generic_array::{sequence::GenericSequence, GenericArray};
-    use rand::{thread_rng, Rng};
+    use generic_array::{GenericArray, sequence::GenericSequence};
+    use rand::{Rng, thread_rng};
     use typenum::U8;
 
-    use super::{compute_hash, compute_possibly_empty_hash, Hash};
+    use super::{Hash, compute_hash, compute_possibly_empty_hash};
     use crate::{
         ff::{Fp31, Fp32BitPrime, Serializable},
         helpers::hashing::hash_to_field,
@@ -175,7 +175,7 @@ mod test {
     fn can_serialize_and_deserialize() {
         let mut rng = thread_rng();
         let list: GenericArray<Fp32BitPrime, U8> =
-            GenericArray::generate(|_| rng.gen::<Fp32BitPrime>());
+            GenericArray::generate(|_| rng.r#gen::<Fp32BitPrime>());
         let hash: Hash = compute_hash(list);
         let mut buf: GenericArray<u8, _> = GenericArray::default();
         hash.serialize(&mut buf);
@@ -191,15 +191,15 @@ mod test {
 
         let mut list: Vec<Fp31> = Vec::with_capacity(LIST_LENGTH);
         for _ in 0..LIST_LENGTH {
-            list.push(rng.gen::<Fp31>());
+            list.push(rng.r#gen::<Fp31>());
         }
         let hash_1 = compute_hash(&list);
 
         // modify one, randomly selected element in the list
-        let random_index = rng.gen::<usize>() % LIST_LENGTH;
+        let random_index = rng.r#gen::<usize>() % LIST_LENGTH;
         let mut different_field_element = list[random_index];
         while different_field_element == list[random_index] {
-            different_field_element = rng.gen::<Fp31>();
+            different_field_element = rng.r#gen::<Fp31>();
         }
         list[random_index] = different_field_element;
 
@@ -243,16 +243,16 @@ mod test {
         let mut left = Vec::with_capacity(LIST_LENGTH);
         let mut right = Vec::with_capacity(LIST_LENGTH);
         for _ in 0..LIST_LENGTH {
-            left.push(rng.gen::<Fp32BitPrime>());
-            right.push(rng.gen::<Fp32BitPrime>());
+            left.push(rng.r#gen::<Fp32BitPrime>());
+            right.push(rng.r#gen::<Fp32BitPrime>());
         }
         let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         // modify one, randomly selected element in the list
-        let random_index = rng.gen::<usize>() % LIST_LENGTH;
+        let random_index = rng.r#gen::<usize>() % LIST_LENGTH;
         // There is a 1 in 2^32 chance that we generate exactly the same value and the test fails.
-        let modified_value = rng.gen::<Fp32BitPrime>();
-        if rng.gen::<bool>() {
+        let modified_value = rng.r#gen::<Fp32BitPrime>();
+        if rng.r#gen::<bool>() {
             left[random_index] = modified_value;
         } else {
             right[random_index] = modified_value;
@@ -269,7 +269,7 @@ mod test {
     #[test]
     fn check_hash_from_owned_values() {
         let mut rng = thread_rng();
-        let vec = (0..100).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
+        let vec = (0..100).map(|_| rng.r#gen::<Fp31>()).collect::<Vec<_>>();
         assert_eq!(compute_hash(&vec), compute_hash(vec));
     }
 

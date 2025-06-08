@@ -8,8 +8,8 @@ pub use transport::{Error as InMemoryTransportError, Setup};
 
 use crate::{
     helpers::{
-        in_memory_config::DynStreamInterceptor, transport::in_memory::config::passthrough,
-        HandlerRef, HelperIdentity,
+        HandlerRef, HelperIdentity, in_memory_config::DynStreamInterceptor,
+        transport::in_memory::config::passthrough,
     },
     sharding::ShardIndex,
     sync::{Arc, Weak},

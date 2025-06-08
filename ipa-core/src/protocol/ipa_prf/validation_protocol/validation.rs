@@ -5,31 +5,31 @@ use std::{
 
 use futures_util::future::{try_join, try_join4};
 use subtle::ConstantTimeEq;
-use typenum::{Unsigned, U120, U448};
+use typenum::{U120, U448, Unsigned};
 
 use crate::{
     const_assert_eq,
     error::{Error, UnwrapInfallible},
     ff::{Fp61BitPrime, Serializable},
     helpers::{
-        hashing::{compute_hash, hash_to_field, Hash},
         Direction, MpcMessage, TotalRecords,
+        hashing::{Hash, compute_hash, hash_to_field},
     },
     protocol::{
+        RecordId,
         context::{
-            dzkp_validator::MAX_PROOF_RECURSION, step::DzkpProofVerifyStep as Step, Context,
+            Context, dzkp_validator::MAX_PROOF_RECURSION, step::DzkpProofVerifyStep as Step,
         },
         ipa_prf::{
+            CompressedProofGenerator, FirstProofGenerator,
             malicious_security::{
-                verifier::{
-                    compute_g_differences, recursively_compute_final_check, VerifierLagrangeInput,
-                },
                 FIRST_RECURSION_FACTOR as FRF,
+                verifier::{
+                    VerifierLagrangeInput, compute_g_differences, recursively_compute_final_check,
+                },
             },
             validation_protocol::proof_generation::ProofBatch,
-            CompressedProofGenerator, FirstProofGenerator,
         },
-        RecordId,
     },
     secret_sharing::SharedValue,
 };
@@ -454,19 +454,19 @@ pub mod test {
         ff::Fp61BitPrime,
         helpers::Direction,
         protocol::{
+            RecordId, RecordIdRange,
             context::Context,
             ipa_prf::{
+                CompressedProofGenerator, FirstProofGenerator,
                 malicious_security::{
+                    FIRST_RECURSION_FACTOR as FRF,
                     lagrange::CanonicalLagrangeDenominator,
                     prover::{ProverValues, UVValues},
-                    verifier::{compute_sum_share, interpolate_at_r, VerifierValues},
-                    FIRST_RECURSION_FACTOR as FRF,
+                    verifier::{VerifierValues, compute_sum_share, interpolate_at_r},
                 },
                 validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
-                CompressedProofGenerator, FirstProofGenerator,
             },
             prss::SharedRandomness,
-            RecordId, RecordIdRange,
         },
         secret_sharing::SharedValue,
         test_executor::run,
@@ -545,43 +545,46 @@ pub mod test {
 
             let mut rng = world.rng();
 
-            let uv_values = repeat_with(|| (rng.gen(), rng.gen()))
+            let uv_values = repeat_with(|| (rng.r#gen(), rng.r#gen()))
                 .take(100)
                 .collect::<UVValues<_, FRF>>();
             let uv_values_iter = uv_values.iter().copied();
             let uv_values_iter_ref = &uv_values_iter;
 
-            let [(helper_1_left, helper_1_right), (helper_2_left, helper_2_right), (helper_3_left, helper_3_right)] =
-                world
-                    .semi_honest((), |ctx, ()| async move {
-                        // generate and output VerifierBatch together with h value
-                        let (
-                            my_batch_left_shares,
-                            shares_of_batch_from_left_prover,
-                            p_mask_from_right_prover,
-                            q_mask_from_left_prover,
-                        ) = ProofBatch::generate(
-                            &ctx.narrow("generate_batch"),
-                            RecordIdRange::ALL,
-                            ProverValues(uv_values_iter_ref.clone()),
-                        );
+            let [
+                (helper_1_left, helper_1_right),
+                (helper_2_left, helper_2_right),
+                (helper_3_left, helper_3_right),
+            ] = world
+                .semi_honest((), |ctx, ()| async move {
+                    // generate and output VerifierBatch together with h value
+                    let (
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
+                    ) = ProofBatch::generate(
+                        &ctx.narrow("generate_batch"),
+                        RecordIdRange::ALL,
+                        ProverValues(uv_values_iter_ref.clone()),
+                    );
 
-                        let batch_to_verify = BatchToVerify::generate_batch_to_verify(
-                            ctx.narrow("generate_batch"),
-                            RecordId::FIRST,
-                            my_batch_left_shares,
-                            shares_of_batch_from_left_prover,
-                            p_mask_from_right_prover,
-                            q_mask_from_left_prover,
-                        )
-                        .await;
-
-                        // generate and output challenges
-                        batch_to_verify
-                            .generate_challenges(ctx, RecordId::FIRST)
-                            .await
-                    })
+                    let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                        ctx.narrow("generate_batch"),
+                        RecordId::FIRST,
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
+                    )
                     .await;
+
+                    // generate and output challenges
+                    batch_to_verify
+                        .generate_challenges(ctx, RecordId::FIRST)
+                        .await
+                })
+                .await;
 
             // verifier when H1 is prover
             assert_eq!(helper_2_left, helper_3_right);
@@ -664,53 +667,55 @@ pub mod test {
         run(|| async move {
             let world = TestWorld::default();
 
-            let [(h1_c_left, h1_c_right, h1_batch), (h2_c_left, h2_c_right, h2_batch), (h3_c_left, h3_c_right, h3_batch)] =
-                world
-                    .semi_honest((), |ctx, ()| async move {
-                        // generate u, v values
-                        let (vec_my_u_and_v, _, _, _) = generate_u_v(&ctx, LEN);
+            let [
+                (h1_c_left, h1_c_right, h1_batch),
+                (h2_c_left, h2_c_right, h2_batch),
+                (h3_c_left, h3_c_right, h3_batch),
+            ] = world
+                .semi_honest((), |ctx, ()| async move {
+                    // generate u, v values
+                    let (vec_my_u_and_v, _, _, _) = generate_u_v(&ctx, LEN);
 
-                        // generate and output VerifierBatch together with h value
-                        let (
-                            my_batch_left_shares,
-                            shares_of_batch_from_left_prover,
-                            p_mask_from_right_prover,
-                            q_mask_from_left_prover,
-                        ) = ProofBatch::generate(
-                            &ctx.narrow("generate_batch"),
-                            RecordIdRange::ALL,
-                            ProverValues(vec_my_u_and_v.into_iter()),
-                        );
+                    // generate and output VerifierBatch together with h value
+                    let (
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
+                    ) = ProofBatch::generate(
+                        &ctx.narrow("generate_batch"),
+                        RecordIdRange::ALL,
+                        ProverValues(vec_my_u_and_v.into_iter()),
+                    );
 
-                        let batch_to_verify = BatchToVerify::generate_batch_to_verify(
-                            ctx.narrow("generate_batch"),
-                            RecordId::FIRST,
-                            my_batch_left_shares,
-                            shares_of_batch_from_left_prover,
-                            p_mask_from_right_prover,
-                            q_mask_from_left_prover,
-                        )
+                    let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                        ctx.narrow("generate_batch"),
+                        RecordId::FIRST,
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
+                    )
+                    .await;
+
+                    // generate challenges
+                    let (challenges_for_left_prover, challenges_for_right_prover) = batch_to_verify
+                        .generate_challenges(ctx.narrow("generate_hash"), RecordId::FIRST)
                         .await;
 
-                        // generate challenges
-                        let (challenges_for_left_prover, challenges_for_right_prover) =
-                            batch_to_verify
-                                .generate_challenges(ctx.narrow("generate_hash"), RecordId::FIRST)
-                                .await;
+                    assert_eq!(
+                        challenges_for_right_prover.len(),
+                        batch_to_verify.proofs_from_right_prover.len() + 1
+                    );
 
-                        assert_eq!(
-                            challenges_for_right_prover.len(),
-                            batch_to_verify.proofs_from_right_prover.len() + 1
-                        );
-
-                        // output challenges and batches to verify
-                        (
-                            challenges_for_left_prover,
-                            challenges_for_right_prover,
-                            batch_to_verify,
-                        )
-                    })
-                    .await;
+                    // output challenges and batches to verify
+                    (
+                        challenges_for_left_prover,
+                        challenges_for_right_prover,
+                        batch_to_verify,
+                    )
+                })
+                .await;
 
             // check challenges
             // h1 prover
@@ -769,78 +774,77 @@ pub mod test {
         run(|| async move {
             let world = TestWorld::default();
 
-            let [(pq_h1, h1_left, h1_right), (pq_h2, h2_left, h2_right), (pq_h3, h3_left, h3_right)] =
-                world
-                    .semi_honest((), |ctx, ()| async move {
-                        // generate u, v values
-                        let (vec_my_u_and_v, _, vec_u_from_right_prover, vec_v_from_left_prover) =
-                            generate_u_v(&ctx, LEN);
+            let [
+                (pq_h1, h1_left, h1_right),
+                (pq_h2, h2_left, h2_right),
+                (pq_h3, h3_left, h3_right),
+            ] = world
+                .semi_honest((), |ctx, ()| async move {
+                    // generate u, v values
+                    let (vec_my_u_and_v, _, vec_u_from_right_prover, vec_v_from_left_prover) =
+                        generate_u_v(&ctx, LEN);
 
-                        // generate and output VerifierBatch together with h value
-                        let (
-                            my_batch_left_shares,
-                            shares_of_batch_from_left_prover,
-                            p_mask_from_right_prover,
-                            q_mask_from_left_prover,
-                        ) = ProofBatch::generate(
-                            &ctx.narrow("generate_batch"),
-                            RecordIdRange::ALL,
-                            ProverValues(vec_my_u_and_v.into_iter()),
-                        );
+                    // generate and output VerifierBatch together with h value
+                    let (
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
+                    ) = ProofBatch::generate(
+                        &ctx.narrow("generate_batch"),
+                        RecordIdRange::ALL,
+                        ProverValues(vec_my_u_and_v.into_iter()),
+                    );
 
-                        let batch_to_verify = BatchToVerify::generate_batch_to_verify(
-                            ctx.narrow("generate_batch"),
-                            RecordId::FIRST,
-                            my_batch_left_shares,
-                            shares_of_batch_from_left_prover,
-                            p_mask_from_right_prover,
-                            q_mask_from_left_prover,
-                        )
+                    let batch_to_verify = BatchToVerify::generate_batch_to_verify(
+                        ctx.narrow("generate_batch"),
+                        RecordId::FIRST,
+                        my_batch_left_shares,
+                        shares_of_batch_from_left_prover,
+                        p_mask_from_right_prover,
+                        q_mask_from_left_prover,
+                    )
+                    .await;
+
+                    // generate challenges
+                    let (challenges_for_left_prover, challenges_for_right_prover) = batch_to_verify
+                        .generate_challenges(ctx.narrow("generate_hash"), RecordId::FIRST)
                         .await;
 
-                        // generate challenges
-                        let (challenges_for_left_prover, challenges_for_right_prover) =
-                            batch_to_verify
-                                .generate_challenges(ctx.narrow("generate_hash"), RecordId::FIRST)
-                                .await;
+                    assert_eq!(
+                        challenges_for_right_prover.len(),
+                        batch_to_verify.proofs_from_right_prover.len() + 1
+                    );
 
-                        assert_eq!(
-                            challenges_for_right_prover.len(),
-                            batch_to_verify.proofs_from_right_prover.len() + 1
-                        );
+                    let (p, q) = batch_to_verify.compute_p_and_q_r(
+                        &challenges_for_left_prover,
+                        &challenges_for_right_prover,
+                        VerifierValues(vec_u_from_right_prover.into_iter().chunk_array::<FRF>()),
+                        VerifierValues(vec_v_from_left_prover.into_iter().chunk_array::<FRF>()),
+                    );
 
-                        let (p, q) = batch_to_verify.compute_p_and_q_r(
-                            &challenges_for_left_prover,
-                            &challenges_for_right_prover,
-                            VerifierValues(
-                                vec_u_from_right_prover.into_iter().chunk_array::<FRF>(),
-                            ),
-                            VerifierValues(vec_v_from_left_prover.into_iter().chunk_array::<FRF>()),
-                        );
+                    let p_times_q = BatchToVerify::compute_p_times_q(ctx, RecordId::FIRST, p, q)
+                        .await
+                        .unwrap();
 
-                        let p_times_q =
-                            BatchToVerify::compute_p_times_q(ctx, RecordId::FIRST, p, q)
-                                .await
-                                .unwrap();
+                    let denominator = CanonicalLagrangeDenominator::<
+                        Fp61BitPrime,
+                        { CompressedProofGenerator::PROOF_LENGTH },
+                    >::new();
 
-                        let denominator = CanonicalLagrangeDenominator::<
-                            Fp61BitPrime,
-                            { CompressedProofGenerator::PROOF_LENGTH },
-                        >::new();
-
-                        let g_r_left = interpolate_at_r(
-                            batch_to_verify.proofs_from_left_prover.last().unwrap(),
-                            challenges_for_left_prover.last().unwrap(),
-                            &denominator,
-                        );
-                        let g_r_right = interpolate_at_r(
-                            batch_to_verify.proofs_from_right_prover.last().unwrap(),
-                            challenges_for_right_prover.last().unwrap(),
-                            &denominator,
-                        );
-                        (p_times_q, g_r_left, g_r_right)
-                    })
-                    .await;
+                    let g_r_left = interpolate_at_r(
+                        batch_to_verify.proofs_from_left_prover.last().unwrap(),
+                        challenges_for_left_prover.last().unwrap(),
+                        &denominator,
+                    );
+                    let g_r_right = interpolate_at_r(
+                        batch_to_verify.proofs_from_right_prover.last().unwrap(),
+                        challenges_for_right_prover.last().unwrap(),
+                        &denominator,
+                    );
+                    (p_times_q, g_r_left, g_r_right)
+                })
+                .await;
 
             // check h1's proof
             assert_eq!(pq_h3, h2_left + h3_right);

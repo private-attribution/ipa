@@ -36,7 +36,7 @@ mod gateway_exports {
 
     use crate::helpers::{
         gateway,
-        gateway::{stall_detection::Observed, InstrumentedGateway},
+        gateway::{InstrumentedGateway, stall_detection::Observed},
     };
 
     pub type Gateway = Observed<InstrumentedGateway>;
@@ -69,19 +69,19 @@ use ipa_metrics::LabelValue;
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
+pub use transport::{
+    ApiError, BodyStream, BroadcastError, BufferedBytesStream, BytesStream, HandlerBox, HandlerRef,
+    HelperResponse, Identity as TransportIdentity, LengthDelimitedStream, LogErrors, NoQueryId,
+    NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RecordsStream, RequestHandler,
+    RouteParams, SingleRecordStream, StepBinding, StreamCollection, StreamKey, Transport,
+    WrappedBoxBodyStream, make_owned_handler, query, routing,
+};
 #[cfg(feature = "in-memory-infra")]
 pub use transport::{
-    config as in_memory_config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport,
-    InMemoryTransportError,
+    InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport, InMemoryTransportError,
+    config as in_memory_config,
 };
-pub use transport::{
-    make_owned_handler, query, routing, ApiError, BodyStream, BroadcastError, BufferedBytesStream,
-    BytesStream, HandlerBox, HandlerRef, HelperResponse, Identity as TransportIdentity,
-    LengthDelimitedStream, LogErrors, NoQueryId, NoResourceIdentifier, NoStep, QueryIdBinding,
-    ReceiveRecords, RecordsStream, RequestHandler, RouteParams, SingleRecordStream, StepBinding,
-    StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
-};
-use typenum::{Const, ToUInt, Unsigned, U8};
+use typenum::{Const, ToUInt, U8, Unsigned};
 use x25519_dalek::PublicKey;
 
 use crate::{
@@ -738,8 +738,8 @@ mod tests {
         use crate::{
             ff::Fp31,
             helpers::{HelperIdentity, Role, RoleAssignment},
-            protocol::{basics::SecureMul, context::Context, RecordId},
-            rand::{thread_rng, Rng},
+            protocol::{RecordId, basics::SecureMul, context::Context},
+            rand::{Rng, thread_rng},
             test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
         };
 
@@ -811,8 +811,8 @@ mod tests {
 
                 let world = TestWorld::new_with(config);
                 let mut rng = thread_rng();
-                let a = rng.gen::<Fp31>();
-                let b = rng.gen::<Fp31>();
+                let a = rng.r#gen::<Fp31>();
+                let b = rng.r#gen::<Fp31>();
 
                 let res = world
                     .semi_honest((a, b), |ctx, (a, b)| async move {
@@ -837,12 +837,12 @@ mod concurrency_tests {
     use crate::{
         ff::{FieldType, Fp31, Fp32BitPrime, U128Conversions},
         helpers::{
-            query::{QueryConfig, QueryType::TestMultiply},
             Direction, GatewayConfig,
+            query::{QueryConfig, QueryType::TestMultiply},
         },
-        protocol::{context::Context, RecordId},
+        protocol::{RecordId, context::Context},
         secret_sharing::replicated::{
-            semi_honest, semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+            ReplicatedSecretSharing, semi_honest, semi_honest::AdditiveShare as Replicated,
         },
         seq_join::SeqJoin,
         test_fixture::{Reconstruct, Runner, TestApp, TestWorld, TestWorldConfig},

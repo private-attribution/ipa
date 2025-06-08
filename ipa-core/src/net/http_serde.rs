@@ -83,9 +83,9 @@ pub mod query {
 
     use async_trait::async_trait;
     use axum::{
+        RequestPartsExt,
         extract::{FromRequestParts, Query},
         http::request::Parts,
-        RequestPartsExt,
     };
     use serde::Deserialize;
 
@@ -188,8 +188,8 @@ pub mod query {
         use serde::{Deserialize, Serialize};
 
         use crate::{
-            helpers::{query::QueryConfig, HelperResponse},
-            net::http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
+            helpers::{HelperResponse, query::QueryConfig},
+            net::http_serde::query::{BASE_AXUM_PATH, QueryConfigQueryParams},
             protocol::QueryId,
         };
 
@@ -243,10 +243,10 @@ pub mod query {
         use serde::{Deserialize, Serialize};
 
         use crate::{
-            helpers::{query::PrepareQuery, RoleAssignment},
+            helpers::{RoleAssignment, query::PrepareQuery},
             net::{
-                http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
                 APPLICATION_JSON,
+                http_serde::query::{BASE_AXUM_PATH, QueryConfigQueryParams},
             },
         };
 
@@ -301,15 +301,15 @@ pub mod query {
             http::{request::Parts, uri},
         };
         use hyper::{
-            header::{HeaderValue, CONTENT_TYPE},
             Uri,
+            header::{CONTENT_TYPE, HeaderValue},
         };
 
         use crate::{
             helpers::query::QueryInput,
             net::{
-                http_serde::query::BASE_AXUM_PATH, Error, APPLICATION_OCTET_STREAM,
-                HTTP_QUERY_INPUT_URL_HEADER,
+                APPLICATION_OCTET_STREAM, Error, HTTP_QUERY_INPUT_URL_HEADER,
+                http_serde::query::BASE_AXUM_PATH,
             },
         };
 
@@ -388,7 +388,7 @@ pub mod query {
         use axum::{body::Body, http::uri};
 
         use crate::{
-            net::{http_serde::query::BASE_AXUM_PATH, Error},
+            net::{Error, http_serde::query::BASE_AXUM_PATH},
             protocol::{Gate, QueryId},
         };
 
@@ -439,7 +439,7 @@ pub mod query {
         use serde::{Deserialize, Serialize};
 
         use crate::{
-            helpers::{routing::RouteId, HelperResponse, NoStep, RouteParams},
+            helpers::{HelperResponse, NoStep, RouteParams, routing::RouteId},
             protocol::QueryId,
             query::QueryStatus,
         };
@@ -510,7 +510,7 @@ pub mod query {
 
     pub mod results {
         use crate::{
-            helpers::{routing::RouteId, NoStep, RouteParams},
+            helpers::{NoStep, RouteParams, routing::RouteId},
             protocol::QueryId,
         };
 
@@ -569,7 +569,7 @@ pub mod query {
         use serde::{Deserialize, Serialize};
 
         use crate::{
-            helpers::{routing::RouteId, HelperResponse, NoStep, RouteParams},
+            helpers::{HelperResponse, NoStep, RouteParams, routing::RouteId},
             protocol::QueryId,
         };
 

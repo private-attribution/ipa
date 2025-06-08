@@ -1,7 +1,7 @@
 use std::{
     array,
     collections::BTreeMap,
-    fs::{read_to_string, File, OpenOptions},
+    fs::{File, OpenOptions, read_to_string},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
     sync::mpsc::SyncSender,
@@ -21,7 +21,7 @@ use crate::{
     config::{KeyRegistries, NetworkConfig},
     error::BoxError,
     hpke::{KeyRegistry, PublicKeyOnly},
-    report::hybrid::{HybridReport, DEFAULT_KEY_ID},
+    report::hybrid::{DEFAULT_KEY_ID, HybridReport},
     secret_sharing::IntoShares,
     test_fixture::hybrid::TestHybridRecord,
 };
@@ -356,12 +356,12 @@ impl FileWriteWorker {
 mod tests {
     use std::io::Write;
 
-    use tempfile::{tempdir, NamedTempFile};
+    use tempfile::{NamedTempFile, tempdir};
 
     use crate::{
         cli::{
-            crypto::{hybrid_encrypt::HybridEncryptArgs, hybrid_sample_data},
             CsvSerializer,
+            crypto::{hybrid_encrypt::HybridEncryptArgs, hybrid_sample_data},
         },
         test_fixture::hybrid::TestHybridRecord,
     };

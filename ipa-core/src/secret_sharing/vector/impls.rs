@@ -2,18 +2,18 @@
 
 use crate::{
     ff::{
-        boolean::Boolean,
-        boolean_array::{BA16, BA20, BA256, BA3, BA32, BA5, BA64, BA8},
-        ec_prime_field::Fp25519,
         Fp32BitPrime, Gf32Bit,
+        boolean::Boolean,
+        boolean_array::{BA3, BA5, BA8, BA16, BA20, BA32, BA64, BA256},
+        ec_prime_field::Fp25519,
     },
     protocol::{
         context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
         ipa_prf::PRF_CHUNK,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare, FieldSimd, FieldVectorizable,
-        ReplicatedSecretSharing, Vectorizable,
+        FieldSimd, FieldVectorizable, ReplicatedSecretSharing, Vectorizable,
+        replicated::semi_honest::AdditiveShare,
     },
 };
 

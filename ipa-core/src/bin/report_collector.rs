@@ -4,32 +4,32 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io,
-    io::{stdout, BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Write, stdout},
     iter::zip,
     ops::Deref,
     path::{Path, PathBuf},
 };
 
 use clap::{Parser, Subcommand};
-use hyper::{http::uri::Scheme, Uri};
+use hyper::{Uri, http::uri::Scheme};
 use ipa_core::{
     cli::{
-        playbook::{
-            make_clients, make_sharded_clients, run_hybrid_query_and_validate,
-            BufferedRoundRobinSubmission, HybridQueryResult, InputSource, StreamingSubmission,
-        },
         CsvSerializer, Verbosity,
+        playbook::{
+            BufferedRoundRobinSubmission, HybridQueryResult, InputSource, StreamingSubmission,
+            make_clients, make_sharded_clients, run_hybrid_query_and_validate,
+        },
     },
-    ff::{boolean_array::BA32, FieldType},
+    ff::{FieldType, boolean_array::BA32},
     helpers::{
-        query::{HybridQueryParams, QueryConfig, QueryInput, QuerySize, QueryType},
         BodyStream,
+        query::{HybridQueryParams, QueryConfig, QueryInput, QuerySize, QueryType},
     },
     net::{Helper, IpaHttpClient},
     protocol::QueryId,
     test_fixture::{HybridEventGenerator, HybridGeneratorConfig},
 };
-use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
+use rand::{Rng, distributions::Alphanumeric, rngs::StdRng, thread_rng};
 use rand_core::SeedableRng;
 
 #[derive(Debug, Parser)]

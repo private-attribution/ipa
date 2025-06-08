@@ -18,8 +18,8 @@ use generic_array::ArrayLength;
 pub use into_shares::IntoShares;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 use rand::{
-    distributions::{Distribution, Standard},
     Rng,
+    distributions::{Distribution, Standard},
 };
 pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 pub use vector::{
@@ -141,8 +141,8 @@ where
     Standard: Distribution<V>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<V>; 3] {
-        let x1 = rng.gen::<V>();
-        let x2 = rng.gen::<V>();
+        let x1 = rng.r#gen::<V>();
+        let x2 = rng.r#gen::<V>();
         let x3 = self - (x1 + x2);
 
         [
@@ -181,8 +181,8 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         secret_sharing::{
-            replicated::{malicious, semi_honest},
             Linear, LinearRefOps,
+            replicated::{malicious, semi_honest},
         },
     };
 

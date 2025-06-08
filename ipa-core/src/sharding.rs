@@ -278,7 +278,7 @@ mod tests {
     }
 
     mod conf {
-        use crate::sharding::{tests::shards, ShardConfiguration, ShardIndex};
+        use crate::sharding::{ShardConfiguration, ShardIndex, tests::shards};
 
         struct StaticConfig(u32, u32);
         impl ShardConfiguration for StaticConfig {

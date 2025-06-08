@@ -11,7 +11,7 @@ use crate::{
             dzkp_validator::{MAX_PROOF_RECURSION, MIN_PROOF_RECURSION},
         },
         ipa_prf::malicious_security::{
-            CanonicalLagrangeDenominator, LagrangeTable, FIRST_RECURSION_FACTOR as FRF,
+            CanonicalLagrangeDenominator, FIRST_RECURSION_FACTOR as FRF, LagrangeTable,
         },
     },
     utils::arraychunks::ArrayChunkIterator,
@@ -278,8 +278,8 @@ mod test {
         ff::{Fp31, U128Conversions},
         protocol::{
             context::{
-                dzkp_field::{tests::reference_convert, TABLE_U, TABLE_V},
-                dzkp_validator::{MultiplicationInputsBlock, BIT_ARRAY_LEN},
+                dzkp_field::{TABLE_U, TABLE_V, tests::reference_convert},
+                dzkp_validator::{BIT_ARRAY_LEN, MultiplicationInputsBlock},
             },
             ipa_prf::malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
         },
@@ -562,55 +562,59 @@ mod test {
     #[test]
     fn verifier_table_indices_equivalence() {
         run_random(|mut rng| async move {
-            let block = rng.gen::<MultiplicationInputsBlock>();
+            let block = rng.r#gen::<MultiplicationInputsBlock>();
 
             let denominator = CanonicalLagrangeDenominator::new();
-            let r = rng.gen();
+            let r = rng.r#gen();
             let lagrange_table_r = LagrangeTable::new(&denominator, &r);
 
             // Test equivalence for _u_ values
-            assert!(VerifierTableIndices {
-                input: block
-                    .rotate_right()
-                    .table_indices_from_right_prover()
-                    .into_iter(),
-                table: &TABLE_U,
-            }
-            .eval_at_r(&lagrange_table_r)
-            .eq(VerifierValues((0..BIT_ARRAY_LEN).map(|i| {
-                reference_convert(
-                    block.x_left[i],
-                    block.x_right[i],
-                    block.y_left[i],
-                    block.y_right[i],
-                    block.prss_left[i],
-                    block.prss_right[i],
-                )
-                .0
-            }))
-            .eval_at_r(&lagrange_table_r)));
+            assert!(
+                VerifierTableIndices {
+                    input: block
+                        .rotate_right()
+                        .table_indices_from_right_prover()
+                        .into_iter(),
+                    table: &TABLE_U,
+                }
+                .eval_at_r(&lagrange_table_r)
+                .eq(VerifierValues((0..BIT_ARRAY_LEN).map(|i| {
+                    reference_convert(
+                        block.x_left[i],
+                        block.x_right[i],
+                        block.y_left[i],
+                        block.y_right[i],
+                        block.prss_left[i],
+                        block.prss_right[i],
+                    )
+                    .0
+                }))
+                .eval_at_r(&lagrange_table_r))
+            );
 
             // Test equivalence for _v_ values
-            assert!(VerifierTableIndices {
-                input: block
-                    .rotate_left()
-                    .table_indices_from_left_prover()
-                    .into_iter(),
-                table: &TABLE_V,
-            }
-            .eval_at_r(&lagrange_table_r)
-            .eq(VerifierValues((0..BIT_ARRAY_LEN).map(|i| {
-                reference_convert(
-                    block.x_left[i],
-                    block.x_right[i],
-                    block.y_left[i],
-                    block.y_right[i],
-                    block.prss_left[i],
-                    block.prss_right[i],
-                )
-                .1
-            }))
-            .eval_at_r(&lagrange_table_r)));
+            assert!(
+                VerifierTableIndices {
+                    input: block
+                        .rotate_left()
+                        .table_indices_from_left_prover()
+                        .into_iter(),
+                    table: &TABLE_V,
+                }
+                .eval_at_r(&lagrange_table_r)
+                .eq(VerifierValues((0..BIT_ARRAY_LEN).map(|i| {
+                    reference_convert(
+                        block.x_left[i],
+                        block.x_right[i],
+                        block.y_left[i],
+                        block.y_right[i],
+                        block.prss_left[i],
+                        block.prss_right[i],
+                    )
+                    .1
+                }))
+                .eval_at_r(&lagrange_table_r))
+            );
         });
     }
 }

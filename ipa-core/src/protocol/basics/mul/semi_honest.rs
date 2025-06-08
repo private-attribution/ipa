@@ -5,17 +5,17 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{
+        RecordId,
         context::{
+            Context,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext},
-            Context,
         },
         prss::SharedRandomness,
-        RecordId,
     },
     secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         FieldSimd, Vectorizable,
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
     },
     sharding,
 };
@@ -190,8 +190,8 @@ mod test {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
         helpers::TotalRecords,
-        protocol::{basics::SecureMul, context::Context, RecordId},
-        rand::{thread_rng, Rng},
+        protocol::{RecordId, basics::SecureMul, context::Context},
+        rand::{Rng, thread_rng},
         secret_sharing::replicated::semi_honest::AdditiveShare,
         seq_join::SeqJoin,
         test_fixture::{Reconstruct, ReconstructArr, Runner, TestWorld},
@@ -215,8 +215,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
+        let a = rng.r#gen::<Fp31>();
+        let b = rng.r#gen::<Fp31>();
 
         let res = world
             .semi_honest((a, b), |ctx, (a, b)| async move {
@@ -239,8 +239,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
-        let b = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
+        let a = (0..COUNT).map(|_| rng.r#gen::<Fp31>()).collect::<Vec<_>>();
+        let b = (0..COUNT).map(|_| rng.r#gen::<Fp31>()).collect::<Vec<_>>();
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
         let results = world
             .semi_honest(
@@ -291,8 +291,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a: [Fp32BitPrime; COUNT] = array::from_fn(|_| rng.gen());
-        let b: [Fp32BitPrime; COUNT] = array::from_fn(|_| rng.gen());
+        let a: [Fp32BitPrime; COUNT] = array::from_fn(|_| rng.r#gen());
+        let b: [Fp32BitPrime; COUNT] = array::from_fn(|_| rng.r#gen());
         let expected: [Fp32BitPrime; COUNT] = zip(a.iter(), b.iter())
             .map(|(&a, &b)| a * b)
             .collect::<Vec<_>>()
@@ -376,7 +376,7 @@ mod test {
         let mut rng = thread_rng();
         let mut inputs = Vec::<[Fp32BitPrime; MANYMULT_WIDTH]>::new();
         for _ in 0..MANYMULT_ITERS {
-            inputs.push(array::from_fn(|_| rng.gen()));
+            inputs.push(array::from_fn(|_| rng.r#gen()));
         }
         let expected = inputs
             .iter()

@@ -8,16 +8,16 @@ use async_trait::async_trait;
 use crate::{
     error::Error,
     ff::{
-        boolean::Boolean,
-        boolean_array::{BA16, BA20, BA256, BA3, BA32, BA5, BA64, BA8},
         Expand,
+        boolean::Boolean,
+        boolean_array::{BA3, BA5, BA8, BA16, BA20, BA32, BA64, BA256},
     },
     protocol::{
-        context::{
-            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Context,
-            DZKPUpgradedMaliciousContext,
-        },
         RecordId,
+        context::{
+            Context, DZKPUpgradedMaliciousContext,
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+        },
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     sharding,

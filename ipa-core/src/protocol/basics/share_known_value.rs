@@ -2,8 +2,8 @@ use crate::{
     helpers::Role,
     protocol::context::Context,
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         SharedValue,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare as Replicated},
     },
 };
 
@@ -46,7 +46,7 @@ mod tests {
         let world = TestWorld::default();
 
         let mut rng = rand::thread_rng();
-        let a = rng.gen::<Fp31>();
+        let a = rng.r#gen::<Fp31>();
 
         let result = world
             .semi_honest((), |ctx, ()| async move {

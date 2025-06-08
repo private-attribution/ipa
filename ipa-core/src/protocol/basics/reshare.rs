@@ -6,18 +6,18 @@ use crate::{
     ff::Field,
     helpers::{Direction, Role},
     protocol::{
+        RecordId,
         basics::mul::step::MaliciousMultiplyStep::{RandomnessForValidation, ReshareRx},
         context::{Context, SpecialAccessToUpgradedContext, UpgradedMaliciousContext},
         prss::SharedRandomness,
-        RecordId,
     },
     secret_sharing::replicated::{
+        ReplicatedSecretSharing,
         malicious::{
             AdditiveShare as MaliciousReplicated, ExtendableField,
             ThisCodeIsAuthorizedToDowngradeFromMalicious,
         },
         semi_honest::AdditiveShare as Replicated,
-        ReplicatedSecretSharing,
     },
 };
 
@@ -135,11 +135,13 @@ impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>> for Malici
 #[cfg(all(test, unit_test))]
 mod tests {
     mod semi_honest {
+        use rand::random;
+
         use crate::{
             ff::Fp32BitPrime,
             helpers::Role,
-            protocol::{basics::Reshare, context::Context, prss::SharedRandomness, RecordId},
-            rand::{thread_rng, Rng},
+            protocol::{RecordId, basics::Reshare, context::Context, prss::SharedRandomness},
+            rand::{Rng, thread_rng},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -149,7 +151,7 @@ mod tests {
             let world = TestWorld::default();
 
             for &target in Role::all() {
-                let secret = thread_rng().gen::<Fp32BitPrime>();
+                let secret = random::<Fp32BitPrime>();
                 let shares = world
                     .semi_honest(secret, |ctx, share| async move {
                         let record_id = RecordId::from(0);
@@ -183,7 +185,7 @@ mod tests {
             let world = TestWorld::default();
 
             for &role in Role::all() {
-                let secret = thread_rng().gen::<Fp32BitPrime>();
+                let secret = random::<Fp32BitPrime>();
                 let new_shares = world
                     .semi_honest(secret, |ctx, share| async move {
                         share
@@ -200,21 +202,21 @@ mod tests {
 
     mod malicious {
 
-        use rand::{distributions::Standard, prelude::Distribution};
+        use rand::{distributions::Standard, prelude::Distribution, random};
 
         use crate::{
             error::Error,
             ff::{Field, Fp32BitPrime, Gf2, Gf32Bit},
-            helpers::{in_memory_config::MaliciousHelper, Role},
+            helpers::{Role, in_memory_config::MaliciousHelper},
             protocol::{
+                RecordId,
                 basics::Reshare,
                 context::{
-                    upgrade::Upgradable, Context, UpgradableContext, UpgradedContext, Validator,
+                    Context, UpgradableContext, UpgradedContext, Validator, upgrade::Upgradable,
                 },
-                RecordId,
             },
-            rand::{thread_rng, Rng},
-            secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
+            rand::{Rng, thread_rng},
+            secret_sharing::{SharedValue, replicated::malicious::ExtendableField},
             test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
         };
 
@@ -229,7 +231,7 @@ mod tests {
             let world = TestWorld::default();
 
             for &role in Role::all() {
-                let secret = thread_rng().gen::<Fp32BitPrime>();
+                let secret = random::<Fp32BitPrime>();
                 let new_shares = world
                     .upgraded_malicious(
                         vec![secret].into_iter(),
@@ -296,7 +298,7 @@ mod tests {
                     );
                     let world = TestWorld::new_with(&config);
                     let mut rng = thread_rng();
-                    let a = rng.gen::<F>();
+                    let a = rng.r#gen::<F>();
                     let to_helper = Role::H1;
 
                     world

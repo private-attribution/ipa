@@ -4,12 +4,12 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        basics::SecureMul,
-        boolean::{step::EightBitStep, NBitStep},
-        context::Context,
         RecordId,
+        basics::SecureMul,
+        boolean::{NBitStep, step::EightBitStep},
+        context::Context,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    secret_sharing::{BitDecomposed, FieldSimd, replicated::semi_honest::AdditiveShare},
 };
 
 /// Matrix bitwise AND for use with vectors of bit-decomposed values. Supports up to 8 bits of input

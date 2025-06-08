@@ -9,10 +9,10 @@ use clap::Args;
 use super::clientconf::shard_conf_folder;
 use crate::{
     cli::{
-        config_parse::{gen_client_config, HelperClientConf},
+        KeygenArgs,
+        config_parse::{HelperClientConf, gen_client_config},
         keygen,
         paths::PathExt,
-        KeygenArgs,
     },
     error::BoxError,
     sharding::ShardIndex,
@@ -191,7 +191,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::{
-        cli::{sharded_server_from_toml_str, test_setup, TestSetupArgs},
+        cli::{TestSetupArgs, sharded_server_from_toml_str, test_setup},
         helpers::HelperIdentity,
         sharding::ShardIndex,
     };

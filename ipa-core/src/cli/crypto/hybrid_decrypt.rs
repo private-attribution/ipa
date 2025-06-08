@@ -7,11 +7,11 @@ use std::{
 use clap::Parser;
 
 use crate::{
-    config::{hpke_registry, HpkeServerConfig},
+    config::{HpkeServerConfig, hpke_registry},
     error::BoxError,
     ff::{
-        boolean_array::{BA3, BA8},
         U128Conversions,
+        boolean_array::{BA3, BA8},
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     report::hybrid::{EncryptedHybridReport, HybridReport},
@@ -154,7 +154,10 @@ impl HybridDecryptArgs {
                     let timestamp = conversion_report1.info.timestamp;
                     let epsilon = conversion_report1.info.epsilon;
                     let sensitivity = conversion_report1.info.sensitivity;
-                    writeln!(writer, "c,{match_key},{value},{key_id},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}")?;
+                    writeln!(
+                        writer,
+                        "c,{match_key},{value},{key_id},{conversion_site_domain},{timestamp},{epsilon},{sensitivity}"
+                    )?;
                 }
                 _ => {
                     panic!("Reports are not all the same type");

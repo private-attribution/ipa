@@ -5,11 +5,11 @@ use std::{
 };
 
 use proc_macro2::{
-    token_stream::IntoIter as TokenTreeIter, Delimiter, Punct, Spacing, Span, TokenStream,
-    TokenTree,
+    Delimiter, Punct, Spacing, Span, TokenStream, TokenTree,
+    token_stream::IntoIter as TokenTreeIter,
 };
-use quote::{quote, ToTokens, TokenStreamExt};
-use syn::{parse::Parser, parse2, token::Pub, Ident, LitStr, Visibility};
+use quote::{ToTokens, TokenStreamExt, quote};
+use syn::{Ident, LitStr, Visibility, parse::Parser, parse2, token::Pub};
 
 use crate::IntoSpan;
 

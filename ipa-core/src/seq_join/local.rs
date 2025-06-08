@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{stream::Fuse, Future, Stream, StreamExt};
+use futures::{Future, Stream, StreamExt, stream::Fuse};
 use pin_project::pin_project;
 
 use crate::telemetry::memory::periodic_memory_report;
@@ -137,9 +137,9 @@ mod local_test {
     };
 
     use futures::{
+        Future, StreamExt,
         future::lazy,
         stream::{poll_fn, repeat_with},
-        Future, StreamExt,
     };
 
     use crate::{

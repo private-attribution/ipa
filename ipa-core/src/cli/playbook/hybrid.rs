@@ -14,7 +14,7 @@ use crate::{
     helpers::query::{HybridQueryParams, QueryInput, QuerySize},
     net::{Helper, IpaHttpClient},
     query::QueryStatus,
-    secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+    secret_sharing::{SharedValue, replicated::semi_honest::AdditiveShare},
     test_fixture::Reconstruct,
 };
 

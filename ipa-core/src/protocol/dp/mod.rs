@@ -3,7 +3,7 @@ pub mod step;
 
 use std::{convert::Infallible, f64};
 
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use rand_core::{CryptoRng, RngCore};
 
 use crate::{
@@ -11,13 +11,14 @@ use crate::{
         Error::{self, EpsilonOutOfBounds},
         LengthError,
     },
-    ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::{query::DpMechanism, Direction, Role, TotalRecords},
+    ff::{U128Conversions, boolean::Boolean, boolean_array::BooleanArray},
+    helpers::{Direction, Role, TotalRecords, query::DpMechanism},
     protocol::{
+        BooleanProtocols, RecordId,
         boolean::step::ThirtyTwoBitStep,
         context::{
-            dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
-            UpgradableContext,
+            Context, DZKPUpgraded, MaliciousProtocolSteps, UpgradableContext,
+            dzkp_validator::DZKPValidator,
         },
         dp::step::{ApplyDpNoise, DPStep},
         hybrid::step::HybridStep,
@@ -27,11 +28,10 @@ use crate::{
             oprf_padding::insecure::OPRFPaddingDp,
         },
         prss::{FromPrss, SharedRandomness},
-        BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare as Replicated},
     },
 };
 
@@ -599,25 +599,25 @@ mod test {
 
     use crate::{
         ff::{
+            U128Conversions,
             boolean::Boolean,
             boolean_array::{
-                BooleanArray, BA112, BA16, BA20, BA3, BA32, BA4, BA5, BA6, BA64, BA7, BA8,
+                BA3, BA4, BA5, BA6, BA7, BA8, BA16, BA20, BA32, BA64, BA112, BooleanArray,
             },
-            U128Conversions,
         },
-        helpers::{query::DpMechanism, Direction},
+        helpers::{Direction, query::DpMechanism},
         protocol::{
             dp::{
-                apply_dp_noise, delta_constraint, dp_for_histogram, epsilon_constraint, error,
-                find_smallest_num_bernoulli, gen_binomial_noise, NoiseParams,
-                ShiftedTruncatedDiscreteLaplace,
+                NoiseParams, ShiftedTruncatedDiscreteLaplace, apply_dp_noise, delta_constraint,
+                dp_for_histogram, epsilon_constraint, error, find_smallest_num_bernoulli,
+                gen_binomial_noise,
             },
             ipa_prf::oprf_padding::insecure::OPRFPaddingDp,
         },
         rand::thread_rng,
         secret_sharing::{
-            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
             BitDecomposed, SharedValue, TransposeFrom,
+            replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare as Replicated},
         },
         sharding::NotSharded,
         telemetry::metrics::BYTES_SENT,
@@ -758,9 +758,9 @@ mod test {
                 result_u32[i],
             );
             assert!(
-                (next_result_f64_shifted - f64::from(input_values[i])).abs() <
-                    tolerance_factor * three_std
-                , "test failed because noised result is more than {tolerance_factor} standard deviations of the noise distribution \
+                (next_result_f64_shifted - f64::from(input_values[i])).abs()
+                    < tolerance_factor * three_std,
+                "test failed because noised result is more than {tolerance_factor} standard deviations of the noise distribution \
                 from the original input values. This will fail with a small chance of failure"
             );
         }
@@ -848,8 +848,8 @@ mod test {
                 f64::from(result_u32[i]) - f64::from(input_values[i])
                     > mean - 5.0 * standard_deviation
                     && f64::from(result_u32[i]) - f64::from(input_values[i])
-                    < mean + 5.0 * standard_deviation
-                , "test failed because noised result is more than 5 standard deviations of the noise distribution \
+                        < mean + 5.0 * standard_deviation,
+                "test failed because noised result is more than 5 standard deviations of the noise distribution \
                 from the original input values. This will fail with a small chance of failure"
             );
         }

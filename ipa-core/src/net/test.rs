@@ -24,7 +24,7 @@ use rustls_pki_types::CertificateDer;
 
 use super::{ConnectionFlavor, HttpTransport, Shard};
 #[cfg(all(test, web_test, descriptive_gate))]
-use crate::cli::{install_collector, LoggingHandle};
+use crate::cli::{LoggingHandle, install_collector};
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
@@ -960,13 +960,13 @@ a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::{get_test_certificate_and_key, TestConfigBuilder};
+    use super::{TestConfigBuilder, get_test_certificate_and_key};
     use crate::{
         config::NetworkConfig,
         helpers::HelperIdentity,
         net::{
-            test::{Ports, TEST_CERTS, TEST_KEYS},
             ConnectionFlavor,
+            test::{Ports, TEST_CERTS, TEST_KEYS},
         },
         sharding::{ShardIndex, ShardedHelperIdentity},
     };

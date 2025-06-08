@@ -5,7 +5,7 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     sync::Arc,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use axum::{
@@ -13,12 +13,12 @@ use axum::{
     http::uri::{self, Parts, Scheme},
 };
 use bytes::Bytes;
-use futures::{stream::StreamExt, Stream};
+use futures::{Stream, stream::StreamExt};
 use http_body_util::BodyExt;
-use hyper::{header::HeaderName, http::HeaderValue, Request, Response, StatusCode, Uri};
+use hyper::{Request, Response, StatusCode, Uri, header::HeaderName, http::HeaderValue};
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::{
-    client::legacy::{connect::HttpConnector, Client},
+    client::legacy::{Client, connect::HttpConnector},
     rt::TokioTimer,
 };
 use pin_project::pin_project;
@@ -33,10 +33,10 @@ use crate::{
     },
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
         TransportIdentity,
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
     },
-    net::{error::ShardQueryStatusMismatchError, http_serde, Error, CRYPTO_PROVIDER},
+    net::{CRYPTO_PROVIDER, Error, error::ShardQueryStatusMismatchError, http_serde},
     protocol::{Gate, QueryId},
 };
 
@@ -549,7 +549,7 @@ fn make_http_connector() -> HttpConnector {
 pub(crate) mod tests {
     use std::{
         fmt::Debug,
-        future::{ready, Future},
+        future::{Future, ready},
         iter::zip,
         task::Poll,
     };
@@ -561,8 +561,8 @@ pub(crate) mod tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            make_owned_handler, query::QueryType::TestMultiply, BytesStream, HelperIdentity,
-            HelperResponse, RequestHandler, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
+            BytesStream, HelperIdentity, HelperResponse, MESSAGE_PAYLOAD_SIZE_BYTES,
+            RequestHandler, RoleAssignment, make_owned_handler, query::QueryType::TestMultiply,
         },
         net::test::TestServer,
         protocol::step::TestExecutionStep,

@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{stream::Fuse, Stream, StreamExt};
+use futures::{Stream, StreamExt, stream::Fuse};
 use pin_project::pin_project;
 use tracing::{Instrument, Span};
 
@@ -46,9 +46,9 @@ type Spawner<'fut, T> = async_scoped::TokioScope<'fut, T>;
 
 unsafe fn create_spawner<'fut, T: Send + 'static>() -> Spawner<'fut, T> {
     #[cfg(feature = "shuttle")]
-    return async_scoped::Scope::create(shuttle_spawner::ShuttleSpawner);
+    return unsafe { async_scoped::Scope::create(shuttle_spawner::ShuttleSpawner) };
     #[cfg(not(feature = "shuttle"))]
-    return async_scoped::TokioScope::create(async_scoped::spawner::use_tokio::Tokio);
+    return unsafe { async_scoped::TokioScope::create(async_scoped::spawner::use_tokio::Tokio) };
 }
 
 #[pin_project]

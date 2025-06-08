@@ -4,10 +4,10 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        basics::mul::SecureMul, boolean::NBitStep, context::Context,
-        ipa_prf::boolean_ops::addition_sequential::integer_add, BooleanProtocols, Gate, RecordId,
+        BooleanProtocols, Gate, RecordId, basics::mul::SecureMul, boolean::NBitStep,
+        context::Context, ipa_prf::boolean_ops::addition_sequential::integer_add,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    secret_sharing::{BitDecomposed, FieldSimd, replicated::semi_honest::AdditiveShare},
 };
 
 /// This function multiplies x by y in these steps:
@@ -77,19 +77,19 @@ where
 mod test {
     use std::iter;
 
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
 
     use crate::{
         ff::{
-            boolean::Boolean,
-            boolean_array::{BooleanArray, BA16, BA8},
             U128Conversions,
+            boolean::Boolean,
+            boolean_array::{BA8, BA16, BooleanArray},
         },
         protocol::{
-            boolean::step::DefaultBitStep, context::Context,
-            ipa_prf::boolean_ops::multiplication::integer_mul, RecordId,
+            RecordId, boolean::step::DefaultBitStep, context::Context,
+            ipa_prf::boolean_ops::multiplication::integer_mul,
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, TransposeFrom},
+        secret_sharing::{BitDecomposed, TransposeFrom, replicated::semi_honest::AdditiveShare},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -115,7 +115,7 @@ mod test {
             let all_x_values = (0..256)
                 .map(|i| BA8::truncate_from(u128::try_from(i).unwrap()))
                 .collect::<Vec<_>>();
-            let random_y_values = (0..256).map(|_| rng.gen::<BA8>()).collect::<Vec<_>>();
+            let random_y_values = (0..256).map(|_| rng.r#gen::<BA8>()).collect::<Vec<_>>();
 
             let result: Vec<BA16> = world
                 .dzkp_semi_honest(

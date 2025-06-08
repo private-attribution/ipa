@@ -1,6 +1,6 @@
 use std::array;
 
-use futures::{future::join3, stream, StreamExt};
+use futures::{StreamExt, future::join3, stream};
 use ipa_step::StepNarrow;
 use rand::distributions::{Distribution, Standard};
 
@@ -8,16 +8,16 @@ use crate::{
     ff::{Field, U128Conversions},
     helpers::{GatewayConfig, TotalRecords},
     protocol::{
+        Gate, RecordId,
         basics::SecureMul,
         context::{Context, SemiHonestContext},
         step::{ProtocolStep, TestExecutionStep as Step},
-        Gate, RecordId,
     },
     rand::thread_rng,
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
+    secret_sharing::{FieldSimd, IntoShares, replicated::semi_honest::AdditiveShare as Replicated},
     seq_join::seq_join,
     test_fixture::{ReconstructArr, TestWorld, TestWorldConfig},
-    utils::{array::zip3, NonZeroU32PowerOfTwo},
+    utils::{NonZeroU32PowerOfTwo, array::zip3},
 };
 
 pub struct Inputs<F: Field + FieldSimd<N>, const N: usize> {

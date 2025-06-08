@@ -6,8 +6,8 @@ use std::{
 pub use gateway::InstrumentedGateway;
 
 use crate::sync::{
-    atomic::{AtomicUsize, Ordering},
     Weak,
+    atomic::{AtomicUsize, Ordering},
 };
 
 /// Trait for structs that can report their current state.
@@ -70,12 +70,12 @@ mod gateway {
 
     use delegate::delegate;
 
-    use super::{receive, send, AtomicUsize, Debug, Formatter, ObserveState, Observed, Weak};
+    use super::{AtomicUsize, Debug, Formatter, ObserveState, Observed, Weak, receive, send};
     use crate::{
         helpers::{
-            gateway::{Gateway, ShardTransportImpl, State},
             GatewayConfig, HelperChannelId, Message, MpcMessage, MpcReceivingEnd, MpcTransportImpl,
             Role, RoleAssignment, SendingEnd, ShardChannelId, ShardReceivingEnd, TotalRecords,
+            gateway::{Gateway, ShardTransportImpl, State},
         },
         protocol::QueryId,
         sharding::{ShardConfiguration, ShardIndex},
@@ -285,12 +285,12 @@ mod receive {
     use super::{ObserveState, Observed};
     use crate::{
         helpers::{
+            ChannelId, Message, MpcMessage, Role, TransportIdentity,
             error::Error,
             gateway::{
-                receive::{GatewayReceivers, ShardReceiveStream, ShardReceivingEnd, UR},
                 MpcReceivingEnd,
+                receive::{GatewayReceivers, ShardReceiveStream, ShardReceivingEnd, UR},
             },
-            ChannelId, Message, MpcMessage, Role, TransportIdentity,
         },
         protocol::RecordId,
         sharding::ShardIndex,
@@ -374,9 +374,9 @@ mod send {
     use super::{ObserveState, Observed};
     use crate::{
         helpers::{
+            ChannelId, Message, TotalRecords, TransportIdentity,
             error::Error,
             gateway::send::{GatewaySender, GatewaySenders},
-            ChannelId, Message, TotalRecords, TransportIdentity,
         },
         protocol::RecordId,
     };

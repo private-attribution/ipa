@@ -5,11 +5,11 @@ use std::{
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, PrimeField},
+    ff::{PrimeField, boolean::Boolean},
     protocol::prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing, LinearRefOps,
-        SharedValue, Vectorizable,
+        Linear as LinearSecretSharing, LinearRefOps, SharedValue, Vectorizable,
+        replicated::semi_honest::AdditiveShare,
     },
 };
 

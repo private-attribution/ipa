@@ -1,11 +1,11 @@
 use criterion::{
-    black_box, criterion_group, criterion_main, measurement::Measurement, BatchSize,
-    BenchmarkGroup, BenchmarkId, Criterion, SamplingMode, Throughput,
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, SamplingMode, Throughput, black_box,
+    criterion_group, criterion_main, measurement::Measurement,
 };
 use ipa_core::{
     ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
     protocol::{basics::SecureMul, context::SemiHonestContext},
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
+    secret_sharing::{FieldSimd, IntoShares, replicated::semi_honest::AdditiveShare as Replicated},
     test_fixture::circuit,
 };
 use rand::distributions::{Distribution, Standard};

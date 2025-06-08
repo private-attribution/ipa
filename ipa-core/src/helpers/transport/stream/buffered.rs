@@ -6,7 +6,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{stream::Fuse, Stream, StreamExt};
+use futures::{Stream, StreamExt, stream::Fuse};
 use pin_project::pin_project;
 
 use crate::helpers::BytesStream;
@@ -104,7 +104,7 @@ mod tests {
     };
 
     use bytes::Bytes;
-    use futures::{stream::TryStreamExt, FutureExt, Stream, StreamExt};
+    use futures::{FutureExt, Stream, StreamExt, stream::TryStreamExt};
     use pin_project::pin_project;
     use proptest::{
         prop_compose, proptest,

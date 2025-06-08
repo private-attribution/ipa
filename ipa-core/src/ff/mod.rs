@@ -18,11 +18,11 @@ use std::{
 
 pub use accumulator::{MultiplyAccumulate, MultiplyAccumulator, MultiplyAccumulatorArray};
 pub use field::{Field, FieldType};
-pub use galois_field::{GaloisField, Gf2, Gf20Bit, Gf32Bit, Gf3Bit, Gf40Bit, Gf8Bit, Gf9Bit};
+pub use galois_field::{GaloisField, Gf2, Gf3Bit, Gf8Bit, Gf9Bit, Gf20Bit, Gf32Bit, Gf40Bit};
 use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
-pub use prime_field::{batch_invert, Fp32BitPrime, Fp61BitPrime, PrimeField};
+pub use prime_field::{Fp32BitPrime, Fp61BitPrime, PrimeField, batch_invert};
 
 use crate::{
     error::UnwrapInfallible, protocol::prss::FromRandomU128, secret_sharing::BitDecomposed,

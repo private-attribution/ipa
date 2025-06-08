@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote, ToTokens};
-use syn::{parse_str, Path};
+use quote::{ToTokens, format_ident, quote};
+use syn::{Path, parse_str};
 
 use crate::{CompactGateIndex, StepHasher};
 
@@ -34,7 +34,9 @@ impl HashingSteps {
     pub fn hash(&mut self, step: &str, gate: CompactGateIndex) {
         let h = step.hash_step();
         if let Some(old_val) = self.inner.insert(h, gate) {
-            panic!("Hash collision for {step}: {h} => {old_val} and {gate}. Check that there are no duplicate steps defined in the protocol.");
+            panic!(
+                "Hash collision for {step}: {h} => {old_val} and {gate}. Check that there are no duplicate steps defined in the protocol."
+            );
         }
     }
 

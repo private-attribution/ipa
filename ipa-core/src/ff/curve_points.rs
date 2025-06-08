@@ -1,14 +1,14 @@
 use std::sync::OnceLock;
 
 use curve25519_dalek::{
-    ristretto::{CompressedRistretto, RistrettoPoint},
     Scalar,
+    ristretto::{CompressedRistretto, RistrettoPoint},
 };
 use generic_array::GenericArray;
-use typenum::{U128, U32};
+use typenum::{U32, U128};
 
 use crate::{
-    ff::{ec_prime_field::Fp25519, Serializable},
+    ff::{Serializable, ec_prime_field::Fp25519},
     impl_shared_value_common,
     protocol::ipa_prf::PRF_CHUNK,
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
@@ -261,11 +261,11 @@ impl From<RistrettoPoint> for RistrettoRepr {
 mod test {
     use curve25519_dalek::{constants, scalar::Scalar};
     use generic_array::GenericArray;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use typenum::U32;
 
     use crate::{
-        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
+        ff::{Serializable, curve_points::RP25519, ec_prime_field::Fp25519},
         secret_sharing::SharedValue,
     };
 
@@ -275,7 +275,7 @@ mod test {
     #[test]
     fn serde_25519() {
         let mut rng = thread_rng();
-        let input = rng.gen::<RP25519>();
+        let input = rng.r#gen::<RP25519>();
         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
         input.serialize(&mut a);
         let output = RP25519::deserialize(&a).unwrap();
@@ -297,14 +297,14 @@ mod test {
     #[test]
     fn curve_arithmetics() {
         let mut rng = thread_rng();
-        let fp_a = rng.gen::<Fp25519>();
-        let fp_b = rng.gen::<Fp25519>();
+        let fp_a = rng.r#gen::<Fp25519>();
+        let fp_b = rng.r#gen::<Fp25519>();
         let fp_c = fp_a + fp_b;
         let fp_d = RP25519::from(fp_a) + RP25519::from(fp_b);
         assert_eq!(fp_d, RP25519::from(fp_c));
         assert_ne!(fp_d, RP25519::from(constants::RISTRETTO_BASEPOINT_POINT));
-        let fp_e = rng.gen::<Fp25519>();
-        let fp_f = rng.gen::<Fp25519>();
+        let fp_e = rng.r#gen::<Fp25519>();
+        let fp_f = rng.r#gen::<Fp25519>();
         let fp_g = fp_e * fp_f;
         let fp_h = RP25519::from(fp_e) * fp_f;
         assert_eq!(fp_h, RP25519::from(fp_g));
@@ -317,7 +317,7 @@ mod test {
     #[test]
     fn curve_point_to_hash() {
         let mut rng = thread_rng();
-        let fp_a = rng.gen::<RP25519>();
+        let fp_a = rng.r#gen::<RP25519>();
         assert_ne!(0u64, u64::from(fp_a));
         assert_ne!(0u32, u32::from(fp_a));
     }

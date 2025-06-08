@@ -1,4 +1,4 @@
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{Extension, Json, Router, extract::Path, routing::get};
 use hyper::StatusCode;
 
 use crate::{
@@ -38,9 +38,8 @@ mod tests {
 
     use crate::{
         helpers::{
-            make_owned_handler,
+            BodyStream, HelperIdentity, HelperResponse, make_owned_handler,
             routing::{Addr, RouteId},
-            BodyStream, HelperIdentity, HelperResponse,
         },
         net::{
             http_serde,

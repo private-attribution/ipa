@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use clap::{Parser, Subcommand};
 use ipa_core::{
     cli::{
-        crypto::{HybridDecryptArgs, HybridEncryptArgs},
         Verbosity,
+        crypto::{HybridDecryptArgs, HybridEncryptArgs},
     },
     error::BoxError,
 };

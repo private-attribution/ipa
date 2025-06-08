@@ -1,6 +1,6 @@
 use aes::{
-    cipher::{BlockEncrypt, KeyInit},
     Aes256,
+    cipher::{BlockEncrypt, KeyInit},
 };
 use generic_array::{ArrayLength, GenericArray};
 use hkdf::Hkdf;
@@ -14,8 +14,8 @@ use crate::{
     helpers::Direction,
     protocol::prss::{PrssIndex, PrssIndex128},
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
     },
 };
 
@@ -381,11 +381,11 @@ mod tests {
 
         use crate::protocol::prss::KeyExchange;
         let other_gen = KeyExchange::new(&mut thread_rng());
-        let gen = KeyExchange::new(&mut thread_rng())
+        let key_generator = KeyExchange::new(&mut thread_rng())
             .key_exchange(&other_gen.public_key())
             .generator("foo".as_bytes());
 
-        let _ = gen.generate(0);
-        let _ = gen.generate(0);
+        let _ = key_generator.generate(0);
+        let _ = key_generator.generate(0);
     }
 }

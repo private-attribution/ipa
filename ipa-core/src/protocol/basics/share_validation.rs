@@ -4,10 +4,10 @@ use subtle::ConstantTimeEq;
 use crate::{
     error::Error,
     helpers::{
-        hashing::{compute_hash, Hash},
         Direction, TotalRecords,
+        hashing::{Hash, compute_hash},
     },
-    protocol::{context::Context, RecordId},
+    protocol::{RecordId, context::Context},
     secret_sharing::SharedValue,
 };
 
@@ -93,7 +93,7 @@ where
 mod test {
     use std::ops::Neg;
 
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
 
     use crate::{
         error::Error,
@@ -120,7 +120,7 @@ mod test {
             let len: usize = rng.gen_range(50..100);
 
             let r = (0..len)
-                .map(|_| rng.gen::<Fp61BitPrime>())
+                .map(|_| rng.r#gen::<Fp61BitPrime>())
                 .collect::<Vec<Fp61BitPrime>>();
 
             let _ = world

@@ -16,7 +16,7 @@ pub use box_body::WrappedBoxBodyStream;
 pub use buffered::BufferedBytesStream;
 use bytes::Bytes;
 pub use collection::{StreamCollection, StreamKey};
-use futures::{stream::iter, Stream};
+use futures::{Stream, stream::iter};
 use futures_util::StreamExt;
 use generic_array::GenericArray;
 pub use input::{LengthDelimitedStream, RecordsStream, SingleRecordStream};
@@ -179,7 +179,7 @@ mod tests {
     use futures::{future, stream, stream::TryStreamExt};
 
     use crate::{
-        helpers::{transport::stream::MAX_HTTP_CHUNK_SIZE_BYTES, BodyStream},
+        helpers::{BodyStream, transport::stream::MAX_HTTP_CHUNK_SIZE_BYTES},
         test_executor::run,
     };
 

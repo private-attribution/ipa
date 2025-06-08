@@ -4,7 +4,7 @@ use clap::Args;
 
 use crate::{
     cli::{
-        config_parse::{gen_client_config, HelperClientConf},
+        config_parse::{HelperClientConf, gen_client_config},
         paths::PathExt,
     },
     error::BoxError,

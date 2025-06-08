@@ -1,10 +1,10 @@
-use futures::{stream::FuturesUnordered, TryStreamExt};
+use futures::{TryStreamExt, stream::FuturesUnordered};
 
 use crate::{
-    helpers::{buffers::EndOfStreamError, ChannelId, Error, Gateway, TotalRecords},
+    helpers::{ChannelId, Error, Gateway, TotalRecords, buffers::EndOfStreamError},
     protocol::{
-        prss::{Endpoint as PrssEndpoint, Seed, SeededEndpointSetup, SharedRandomness},
         Gate, RecordId,
+        prss::{Endpoint as PrssEndpoint, Seed, SeededEndpointSetup, SharedRandomness},
     },
     sharding::ShardConfiguration,
 };
@@ -66,8 +66,8 @@ mod tests {
     use crate::{
         ff::boolean_array::BA64,
         helpers::cross_shard_prss::gen_and_distribute,
-        protocol::{context::Context, prss::SharedRandomness, Gate, RecordId},
-        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+        protocol::{Gate, RecordId, context::Context, prss::SharedRandomness},
+        secret_sharing::{SharedValue, replicated::semi_honest::AdditiveShare},
         sharding::ShardConfiguration,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards},

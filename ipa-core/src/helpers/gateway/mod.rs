@@ -17,6 +17,8 @@ pub use transport::RoleResolvingTransport;
 
 use crate::{
     helpers::{
+        HelperChannelId, LogErrors, Message, MpcMessage, RecordsStream, Role, RoleAssignment,
+        ShardChannelId, TotalRecords, Transport,
         buffers::UnorderedReceiver,
         gateway::{
             receive::{GatewayReceivers, ShardReceiveStream, UR},
@@ -24,8 +26,6 @@ use crate::{
             transport::Transports,
         },
         query::QueryConfig,
-        HelperChannelId, LogErrors, Message, MpcMessage, RecordsStream, Role, RoleAssignment,
-        ShardChannelId, TotalRecords, Transport,
     },
     protocol::QueryId,
     sharding::{ShardConfiguration, ShardIndex},
@@ -351,21 +351,21 @@ mod tests {
 
     use crate::{
         ff::{
-            boolean_array::{BA20, BA256, BA3, BA4, BA5, BA6, BA7, BA8},
             FieldType, Fp31, Fp32BitPrime, Gf2, U128Conversions,
+            boolean_array::{BA3, BA4, BA5, BA6, BA7, BA8, BA20, BA256},
         },
         helpers::{
-            gateway::QueryConfig,
-            query::{QuerySize, QueryType},
             ChannelId, Direction, GatewayConfig, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
             TotalRecords,
+            gateway::QueryConfig,
+            query::{QuerySize, QueryType},
         },
         protocol::{
-            context::{Context, ShardedContext},
             Gate, RecordId,
+            context::{Context, ShardedContext},
         },
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare, SharedValue, SharedValueArray, StdArray,
+            SharedValue, SharedValueArray, StdArray, replicated::semi_honest::AdditiveShare,
         },
         seq_join::seq_join,
         sharding::ShardConfiguration,

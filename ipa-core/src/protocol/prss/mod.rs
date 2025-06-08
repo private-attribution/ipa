@@ -7,7 +7,7 @@ pub use crypto::{
     FromPrss, FromRandom, FromRandomU128, Generator, GeneratorFactory, KeyExchange,
     SharedRandomness,
 };
-use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+use generic_array::{ArrayLength, GenericArray, sequence::GenericSequence};
 pub(super) use internal::PrssIndex128;
 pub use seed::{Seed, SeededEndpointSetup};
 use x25519_dalek::PublicKey;
@@ -472,10 +472,10 @@ pub mod test {
     use crate::{
         ff::{Field, Fp31, U128Conversions},
         protocol::{
-            prss::{Endpoint, PrssIndex, SharedRandomness},
             Gate,
+            prss::{Endpoint, PrssIndex, SharedRandomness},
         },
-        rand::{thread_rng, Rng},
+        rand::{Rng, thread_rng},
         secret_sharing::SharedValue,
         test_fixture::make_participants,
     };

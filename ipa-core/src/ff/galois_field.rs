@@ -5,15 +5,15 @@ use std::{
 
 use bitvec::{
     array::BitArray,
-    prelude::{bitarr, BitArr, Lsb0},
+    prelude::{BitArr, Lsb0, bitarr},
 };
 use generic_array::GenericArray;
 use subtle::{Choice, ConstantTimeEq};
-use typenum::{Unsigned, U1, U2, U3, U4, U5};
+use typenum::{U1, U2, U3, U4, U5, Unsigned};
 
 use crate::{
     error::LengthError,
-    ff::{boolean_array::NonZeroPadding, Field, MultiplyAccumulate, Serializable, U128Conversions},
+    ff::{Field, MultiplyAccumulate, Serializable, U128Conversions, boolean_array::NonZeroPadding},
     impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -248,7 +248,7 @@ macro_rules! bit_array_impl {
 
             impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
                 fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
-                    <$name>::truncate_from(rng.gen::<u128>())
+                    <$name>::truncate_from(rng.r#gen::<u128>())
                 }
             }
 
@@ -545,8 +545,8 @@ macro_rules! bit_array_impl {
                 #[test]
                 pub fn basic_ops() {
                     let mut rng = thread_rng();
-                    let a = rng.gen::<u128>();
-                    let b = rng.gen::<u128>();
+                    let a = rng.r#gen::<u128>();
+                    let b = rng.r#gen::<u128>();
 
                     let xor = $name::truncate_from(a ^ b);
 
@@ -568,9 +568,9 @@ macro_rules! bit_array_impl {
                 #[test]
                 pub fn distributive_property_of_multiplication() {
                     let mut rng = thread_rng();
-                    let a = $name::truncate_from(rng.gen::<u128>());
-                    let b = $name::truncate_from(rng.gen::<u128>());
-                    let r = $name::truncate_from(rng.gen::<u128>());
+                    let a = $name::truncate_from(rng.r#gen::<u128>());
+                    let b = $name::truncate_from(rng.r#gen::<u128>());
+                    let r = $name::truncate_from(rng.r#gen::<u128>());
                     let a_plus_b = a + b;
                     let r_a_plus_b = r * a_plus_b;
                     assert_eq!(r_a_plus_b, r * a + r * b, "distributive {r:?}*({a:?}+{b:?})");
@@ -579,8 +579,8 @@ macro_rules! bit_array_impl {
                 #[test]
                 pub fn commutative_property_of_multiplication() {
                     let mut rng = thread_rng();
-                    let a = $name::truncate_from(rng.gen::<u128>());
-                    let b = $name::truncate_from(rng.gen::<u128>());
+                    let a = $name::truncate_from(rng.r#gen::<u128>());
+                    let b = $name::truncate_from(rng.r#gen::<u128>());
                     let ab = a * b;
                     // This stupid hack is here to FORCE the compiler to not just optimize this away and really run the test
                     let b_copy = $name::truncate_from(b.as_u128());
@@ -591,9 +591,9 @@ macro_rules! bit_array_impl {
                 #[test]
                 pub fn associative_property_of_multiplication() {
                     let mut rng = thread_rng();
-                    let a = $name::truncate_from(rng.gen::<u128>());
-                    let b = $name::truncate_from(rng.gen::<u128>());
-                    let c = $name::truncate_from(rng.gen::<u128>());
+                    let a = $name::truncate_from(rng.r#gen::<u128>());
+                    let b = $name::truncate_from(rng.r#gen::<u128>());
+                    let c = $name::truncate_from(rng.r#gen::<u128>());
                     let bc = b * c;
                     let ab = a * b;
                     assert_eq!(a * bc, ab * c, "associative {a:?}*{b:?}*{c:?}");
@@ -612,8 +612,8 @@ macro_rules! bit_array_impl {
                 #[test]
                 pub fn ordering() {
                     let mut rng = thread_rng();
-                    let a = rng.gen::<u128>() & MASK;
-                    let b = rng.gen::<u128>() & MASK;
+                    let a = rng.r#gen::<u128>() & MASK;
+                    let b = rng.r#gen::<u128>() & MASK;
 
                     println!("a: {a}");
                     println!("b: {b}");
@@ -624,7 +624,7 @@ macro_rules! bit_array_impl {
                 #[test]
                 pub fn serde() {
                     let mut rng = thread_rng();
-                    let a = rng.gen::<u128>() & MASK;
+                    let a = rng.r#gen::<u128>() & MASK;
                     let a = $name::truncate_from(a);
 
                     let mut buf = GenericArray::default();
@@ -636,7 +636,7 @@ macro_rules! bit_array_impl {
                 #[test]
                 fn slice_to_galois_err() {
                     let mut rng = thread_rng();
-                    let vec = (0..{(<$name>::BITS+7)/8+1}).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                    let vec = (0..{(<$name>::BITS+7)/8+1}).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                     let element = <$name>::try_from(vec.as_slice());
                     assert_eq!(
                         element.unwrap_err(),

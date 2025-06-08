@@ -3,25 +3,25 @@ use std::{convert::Infallible, iter::zip, ops::Neg};
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
-        boolean::Boolean,
-        boolean_array::{BooleanArray, BA256},
-        ec_prime_field::Fp25519,
         ArrayAccess,
+        boolean::Boolean,
+        boolean_array::{BA256, BooleanArray},
+        ec_prime_field::Fp25519,
     },
     helpers::Role,
     protocol::{
-        basics::{validated_partial_reveal, BooleanProtocols},
+        RecordId,
+        basics::{BooleanProtocols, validated_partial_reveal},
         boolean::step::TwoHundredFiftySixBitOpStep,
         context::{Context, DZKPContext},
         ipa_prf::boolean_ops::{
             addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
         },
         prss::{FromPrss, SharedRandomness},
-        RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, SharedValueArray, TransposeFrom, Vectorizable,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
     },
 };
 
@@ -361,16 +361,16 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::{boolean_array::BA64, Serializable},
+        ff::{Serializable, boolean_array::BA64},
         helpers::stream::process_slice_by_chunks,
         protocol::{
-            context::{dzkp_validator::DZKPValidator, UpgradableContext, TEST_DZKP_STEPS},
+            context::{TEST_DZKP_STEPS, UpgradableContext, dzkp_validator::DZKPValidator},
             hybrid::oprf::conv_proof_chunk,
             ipa_prf::{CONV_CHUNK, PRF_CHUNK},
         },
         rand::thread_rng,
         secret_sharing::SharedValue,
-        seq_join::{seq_join, SeqJoin},
+        seq_join::{SeqJoin, seq_join},
         sharding::NotSharded,
         test_executor::run,
         test_fixture::{ReconstructArr, Runner, TestWorld, TestWorldConfig},
@@ -385,7 +385,7 @@ mod tests {
 
             let mut rng = thread_rng();
 
-            let records = repeat_with(|| rng.gen::<BA64>())
+            let records = repeat_with(|| rng.r#gen::<BA64>())
                 .take(COUNT)
                 .collect::<Vec<_>>();
 
@@ -448,7 +448,7 @@ mod tests {
 
             let mut rng = thread_rng();
 
-            let records = repeat_with(|| rng.gen::<BA64>())
+            let records = repeat_with(|| rng.r#gen::<BA64>())
                 .take(COUNT)
                 .collect::<Vec<_>>();
 
@@ -527,7 +527,7 @@ mod tests {
     fn test_expand() {
         let mut rng = thread_rng();
 
-        let a = rng.gen::<BA64>();
+        let a = rng.r#gen::<BA64>();
 
         let b = expand_array::<_, BA256>(&a, None);
 

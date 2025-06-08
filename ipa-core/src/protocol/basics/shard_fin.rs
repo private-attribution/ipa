@@ -6,20 +6,20 @@ use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, boolean_array::BooleanArray, Serializable},
+    ff::{Serializable, boolean::Boolean, boolean_array::BooleanArray},
     helpers::{Message, TotalRecords},
     protocol::{
+        BooleanProtocols, Gate, RecordId,
         boolean::step::ThirtyTwoBitStep,
         context::{
-            dzkp_validator::DZKPValidator, DZKPContext, DZKPUpgradedMaliciousContext,
-            DZKPUpgradedSemiHonestContext, MaliciousProtocolSteps, ShardedContext,
-            ShardedMaliciousContext, ShardedSemiHonestContext, UpgradableContext,
+            DZKPContext, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
+            MaliciousProtocolSteps, ShardedContext, ShardedMaliciousContext,
+            ShardedSemiHonestContext, UpgradableContext, dzkp_validator::DZKPValidator,
         },
         ipa_prf::boolean_ops::addition_sequential::integer_sat_add,
-        BooleanProtocols, Gate, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd, TransposeFrom,
+        BitDecomposed, FieldSimd, TransposeFrom, replicated::semi_honest::AdditiveShare,
     },
     seq_join::{assert_send, seq_join},
     sharding::Sharded,
@@ -318,8 +318,8 @@ mod tests {
     use std::iter::repeat;
 
     use crate::{
-        ff::{boolean_array::BA8, U128Conversions},
-        helpers::{in_memory_config::MaliciousHelper, Role},
+        ff::{U128Conversions, boolean_array::BA8},
+        helpers::{Role, in_memory_config::MaliciousHelper},
         protocol::{
             basics::shard_fin::{FinalizerContext, Histogram},
             context::TEST_DZKP_STEPS,
@@ -330,7 +330,7 @@ mod tests {
     };
 
     /// generate some data to validate the integer addition finalizer
-    fn gen<const SHARDS: usize>(values: [BA8; SHARDS]) -> impl Iterator<Item = BA8> + Clone {
+    fn gen_data<const SHARDS: usize>(values: [BA8; SHARDS]) -> impl Iterator<Item = BA8> + Clone {
         let mut cnt = 0;
         // each shard receive the same value
         std::iter::from_fn(move || {
@@ -346,7 +346,7 @@ mod tests {
             let world: TestWorld<WithShards<SHARDS>> =
                 TestWorld::with_shards(TestWorldConfig::default());
 
-            let input = gen::<SHARDS>([
+            let input = gen_data::<SHARDS>([
                 BA8::truncate_from(10_u128),
                 BA8::truncate_from(21_u128),
                 BA8::truncate_from(3_u128),
@@ -383,7 +383,7 @@ mod tests {
             let world: TestWorld<WithShards<SHARDS>> =
                 TestWorld::with_shards(TestWorldConfig::default());
 
-            let input = gen::<SHARDS>([
+            let input = gen_data::<SHARDS>([
                 BA8::truncate_from(1_u128),
                 BA8::truncate_from(3_u128),
                 BA8::truncate_from(5_u128),
@@ -433,7 +433,7 @@ mod tests {
                 });
             let world: TestWorld<WithShards<SHARDS>> = TestWorld::with_shards(config);
 
-            let input = gen::<SHARDS>([
+            let input = gen_data::<SHARDS>([
                 BA8::truncate_from(1_u128),
                 BA8::truncate_from(3_u128),
                 BA8::truncate_from(5_u128),

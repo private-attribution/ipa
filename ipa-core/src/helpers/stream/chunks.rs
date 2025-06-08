@@ -5,10 +5,10 @@ use std::{
     mem,
     ops::{Deref, RangeInclusive},
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
-use futures::{stream::FusedStream, Stream, TryStream};
+use futures::{Stream, TryStream, stream::FusedStream};
 use pin_project::pin_project;
 use typenum::{Const, ToUInt, Unsigned};
 
@@ -584,9 +584,9 @@ mod tests {
     };
 
     use futures::{
+        SinkExt, StreamExt, TryStreamExt,
         channel::mpsc::channel,
         stream::{self, poll_immediate},
-        SinkExt, StreamExt, TryStreamExt,
     };
 
     use super::*;

@@ -36,11 +36,7 @@ impl ArrayAccess for Boolean {
     type Iter<'a> = Once<Boolean>;
 
     fn get(&self, index: usize) -> Option<Self::Output> {
-        if index < 1 {
-            Some(*self)
-        } else {
-            None
-        }
+        if index < 1 { Some(*self) } else { None }
     }
 
     fn set(&mut self, index: usize, e: Self::Output) {
@@ -111,7 +107,7 @@ impl Serializable for Boolean {
 ///generate random bool
 impl rand::distributions::Distribution<Boolean> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> Boolean {
-        Boolean(rng.gen::<bool>())
+        Boolean(rng.r#gen::<bool>())
     }
 }
 
@@ -237,12 +233,12 @@ impl DZKPCompatibleField for Boolean {
 #[cfg(all(test, unit_test))]
 mod test {
     use generic_array::GenericArray;
-    use proptest::prelude::{prop, Arbitrary, Strategy};
-    use rand::{thread_rng, Rng};
+    use proptest::prelude::{Arbitrary, Strategy, prop};
+    use rand::{Rng, thread_rng};
     use typenum::U1;
 
     use crate::{
-        ff::{boolean::Boolean, ArrayAccess, Field, Serializable},
+        ff::{ArrayAccess, Field, Serializable, boolean::Boolean},
         protocol::context::dzkp_field::DZKPCompatibleField,
         secret_sharing::{SharedValue, Vectorizable},
     };
@@ -260,7 +256,7 @@ mod test {
     #[test]
     fn serde_boolean() {
         let mut rng = thread_rng();
-        let input = rng.gen::<Boolean>();
+        let input = rng.r#gen::<Boolean>();
         let mut a: GenericArray<u8, U1> = [0u8; 1].into();
         input.serialize(&mut a);
         let output = Boolean::deserialize(&a).unwrap();
@@ -271,10 +267,10 @@ mod test {
     #[test]
     fn simple_arithmetics_boolean() {
         let mut rng = thread_rng();
-        let a = rng.gen::<Boolean>();
-        let b = rng.gen::<Boolean>();
-        let c = rng.gen::<Boolean>();
-        let d = rng.gen::<Boolean>();
+        let a = rng.r#gen::<Boolean>();
+        let b = rng.r#gen::<Boolean>();
+        let c = rng.r#gen::<Boolean>();
+        let d = rng.r#gen::<Boolean>();
         assert_eq!((a + b) * (c + d), a * c + a * d + b * c + b * d);
     }
 
@@ -282,7 +278,7 @@ mod test {
     #[test]
     fn not_boolean() {
         let mut rng = thread_rng();
-        let a = rng.gen::<Boolean>();
+        let a = rng.r#gen::<Boolean>();
         assert_ne!(a, !a);
     }
 

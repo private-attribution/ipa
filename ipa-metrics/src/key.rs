@@ -29,7 +29,7 @@ use std::{
 pub use Name as MetricName;
 pub(super) use OwnedName as OwnedMetricName;
 
-use crate::label::{Label, OwnedLabel, MAX_LABELS};
+use crate::label::{Label, MAX_LABELS, OwnedLabel};
 
 #[macro_export]
 macro_rules! metric_name {
@@ -61,9 +61,7 @@ macro_rules! metric_name {
         )
     }};
     // Match when no key-value pairs are provided
-    ($metric:expr) => {{
-        $crate::MetricName::from_parts($metric, [])
-    }};
+    ($metric:expr) => {{ $crate::MetricName::from_parts($metric, []) }};
 }
 
 /// Metric name that is created at callsite on each metric invocation.
@@ -212,7 +210,7 @@ pub fn compute_hash<V: Hash>(value: V) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::{
-        key::{compute_hash, Name},
+        key::{Name, compute_hash},
         label::Label,
     };
 

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, convert::Infallible};
 
 use generic_array::GenericArray;
-use typenum::{Unsigned, U2, U32, U64};
+use typenum::{U2, U32, U64, Unsigned};
 
 use crate::{
     ff::Serializable,
@@ -137,8 +137,8 @@ mod tests {
 
     use crate::{
         protocol::{
-            prss::{Endpoint, SeededEndpointSetup, SharedRandomness},
             Gate, RecordId,
+            prss::{Endpoint, SeededEndpointSetup, SharedRandomness},
         },
         test_fixture::make_participants,
         utils::array::zip3,

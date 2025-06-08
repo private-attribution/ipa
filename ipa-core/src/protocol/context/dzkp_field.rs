@@ -370,12 +370,12 @@ pub mod tests {
 
     use bitvec::{array::BitArray, macros::internal::funty::Fundamental};
     use proptest::proptest;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
 
     use crate::{
         ff::{Field, Fp61BitPrime, U128Conversions},
         protocol::context::{
-            dzkp_field::{bits_to_table_indices, DZKPBaseField, TABLE_U, TABLE_V},
+            dzkp_field::{DZKPBaseField, TABLE_U, TABLE_V, bits_to_table_indices},
             dzkp_validator::MultiplicationInputsBlock,
         },
         secret_sharing::SharedValue,
@@ -394,9 +394,9 @@ pub mod tests {
         assert_eq!(z3, 0x73_u128);
 
         let mut rng = thread_rng();
-        let b0 = rng.gen();
-        let b1 = rng.gen();
-        let b2 = rng.gen();
+        let b0 = rng.r#gen();
+        let b1 = rng.r#gen();
+        let b2 = rng.r#gen();
         let [z0, z1, z2, z3] = bits_to_table_indices(b0, b1, b2);
 
         for i in (0..128).step_by(4) {
@@ -463,7 +463,7 @@ pub mod tests {
     #[test]
     fn batch_convert() {
         run_random(|mut rng| async move {
-            let block = rng.gen::<MultiplicationInputsBlock>();
+            let block = rng.r#gen::<MultiplicationInputsBlock>();
 
             // When verifying, we rotate the intermediates to match what each prover
             // would have. `rotate_right` also calculates z_right from the others.

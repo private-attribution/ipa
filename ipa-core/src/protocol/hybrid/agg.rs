@@ -1,20 +1,20 @@
 use std::collections::BTreeMap;
 
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, boolean_array::BooleanArray, ArrayAccess},
+    ff::{ArrayAccess, boolean::Boolean, boolean_array::BooleanArray},
     helpers::TotalRecords,
     protocol::{
+        BooleanProtocols,
         boolean::step::EightBitStep,
         context::{
-            dzkp_validator::{validated_seq_join, DZKPValidator, TARGET_PROOF_SIZE},
             Context, DZKPUpgraded, MaliciousProtocolSteps, ShardedContext, UpgradableContext,
+            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE, validated_seq_join},
         },
         hybrid::step::{AggregateReportsStep, HybridStep},
         ipa_prf::boolean_ops::addition_sequential::integer_add,
-        BooleanProtocols,
     },
     report::hybrid::{AggregateableHybridReport, PrfHybridReport},
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
@@ -167,8 +167,8 @@ pub mod test {
     use super::{aggregate_reports, group_report_pairs_ordered};
     use crate::{
         ff::{
-            boolean_array::{BA3, BA8},
             U128Conversions,
+            boolean_array::{BA3, BA8},
         },
         helpers::Role,
         protocol::hybrid::step::AggregateReportsStep,
@@ -176,13 +176,13 @@ pub mod test {
             AggregateableHybridReport, IndistinguishableHybridReport, PrfHybridReport,
         },
         secret_sharing::replicated::{
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+            ReplicatedSecretSharing, semi_honest::AdditiveShare as Replicated,
         },
         sharding::{ShardConfiguration, ShardIndex},
         test_executor::{run, run_random},
         test_fixture::{
-            hybrid::{TestAggregateableHybridReport, TestHybridRecord},
             Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards,
+            hybrid::{TestAggregateableHybridReport, TestHybridRecord},
         },
     };
 

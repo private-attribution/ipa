@@ -4,11 +4,11 @@ use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, Field},
-    protocol::{basics::SecureMul, boolean::NBitStep, context::Context, Gate, RecordId},
+    ff::{Field, boolean::Boolean},
+    protocol::{Gate, RecordId, basics::SecureMul, boolean::NBitStep, context::Context},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd,
-        Linear as LinearSecretSharing,
+        BitDecomposed, FieldSimd, Linear as LinearSecretSharing,
+        replicated::semi_honest::AdditiveShare,
     },
 };
 
@@ -73,8 +73,8 @@ mod tests {
     use super::or;
     use crate::{
         ff::{Field, Fp31},
-        protocol::{context::Context, RecordId},
-        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
+        protocol::{RecordId, context::Context},
+        secret_sharing::{SharedValue, replicated::malicious::ExtendableField},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 

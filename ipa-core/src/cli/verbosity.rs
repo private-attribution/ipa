@@ -1,13 +1,13 @@
 use std::{
     fs::OpenOptions,
-    io::{stderr, IsTerminal},
+    io::{IsTerminal, stderr},
     path::PathBuf,
 };
 
 use clap::Parser;
-use tracing::{info, metadata::LevelFilter, Level};
+use tracing::{Level, info, metadata::LevelFilter};
 use tracing_subscriber::{
-    fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
+    EnvFilter, fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 use crate::{

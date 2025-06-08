@@ -61,4 +61,4 @@ pub use array::StdArray;
 pub use traits::{FieldArray, FieldSimd, FieldVectorizable, SharedValueArray, Vectorizable};
 pub use transpose::TransposeFrom;
 #[cfg(feature = "enable-benches")]
-pub use transpose::{transpose_16x16, transpose_8x8};
+pub use transpose::{transpose_8x8, transpose_16x16};

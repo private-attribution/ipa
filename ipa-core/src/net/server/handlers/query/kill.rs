@@ -1,13 +1,13 @@
-use axum::{extract::Path, routing::post, Extension, Json, Router};
+use axum::{Extension, Json, Router, extract::Path, routing::post};
 use hyper::StatusCode;
 
 use crate::{
     helpers::{ApiError, BodyStream},
     net::{
+        Error::QueryIdNotFound,
         http_serde::query::kill::{self, Request},
         server::Error,
         transport::MpcHttpTransport,
-        Error::QueryIdNotFound,
     },
     protocol::QueryId,
     query::QueryKillStatus,
@@ -43,9 +43,8 @@ mod tests {
 
     use crate::{
         helpers::{
-            make_owned_handler,
+            ApiError, BodyStream, HelperIdentity, HelperResponse, make_owned_handler,
             routing::{Addr, RouteId},
-            ApiError, BodyStream, HelperIdentity, HelperResponse,
         },
         net::{
             http_serde,

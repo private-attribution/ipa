@@ -6,15 +6,15 @@ use subtle::{Choice, ConstantTimeEq};
 use typenum::{U2, U32};
 
 use crate::{
-    ff::{boolean_array::BA256, Field, MultiplyAccumulate, Serializable},
+    ff::{Field, MultiplyAccumulate, Serializable, boolean_array::BA256},
     impl_shared_value_common,
     protocol::{
         ipa_prf::PRF_CHUNK,
         prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
     },
     secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare},
         Block, FieldVectorizable, SharedValue, SharedValueArray, StdArray, Vectorizable,
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare},
     },
 };
 
@@ -295,11 +295,11 @@ where
 mod test {
     use curve25519_dalek::scalar::Scalar;
     use generic_array::GenericArray;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use typenum::U32;
 
     use crate::{
-        ff::{ec_prime_field::Fp25519, Serializable},
+        ff::{Serializable, ec_prime_field::Fp25519},
         secret_sharing::SharedValue,
     };
 
@@ -314,7 +314,7 @@ mod test {
     #[test]
     fn serde_25519() {
         let mut rng = thread_rng();
-        let input = rng.gen::<Fp25519>();
+        let input = rng.r#gen::<Fp25519>();
         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
         input.serialize(&mut a);
         let output = Fp25519::deserialize_infallible(&a);
@@ -363,7 +363,7 @@ mod test {
     #[test]
     fn invert_25519() {
         let mut rng = thread_rng();
-        let a = rng.gen::<Fp25519>();
+        let a = rng.r#gen::<Fp25519>();
         let ia = a.invert();
         assert_eq!(a * ia, Fp25519(Scalar::ONE));
     }

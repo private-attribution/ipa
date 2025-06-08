@@ -1,5 +1,5 @@
 use std::{
-    pin::{pin, Pin},
+    pin::{Pin, pin},
     task::{Context, Poll},
 };
 
@@ -11,8 +11,8 @@ use tracing::error;
 use crate::{
     error::BoxError,
     helpers::{
-        transport::stream::{StreamCollection, StreamKey},
         TransportIdentity,
+        transport::stream::{StreamCollection, StreamKey},
     },
 };
 

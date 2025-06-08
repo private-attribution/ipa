@@ -9,18 +9,18 @@ use async_trait::async_trait;
 use futures::{Stream, TryFutureExt};
 use pin_project::{pin_project, pinned_drop};
 
-use super::{client::resp_ok, error::ShardError, ConnectionFlavor, Helper, Shard};
+use super::{ConnectionFlavor, Helper, Shard, client::resp_ok, error::ShardError};
 use crate::{
     config::{NetworkConfig, ServerConfig},
     executor::IpaRuntime,
     helpers::{
-        query::QueryConfig,
-        routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoQueryId,
         NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
         StepBinding, StreamCollection, Transport, TransportIdentity,
+        query::QueryConfig,
+        routing::{Addr, RouteId},
     },
-    net::{client::IpaHttpClient, error::Error, IpaHttpServer},
+    net::{IpaHttpServer, client::IpaHttpClient, error::Error},
     protocol::{Gate, QueryId},
     sharding::ShardIndex,
     sync::Arc,
@@ -405,7 +405,7 @@ mod tests {
     use std::{iter::repeat, task::Poll};
 
     use bytes::Bytes;
-    use futures::stream::{poll_immediate, StreamExt};
+    use futures::stream::{StreamExt, poll_immediate};
     use futures_util::future::{join_all, try_join_all};
     use generic_array::GenericArray;
     use once_cell::sync::Lazy;
@@ -415,7 +415,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::{boolean_array::BA64, FieldType, Fp31, Serializable},
+        HelperApp,
+        ff::{FieldType, Fp31, Serializable, boolean_array::BA64},
         helpers::{
             make_owned_handler,
             query::{
@@ -427,20 +428,15 @@ mod tests {
             client::ClientIdentity,
             test::{TestConfig, TestConfigBuilder, TestServer},
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare},
         test_fixture::Reconstruct,
-        HelperApp,
     };
 
     static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
 
     #[tokio::test]
     async fn clean_on_kill() {
-        let noop_handler = make_owned_handler(|_, _| async move {
-            {
-                Ok(HelperResponse::ok())
-            }
-        });
+        let noop_handler = make_owned_handler(|_, _| async move { { Ok(HelperResponse::ok()) } });
         let TestServer { transport, .. } = TestServer::builder()
             .with_request_handler(Arc::clone(&noop_handler))
             .build()

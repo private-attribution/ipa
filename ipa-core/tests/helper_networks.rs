@@ -3,13 +3,13 @@ mod common;
 use std::{array, path::Path, process::Command};
 
 use common::{
-    spawn_helpers, tempdir::TempDir, test_multiply, test_network, CommandExt, UnwrapStatusExt,
-    HELPER_BIN,
+    CommandExt, HELPER_BIN, UnwrapStatusExt, spawn_helpers, tempdir::TempDir, test_multiply,
+    test_network,
 };
 use ipa_core::{cli::CliPaths, helpers::HelperIdentity};
 
 use crate::common::{
-    test_sharded_network, AddInPrimeField, Multiply, ShardTcpListeners, ShardedShuffle,
+    AddInPrimeField, Multiply, ShardTcpListeners, ShardedShuffle, test_sharded_network,
 };
 
 #[test]

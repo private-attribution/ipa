@@ -7,7 +7,7 @@ use std::{
 
 use clap::Parser;
 use ipa_core::cli::Verbosity;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng};
 use tracing::{debug, error, info};
 
 use crate::{gen_events::generate_events, sample::Sample};

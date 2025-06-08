@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use axum::{extract::Path, response::IntoResponse, routing::post, Extension, Json, Router};
+use axum::{Extension, Json, Router, extract::Path, response::IntoResponse, routing::post};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{query::PrepareQuery, BodyStream},
+    helpers::{BodyStream, query::PrepareQuery},
     net::{
+        ConnectionFlavor, Error,
         http_serde::{
             self,
-            query::{prepare::RequestBody, QueryConfigQueryParams},
+            query::{QueryConfigQueryParams, prepare::RequestBody},
         },
         server::ClientIdentity,
         transport::HttpTransport,
-        ConnectionFlavor, Error,
     },
     protocol::QueryId,
     query::PrepareQueryError,
@@ -55,26 +55,24 @@ pub fn router<F: ConnectionFlavor>(transport: Arc<HttpTransport<F>>) -> Router {
 #[cfg(all(test, unit_test))]
 mod tests {
     use axum::body::Body;
-    use hyper::{header::CONTENT_TYPE, StatusCode};
+    use hyper::{StatusCode, header::CONTENT_TYPE};
     use serde::Serialize;
 
     use crate::{
         ff::FieldType,
         helpers::{
-            make_owned_handler,
+            HelperIdentity, HelperResponse, RoleAssignment, make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
             routing::RouteId,
-            HelperIdentity, HelperResponse, RoleAssignment,
         },
         net::{
-            http_serde,
+            APPLICATION_JSON, http_serde,
             server::{
-                handlers::query::test_helpers::{
-                    assert_fails_with, assert_success_with, MaybeExtensionExt,
-                },
                 ClientIdentity,
+                handlers::query::test_helpers::{
+                    MaybeExtensionExt, assert_fails_with, assert_success_with,
+                },
             },
-            APPLICATION_JSON,
         },
         protocol::QueryId,
     };
