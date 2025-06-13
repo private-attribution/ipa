@@ -701,8 +701,8 @@ pub mod test {
     #[test]
     fn prss_rng() {
         fn same_rng(mut a: SequentialSharedRandomness, mut b: SequentialSharedRandomness) {
-            assert_eq!(a.gen::<u32>(), b.gen::<u32>());
-            assert_eq!(a.gen::<[u8; 20]>(), b.gen::<[u8; 20]>());
+            assert_eq!(a.r#gen::<u32>(), b.r#gen::<u32>());
+            assert_eq!(a.r#gen::<[u8; 20]>(), b.r#gen::<[u8; 20]>());
             assert_eq!(a.gen_range(7..99), b.gen_range(7..99));
             assert_eq!(a.gen_bool(0.3), b.gen_bool(0.3));
         }
@@ -728,11 +728,11 @@ pub mod test {
         let (i_left, i_right) = idx.generate_values(0_u128);
         assert_ne!(
             i_left & u128::from(u64::MAX),
-            u128::from(s_left.gen::<u64>())
+            u128::from(s_left.r#gen::<u64>())
         );
         assert_ne!(
             i_right & u128::from(u64::MAX),
-            u128::from(s_right.gen::<u64>())
+            u128::from(s_right.r#gen::<u64>())
         );
     }
 

@@ -602,8 +602,7 @@ macro_rules! boolean_array_impl {
                 fn try_from(value: $name) -> Result<Self, Self::Error> {
                     // len() returns bits, so divide by 8
                     // further divide by 4 since Gf32Bit has 4 byte
-                    // add 31 to round up
-                    let length = (value.0.len() + 31) / 32;
+                    let length = value.0.len().div_ceil(32);
                     let mut chunks = Vec::<Gf32Bit>::with_capacity(length);
                     let last_chunk_start = length-1;
                     for i in 0..last_chunk_start {

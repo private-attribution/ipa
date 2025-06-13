@@ -134,11 +134,11 @@ pub struct TestWorldConfig {
     /// for each communication round between any pair of helpers.
     /// The application include:
     /// * Malicious behavior. This can help simulating a malicious
-    ///     actor being present in the system by running one or several
-    ///     additive attacks.
+    ///   actor being present in the system by running one or several
+    ///   additive attacks.
     /// * Data corruption. Tests can simulate bit flips that occur
-    ///     at the network layer and check whether IPA can recover from
-    ///     these (checksums, etc).
+    ///   at the network layer and check whether IPA can recover from
+    ///   these (checksums, etc).
     ///
     /// The interface is pretty low level because of the layer
     /// where it operates. [`StreamInterceptor`] interface provides
@@ -1316,8 +1316,7 @@ mod tests {
                     })
                     .await;
 
-                let result = u_and_w.lock().unwrap().clone();
-                result
+                u_and_w.lock().unwrap().clone()
             }
 
             let seed = rng.r#gen();
@@ -1366,8 +1365,7 @@ mod tests {
                     })
                     .await;
 
-                let result = proof_diff.lock().unwrap().clone();
-                result
+                proof_diff.lock().unwrap().clone()
             }
 
             let seed = rng.r#gen();

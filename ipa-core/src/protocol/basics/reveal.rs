@@ -159,6 +159,9 @@ where
 /// ![Reveal steps][reveal]
 /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
 /// i.e. their own shares and received share.
+///
+/// ## Errors
+/// Returns an error if network send or receive operation fails.
 #[embed_doc_image("reveal", "images/reveal.png")]
 pub async fn semi_honest_reveal<'fut, C, V, const N: usize>(
     ctx: C,
@@ -239,6 +242,9 @@ where
 /// It works similarly to semi-honest reveal, the key difference is that each helper sends its share
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
+///
+/// ## Errors
+/// Returns an error if network send or receive operation fails.
 pub async fn malicious_reveal<'fut, C, V, const N: usize>(
     ctx: C,
     record_id: RecordId,
@@ -438,6 +444,9 @@ where
     S::generic_reveal(v, ctx, record_id, excluded)
 }
 
+///
+/// ## Errors
+/// Returns an error if network send or receive operation fails.
 pub async fn validated_partial_reveal<'fut, C, S>(
     ctx: C,
     record_id: RecordId,

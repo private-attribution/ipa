@@ -370,6 +370,8 @@ macro_rules! impl_transpose_8 {
 /// still be a multiple of 8 (i.e. whole bytes).
 macro_rules! impl_transpose_8_pad {
     ($dst:ident, $src:ident, $src_rows:expr, $src_cols:expr, $read:ident, $pad_value:expr, $write:ident $(,)?) => {
+        // compiler cannot derive the integer type for div_ceil and make it smooth to use
+        #[allow(clippy::manual_div_ceil)]
         for i in 0..($src_rows + 7) / 8 {
             for j in 0..($src_cols + 7) / 8 {
                 let mut m = [0u8; 8];
@@ -468,6 +470,8 @@ macro_rules! impl_transpose_shim_8_pad {
     ($src_ty:ty, $src_row:ty, $dst_ty:ty, $dst_row:ty, $src_rows:expr, $src_cols:expr, $error:tt $(,)?) => {
         impl TransposeFrom<$src_ty> for $dst_ty {
             type Error = $error;
+            // compiler cannot derive the integer type for div_ceil and make it smooth to use
+            #[allow(clippy::manual_div_ceil)]
             fn transpose_from(&mut self, src: $src_ty) -> Result<(), Self::Error> {
                 self.resize(($src_cols + 7) / 8 * 8, <$dst_row>::ZERO);
                 let src =
@@ -730,6 +734,8 @@ impl_transpose_shares_ba_fn_to_bool!(BA64, 256, 64, test_transpose_shares_ba_fn_
 /// This version uses the 8x8 transpose kernel and supports dimensions that are not a multiple of 8.
 macro_rules! impl_transpose_shares_ba_to_bool_small {
     ($src_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident) => {
+        // compiler cannot derive the integer type for div_ceil and make it smooth to use
+        #[allow(clippy::manual_div_ceil)]
         impl TransposeFrom<&[AdditiveShare<$src_row>; $src_rows]>
             for [AdditiveShare<Boolean, $src_rows>; ($src_cols + 7) / 8 * 8]
         {

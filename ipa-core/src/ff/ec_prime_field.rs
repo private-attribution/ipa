@@ -356,7 +356,7 @@ mod test {
     #[test]
     fn simple_random_25519() {
         let mut rng = thread_rng();
-        assert_ne!(Fp25519::ZERO, rng.gen::<Fp25519>());
+        assert_ne!(Fp25519::ZERO, rng.r#gen::<Fp25519>());
     }
 
     ///test inversion for field elements

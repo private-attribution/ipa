@@ -141,7 +141,6 @@ mod tests {
             ff::Fp32BitPrime,
             helpers::Role,
             protocol::{RecordId, basics::Reshare, context::Context, prss::SharedRandomness},
-            rand::{Rng, thread_rng},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 

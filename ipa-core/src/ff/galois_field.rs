@@ -211,6 +211,8 @@ macro_rules! bit_array_impl {
                 type Error = LengthError;
 
                 fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+                    // compiler cannot derive the integer type and make it easy to use
+                    #[allow(clippy::manual_div_ceil)]
                     if value.len()<=usize::try_from(Self::BITS/8).unwrap() {
                         let mut bitarray = [0u8;{($bits+7)/8}];
                         bitarray[0..value.len()].copy_from_slice(value);
@@ -636,13 +638,13 @@ macro_rules! bit_array_impl {
                 #[test]
                 fn slice_to_galois_err() {
                     let mut rng = thread_rng();
-                    let vec = (0..{(<$name>::BITS+7)/8+1}).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
+                    let vec = (0..{<$name>::BITS.div_ceil(8)+1}).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                     let element = <$name>::try_from(vec.as_slice());
                     assert_eq!(
                         element.unwrap_err(),
                         LengthError {
                             expected: <$name>::BITS as usize,
-                            actual: ((<$name>::BITS + 7) / 8 + 1) as usize,
+                            actual: (<$name>::BITS.div_ceil(8) + 1) as usize,
                         },
                     );
                 }

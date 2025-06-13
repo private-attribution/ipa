@@ -236,9 +236,7 @@ mod tests {
                             pending_len = 0;
                             r
                         } else if chunk.len() > 1 {
-                            let len =
-                                u16::from_le_bytes(chunk.split_to(2).as_ref().try_into().unwrap());
-                            len
+                            u16::from_le_bytes(chunk.split_to(2).as_ref().try_into().unwrap())
                         } else {
                             pending_len =
                                 u8::from_le_bytes(chunk.split_to(1).as_ref().try_into().unwrap());

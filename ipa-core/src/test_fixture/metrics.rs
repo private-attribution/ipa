@@ -4,10 +4,10 @@ use ipa_metrics::{
     MetricChannelType, MetricPartition, MetricsCollectorController, MetricsCurrentThreadContext,
     MetricsProducer,
 };
-use rand::{Rng, random};
+use rand::random;
 use tracing::{Level, Span};
 
-use crate::{rand::thread_rng, telemetry::stats::Metrics, test_fixture::logging};
+use crate::{telemetry::stats::Metrics, test_fixture::logging};
 
 static ONCE: OnceLock<(MetricsProducer, MetricsCollectorController)> = OnceLock::new();
 

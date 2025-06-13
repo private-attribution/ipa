@@ -106,7 +106,7 @@ where
         let par_agg_ctx = ctx
             .narrow(&AggregateChunkStep::from(depth))
             .set_total_records(TotalRecords::Indeterminate);
-        let next_num_rows = (num_rows + 1) / 2;
+        let next_num_rows = num_rows.div_ceil(2);
         let base_record_id = record_ids[depth];
         record_ids[depth] += num_rows / 2;
         aggregated_stream = Box::pin(

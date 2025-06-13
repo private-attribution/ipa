@@ -898,7 +898,7 @@ mod test {
             let read_size_bytes = min(read_size_bytes, sz * count);
             assert!(lengths.len() <= 2);
             assert!(
-                lengths.iter().any(|l| read_size_bytes == *l),
+                lengths.contains(&read_size_bytes),
                 "read size {read_size_bytes} chunks never read from OrderingSender. Actual chunks read: {lengths:?}"
             );
             let buf = output.into_iter().flatten().collect::<Vec<_>>();

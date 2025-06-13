@@ -1,4 +1,4 @@
-use std::{convert::Infallible, iter::repeat, pin::pin};
+use std::{convert::Infallible, pin::pin};
 
 use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
@@ -77,9 +77,10 @@ where
     // This was checked early in the protocol, but we need to check again here, in case
     // there were no matching pairs of reports.
     if attributed_values.is_empty() {
-        return Ok(BitDecomposed::new(
-            repeat(Replicated::<Boolean, B>::ZERO).take(usize::try_from(HV::BITS).unwrap()),
-        ));
+        return Ok(BitDecomposed::new(std::iter::repeat_n(
+            Replicated::<Boolean, B>::ZERO,
+            usize::try_from(HV::BITS).unwrap(),
+        )));
     }
 
     // Apply DP padding for Breakdown Reveal Aggregation

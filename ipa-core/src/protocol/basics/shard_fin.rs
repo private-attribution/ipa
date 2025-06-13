@@ -315,7 +315,6 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::repeat;
 
     use crate::{
         ff::{U128Conversions, boolean_array::BA8},
@@ -362,9 +361,7 @@ mod tests {
             // leader aggregates everything
             let leader_shares = results[0].reconstruct();
             assert_eq!(
-                repeat(BA8::truncate_from(34_u128))
-                    .take(16)
-                    .collect::<Vec<_>>(),
+                std::iter::repeat_n(BA8::truncate_from(34_u128), 16).collect::<Vec<_>>(),
                 leader_shares
             );
 
@@ -399,9 +396,7 @@ mod tests {
             // leader aggregates everything
             let leader_shares = results[0].reconstruct();
             assert_eq!(
-                repeat(BA8::truncate_from(9_u128))
-                    .take(16)
-                    .collect::<Vec<_>>(),
+                std::iter::repeat_n(BA8::truncate_from(9_u128), 16).collect::<Vec<_>>(),
                 leader_shares
             );
 

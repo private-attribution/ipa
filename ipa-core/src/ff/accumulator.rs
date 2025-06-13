@@ -346,6 +346,7 @@ mod test {
         ($field:ty) => {
             mod accum_tests {
                 use std::iter::zip;
+                use rand::Rng;
 
                 use proptest::prelude::*;
 
@@ -360,10 +361,10 @@ mod test {
                 #[test]
                 fn accum_simple() {
                     run_random(|mut rng| async move {
-                        let a = rng.gen();
-                        let b = rng.gen();
-                        let c = rng.gen();
-                        let d = rng.gen();
+                        let a = rng.r#gen();
+                        let b = rng.r#gen();
+                        let c = rng.r#gen();
+                        let d = rng.r#gen();
 
                         let mut acc = <$field as MultiplyAccumulate>::Accumulator::new();
                         acc.multiply_accumulate(a, b);

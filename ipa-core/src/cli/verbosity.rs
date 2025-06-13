@@ -57,7 +57,7 @@ impl Verbosity {
                 .append(true)
                 .create(true)
                 .open(path)
-                .unwrap_or_else(|e| panic!("failed to open log file {path:?}: {e}"));
+                .unwrap_or_else(|e| panic!("failed to open log file {}: {e}", path.display()));
             let file_writer = fmt::layer()
                 .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
                 .with_ansi(false)

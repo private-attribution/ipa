@@ -135,7 +135,7 @@ where
     assert_eq!(S::Share::BITS + 32, <S::ShareAndTag as ShuffleShare>::BITS);
 
     // prepare keys
-    let amount_of_keys: usize = (usize::try_from(S::Share::BITS).unwrap() + 31) / 32;
+    let amount_of_keys: usize = usize::try_from(S::Share::BITS).unwrap().div_ceil(32);
     let keys = setup_keys(ctx.narrow(&ShardedShuffleStep::SetupKeys), amount_of_keys).await?;
 
     // compute and append tags to rows
@@ -583,8 +583,9 @@ mod tests {
             let (keys, result) = world
                 .semi_honest(record, |ctx, record| async move {
                     // compute amount of MAC keys
-                    let amount_of_keys: usize =
-                        (usize::try_from(<BA112 as SharedValue>::BITS).unwrap() + 31) / 32;
+                    let amount_of_keys: usize = usize::try_from(<BA112 as SharedValue>::BITS)
+                        .unwrap()
+                        .div_ceil(32);
                     // // generate MAC keys
                     let keys = (0..amount_of_keys)
                         .map(|i| ctx.prss().generate(RecordId::from(i)))
@@ -640,7 +641,7 @@ mod tests {
         S: MaliciousShuffleable,
         Standard: Distribution<S::Share>,
     {
-        let row = <S as Shuffleable>::new(rng.r#ggen(), rng.r#ggen());
+        let row = <S as Shuffleable>::new(rng.r#gen(), rng.r#gen());
         let tag = AdditiveShare::<Gf32Bit>::new(rng.r#gen::<Gf32Bit>(), rng.r#gen::<Gf32Bit>());
         let row_and_tag: Pair<S::ShareAndTag> = concatenate_row_and_tag(&row, &tag);
 

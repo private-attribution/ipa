@@ -181,9 +181,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 hybrid_query_config,
                 clients,
                 |query_id| {
-                    if let Some(ref url_file_list) = url_file_list {
+                    if let Some(url_file_list) = url_file_list {
                         inputs_from_url_file(url_file_list, query_id, args.shard_count)
-                    } else if let Some(ref encrypted_inputs) = encrypted_inputs {
+                    } else if let Some(encrypted_inputs) = encrypted_inputs {
                         Ok(inputs_from_encrypted_inputs(
                             encrypted_inputs,
                             query_id,

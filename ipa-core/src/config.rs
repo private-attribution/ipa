@@ -577,7 +577,7 @@ mod tests {
                     "http config is not the same: {:?} vs {:?}",
                     expected.http_config, actual.http_config
                 ),
-            };
+            }
         }
 
         assert!(

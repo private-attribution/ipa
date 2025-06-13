@@ -284,7 +284,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
@@ -331,7 +331,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
@@ -519,7 +519,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
             let z = 1_u128 << 64;
@@ -551,7 +551,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 

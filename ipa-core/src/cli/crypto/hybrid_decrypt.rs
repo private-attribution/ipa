@@ -195,7 +195,7 @@ impl Iterator for DecryptedHybridReports {
 impl DecryptedHybridReports {
     fn new(filename: &PathBuf, key_registry: KeyRegistry<PrivateKeyOnly>) -> Self {
         let file = File::open(filename)
-            .unwrap_or_else(|e| panic!("unable to open file {filename:?}. {e}"));
+            .unwrap_or_else(|e| panic!("unable to open file {}. {e}", filename.display()));
         let reader = BufReader::new(file);
         Self {
             reader,

@@ -98,16 +98,22 @@ impl HybridEncryptArgs {
 
         let key_registries = KeyRegistries::default();
 
-        let network =
-            NetworkConfig::from_toml_str_sharded(&read_to_string(&self.network).unwrap_or_else(
-                |e| panic!("Failed to open network file: {:?}. {}", &self.network, e),
-            ))
-            .unwrap_or_else(|e| {
+        let network = NetworkConfig::from_toml_str_sharded(
+            &read_to_string(&self.network).unwrap_or_else(|e| {
                 panic!(
-                    "Failed to parse network file into toml: {:?}. {}",
-                    &self.network, e
+                    "Failed to open network file: {}. {}",
+                    &self.network.display(),
+                    e
                 )
-            });
+            }),
+        )
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to parse network file into toml: {}. {}",
+                &self.network.display(),
+                e
+            )
+        });
         let Some(key_registries) = key_registries.init_from(&network[0]) else {
             panic!("could not load network file")
         };

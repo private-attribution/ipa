@@ -109,7 +109,7 @@ impl Stream for BodyStream {
                 "Chunk size {} is greater than maximum allowed {MAX_HTTP_CHUNK_SIZE_BYTES} bytes",
                 v.len()
             );
-        };
+        }
 
         next
     }

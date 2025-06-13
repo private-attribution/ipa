@@ -196,10 +196,7 @@ pub async fn execute_hybrid_protocol<'a, R: PrivateKeyRegistry>(
 
 #[cfg(all(test, unit_test, feature = "in-memory-infra"))]
 mod tests {
-    use std::{
-        iter::{repeat, zip},
-        sync::Arc,
-    };
+    use std::{iter::zip, sync::Arc};
 
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
@@ -277,7 +274,7 @@ mod tests {
 
             match expected.len() {
                 len if len < 256 => {
-                    expected.extend(repeat(0).take(256 - len));
+                    expected.extend(std::iter::repeat_n(0, 256 - len));
                 }
                 len if len > 256 => {
                     panic!("no support for more than 256 breakdown_keys");

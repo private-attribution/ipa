@@ -81,7 +81,7 @@ impl<'a> Context<'a, Sharded> {
     }
 }
 
-#[allow(clippy::needless_lifetimes)] // Lifetime may not live long enough, if lifetime is dropped
+#[allow(clippy::needless_lifetimes, clippy::elidable_lifetime_names)] // Lifetime may not live long enough, if lifetime is dropped
 impl<'a, B: ShardBinding> Context<'a, B> {
     #[cfg(test)]
     #[must_use]

@@ -380,7 +380,7 @@ pub fn sharded_server_from_toml_str(
 
 #[cfg(test)]
 mod tests {
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
     use crate::{
         cli::{
@@ -564,11 +564,11 @@ mod tests {
     // Following are some large &str const used for tests
 
     /// Valid: A non-sharded network toml, just how they used to be
-    static NON_SHARDED_COMPAT: Lazy<String> = Lazy::new(|| format!("{CLIENT}{P1}{REST}"));
+    static NON_SHARDED_COMPAT: LazyLock<String> = LazyLock::new(|| format!("{CLIENT}{P1}{REST}"));
 
     /// Invalid: Same as [`NON_SHARDED_COMPAT`] but with a single `shard_port` set.
-    static SHARDED_COMPAT_ONE_URL: Lazy<String> =
-        Lazy::new(|| format!("{CLIENT}{P1}\nshard_url = \"helper1.org:777\"\n{REST}"));
+    static SHARDED_COMPAT_ONE_URL: LazyLock<String> =
+        LazyLock::new(|| format!("{CLIENT}{P1}\nshard_url = \"helper1.org:777\"\n{REST}"));
 
     /// Helper const used to create client configs
     const CLIENT: &str = r#"[client.http_config]
@@ -704,7 +704,7 @@ public_key = "55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61"
 "#;
 
     /// Valid: Three sharded configs together for 9
-    static SHARDED_OK_REPEAT: Lazy<String> = Lazy::new(|| {
+    static SHARDED_OK_REPEAT: LazyLock<String> = LazyLock::new(|| {
         format!(
             "{}{}{}",
             SHARDED_OK,
@@ -714,13 +714,13 @@ public_key = "55f87a8794b4de9a60f8ede9ed000f5f10c028e22390922efc4fb63bc6be0a61"
     });
 
     /// Invalid: A network toml with 8 entries
-    static SHARDED_8: Lazy<String> = Lazy::new(|| {
+    static SHARDED_8: LazyLock<String> = LazyLock::new(|| {
         let last_peers_index = SHARDED_OK_REPEAT.rfind("[[peers]]").unwrap();
         SHARDED_OK_REPEAT[..last_peers_index].to_string()
     });
 
     /// Invalid: Same as [`SHARDED_OK_REPEAT`] but without the expected ports
-    static SHARDED_MISSING_URLS_REPEAT: Lazy<String> = Lazy::new(|| {
+    static SHARDED_MISSING_URLS_REPEAT: LazyLock<String> = LazyLock::new(|| {
         let lines: Vec<&str> = SHARDED_OK_REPEAT.lines().collect();
         let new_lines: Vec<String> = lines
             .iter()

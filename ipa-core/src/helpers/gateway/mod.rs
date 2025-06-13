@@ -792,7 +792,7 @@ mod tests {
             // futures pending and unblock them all at the same time
             seq_join(
                 active_work.try_into().unwrap(),
-                stream::iter(std::iter::repeat(msg).take(total_records).enumerate()).map(
+                stream::iter(std::iter::repeat_n(msg, total_records).enumerate()).map(
                     |(record_id, msg)| {
                         let send_channel = &send_channel;
                         let recv_channel = &recv_channel;

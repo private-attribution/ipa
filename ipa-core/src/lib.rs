@@ -294,7 +294,7 @@ pub(crate) mod test_executor {
 pub(crate) mod test_executor {
     use std::future::Future;
 
-    use rand::{Rng, SeedableRng, random, rngs::StdRng, thread_rng};
+    use rand::{SeedableRng, random, rngs::StdRng};
 
     // These routines use `FnOnce` because it is easier than dealing with lifetimes of
     // `&mut rng` borrows in futures. If there were a need to support multiple

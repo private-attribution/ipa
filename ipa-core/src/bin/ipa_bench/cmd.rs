@@ -159,7 +159,7 @@ impl Command {
 
     fn get_input(path: &Option<PathBuf>) -> Result<Box<dyn io::Read>, io::Error> {
         match path {
-            Some(ref path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
+            Some(path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
             None => Ok(Box::new(io::stdin())),
         }
     }

@@ -163,6 +163,7 @@ mod tests {
                 val.epsilon,
             );
 
+            #[allow(clippy::format_push_string)]
             if let Some(window) = val.attribution_window_seconds {
                 query.push_str(&format!("&attribution_window_seconds={window}"));
             }

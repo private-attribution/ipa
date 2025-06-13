@@ -13,13 +13,13 @@ use std::{
     iter::zip,
     net::{SocketAddr, TcpListener},
     ops::Index,
+    sync::LazyLock,
 };
 
 #[cfg(all(test, unit_test))]
 use http_body_util::BodyExt;
 #[cfg(all(test, unit_test))]
 use hyper::StatusCode;
-use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
 
 use super::{ConnectionFlavor, HttpTransport, Shard};
@@ -797,7 +797,7 @@ impl<const S: usize> Index<ShardedHelperIdentity> for [&'static [u8]; S] {
     }
 }
 
-impl<const S: usize> Index<ShardedHelperIdentity> for Lazy<[CertificateDer<'static>; S]> {
+impl<const S: usize> Index<ShardedHelperIdentity> for LazyLock<[CertificateDer<'static>; S]> {
     type Output = CertificateDer<'static>;
 
     fn index(&self, index: ShardedHelperIdentity) -> &Self::Output {
@@ -899,7 +899,7 @@ xYxSeDvd5vt4ROlqgvLMcOOUjbFF7YAT6g==
 ",
 ];
 
-static TEST_CERTS_DER: Lazy<[CertificateDer; 6]> = Lazy::new(|| {
+static TEST_CERTS_DER: LazyLock<[CertificateDer; 6]> = LazyLock::new(|| {
     TEST_CERTS.map(|mut pem| rustls_pemfile::certs(&mut pem).flatten().next().unwrap())
 });
 

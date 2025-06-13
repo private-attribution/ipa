@@ -2,7 +2,7 @@ pub(crate) mod distributions;
 pub mod insecure;
 pub mod step;
 
-use std::iter::{repeat, repeat_with};
+use std::iter::repeat_with;
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use insecure::DiscreteDp as InsecureDiscreteDp;
@@ -160,13 +160,15 @@ where
                     padding_input_rows.extend(
                         repeat_with(|| {
                             let dummy_mk: BA64 = rng.r#gen();
-                            repeat(IndistinguishableHybridReport::from(
-                                AdditiveShare::new_excluding_direction(
-                                    dummy_mk,
-                                    direction_to_excluded_helper,
+                            std::iter::repeat_n(
+                                IndistinguishableHybridReport::from(
+                                    AdditiveShare::new_excluding_direction(
+                                        dummy_mk,
+                                        direction_to_excluded_helper,
+                                    ),
                                 ),
-                            ))
-                            .take(cardinality as usize)
+                                cardinality as usize,
+                            )
                         })
                         // this means there will be `sample` many unique
                         // matchkeys to add each with cardinality = `cardinality`
@@ -185,10 +187,10 @@ where
         padding_input_rows: &mut VC,
         total_number_of_fake_rows: u32,
     ) {
-        padding_input_rows.extend(
-            repeat(IndistinguishableHybridReport::<BK, V>::ZERO)
-                .take(total_number_of_fake_rows as usize),
-        );
+        padding_input_rows.extend(std::iter::repeat_n(
+            IndistinguishableHybridReport::<BK, V>::ZERO,
+            total_number_of_fake_rows as usize,
+        ));
     }
 }
 
@@ -259,10 +261,10 @@ where
         padding_input_rows: &mut VC,
         total_number_of_fake_rows: u32,
     ) {
-        padding_input_rows.extend(
-            repeat(IndistinguishableHybridReport::<BK, V, ()>::ZERO)
-                .take(total_number_of_fake_rows as usize),
-        );
+        padding_input_rows.extend(std::iter::repeat_n(
+            IndistinguishableHybridReport::<BK, V, ()>::ZERO,
+            total_number_of_fake_rows as usize,
+        ));
     }
 }
 
