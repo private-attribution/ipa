@@ -37,7 +37,7 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         if !self.delete || thread::panicking() {
             let td = self.inner.take().unwrap();
-            let _ = td.into_path();
+            let _ = td.keep();
         }
     }
 }
