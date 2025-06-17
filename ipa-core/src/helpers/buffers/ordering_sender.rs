@@ -207,7 +207,7 @@ impl Waiting {
 
     /// Find a shard.  This ensures that sequential values pick the same shard
     /// in a contiguous block.
-    fn shard(&self, i: usize) -> MutexGuard<WaitingShard> {
+    fn shard(&self, i: usize) -> MutexGuard<'_, WaitingShard> {
         let idx = (i >> Self::CONTIGUOUS_BITS) % Self::SHARDS;
         self.shards[idx].lock().unwrap()
     }

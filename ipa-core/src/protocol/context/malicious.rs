@@ -148,8 +148,8 @@ impl<B: ShardBinding> super::Context for Context<'_, B> {
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness,
-        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
     ) {
         self.inner.prss_rng()
     }

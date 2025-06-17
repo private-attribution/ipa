@@ -198,13 +198,13 @@ impl QueryHandle<'_> {
         inner.get(&self.query_id).map(QueryStatus::from)
     }
 
-    pub fn remove_query_on_drop(&self) -> RemoveQuery {
+    pub fn remove_query_on_drop(&self) -> RemoveQuery<'_> {
         RemoveQuery::new(self.query_id, self.queries)
     }
 }
 
 impl RunningQueries {
-    pub fn handle(&self, query_id: QueryId) -> QueryHandle {
+    pub fn handle(&self, query_id: QueryId) -> QueryHandle<'_> {
         QueryHandle {
             query_id,
             queries: self,

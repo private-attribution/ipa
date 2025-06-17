@@ -167,7 +167,7 @@ mod tests {
         // also make sure seeds are unique
         let r2 = setup_new(&mut thread_rng());
 
-        zip3(r1, r2).map(|(r1, r2)| {
+        let _ = zip3(r1, r2).map(|(r1, r2)| {
             assert_ne!(r1.right.entropy, r2.right.entropy);
             assert_ne!(r1.left.entropy, r2.left.entropy);
         });

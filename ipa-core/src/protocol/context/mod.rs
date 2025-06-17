@@ -95,8 +95,8 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness,
-        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
     );
 
     /// Open a communication channel to an MPC peer. This channel can be requested multiple times
@@ -258,7 +258,7 @@ impl<B: ShardBinding> Context for Base<'_, B> {
         self.total_records
     }
 
-    fn prss(&self) -> InstrumentedIndexedSharedRandomness {
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
         let prss = self.inner.prss.indexed(self.gate());
 
         InstrumentedIndexedSharedRandomness::new(prss, &self.gate, self.role())

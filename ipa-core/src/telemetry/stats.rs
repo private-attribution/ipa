@@ -152,7 +152,7 @@ impl Metrics {
     /// ## Panics
     /// Panics if metric does not exist in the snapshot
     #[must_use]
-    pub fn assert_metric(&self, name: &'static str) -> MetricAssertion {
+    pub fn assert_metric(&self, name: &'static str) -> MetricAssertion<'_> {
         let details = self
             .counters
             .get(name)
