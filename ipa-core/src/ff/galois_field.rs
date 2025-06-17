@@ -72,29 +72,31 @@ mod clmul_x86_64 {
     unsafe fn clmul(a: u64, b: u64) -> __m128i {
         #[allow(clippy::cast_possible_wrap)] // Thanks Intel.
         unsafe fn to_m128i(v: u64) -> __m128i {
-            _mm_set_epi64x(0, v as i64)
+            unsafe { _mm_set_epi64x(0, v as i64) }
         }
-        _mm_clmulepi64_si128(to_m128i(a), to_m128i(b), 0)
+        unsafe { _mm_clmulepi64_si128(to_m128i(a), to_m128i(b), 0) }
     }
 
     #[allow(clippy::cast_sign_loss)] // Thanks Intel.
     #[inline]
     unsafe fn extract<const I: i32>(v: __m128i) -> u128 {
         // Note: watch for sign extension that you get from casting i64 to u128 directly.
-        u128::from(_mm_extract_epi64(v, I) as u64)
+        unsafe { u128::from(_mm_extract_epi64(v, I) as u64) }
     }
 
     /// clmul with 32-bit inputs (and a 64-bit answer).
     #[inline]
     pub unsafe fn clmul32(a: u64, b: u64) -> u128 {
-        extract::<0>(clmul(a, b))
+        unsafe { extract::<0>(clmul(a, b)) }
     }
 
     /// clmul with 64-bit inputs (and a 128-bit answer).
     #[inline]
     pub unsafe fn clmul64(a: u64, b: u64) -> u128 {
-        let product = clmul(a, b);
-        extract::<1>(product) << 64 | extract::<0>(product)
+        unsafe {
+            let product = clmul(a, b);
+            extract::<1>(product) << 64 | extract::<0>(product)
+        }
     }
 }
 
