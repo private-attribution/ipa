@@ -436,7 +436,7 @@ mod tests {
 
     #[tokio::test]
     async fn clean_on_kill() {
-        let noop_handler = make_owned_handler(|_, _| async move { { Ok(HelperResponse::ok()) } });
+        let noop_handler = make_owned_handler(|_, _| async move { Ok(HelperResponse::ok()) });
         let TestServer { transport, .. } = TestServer::builder()
             .with_request_handler(Arc::clone(&noop_handler))
             .build()
