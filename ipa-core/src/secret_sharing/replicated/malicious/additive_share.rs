@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 use futures::{
     future::{join, join_all},
-    stream::{iter as stream_iter, StreamExt},
+    stream::{StreamExt, iter as stream_iter},
 };
 use generic_array::{ArrayLength, GenericArray};
 use subtle::ConstantTimeEq;
@@ -17,8 +17,8 @@ use crate::{
     ff::{Field, Gf2, Gf32Bit, PrimeField, Serializable, U128Conversions},
     protocol::prss::FromRandom,
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, BitDecomposed,
-        FieldSimd, Linear as LinearSecretSharing, SecretSharing, SharedValue,
+        BitDecomposed, FieldSimd, Linear as LinearSecretSharing, SecretSharing, SharedValue,
+        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
     },
     seq_join::seq_join,
 };
@@ -315,7 +315,9 @@ pub enum ExtendableFieldDeserializationError<F: Serializable, EF: Serializable> 
         "error deserializing field value when creating a maliciously secure replicated share: {0}"
     )]
     FieldError(F::DeserializationError),
-    #[error("error deserializing extended field value when creating a maliciously secure replicated share: {0}")]
+    #[error(
+        "error deserializing extended field value when creating a maliciously secure replicated share: {0}"
+    )]
     ExtendedFieldError(EF::DeserializationError),
 }
 
@@ -448,12 +450,12 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, U128Conversions},
         helpers::Role,
-        rand::{thread_rng, Rng},
+        rand::{Rng, thread_rng},
         secret_sharing::{
-            replicated::{
-                semi_honest::AdditiveShare as SemiHonestAdditiveShare, ReplicatedSecretSharing,
-            },
             IntoShares,
+            replicated::{
+                ReplicatedSecretSharing, semi_honest::AdditiveShare as SemiHonestAdditiveShare,
+            },
         },
         test_fixture::Reconstruct,
     };
@@ -463,14 +465,14 @@ mod tests {
     fn test_local_operations() {
         let mut rng = rand::thread_rng();
 
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
-        let c = rng.gen::<Fp31>();
-        let d = rng.gen::<Fp31>();
-        let e = rng.gen::<Fp31>();
-        let f = rng.gen::<Fp31>();
+        let a = rng.r#gen::<Fp31>();
+        let b = rng.r#gen::<Fp31>();
+        let c = rng.r#gen::<Fp31>();
+        let d = rng.r#gen::<Fp31>();
+        let e = rng.r#gen::<Fp31>();
+        let f = rng.r#gen::<Fp31>();
         // Randomization constant
-        let r = rng.gen::<Fp31>();
+        let r = rng.r#gen::<Fp31>();
 
         let one_shared = Fp31::ONE.share_with(&mut rng);
         let a_shared = a.share_with(&mut rng);
@@ -539,8 +541,8 @@ mod tests {
     #[tokio::test]
     async fn downgrade() {
         let mut rng = thread_rng();
-        let x = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
-        let y = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
+        let x = SemiHonestAdditiveShare::new(rng.r#gen::<Fp31>(), rng.r#gen());
+        let y = SemiHonestAdditiveShare::new(rng.r#gen::<Fp31>(), rng.r#gen());
         let m = AdditiveShare::new(x.clone(), y);
         assert_eq!(x, Downgrade::downgrade(m).await.access_without_downgrade());
     }

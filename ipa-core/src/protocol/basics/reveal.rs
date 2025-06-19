@@ -34,21 +34,21 @@ use crate::{
     error::Error,
     helpers::{Direction, MaybeFuture, Role},
     protocol::{
+        RecordId,
         boolean::step::TwoHundredFiftySixBitOpStep,
         context::{
             Context, DZKPContext, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
             ShardedUpgradedMaliciousContext, UpgradedMaliciousContext, UpgradedSemiHonestContext,
         },
-        RecordId,
     },
     secret_sharing::{
+        BitDecomposed, SharedValue, Vectorizable,
         replicated::{
             malicious::{
                 AdditiveShare as MaliciousReplicated, ExtendableField, ExtendableFieldSimd,
             },
             semi_honest::AdditiveShare as Replicated,
         },
-        BitDecomposed, SharedValue, Vectorizable,
     },
     sharding::ShardBinding,
 };
@@ -159,6 +159,9 @@ where
 /// ![Reveal steps][reveal]
 /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
 /// i.e. their own shares and received share.
+///
+/// ## Errors
+/// Returns an error if network send or receive operation fails.
 #[embed_doc_image("reveal", "images/reveal.png")]
 pub async fn semi_honest_reveal<'fut, C, V, const N: usize>(
     ctx: C,
@@ -239,6 +242,9 @@ where
 /// It works similarly to semi-honest reveal, the key difference is that each helper sends its share
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
+///
+/// ## Errors
+/// Returns an error if network send or receive operation fails.
 pub async fn malicious_reveal<'fut, C, V, const N: usize>(
     ctx: C,
     record_id: RecordId,
@@ -438,6 +444,9 @@ where
     S::generic_reveal(v, ctx, record_id, excluded)
 }
 
+///
+/// ## Errors
+/// Returns an error if network send or receive operation fails.
 pub async fn validated_partial_reveal<'fut, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -460,26 +469,26 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{boolean::Boolean, Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, boolean::Boolean},
         helpers::{
-            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
             Role,
+            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
         },
         protocol::{
-            basics::{partial_reveal, reveal, Reveal},
-            context::{
-                upgrade::Upgradable, validator::BatchValidator, Context, UpgradableContext,
-                Validator,
-            },
             RecordId,
+            basics::{Reveal, partial_reveal, reveal},
+            context::{
+                Context, UpgradableContext, Validator, upgrade::Upgradable,
+                validator::BatchValidator,
+            },
         },
-        rand::{thread_rng, Rng},
+        rand::{Rng, thread_rng},
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare, BitDecomposed, IntoShares, SecretSharing,
-            SharedValue, Vectorizable,
+            BitDecomposed, IntoShares, SecretSharing, SharedValue, Vectorizable,
+            replicated::semi_honest::AdditiveShare,
         },
         test_executor::run,
-        test_fixture::{join3v, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{Runner, TestWorld, TestWorldConfig, join3v},
     };
 
     #[tokio::test]
@@ -489,7 +498,7 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::default();
 
-        let input = rng.gen::<TestField>();
+        let input = rng.r#gen::<TestField>();
         let results = world
             .dzkp_semi_honest(input, |ctx, share| async move {
                 TestField::from_array(
@@ -516,7 +525,7 @@ mod tests {
         let world = TestWorld::default();
 
         for &excluded in Role::all() {
-            let input = rng.gen::<TestField>();
+            let input = rng.r#gen::<TestField>();
             let results = world
                 .dzkp_semi_honest(input, |ctx, share| async move {
                     share
@@ -547,7 +556,7 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::default();
 
-        let input = rng.gen::<TestFieldArray>();
+        let input = rng.r#gen::<TestFieldArray>();
         let results = world
             .dzkp_semi_honest(
                 input,
@@ -581,7 +590,7 @@ mod tests {
         let m_ctx = v.each_ref().map(BatchValidator::context);
 
         let record_id = RecordId::from(0);
-        let input: TestField = rng.gen();
+        let input: TestField = rng.r#gen();
 
         let m_shares = join3v(
             zip(m_ctx.iter(), input.share_with(&mut rng)).map(|(m_ctx, share)| async {
@@ -620,7 +629,7 @@ mod tests {
             let m_ctx = v.each_ref().map(BatchValidator::context);
 
             let record_id = RecordId::from(0);
-            let input: TestField = rng.gen();
+            let input: TestField = rng.r#gen();
 
             let m_shares = join3v(zip(m_ctx.iter(), input.share_with(&mut rng)).map(
                 |(m_ctx, share)| async { share.upgrade(m_ctx.clone(), RecordId::FIRST).await },
@@ -695,7 +704,7 @@ mod tests {
                 MaliciousHelper::new(Role::H3, config.role_assignment(), interceptor::<Fp31>);
 
             let world = TestWorld::new_with(config);
-            let input: Fp31 = rng.gen();
+            let input: Fp31 = rng.r#gen();
             world
                 .upgraded_malicious(
                     vec![input].into_iter(),
@@ -715,7 +724,7 @@ mod tests {
                 MaliciousHelper::new(Role::H3, config.role_assignment(), interceptor::<Fp31>);
 
             let world = TestWorld::new_with(config);
-            let input: Fp31 = rng.gen();
+            let input: Fp31 = rng.r#gen();
             world
                 .upgraded_malicious(
                     vec![input].into_iter(),
@@ -735,7 +744,7 @@ mod tests {
                 MaliciousHelper::new(Role::H3, config.role_assignment(), interceptor::<Boolean>);
 
             let world = TestWorld::new_with(config);
-            let input: Boolean = rng.gen();
+            let input: Boolean = rng.r#gen();
             // ZKP malicious does not set the total records as `upgraded_malicious`
             // something to think about how to bring them closer together.
             world
@@ -756,7 +765,7 @@ mod tests {
                 MaliciousHelper::new(Role::H3, config.role_assignment(), interceptor::<Boolean>);
 
             let world = TestWorld::new_with(config);
-            let input: Boolean = rng.gen();
+            let input: Boolean = rng.r#gen();
             world
                 .dzkp_malicious(input, |ctx, share| {
                     do_malicious_reveal(ctx.set_total_records(1), partial, share)

@@ -7,7 +7,7 @@ use std::{
 };
 
 use ::tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
+    mpsc::{Receiver, Sender, channel},
     oneshot,
 };
 use async_trait::async_trait;
@@ -21,11 +21,11 @@ use tracing::Instrument;
 use crate::{
     error::BoxError,
     helpers::{
-        in_memory_config::{self, DynStreamInterceptor},
-        transport::routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, NoResourceIdentifier,
         QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection,
         Transport, TransportIdentity,
+        in_memory_config::{self, DynStreamInterceptor},
+        transport::routing::{Addr, RouteId},
     },
     protocol::{Gate, QueryId},
     sharding::ShardIndex,
@@ -314,14 +314,17 @@ impl<I: TransportIdentity> Setup<I> {
     /// ## Panics
     /// Panics if there is a link already.
     pub fn connect(&mut self, other: &mut Self) {
-        assert!(self
-            .connections
-            .insert(other.identity, other.tx.clone())
-            .is_none());
-        assert!(other
-            .connections
-            .insert(self.identity, self.tx.clone())
-            .is_none());
+        assert!(
+            self.connections
+                .insert(other.identity, other.tx.clone())
+                .is_none()
+        );
+        assert!(
+            other
+                .connections
+                .insert(self.identity, self.tx.clone())
+                .is_none()
+        );
     }
 
     pub(crate) fn start(self, handler: Option<HandlerRef<I>>) -> Arc<InMemoryTransport<I>> {
@@ -356,8 +359,8 @@ mod tests {
     };
 
     use bytes::Bytes;
-    use futures::{stream, Stream};
-    use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
+    use futures::{Stream, stream};
+    use futures_util::{FutureExt, StreamExt, stream::poll_immediate};
     use tokio::sync::{mpsc::channel, oneshot};
     use tokio_stream::wrappers::ReceiverStream;
     use typenum::Unsigned;
@@ -365,17 +368,16 @@ mod tests {
     use crate::{
         ff::{FieldType, Fp31, Serializable},
         helpers::{
-            make_owned_handler,
+            HandlerBox, HelperIdentity, HelperResponse, InMemoryShardNetwork, OrderingSender, Role,
+            RoleAssignment, Transport, TransportIdentity, make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
             transport::{
                 in_memory::{
-                    transport::{Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport},
                     InMemoryMpcNetwork, Setup,
+                    transport::{Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport},
                 },
                 routing::RouteId,
             },
-            HandlerBox, HelperIdentity, HelperResponse, InMemoryShardNetwork, OrderingSender, Role,
-            RoleAssignment, Transport, TransportIdentity,
         },
         protocol::{Gate, QueryId},
         sharding::ShardIndex,

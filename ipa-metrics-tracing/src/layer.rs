@@ -2,14 +2,14 @@ use std::fmt::Debug;
 
 use ipa_metrics::{CurrentThreadPartitionContext, MetricPartition, MetricsCurrentThreadContext};
 use tracing::{
+    Id, Subscriber,
     field::{Field, Visit},
     span::{Attributes, Record},
-    Id, Subscriber,
 };
 use tracing_subscriber::{
+    Layer,
     layer::Context,
     registry::{Extensions, ExtensionsMut, LookupSpan},
-    Layer,
 };
 
 pub const FIELD: &str = concat!(env!("CARGO_PKG_NAME"), "-", "metrics-partition");
@@ -99,7 +99,7 @@ mod tests {
     use ipa_metrics::CurrentThreadPartitionContext;
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-    use crate::{layer::FIELD, MetricsPartitioningLayer};
+    use crate::{MetricsPartitioningLayer, layer::FIELD};
 
     #[test]
     fn basic() {

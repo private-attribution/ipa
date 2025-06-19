@@ -16,7 +16,7 @@ use std::{collections::HashMap, num::NonZeroUsize, pin::pin};
 use async_trait::async_trait;
 pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
 pub use dzkp_semi_honest::DZKPUpgraded as DZKPUpgradedSemiHonestContext;
-use futures::{stream, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt, stream};
 use ipa_step::{Step, StepNarrow};
 pub use malicious::MaliciousProtocolSteps;
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
@@ -36,13 +36,13 @@ pub(crate) use malicious::TEST_DZKP_STEPS;
 use crate::{
     error::Error,
     helpers::{
-        stream::ExactSizeStream, ChannelId, Direction, Gateway, Message, MpcMessage,
-        MpcReceivingEnd, Role, SendingEnd, ShardReceivingEnd, TotalRecords,
+        ChannelId, Direction, Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
+        ShardReceivingEnd, TotalRecords, stream::ExactSizeStream,
     },
     protocol::{
+        Gate, RecordId,
         context::dzkp_validator::DZKPValidator,
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
-        Gate, RecordId,
     },
     secret_sharing::replicated::malicious::ExtendableField,
     seq_join::SeqJoin,
@@ -95,8 +95,8 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness,
-        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
     );
 
     /// Open a communication channel to an MPC peer. This channel can be requested multiple times
@@ -258,7 +258,7 @@ impl<B: ShardBinding> Context for Base<'_, B> {
         self.total_records
     }
 
-    fn prss(&self) -> InstrumentedIndexedSharedRandomness {
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
         let prss = self.inner.prss.indexed(self.gate());
 
         InstrumentedIndexedSharedRandomness::new(prss, &self.gate, self.role())
@@ -620,38 +620,38 @@ pub trait DZKPContext: Context {
 mod tests {
     use std::{iter, iter::repeat, pin::Pin, task::Poll};
 
-    use futures::{future::join_all, ready, stream, stream::StreamExt, try_join, Stream};
+    use futures::{Stream, future::join_all, ready, stream, stream::StreamExt, try_join};
     use ipa_step::StepNarrow;
     use pin_project::pin_project;
     use rand::{
-        distributions::{Distribution, Standard},
         Rng,
+        distributions::{Distribution, Standard},
     };
     use typenum::Unsigned;
 
     use crate::{
         ff::{
-            boolean_array::{BA3, BA64, BA8},
             Field, Fp31, Serializable, U128Conversions,
+            boolean_array::{BA3, BA8, BA64},
         },
         helpers::{Direction, Role},
         protocol::{
+            RecordId,
             basics::ShareKnownValue,
             context::{
-                reshard_iter, reshard_stream, reshard_try_stream,
-                step::MaliciousProtocolStep::MaliciousProtocol, upgrade::Upgradable, Context,
-                ShardedContext, UpgradableContext, Validator,
+                Context, ShardedContext, UpgradableContext, Validator, reshard_iter,
+                reshard_stream, reshard_try_stream, step::MaliciousProtocolStep::MaliciousProtocol,
+                upgrade::Upgradable,
             },
             prss::SharedRandomness,
-            RecordId,
         },
         secret_sharing::{
+            SharedValue,
             replicated::{
+                ReplicatedSecretSharing,
                 malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
                 semi_honest::AdditiveShare as Replicated,
-                ReplicatedSecretSharing,
             },
-            SharedValue,
         },
         sharding::{ShardConfiguration, ShardIndex},
         telemetry::metrics::{
@@ -710,8 +710,8 @@ mod tests {
             // have special constructor method for them: `next_u32`. Sequential randomness must
             // record metrics for both calls.
             (
-                left_rng.gen::<F>() + F::truncate_from(left_rng.gen::<u32>()),
-                right_rng.gen::<F>() + F::truncate_from(right_rng.gen::<u32>()),
+                left_rng.r#gen::<F>() + F::truncate_from(left_rng.r#gen::<u32>()),
+                right_rng.r#gen::<F>() + F::truncate_from(right_rng.r#gen::<u32>()),
             )
         };
 

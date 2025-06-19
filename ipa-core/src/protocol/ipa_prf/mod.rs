@@ -15,8 +15,8 @@ pub use malicious_security::{
 
 use crate::{
     ff::{
-        boolean_array::{BooleanArray, BA5, BA64, BA8},
         U128Conversions,
+        boolean_array::{BA5, BA8, BA64, BooleanArray},
     },
     secret_sharing::SharedValue,
 };

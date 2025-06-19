@@ -3,8 +3,8 @@ use std::cell::RefCell;
 use crossbeam_channel::{Receiver, Select};
 
 use crate::{
-    controller::{Command, Status},
     ControllerCommand, MetricsStore,
+    controller::{Command, Status},
 };
 
 thread_local! {
@@ -112,8 +112,8 @@ mod tests {
     };
 
     use crate::{
-        controller::Status, counter, install, install_new_thread, producer::Producer,
-        MetricChannelType,
+        MetricChannelType, controller::Status, counter, install, install_new_thread,
+        producer::Producer,
     };
 
     struct MeteredScope<'scope, 'env: 'scope>(&'scope Scope<'scope, 'env>, Producer);

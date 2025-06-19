@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 use futures::Stream;
 use ipa_metrics::counter;
 #[cfg(all(test, feature = "shuttle"))]
@@ -16,8 +16,8 @@ use typenum::Unsigned;
 
 use crate::{
     helpers::{
-        buffers::OrderingSender, routing::RouteId, ChannelId, Error, GatewayConfig, Message,
-        TotalRecords, Transport, TransportIdentity,
+        ChannelId, Error, GatewayConfig, Message, TotalRecords, Transport, TransportIdentity,
+        buffers::OrderingSender, routing::RouteId,
     },
     protocol::{QueryId, RecordId},
     sync::Arc,
@@ -304,10 +304,10 @@ mod test {
 
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA256, BA3, BA32, BA7},
             Serializable,
+            boolean_array::{BA3, BA7, BA16, BA20, BA32, BA256},
         },
-        helpers::{gateway::send::SendChannelConfig, GatewayConfig, TotalRecords},
+        helpers::{GatewayConfig, TotalRecords, gateway::send::SendChannelConfig},
         secret_sharing::SharedValue,
     };
 

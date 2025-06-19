@@ -2,7 +2,7 @@ pub(crate) mod distributions;
 pub mod insecure;
 pub mod step;
 
-use std::iter::{repeat, repeat_with};
+use std::iter::repeat_with;
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use insecure::DiscreteDp as InsecureDiscreteDp;
@@ -13,20 +13,20 @@ use crate::{
     error,
     error::Error,
     ff::{
-        boolean_array::{BooleanArray, BA32, BA64},
         U128Conversions,
+        boolean_array::{BA32, BA64, BooleanArray},
     },
     helpers::{Direction, Role, TotalRecords},
     protocol::{
-        context::{prss::InstrumentedSequentialSharedRandomness, Context},
+        RecordId,
+        context::{Context, prss::InstrumentedSequentialSharedRandomness},
         ipa_prf::oprf_padding::{
             insecure::OPRFPaddingDp,
             step::{PaddingDpStep, SendTotalRows},
         },
-        RecordId,
     },
     report::hybrid::IndistinguishableHybridReport,
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    secret_sharing::replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
 };
 
 /// Parameter struct for padding parameters.
@@ -159,14 +159,16 @@ where
 
                     padding_input_rows.extend(
                         repeat_with(|| {
-                            let dummy_mk: BA64 = rng.gen();
-                            repeat(IndistinguishableHybridReport::from(
-                                AdditiveShare::new_excluding_direction(
-                                    dummy_mk,
-                                    direction_to_excluded_helper,
+                            let dummy_mk: BA64 = rng.r#gen();
+                            std::iter::repeat_n(
+                                IndistinguishableHybridReport::from(
+                                    AdditiveShare::new_excluding_direction(
+                                        dummy_mk,
+                                        direction_to_excluded_helper,
+                                    ),
                                 ),
-                            ))
-                            .take(cardinality as usize)
+                                cardinality as usize,
+                            )
                         })
                         // this means there will be `sample` many unique
                         // matchkeys to add each with cardinality = `cardinality`
@@ -185,10 +187,10 @@ where
         padding_input_rows: &mut VC,
         total_number_of_fake_rows: u32,
     ) {
-        padding_input_rows.extend(
-            repeat(IndistinguishableHybridReport::<BK, V>::ZERO)
-                .take(total_number_of_fake_rows as usize),
-        );
+        padding_input_rows.extend(std::iter::repeat_n(
+            IndistinguishableHybridReport::<BK, V>::ZERO,
+            total_number_of_fake_rows as usize,
+        ));
     }
 }
 
@@ -259,10 +261,10 @@ where
         padding_input_rows: &mut VC,
         total_number_of_fake_rows: u32,
     ) {
-        padding_input_rows.extend(
-            repeat(IndistinguishableHybridReport::<BK, V, ()>::ZERO)
-                .take(total_number_of_fake_rows as usize),
-        );
+        padding_input_rows.extend(std::iter::repeat_n(
+            IndistinguishableHybridReport::<BK, V, ()>::ZERO,
+            total_number_of_fake_rows as usize,
+        ));
     }
 }
 
@@ -404,17 +406,17 @@ mod tests {
     use crate::{
         error::Error,
         ff::{
-            boolean_array::{BooleanArray, BA3, BA32, BA8},
             U128Conversions,
+            boolean_array::{BA3, BA8, BA32, BooleanArray},
         },
         helpers::{Direction, Role, TotalRecords},
         protocol::{
+            RecordId,
             context::Context,
             ipa_prf::oprf_padding::{
-                apply_dp_padding_pass, insecure, insecure::OPRFPaddingDp, AggregationPadding,
-                OPRFPadding, PaddingParameters,
+                AggregationPadding, OPRFPadding, PaddingParameters, apply_dp_padding_pass,
+                insecure, insecure::OPRFPaddingDp,
             },
-            RecordId,
         },
         report::hybrid::IndistinguishableHybridReport,
         test_fixture::{Reconstruct, Runner, TestWorld},

@@ -1,8 +1,8 @@
 use crate::{
     helpers::{
-        in_memory_config::{passthrough, DynStreamInterceptor},
-        transport::in_memory::transport::{InMemoryTransport, Setup, TransportConfigBuilder},
         HandlerBox, HelperIdentity, RequestHandler,
+        in_memory_config::{DynStreamInterceptor, passthrough},
+        transport::in_memory::transport::{InMemoryTransport, Setup, TransportConfigBuilder},
     },
     sharding::ShardIndex,
     sync::{Arc, Weak},
@@ -134,8 +134,8 @@ mod tests {
 
     use crate::{
         helpers::{
-            transport::{in_memory::InMemoryShardNetwork, routing::RouteId},
             HelperIdentity, Transport,
+            transport::{in_memory::InMemoryShardNetwork, routing::RouteId},
         },
         protocol::{Gate, QueryId},
         sharding::ShardIndex,

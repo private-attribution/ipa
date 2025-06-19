@@ -7,8 +7,8 @@ use rand_core::{CryptoRng, Error, RngCore};
 use crate::{
     helpers::{Direction, Role},
     protocol::{
-        prss::{IndexedSharedRandomness, PrssIndex, SequentialSharedRandomness, SharedRandomness},
         Gate,
+        prss::{IndexedSharedRandomness, PrssIndex, SequentialSharedRandomness, SharedRandomness},
     },
     sync::Arc,
     telemetry::{

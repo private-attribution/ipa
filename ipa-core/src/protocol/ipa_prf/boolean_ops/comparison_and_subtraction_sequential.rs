@@ -10,14 +10,14 @@ use ipa_step::StepNarrow;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, boolean_array::BooleanArray, Field},
+    ff::{Field, boolean::Boolean, boolean_array::BooleanArray},
     protocol::{
-        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
+        Gate, RecordId,
+        basics::{BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue, select},
         boolean::NBitStep,
         context::Context,
-        Gate, RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    secret_sharing::{BitDecomposed, FieldSimd, replicated::semi_honest::AdditiveShare},
 };
 
 /// Comparison operation
@@ -222,25 +222,24 @@ mod test {
 
     use crate::{
         ff::{
-            boolean::Boolean,
-            boolean_array::{BA3, BA32, BA5, BA64},
             ArrayAccess, Expand, Field, U128Conversions,
+            boolean::Boolean,
+            boolean_array::{BA3, BA5, BA32, BA64},
         },
         protocol::{
-            self,
+            self, RecordId,
             boolean::step::DefaultBitStep,
             context::Context,
             ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
                 compare_geq, compare_gt, integer_sat_sub, integer_sub,
             },
-            RecordId,
         },
         rand::thread_rng,
         secret_sharing::{
-            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             BitDecomposed, SharedValue,
+            replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
         },
-        seq_join::{seq_join, SeqJoin},
+        seq_join::{SeqJoin, seq_join},
         test_executor::run,
         test_fixture::{Reconstruct, ReconstructArr, Runner, TestWorld},
     };
@@ -285,7 +284,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
@@ -332,7 +331,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
@@ -384,11 +383,11 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let x = repeat_with(|| rng.gen())
+            let x = repeat_with(|| rng.r#gen())
                 .take(BENCH_COUNT)
                 .collect::<Vec<BA64>>();
             let x_int = x.iter().map(U128Conversions::as_u128).collect::<Vec<_>>();
-            let y: BA64 = rng.gen::<BA64>();
+            let y: BA64 = rng.r#gen::<BA64>();
             let y_int = y.as_u128();
 
             let expected = x_int.iter().map(|x| *x > y_int).collect::<Vec<_>>();
@@ -442,14 +441,14 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let x = repeat_with(|| rng.gen())
+            let x = repeat_with(|| rng.r#gen())
                 .take(BENCH_COUNT)
                 .collect::<Vec<BA64>>();
             let x_int: Vec<u64> = x
                 .iter()
                 .map(|x| x.as_u128().try_into().unwrap())
                 .collect::<Vec<_>>();
-            let y: BA64 = rng.gen::<BA64>();
+            let y: BA64 = rng.r#gen::<BA64>();
             let y_int: u64 = y.as_u128().try_into().unwrap();
             let xa: Vec<BitDecomposed<[Boolean; N]>> = x_int
                 .chunks(N)
@@ -520,7 +519,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
             let z = 1_u128 << 64;
@@ -552,7 +551,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
+            let records: Vec<BA64> = vec![rng.r#gen::<BA64>(), rng.r#gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
@@ -610,7 +609,7 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records = (rng.gen::<BA64>(), rng.gen::<BA32>());
+            let records = (rng.r#gen::<BA64>(), rng.r#gen::<BA32>());
             let x = records.0.as_u128();
             let y = records.1.as_u128();
             let z = 1_u128 << 64;

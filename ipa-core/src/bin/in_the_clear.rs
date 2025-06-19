@@ -2,8 +2,8 @@ use std::{error::Error, fs::File, io::Write, num::NonZeroU32, path::PathBuf};
 
 use clap::Parser;
 use ipa_core::{
-    cli::{playbook::InputSource, Verbosity},
-    test_fixture::hybrid::{hybrid_in_the_clear, TestHybridRecord},
+    cli::{Verbosity, playbook::InputSource},
+    test_fixture::hybrid::{TestHybridRecord, hybrid_in_the_clear},
 };
 
 #[derive(Debug, Parser)]

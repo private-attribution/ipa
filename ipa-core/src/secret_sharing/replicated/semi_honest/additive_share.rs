@@ -8,10 +8,10 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{boolean::Boolean, boolean_array::BooleanArray, ArrayAccess, Expand, Field, Serializable},
+    ff::{ArrayAccess, Expand, Field, Serializable, boolean::Boolean, boolean_array::BooleanArray},
     secret_sharing::{
-        replicated::ReplicatedSecretSharing, FieldSimd, Linear as LinearSecretSharing,
-        SecretSharing, SharedValue, SharedValueArray, Vectorizable,
+        FieldSimd, Linear as LinearSecretSharing, SecretSharing, SharedValue, SharedValueArray,
+        Vectorizable, replicated::ReplicatedSecretSharing,
     },
 };
 
@@ -514,15 +514,15 @@ impl<S: SharedValue + Vectorizable<N>, const N: usize> Iterator for UnpackIter<S
 #[cfg(all(test, unit_test))]
 mod tests {
     use proptest::{
-        prelude::{prop, Arbitrary, Strategy},
+        prelude::{Arbitrary, Strategy, prop},
         proptest,
     };
 
     use crate::{
         ff::{Fp31, Fp32BitPrime, U128Conversions},
         secret_sharing::{
-            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue, StdArray, Vectorizable,
+            replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
         },
     };
 

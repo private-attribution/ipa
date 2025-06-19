@@ -13,47 +13,45 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{future::join_all, stream::FuturesOrdered, Future, StreamExt};
+use futures::{Future, StreamExt, future::join_all, stream::FuturesOrdered};
 use rand::{
+    CryptoRng, Rng, RngCore, SeedableRng,
     distributions::{Distribution, Standard},
     rngs::StdRng,
-    CryptoRng, Rng, RngCore, SeedableRng,
 };
 use tracing::{Instrument, Level, Span};
 
 use crate::{
     helpers::{
-        in_memory_config::{passthrough, DynStreamInterceptor},
         Gateway, GatewayConfig, HelperIdentity, InMemoryMpcNetwork, InMemoryShardNetwork,
         InMemoryTransport, Role, RoleAssignment, TotalRecords, Transport,
+        in_memory_config::{DynStreamInterceptor, passthrough},
     },
     protocol::{
+        Gate, QueryId, RecordId,
         context::{
-            dzkp_validator::DZKPValidator, upgrade::Upgradable, Context,
-            DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext, MaliciousContext,
-            SemiHonestContext, ShardedMaliciousContext, ShardedSemiHonestContext,
+            Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext, MaliciousContext,
+            SemiHonestContext, ShardedMaliciousContext, ShardedSemiHonestContext, TEST_DZKP_STEPS,
             UpgradableContext, UpgradedContext, UpgradedMaliciousContext, Validator,
-            TEST_DZKP_STEPS,
+            dzkp_validator::DZKPValidator, upgrade::Upgradable,
         },
         prss::Endpoint as PrssEndpoint,
-        Gate, QueryId, RecordId,
     },
     rand::thread_rng,
     secret_sharing::{
+        IntoShares,
         replicated::malicious::{
             DowngradeMalicious, ExtendableField, ThisCodeIsAuthorizedToDowngradeFromMalicious,
         },
-        IntoShares,
     },
     sharding::{NotSharded, ShardBinding, ShardIndex, Sharded},
-    telemetry::{stats::Metrics, StepStatsCsvExporter},
+    telemetry::{StepStatsCsvExporter, stats::Metrics},
     test_fixture::{
-        logging, make_participants,
+        Reconstruct, logging, make_participants,
         metrics::MetricsHandle,
         shard_configurator::{Configurator, ShardConfigurator},
         sharing::ValidateMalicious,
-        test_gate::{gate_vendor, TestGateVendor},
-        Reconstruct,
+        test_gate::{TestGateVendor, gate_vendor},
     },
     utils::array::zip3_ref,
 };
@@ -136,11 +134,11 @@ pub struct TestWorldConfig {
     /// for each communication round between any pair of helpers.
     /// The application include:
     /// * Malicious behavior. This can help simulating a malicious
-    ///     actor being present in the system by running one or several
-    ///     additive attacks.
+    ///   actor being present in the system by running one or several
+    ///   additive attacks.
     /// * Data corruption. Tests can simulate bit flips that occur
-    ///     at the network layer and check whether IPA can recover from
-    ///     these (checksums, etc).
+    ///   at the network layer and check whether IPA can recover from
+    ///   these (checksums, etc).
     ///
     /// The interface is pretty low level because of the layer
     /// where it operates. [`StreamInterceptor`] interface provides
@@ -385,7 +383,7 @@ impl<S: ShardingScheme> TestWorld<S> {
     pub fn rng(&self) -> impl Rng + CryptoRng {
         // We need to use the `TestWorld` RNG within the `Runner` helpers, which
         // unfortunately take `&self`.
-        StdRng::from_seed(self.rng.lock().unwrap().gen())
+        StdRng::from_seed(self.rng.lock().unwrap().r#gen())
     }
 
     async fn with_timeout<F: IntoFuture>(&self, fut: F) -> F::Output {
@@ -978,33 +976,33 @@ mod tests {
 
     use crate::{
         ff::{
-            boolean::Boolean,
-            boolean_array::{BA3, BA64, BA8},
             ArrayAccess, Field, Fp31, U128Conversions,
+            boolean::Boolean,
+            boolean_array::{BA3, BA8, BA64},
         },
         helpers::{
-            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
             Direction, Role, TotalRecords,
+            in_memory_config::{MaliciousHelper, MaliciousHelperContext},
         },
         protocol::{
+            RecordId,
             basics::SecureMul,
             boolean::step::EightBitStep,
             context::{
-                dzkp_validator::DZKPValidator, upgrade::Upgradable, Context, DZKPContext,
-                ShardedContext, UpgradableContext, UpgradedContext, Validator, TEST_DZKP_STEPS,
+                Context, DZKPContext, ShardedContext, TEST_DZKP_STEPS, UpgradableContext,
+                UpgradedContext, Validator, dzkp_validator::DZKPValidator, upgrade::Upgradable,
             },
             ipa_prf::boolean_ops::addition_sequential::integer_add,
             prss::SharedRandomness,
-            RecordId,
         },
         rand::Rng,
         secret_sharing::{
-            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
+            replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
         },
         sharding::{ShardConfiguration, ShardIndex},
         test_executor::{run, run_random},
-        test_fixture::{world::WithShards, Reconstruct, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig, world::WithShards},
     };
 
     #[test]
@@ -1300,7 +1298,7 @@ mod tests {
 
                 let world = TestWorld::with_config(&config);
                 let mut rng = world.rng();
-                let input: (Fp31, Fp31) = (rng.gen(), rng.gen());
+                let input: (Fp31, Fp31) = (rng.r#gen(), rng.r#gen());
                 world
                     .malicious(input, |ctx, input| async move {
                         let validator = ctx.set_total_records(1).validator();
@@ -1318,11 +1316,10 @@ mod tests {
                     })
                     .await;
 
-                let result = u_and_w.lock().unwrap().clone();
-                result
+                u_and_w.lock().unwrap().clone()
             }
 
-            let seed = rng.gen();
+            let seed = rng.r#gen();
             let first_result = test(seed).await;
             let second_result = test(seed).await;
 
@@ -1351,7 +1348,7 @@ mod tests {
 
                 let world = TestWorld::with_config(&config);
                 let mut rng = world.rng();
-                let input: (BA8, BA8) = (rng.gen(), rng.gen());
+                let input: (BA8, BA8) = (rng.r#gen(), rng.r#gen());
                 world
                     .malicious(input, |ctx, input| async move {
                         let validator = ctx.set_total_records(1).dzkp_validator(TEST_DZKP_STEPS, 8);
@@ -1368,11 +1365,10 @@ mod tests {
                     })
                     .await;
 
-                let result = proof_diff.lock().unwrap().clone();
-                result
+                proof_diff.lock().unwrap().clone()
             }
 
-            let seed = rng.gen();
+            let seed = rng.r#gen();
             let first_result = test(seed).await;
             let second_result = test(seed).await;
 

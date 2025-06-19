@@ -8,10 +8,10 @@ use typenum::Unsigned;
 
 use crate::{
     ff::{Field, Serializable},
-    helpers::{query::QueryInput, BodyStream},
+    helpers::{BodyStream, query::QueryInput},
     net::{Helper, IpaHttpClient},
     protocol::QueryId,
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare as Replicated},
     test_fixture::Reconstruct,
 };
 

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    protocol::{context::UpgradedContext, RecordId},
+    protocol::{RecordId, context::UpgradedContext},
 };
 
 /// This trait is implemented by secret sharing types that can be upgraded.

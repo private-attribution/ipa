@@ -5,20 +5,20 @@ use tracing::Instrument;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
-    helpers::{stream::FixedLength, TotalRecords},
+    ff::{U128Conversions, boolean::Boolean, boolean_array::BooleanArray},
+    helpers::{TotalRecords, stream::FixedLength},
     protocol::{
+        RecordId,
         basics::BooleanProtocols,
-        boolean::{step::ThirtyTwoBitStep, NBitStep},
-        context::{dzkp_validator::TARGET_PROOF_SIZE, Context},
+        boolean::{NBitStep, step::ThirtyTwoBitStep},
+        context::{Context, dzkp_validator::TARGET_PROOF_SIZE},
         ipa_prf::{
             aggregation::step::{AggregateChunkStep, AggregateValuesStep},
             boolean_ops::addition_sequential::{integer_add, integer_sat_add},
         },
-        RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
+        BitDecomposed, FieldSimd, replicated::semi_honest::AdditiveShare as Replicated,
     },
     utils::non_zero_prev_power_of_two,
 };
@@ -106,7 +106,7 @@ where
         let par_agg_ctx = ctx
             .narrow(&AggregateChunkStep::from(depth))
             .set_total_records(TotalRecords::Indeterminate);
-        let next_num_rows = (num_rows + 1) / 2;
+        let next_num_rows = num_rows.div_ceil(2);
         let base_record_id = record_ids[depth];
         record_ids[depth] += num_rows / 2;
         aggregated_stream = Box::pin(
@@ -187,7 +187,7 @@ where
 pub mod tests {
     use std::cmp::min;
 
-    use futures::{stream, StreamExt};
+    use futures::{StreamExt, stream};
     use proptest::prelude::*;
 
     use super::aggregate_values;
@@ -198,7 +198,7 @@ pub mod tests {
         helpers::Role,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{mpc_proptest_config, ReconstructArr, Runner, TestWorld},
+        test_fixture::{ReconstructArr, Runner, TestWorld, mpc_proptest_config},
     };
 
     fn input_row<const B: usize>(tv_bits: usize, values: &[u32]) -> BitDecomposed<[Boolean; B]> {

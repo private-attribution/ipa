@@ -2,8 +2,8 @@ use std::{borrow::Borrow, collections::HashMap, iter::zip};
 
 use crate::{
     ff::{
-        boolean_array::{BooleanArray, BA64},
         U128Conversions,
+        boolean_array::{BA64, BooleanArray},
     },
     rand::Rng,
     report::{
@@ -13,7 +13,7 @@ use crate::{
         },
         hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare as Replicated},
     test_fixture::sharing::Reconstruct,
 };
 

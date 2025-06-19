@@ -3,12 +3,12 @@ use std::{borrow::Borrow, iter::zip, ops::Deref};
 use crate::{
     ff::{PrimeField, U128Conversions},
     secret_sharing::{
+        BitDecomposed, SharedValue, Vectorizable,
         replicated::{
+            ReplicatedSecretSharing,
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
         },
-        BitDecomposed, SharedValue, Vectorizable,
     },
 };
 

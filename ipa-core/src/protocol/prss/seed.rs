@@ -1,7 +1,7 @@
 use std::{collections::HashMap, convert::Infallible};
 
 use generic_array::GenericArray;
-use typenum::{Unsigned, U2, U32, U64};
+use typenum::{U2, U32, U64, Unsigned};
 
 use crate::{
     ff::Serializable,
@@ -137,8 +137,8 @@ mod tests {
 
     use crate::{
         protocol::{
-            prss::{Endpoint, SeededEndpointSetup, SharedRandomness},
             Gate, RecordId,
+            prss::{Endpoint, SeededEndpointSetup, SharedRandomness},
         },
         test_fixture::make_participants,
         utils::array::zip3,
@@ -167,7 +167,7 @@ mod tests {
         // also make sure seeds are unique
         let r2 = setup_new(&mut thread_rng());
 
-        zip3(r1, r2).map(|(r1, r2)| {
+        let _ = zip3(r1, r2).map(|(r1, r2)| {
             assert_ne!(r1.right.entropy, r2.right.entropy);
             assert_ne!(r1.left.entropy, r2.left.entropy);
         });

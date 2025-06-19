@@ -2,9 +2,9 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        basics::mul::{boolean_array_multiply, BooleanArrayMul},
-        context::Context,
         RecordId,
+        basics::mul::{BooleanArrayMul, boolean_array_multiply},
+        context::Context,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };

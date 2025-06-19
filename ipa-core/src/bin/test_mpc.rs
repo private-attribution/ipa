@@ -14,21 +14,21 @@ use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
-        playbook::{
-            make_clients, make_sharded_clients, secure_add, secure_mul, secure_shuffle, validate,
-            InputSource,
-        },
         Verbosity,
+        playbook::{
+            InputSource, make_clients, make_sharded_clients, secure_add, secure_mul,
+            secure_shuffle, validate,
+        },
     },
     ff::{
-        boolean_array::BA64, Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions,
+        Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions, boolean_array::BA64,
     },
     helpers::query::{
         QueryConfig,
         QueryType::{TestAddInPrimeField, TestMultiply, TestShardedShuffle},
     },
     net::{Helper, IpaHttpClient},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+    secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare},
 };
 use tiny_http::{Response, ResponseBox, Server, StatusCode};
 use tracing::{error, info};

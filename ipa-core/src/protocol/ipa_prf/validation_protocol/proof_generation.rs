@@ -1,23 +1,23 @@
 use std::{array, iter::zip, ops::Mul};
 
-use typenum::{Unsigned, U, U8};
+use typenum::{U, U8, Unsigned};
 
 use crate::{
     error::Error,
     ff::{Fp61BitPrime, Serializable},
     helpers::{Direction, MpcMessage, TotalRecords},
     protocol::{
-        context::{dzkp_validator::MAX_PROOF_RECURSION, Context},
+        RecordId, RecordIdRange,
+        context::{Context, dzkp_validator::MAX_PROOF_RECURSION},
         ipa_prf::{
+            CompressedProofGenerator, FirstProofGenerator,
             malicious_security::{
+                FIRST_RECURSION_FACTOR as FRF,
                 lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
                 prover::{ProverLagrangeInput, ProverValues},
-                FIRST_RECURSION_FACTOR as FRF,
             },
-            CompressedProofGenerator, FirstProofGenerator,
         },
         prss::SharedRandomness,
-        RecordId, RecordIdRange,
     },
     secret_sharing::SharedValue,
 };
@@ -273,18 +273,18 @@ mod test {
 
     use crate::{
         protocol::{
+            RecordId, RecordIdRange,
             context::Context,
             ipa_prf::{
                 malicious_security::{
-                    prover::{ProverValues, UVValues},
                     FIRST_RECURSION_FACTOR,
+                    prover::{ProverValues, UVValues},
                 },
                 validation_protocol::{
                     proof_generation::ProofBatch,
-                    validation::{test::simple_proof_check, BatchToVerify},
+                    validation::{BatchToVerify, test::simple_proof_check},
                 },
             },
-            RecordId, RecordIdRange,
         },
         test_executor::run,
         test_fixture::{Runner, TestWorld},
@@ -297,7 +297,7 @@ mod test {
 
             let mut rng = world.rng();
 
-            let uv_values = repeat_with(|| (rng.gen(), rng.gen()))
+            let uv_values = repeat_with(|| (rng.r#gen(), rng.r#gen()))
                 .take(100)
                 .collect::<UVValues<_, FIRST_RECURSION_FACTOR>>();
             let uv_values_iter = uv_values.iter().copied();

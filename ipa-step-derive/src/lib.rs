@@ -8,11 +8,11 @@ mod variant;
 
 use std::env;
 
-use ipa_step::{name::GateName, COMPACT_GATE_INCLUDE_ENV};
+use ipa_step::{COMPACT_GATE_INCLUDE_ENV, name::GateName};
 use proc_macro::TokenStream as TokenStreamBasic;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Ident};
+use syn::{Data, DeriveInput, Ident, parse_macro_input};
 use variant::Generator;
 
 use crate::variant::VariantAttribute;
@@ -127,7 +127,7 @@ fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
         Data::Union(..) => {
             return ast
                 .ident
-                .error("CompactStep can only be derived for a struct or enum")
+                .error("CompactStep can only be derived for a struct or enum");
         }
     };
     Ok(g.generate(ident, &attr))

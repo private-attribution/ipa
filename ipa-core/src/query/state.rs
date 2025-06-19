@@ -1,17 +1,17 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     fmt::{Debug, Display, Formatter},
     future::Future,
     task::Poll,
 };
 
-use ::tokio::sync::oneshot::{error::TryRecvError, Receiver};
-use futures::{ready, FutureExt};
+use ::tokio::sync::oneshot::{Receiver, error::TryRecvError};
+use futures::{FutureExt, ready};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     executor::IpaJoinHandle,
-    helpers::{query::QueryConfig, RoleAssignment},
+    helpers::{RoleAssignment, query::QueryConfig},
     protocol::QueryId,
     query::runner::QueryResult,
     sync::Mutex,
@@ -198,13 +198,13 @@ impl QueryHandle<'_> {
         inner.get(&self.query_id).map(QueryStatus::from)
     }
 
-    pub fn remove_query_on_drop(&self) -> RemoveQuery {
+    pub fn remove_query_on_drop(&self) -> RemoveQuery<'_> {
         RemoveQuery::new(self.query_id, self.queries)
     }
 }
 
 impl RunningQueries {
-    pub fn handle(&self, query_id: QueryId) -> QueryHandle {
+    pub fn handle(&self, query_id: QueryId) -> QueryHandle<'_> {
         QueryHandle {
             query_id,
             queries: self,
@@ -256,7 +256,7 @@ impl Drop for RemoveQuery<'_> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use crate::query::{state::min_status, QueryStatus};
+    use crate::query::{QueryStatus, state::min_status};
 
     #[test]
     fn test_order() {

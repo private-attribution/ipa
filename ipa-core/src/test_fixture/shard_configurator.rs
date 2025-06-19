@@ -7,7 +7,7 @@ use crate::{
     helpers::Role,
     protocol::prss::Endpoint as PrssEndpoint,
     sharding::{NotSharded, ShardBinding, ShardIndex, Sharded},
-    test_fixture::{make_participants, world::ShardingScheme, Distribute, WithShards},
+    test_fixture::{Distribute, WithShards, make_participants, world::ShardingScheme},
 };
 
 /// This trait serves the purpose of setting up shard contexts. Each shard shares some

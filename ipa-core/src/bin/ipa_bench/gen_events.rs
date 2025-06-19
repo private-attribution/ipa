@@ -2,8 +2,8 @@ use std::io;
 
 use bitvec::view::BitViewSized;
 use rand::{
-    distributions::{Bernoulli, Distribution},
     CryptoRng, Rng, RngCore,
+    distributions::{Bernoulli, Distribution},
 };
 use tracing::{debug, info, trace};
 
@@ -38,7 +38,7 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
         debug!("ad: {}", ad_count);
 
         // For now, we'll do 1 ad = 1 breakdown key
-        let ad_id: u32 = rng.gen();
+        let ad_id: u32 = rng.r#gen();
 
         // Number of unique people who saw the ad
         let reach = sample.reach_per_ad(rng);
@@ -93,7 +93,7 @@ fn gen_reports<R: RngCore + CryptoRng>(
 ) -> Vec<GenericReport> {
     let mut reports: Vec<GenericReport> = Vec::new();
 
-    let matchkey = rng.gen::<MatchKey>();
+    let matchkey = rng.r#gen::<MatchKey>();
 
     // Randomly choose a datetime (plus the given base timestamp) as the first impression
     let mut last_impression =
@@ -177,9 +177,9 @@ mod tests {
         io::{Cursor, Write},
     };
 
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
 
-    use super::{gen_reports, generate_events, EventTimestamp, GenericReport};
+    use super::{EventTimestamp, GenericReport, gen_reports, generate_events};
     use crate::{gen_events::add_event_timestamps, models::Epoch, sample::Sample};
 
     const DATA: &str = r#"

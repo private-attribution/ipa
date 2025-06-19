@@ -14,7 +14,7 @@ pub use if_else::select;
 pub use mul::{BooleanArrayMul, SecureMul};
 pub use reshare::Reshare;
 pub use reveal::{
-    malicious_reveal, partial_reveal, reveal, semi_honest_reveal, validated_partial_reveal, Reveal,
+    Reveal, malicious_reveal, partial_reveal, reveal, semi_honest_reveal, validated_partial_reveal,
 };
 pub use shard_fin::{FinalizerContext, ShardAssembledResult};
 pub use share_known_value::ShareKnownValue;
@@ -31,8 +31,8 @@ use crate::{
         prss::FromPrss,
     },
     secret_sharing::{
-        replicated::{malicious, semi_honest::AdditiveShare},
         FieldSimd, SecretSharing, SharedValue, Vectorizable,
+        replicated::{malicious, semi_honest::AdditiveShare},
     },
     sharding::ShardBinding,
 };

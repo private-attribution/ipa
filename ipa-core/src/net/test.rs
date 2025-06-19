@@ -13,18 +13,18 @@ use std::{
     iter::zip,
     net::{SocketAddr, TcpListener},
     ops::Index,
+    sync::LazyLock,
 };
 
 #[cfg(all(test, unit_test))]
 use http_body_util::BodyExt;
 #[cfg(all(test, unit_test))]
 use hyper::StatusCode;
-use once_cell::sync::Lazy;
 use rustls_pki_types::CertificateDer;
 
 use super::{ConnectionFlavor, HttpTransport, Shard};
 #[cfg(all(test, web_test, descriptive_gate))]
-use crate::cli::{install_collector, LoggingHandle};
+use crate::cli::{LoggingHandle, install_collector};
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
@@ -797,7 +797,7 @@ impl<const S: usize> Index<ShardedHelperIdentity> for [&'static [u8]; S] {
     }
 }
 
-impl<const S: usize> Index<ShardedHelperIdentity> for Lazy<[CertificateDer<'static>; S]> {
+impl<const S: usize> Index<ShardedHelperIdentity> for LazyLock<[CertificateDer<'static>; S]> {
     type Output = CertificateDer<'static>;
 
     fn index(&self, index: ShardedHelperIdentity) -> &Self::Output {
@@ -899,7 +899,7 @@ xYxSeDvd5vt4ROlqgvLMcOOUjbFF7YAT6g==
 ",
 ];
 
-static TEST_CERTS_DER: Lazy<[CertificateDer; 6]> = Lazy::new(|| {
+static TEST_CERTS_DER: LazyLock<[CertificateDer; 6]> = LazyLock::new(|| {
     TEST_CERTS.map(|mut pem| rustls_pemfile::certs(&mut pem).flatten().next().unwrap())
 });
 
@@ -960,13 +960,13 @@ a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::{get_test_certificate_and_key, TestConfigBuilder};
+    use super::{TestConfigBuilder, get_test_certificate_and_key};
     use crate::{
         config::NetworkConfig,
         helpers::HelperIdentity,
         net::{
-            test::{Ports, TEST_CERTS, TEST_KEYS},
             ConnectionFlavor,
+            test::{Ports, TEST_CERTS, TEST_KEYS},
         },
         sharding::{ShardIndex, ShardedHelperIdentity},
     };

@@ -17,17 +17,17 @@ mod test_setup;
 mod verbosity;
 #[cfg(feature = "web-app")]
 pub use clientconf::{
-    setup as client_config_setup, sharded_setup as sharded_client_config_setup, ConfGenArgs,
-    ShardedConfGenArgs,
+    ConfGenArgs, ShardedConfGenArgs, setup as client_config_setup,
+    sharded_setup as sharded_client_config_setup,
 };
 #[cfg(feature = "web-app")]
 pub use config_parse::sharded_server_from_toml_str;
 pub use csv::Serializer as CsvSerializer;
 pub use ipa_output::QueryResult as IpaQueryResult;
 #[cfg(feature = "web-app")]
-pub use keygen::{keygen, KeygenArgs};
-pub use metric_collector::{install_collector, CollectorHandle};
+pub use keygen::{KeygenArgs, keygen};
+pub use metric_collector::{CollectorHandle, install_collector};
 pub use paths::PathExt as CliPaths;
 #[cfg(feature = "web-app")]
-pub use test_setup::{test_setup, TestSetupArgs};
+pub use test_setup::{TestSetupArgs, test_setup};
 pub use verbosity::{LoggingHandle, Verbosity};

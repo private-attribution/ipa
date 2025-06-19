@@ -28,7 +28,7 @@ pub use hybrid_event_gen::{
 };
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
-pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
+pub use sharing::{Reconstruct, ReconstructArr, get_bits, into_bits};
 #[cfg(feature = "in-memory-infra")]
 pub use world::{
     Distribute, Random as RandomInputDistribution, RoundRobin as RoundRobinInputDistribution,
@@ -39,7 +39,7 @@ use crate::{
     ff::{Field, U128Conversions},
     protocol::prss::Endpoint as PrssEndpoint,
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+        IntoShares, SharedValue, replicated::semi_honest::AdditiveShare as Replicated,
     },
 };
 

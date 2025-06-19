@@ -127,13 +127,13 @@ impl Drop for MetricsContext {
 mod tests {
     use std::thread;
 
-    use crate::{context::CurrentThreadContext, MetricsContext};
+    use crate::{MetricsContext, context::CurrentThreadContext};
 
     /// Each thread has its local store by default, and it is exclusive to it
     #[test]
     #[cfg(feature = "partitions")]
     fn local_store() {
-        use crate::{context::CurrentThreadContext, CurrentThreadPartitionContext};
+        use crate::{CurrentThreadPartitionContext, context::CurrentThreadContext};
 
         CurrentThreadPartitionContext::set(0xdead_beef);
         counter!("foo", 7);

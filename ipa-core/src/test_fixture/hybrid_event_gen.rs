@@ -89,7 +89,7 @@ impl<R: Rng> EventGenerator<R> {
 
     fn gen_batch_with_params(&mut self, unmatched_conversions: f32, unmatched_impressions: f32) {
         assert!(unmatched_conversions + unmatched_impressions <= 1.0);
-        let match_key = self.rng.gen::<u64>();
+        let match_key = self.rng.r#gen::<u64>();
         let rand = self.rng.gen_range(0.0..1.0);
         if rand < unmatched_conversions {
             let conv = self.gen_conversion(match_key);
@@ -152,11 +152,11 @@ mod tests {
 
     #[test]
     fn iter() {
-        let gen = EventGenerator::with_default_config(thread_rng());
-        assert_eq!(10, gen.take(10).collect::<Vec<_>>().len());
+        let event_gen = EventGenerator::with_default_config(thread_rng());
+        assert_eq!(10, event_gen.take(10).collect::<Vec<_>>().len());
 
-        let gen = EventGenerator::with_default_config(thread_rng());
-        assert_eq!(1000, gen.take(1000).collect::<Vec<_>>().len());
+        let event_gen = EventGenerator::with_default_config(thread_rng());
+        assert_eq!(1000, event_gen.take(1000).collect::<Vec<_>>().len());
     }
 
     #[test]
@@ -178,9 +178,9 @@ mod tests {
         const EXPECTED_HISTOGRAM_WITH_TOLERANCE: [(f64, f64); 3] =
             [(0.0, 0.0), (EXPECTED_SINGLE, 0.01), (EXPECTED_DOUBLE, 0.02)];
 
-        let gen = EventGenerator::with_default_config(thread_rng());
+        let event_gen = EventGenerator::with_default_config(thread_rng());
         let mut match_key_to_event_count = HashMap::new();
-        for event in gen.take(TEST_COUNT.try_into().unwrap()) {
+        for event in event_gen.take(TEST_COUNT.try_into().unwrap()) {
             match event {
                 TestHybridRecord::TestImpression { match_key, .. } => {
                     match_key_to_event_count
@@ -223,7 +223,7 @@ mod tests {
     fn only_impressions_config() {
         const NUM_EVENTS: usize = 100;
         const MAX_BREAKDOWN_KEY: u32 = 10;
-        let gen = EventGenerator::with_config(
+        let event_gen = EventGenerator::with_config(
             thread_rng(),
             Config::new(
                 10,
@@ -232,7 +232,7 @@ mod tests {
             ),
         );
         let mut match_keys = HashSet::new();
-        for event in gen.take(NUM_EVENTS) {
+        for event in event_gen.take(NUM_EVENTS) {
             match event {
                 TestHybridRecord::TestImpression {
                     match_key,
@@ -254,12 +254,12 @@ mod tests {
     fn only_conversions_config() {
         const NUM_EVENTS: usize = 100;
         const MAX_VALUE: u32 = 10;
-        let gen = EventGenerator::with_config(
+        let event_gen = EventGenerator::with_config(
             thread_rng(),
             Config::new(MAX_VALUE, 10, ConversionDistribution::OnlyConversions),
         );
         let mut match_keys = HashSet::new();
-        for event in gen.take(NUM_EVENTS) {
+        for event in event_gen.take(NUM_EVENTS) {
             match event {
                 TestHybridRecord::TestConversion {
                     match_key, value, ..

@@ -1,11 +1,10 @@
 use std::{
     fmt::Debug,
     io::{self, BufRead},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use hyper::header::HeaderName;
-use once_cell::sync::Lazy;
 use rustls::crypto::CryptoProvider;
 use rustls_pki_types::CertificateDer;
 
@@ -45,8 +44,8 @@ pub(crate) const MAX_HTTP2_WINDOW_SIZE: u32 = (1 << 31) - 1;
 pub(crate) const MAX_HTTP2_CONCURRENT_STREAMS: u32 = 5000;
 
 /// Provides access to IPAs Crypto Provider (AWS Libcrypto).
-static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
-    Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
+static CRYPTO_PROVIDER: LazyLock<Arc<CryptoProvider>> =
+    LazyLock::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
 
 /// This simple trait is used to make aware on what transport dimnsion one is running. Structs like
 /// [`MpcHelperClient<F>`] use it to know whether they are talking to other servers as Shards

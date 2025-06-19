@@ -6,12 +6,12 @@ use std::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{Unsigned, U16, U256, U32, U64};
+use typenum::{U16, U32, U64, U256, Unsigned};
 
 use crate::{
     const_assert_eq,
     error::LengthError,
-    ff::{ec_prime_field::Fp25519, Field, Fp32BitPrime, Gf32Bit, Serializable},
+    ff::{Field, Fp32BitPrime, Gf32Bit, Serializable, ec_prime_field::Fp25519},
     protocol::{ipa_prf::PRF_CHUNK, prss::FromRandom},
     secret_sharing::{FieldArray, Sendable, SharedValue, SharedValueArray},
 };
@@ -396,7 +396,7 @@ mod test {
     use std::iter;
 
     use proptest::{
-        prelude::{prop, Arbitrary, Strategy},
+        prelude::{Arbitrary, Strategy, prop},
         proptest,
     };
 

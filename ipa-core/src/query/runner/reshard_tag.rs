@@ -1,17 +1,17 @@
 use std::{
-    pin::{pin, Pin},
+    pin::{Pin, pin},
     task::{Context, Poll},
 };
 
-use futures::{ready, Stream};
+use futures::{Stream, ready};
 use pin_project::pin_project;
 
 use crate::{
     error::Error,
     helpers::Message,
     protocol::{
-        context::{reshard_try_stream, ShardedContext},
         RecordId,
+        context::{ShardedContext, reshard_try_stream},
     },
     sharding::ShardIndex,
 };
@@ -82,11 +82,11 @@ impl<S: Stream<Item = Result<(K, A), Error>>, K, A> Stream for StreamSplitter<'_
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use futures::{stream, StreamExt};
+    use futures::{StreamExt, stream};
 
     use crate::{
         error::Error,
-        ff::{boolean_array::BA8, U128Conversions},
+        ff::{U128Conversions, boolean_array::BA8},
         query::runner::reshard_tag::reshard_aad,
         secret_sharing::SharedValue,
         sharding::{ShardConfiguration, ShardIndex},

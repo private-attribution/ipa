@@ -3,8 +3,8 @@ use futures::Stream;
 
 use crate::{
     helpers::{
-        transport::routing::RouteId, MpcTransportImpl, NoResourceIdentifier, QueryIdBinding, Role,
-        RoleAssignment, RouteParams, StepBinding, Transport,
+        MpcTransportImpl, NoResourceIdentifier, QueryIdBinding, Role, RoleAssignment, RouteParams,
+        StepBinding, Transport, transport::routing::RouteId,
     },
     protocol::{Gate, QueryId},
     sharding::ShardIndex,

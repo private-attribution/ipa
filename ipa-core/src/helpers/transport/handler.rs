@@ -7,8 +7,8 @@ use serde_json::json;
 use crate::{
     error::BoxError,
     helpers::{
-        query::PrepareQuery, transport::routing::Addr, BodyStream, HelperIdentity,
-        TransportIdentity,
+        BodyStream, HelperIdentity, TransportIdentity, query::PrepareQuery,
+        transport::routing::Addr,
     },
     query::{
         NewQueryError, PrepareQueryError, ProtocolResult, QueryCompletionError, QueryInputError,

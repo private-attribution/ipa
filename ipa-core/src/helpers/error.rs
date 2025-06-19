@@ -2,8 +2,8 @@ use thiserror::Error;
 
 use crate::{
     helpers::{
-        buffers::{DeserializeError, EndOfStreamError},
         ChannelId, TotalRecords, TransportIdentity,
+        buffers::{DeserializeError, EndOfStreamError},
     },
     protocol::RecordId,
 };
@@ -21,7 +21,9 @@ pub enum Error<I: TransportIdentity> {
         channel_id: ChannelId<I>,
         inner: DeserializeError,
     },
-    #[error("record ID {record_id:?} is out of range for {channel_id:?} (expected {total_records:?} records)")]
+    #[error(
+        "record ID {record_id:?} is out of range for {channel_id:?} (expected {total_records:?} records)"
+    )]
     TooManyRecords {
         record_id: RecordId,
         channel_id: ChannelId<I>,

@@ -11,17 +11,16 @@ use crate::{
     error::Error as ProtocolError,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig},
-        routing::RouteId,
         BodyStream, BroadcastError, Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl,
         Role, RoleAssignment, ShardTransportError, ShardTransportImpl, Transport,
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig},
+        routing::RouteId,
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
     query::{
-        executor,
+        CompletionHandle, ProtocolResult, executor,
         state::{QueryState, QueryStatus, RemoveQuery, RunningQueries, StateError},
-        CompletionHandle, ProtocolResult,
     },
     sharding::ShardIndex,
     sync::Arc,
@@ -34,15 +33,15 @@ use crate::{
 ///
 /// Query processing consists of multiple steps:
 /// - A new request to initiate a query arrives from an external party (report collector) to any of the
-///     helpers.
+///   helpers.
 /// - Upon receiving that request, helper chooses a unique [`QueryId`] and assigns [`Role`] to every
-///     helper. It informs other parties about it and awaits their response.
+///   helper. It informs other parties about it and awaits their response.
 /// - If all parties accept the proposed query, they negotiate shared randomness and signal that
-///     they're ready to receive inputs.
+///   they're ready to receive inputs.
 /// - Each party, upon receiving the input as a set of [`AdditiveShare`], immediately starts executing
-///     IPA protocol.
+///   IPA protocol.
 /// - When helper party is done, it holds onto the results of the computation until the external party
-///     that initiated this request asks for them.
+///   that initiated this request asks for them.
 ///
 /// This struct is decoupled from the [`Transport`]s used to communicate with other [`Processor`]
 /// running in other shards or helpers. Many functions require transport as part of their arguments
@@ -165,13 +164,13 @@ impl Processor {
     /// Upon receiving a new query request:
     /// * processor generates new query id
     /// * assigns roles to helpers in the ring.
-    ///     Helper that received new query request becomes `Role::H1` (aka coordinator).
-    ///     The coordinator is in theory free to choose helpers for `Role::H2` and `Role::H3`
-    ///         arbitrarily (aka followers), however, this is not currently exercised.
+    ///   Helper that received new query request becomes `Role::H1` (aka coordinator).
+    ///   The coordinator is in theory free to choose helpers for `Role::H2` and `Role::H3`
+    ///   arbitrarily (aka followers), however, this is not currently exercised.
     /// * Requests Infra and Network layer to create resources for this query
     /// * sends `prepare` request that describes the query configuration
-    ///     (query id, query type, field type, roles -> endpoints or reverse)
-    ///         to helpers and its shards and waits for the confirmation
+    ///   (query id, query type, field type, roles -> endpoints or reverse)
+    ///   to helpers and its shards and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
     /// * returns query configuration
     ///
@@ -554,20 +553,19 @@ mod tests {
 
     use crate::{
         executor::IpaRuntime,
-        ff::{boolean_array::BA64, FieldType},
+        ff::{FieldType, boolean_array::BA64},
         helpers::{
-            make_owned_handler,
-            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            routing::Addr,
             ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
             InMemoryShardNetwork, InMemoryTransport, RequestHandler, RoleAssignment, Transport,
-            TransportIdentity,
+            TransportIdentity, make_owned_handler,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            routing::Addr,
         },
         protocol::QueryId,
         query::{
+            NewQueryError, PrepareQueryError, QueryStatus, QueryStatusError,
             processor::Processor,
             state::{QueryState, RunningQuery, StateError},
-            NewQueryError, PrepareQueryError, QueryStatus, QueryStatusError,
         },
         sharding::ShardIndex,
     };
@@ -927,13 +925,13 @@ mod tests {
     mod complete {
 
         use crate::{
-            helpers::{make_owned_handler, routing::RouteId, Transport},
+            helpers::{Transport, make_owned_handler, routing::RouteId},
             query::{
-                processor::{
-                    tests::{HelperResponse, TestComponents, TestComponentsArgs},
-                    QueryId,
-                },
                 ProtocolResult, QueryCompletionError,
+                processor::{
+                    QueryId,
+                    tests::{HelperResponse, TestComponents, TestComponentsArgs},
+                },
             },
             sharding::ShardIndex,
         };
@@ -1293,9 +1291,9 @@ mod tests {
             helpers::Transport,
             protocol::QueryId,
             query::{
+                QueryKillStatus,
                 processor::Processor,
                 state::{QueryState, RunningQuery},
-                QueryKillStatus,
             },
             test_executor::run,
         };

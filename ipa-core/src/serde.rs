@@ -3,7 +3,7 @@
 #[cfg(feature = "web-app")]
 pub mod uri {
     use hyper::Uri;
-    use serde::{de::Error, Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, de::Error};
 
     /// # Errors
     /// if deserializing from string fails, or if string is not a [`Uri`]
@@ -17,7 +17,7 @@ pub mod uri {
 pub mod option {
     pub mod uri {
         use hyper::Uri;
-        use serde::{de::Error, Deserialize, Deserializer};
+        use serde::{Deserialize, Deserializer, de::Error};
 
         /// # Errors
         /// if deserializing from string fails, or if string is not a [`Uri`]

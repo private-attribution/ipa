@@ -5,12 +5,12 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt, stream::FuturesUnordered};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::helpers::in_memory_config::InspectContext;
 use crate::{
-    helpers::{transport::routing::RouteId, HelperIdentity, Role, TransportIdentity},
+    helpers::{HelperIdentity, Role, TransportIdentity, transport::routing::RouteId},
     protocol::{Gate, QueryId},
     sharding::ShardIndex,
 };
@@ -24,11 +24,11 @@ pub mod routing;
 mod stream;
 
 pub use handler::{
-    make_owned_handler, Error as ApiError, HandlerBox, HandlerRef, HelperResponse, RequestHandler,
+    Error as ApiError, HandlerBox, HandlerRef, HelperResponse, RequestHandler, make_owned_handler,
 };
 #[cfg(feature = "in-memory-infra")]
 pub use in_memory::{
-    config, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport, InMemoryTransportError,
+    InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport, InMemoryTransportError, config,
 };
 use ipa_metrics::LabelValue;
 pub use receive::{LogErrors, ReceiveRecords};

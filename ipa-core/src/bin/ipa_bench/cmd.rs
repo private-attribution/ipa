@@ -7,7 +7,7 @@ use std::{
 
 use clap::Parser;
 use ipa_core::cli::Verbosity;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng};
 use tracing::{debug, error, info};
 
 use crate::{gen_events::generate_events, sample::Sample};
@@ -159,7 +159,7 @@ impl Command {
 
     fn get_input(path: &Option<PathBuf>) -> Result<Box<dyn io::Read>, io::Error> {
         match path {
-            Some(ref path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
+            Some(path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
             None => Ok(Box::new(io::stdin())),
         }
     }

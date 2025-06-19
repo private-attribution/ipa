@@ -4,7 +4,7 @@ use x25519_dalek::PublicKey;
 
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, Role, TotalRecords},
-    protocol::{prss, Gate, RecordId},
+    protocol::{Gate, RecordId, prss},
 };
 
 /// Establish the prss endpoint by exchanging public keys with the other helpers.

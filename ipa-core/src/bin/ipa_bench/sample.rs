@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use rand::{
-    distributions::{Distribution, WeightedIndex},
     CryptoRng, Rng, RngCore,
+    distributions::{Distribution, WeightedIndex},
 };
 
 use crate::config::Config;

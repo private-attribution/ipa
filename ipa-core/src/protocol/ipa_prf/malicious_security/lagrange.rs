@@ -3,7 +3,7 @@ use std::{array::from_fn, fmt::Debug};
 use typenum::Unsigned;
 
 use crate::ff::{
-    batch_invert, Field, MultiplyAccumulate, MultiplyAccumulator, PrimeField, Serializable,
+    Field, MultiplyAccumulate, MultiplyAccumulator, PrimeField, Serializable, batch_invert,
 };
 
 /// The Canonical Lagrange denominator is defined as the denominator of the Lagrange base polynomials

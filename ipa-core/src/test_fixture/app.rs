@@ -5,19 +5,19 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
+    AppSetup, HelperApp,
     app::AppConfig,
-    cli::{install_collector, LoggingHandle},
+    cli::{LoggingHandle, install_collector},
     ff::Serializable,
     helpers::{
-        query::{QueryConfig, QueryInput},
         ApiError, InMemoryMpcNetwork, InMemoryShardNetwork, Transport,
+        query::{QueryConfig, QueryInput},
     },
     protocol::QueryId,
-    query::{min_status, QueryStatus},
+    query::{QueryStatus, min_status},
     secret_sharing::IntoShares,
     test_fixture::try_join3_array,
     utils::array::zip3,
-    AppSetup, HelperApp,
 };
 
 pub trait IntoBuf {

@@ -1,11 +1,10 @@
-use axum::{extract::Path, routing::post, Extension, Router};
+use axum::{Extension, Router, extract::Path, routing::post};
 
 use crate::{
     helpers::BodyStream,
     net::{
-        http_serde,
+        ConnectionFlavor, HttpTransport, http_serde,
         server::{ClientIdentity, Error},
-        ConnectionFlavor, HttpTransport,
     },
     protocol::{Gate, QueryId},
     sync::Arc,
@@ -34,7 +33,7 @@ mod tests {
     use std::task::Poll;
 
     use axum::body::Body;
-    use futures::{stream::poll_immediate, StreamExt};
+    use futures::{StreamExt, stream::poll_immediate};
     use hyper::StatusCode;
     use ipa_step::StepNarrow;
 
@@ -42,7 +41,7 @@ mod tests {
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
-            server::handlers::query::test_helpers::{assert_fails_with, MaybeExtensionExt},
+            server::handlers::query::test_helpers::{MaybeExtensionExt, assert_fails_with},
             test::TestServer,
         },
         protocol::{Gate, QueryId},

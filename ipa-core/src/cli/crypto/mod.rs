@@ -16,8 +16,8 @@ mod hybrid_sample_data {
         cli::CsvSerializer,
         hpke::{IpaPrivateKey, IpaPublicKey},
         test_fixture::{
-            hybrid::TestHybridRecord, hybrid_event_gen::ConversionDistribution,
-            HybridEventGenerator, HybridGeneratorConfig,
+            HybridEventGenerator, HybridGeneratorConfig, hybrid::TestHybridRecord,
+            hybrid_event_gen::ConversionDistribution,
         },
     };
 

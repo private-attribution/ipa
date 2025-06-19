@@ -7,14 +7,14 @@ use ipa_step::StepNarrow;
 use crate::{
     error::Error,
     ff::boolean_array::BA64,
-    helpers::{setup_cross_shard_prss, BodyStream, Gateway, SingleRecordStream},
+    helpers::{BodyStream, Gateway, SingleRecordStream, setup_cross_shard_prss},
     protocol::{
+        Gate, RecordId,
         basics::{FinalizerContext, ShardAssembledResult},
         context::{Context, MaliciousProtocolSteps, ShardedContext, ShardedSemiHonestContext},
         ipa_prf::shuffle::ShardedShuffle,
         prss::Endpoint as PrssEndpoint,
         step::{ProtocolStep, TestShardedShuffleStep},
-        Gate, RecordId,
     },
     query::runner::QueryResult,
     secret_sharing::replicated::semi_honest::AdditiveShare,
@@ -116,11 +116,11 @@ mod tests {
     use typenum::Unsigned;
 
     use crate::{
-        ff::{boolean_array::BA64, Serializable, U128Conversions},
+        ff::{Serializable, U128Conversions, boolean_array::BA64},
         query::runner::sharded_shuffle::execute,
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare},
         test_executor::run,
-        test_fixture::{try_join3_array, Reconstruct, TestWorld, TestWorldConfig, WithShards},
+        test_fixture::{Reconstruct, TestWorld, TestWorldConfig, WithShards, try_join3_array},
         utils::array::zip3,
     };
 

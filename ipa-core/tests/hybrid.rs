@@ -18,14 +18,14 @@ use std::{
 use bytes::Bytes;
 use command_fds::CommandFdExt;
 use common::{
-    spawn_shards, tempdir::TempDir, test_sharded_setup, CommandExt, TerminateOnDropExt,
-    UnwrapStatusExt,
+    CommandExt, TerminateOnDropExt, UnwrapStatusExt, spawn_shards, tempdir::TempDir,
+    test_sharded_setup,
 };
 use futures_util::{StreamExt, TryStreamExt};
 use ipa_core::{
     cli::playbook::HybridQueryResult,
     error::BoxError,
-    helpers::{query::HybridQueryParams, LengthDelimitedStream},
+    helpers::{LengthDelimitedStream, query::HybridQueryParams},
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -143,11 +143,13 @@ fn test_hybrid() {
             .expect("file should exist as it's created above in the test"),
     )
     .expect("should match hard coded format from in_the_clear");
-    assert!(output
-        .breakdowns
-        .iter()
-        .zip(expected_result.iter())
-        .all(|(a, b)| a == b));
+    assert!(
+        output
+            .breakdowns
+            .iter()
+            .zip(expected_result.iter())
+            .all(|(a, b)| a == b)
+    );
 }
 
 #[test]
@@ -285,11 +287,13 @@ fn test_hybrid_poll() {
             .expect("file should exist as it's created above in the test"),
     )
     .expect("should match hard coded format from in_the_clear");
-    assert!(output
-        .breakdowns
-        .iter()
-        .zip(expected_result.iter())
-        .all(|(a, b)| a == b));
+    assert!(
+        output
+            .breakdowns
+            .iter()
+            .zip(expected_result.iter())
+            .all(|(a, b)| a == b)
+    );
 }
 
 fn create_upload_files<const SHARDS: usize>(

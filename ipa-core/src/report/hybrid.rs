@@ -33,26 +33,26 @@ use bytes::{Buf, BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Sum, Unsigned, U12, U16};
+use typenum::{Sum, U12, U16, Unsigned};
 
 use crate::{
     const_assert_eq,
     error::{BoxError, Error},
     ff::{
-        boolean_array::{
-            BooleanArray, BooleanArrayReader, BooleanArrayWriter, BA112, BA3, BA32, BA64, BA8,
-        },
         Serializable,
+        boolean_array::{
+            BA3, BA8, BA32, BA64, BA112, BooleanArray, BooleanArrayReader, BooleanArrayWriter,
+        },
     },
     hpke::{
-        open_in_place, seal_in_place, CryptError, EncapsulationSize, PrivateKeyRegistry,
-        PublicKeyRegistry, TagSize,
+        CryptError, EncapsulationSize, PrivateKeyRegistry, PublicKeyRegistry, TagSize,
+        open_in_place, seal_in_place,
     },
     protocol::ipa_prf::{boolean_ops::expand_shared_array_in_place, shuffle::Shuffleable},
     report::hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         SharedValue,
+        replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare as Replicated},
     },
     sharding::ShardIndex,
 };
@@ -1243,8 +1243,8 @@ mod test {
     use crate::{
         error::Error,
         ff::{
-            boolean_array::{BA3, BA8},
             Serializable,
+            boolean_array::{BA3, BA8},
         },
         hpke::{KeyPair, KeyRegistry},
         report::{
@@ -1252,8 +1252,8 @@ mod test {
             hybrid_info::{HybridConversionInfo, HybridImpressionInfo},
         },
         secret_sharing::replicated::{
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
             ReplicatedSecretSharing,
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
         },
         test_executor::run_random,
     };
@@ -1265,19 +1265,19 @@ mod test {
         match event_type {
             HybridEventType::Impression => {
                 HybridReport::Impression(HybridImpressionReport::<BA8> {
-                    match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                    breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                    match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                    breakdown_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                     info: HybridImpressionInfo::new(0),
                 })
             }
             HybridEventType::Conversion => {
                 HybridReport::Conversion(HybridConversionReport::<BA3> {
-                    match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                    value: AdditiveShare::new(rng.gen(), rng.gen()),
+                    match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                    value: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                     info: HybridConversionInfo::new(
                         0,
                         "https://www.example2.com",
-                        rng.gen(),
+                        rng.r#gen(),
                         0.0,
                         0.0,
                     )
@@ -1306,8 +1306,8 @@ mod test {
     fn convert_hybrid_conversion_report_to_indistinguishable_report() {
         run_random(|mut rng| async move {
             let conversion_report = HybridConversionReport::<BA3> {
-                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                value: AdditiveShare::new(rng.gen(), rng.gen()),
+                match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                value: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                 info: HybridConversionInfo::new(0, "https://www.example2.com", 1_234_567, 0.0, 0.0)
                     .unwrap(),
             };
@@ -1337,8 +1337,8 @@ mod test {
     fn convert_hybrid_impression_report_to_indistinguishable_report() {
         run_random(|mut rng| async move {
             let impression_report = HybridImpressionReport::<BA8> {
-                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                breakdown_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                 info: HybridImpressionInfo::new(0),
             };
             let indistinguishable_report: IndistinguishableHybridReport<BA8, BA3> =
@@ -1387,8 +1387,8 @@ mod test {
     fn serialization_hybrid_impression() {
         run_random(|mut rng| async move {
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
-                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                breakdown_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                 info: HybridImpressionInfo::new(0),
             };
             let mut hybrid_impression_report_bytes =
@@ -1406,8 +1406,8 @@ mod test {
     fn serialization_hybrid_conversion() {
         run_random(|mut rng| async move {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
-                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                value: AdditiveShare::new(rng.gen(), rng.gen()),
+                match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                value: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                 info: HybridConversionInfo::new(0, "https://www.example2.com", 1_234_567, 0.0, 0.0)
                     .unwrap(),
             };
@@ -1429,8 +1429,8 @@ mod test {
             let key_id = 0;
 
             let hybrid_impression_report = HybridImpressionReport::<BA8> {
-                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+                match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                breakdown_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                 info: HybridImpressionInfo::new(key_id),
             };
 
@@ -1452,8 +1452,8 @@ mod test {
     fn enc_dec_roundtrip_hybrid_conversion() {
         run_random(|mut rng| async move {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
-                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                value: AdditiveShare::new(rng.gen(), rng.gen()),
+                match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                value: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                 info: HybridConversionInfo::new(0, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap(),
             };
 
@@ -1499,8 +1499,8 @@ mod test {
     fn enc_report_serialization() {
         run_random(|mut rng| async move {
             let hybrid_conversion_report = HybridConversionReport::<BA3> {
-                match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-                value: AdditiveShare::new(rng.gen(), rng.gen()),
+                match_key: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
+                value: AdditiveShare::new(rng.r#gen(), rng.r#gen()),
                 info: HybridConversionInfo::new(0, "meta.com", 1_729_707_432, 5.0, 1.1).unwrap(),
             };
 
@@ -1549,9 +1549,9 @@ mod test {
     fn serde() {
         run_random(|mut rng| async move {
             let report = PrfHybridReport::<BA8, BA3> {
-                match_key: rng.gen(),
-                breakdown_key: Replicated::new(rng.gen(), rng.gen()),
-                value: Replicated::new(rng.gen(), rng.gen()),
+                match_key: rng.r#gen(),
+                breakdown_key: Replicated::new(rng.r#gen(), rng.r#gen()),
+                value: Replicated::new(rng.r#gen(), rng.r#gen()),
             };
             let mut buf = GenericArray::default();
             report.serialize(&mut buf);

@@ -36,7 +36,7 @@ impl Drop for CollectorHandle {
     fn drop(&mut self) {
         if !thread::panicking() && !self.thread_handle.is_finished() {
             tracing::warn!("Metrics thread is still running");
-        };
+        }
     }
 }
 

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fmt::Debug, future::ready};
 
 use async_trait::async_trait;
 use bitvec::prelude::{BitArray, BitSlice, Lsb0};
-use futures::{stream, Future, FutureExt, Stream, StreamExt};
+use futures::{Future, FutureExt, Stream, StreamExt, stream};
 use ipa_step::StepNarrow;
 
 use crate::{
@@ -10,22 +10,22 @@ use crate::{
     ff::{Fp61BitPrime, U128Conversions},
     helpers::TotalRecords,
     protocol::{
+        Gate, RecordId, RecordIdRange,
         context::{
+            Base, Context, DZKPContext, MaliciousContext, MaliciousProtocolSteps,
             batcher::Batcher,
             dzkp_field::{DZKPBaseField, TABLE_U, TABLE_V},
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             step::DzkpValidationProtocolStep as Step,
-            Base, Context, DZKPContext, MaliciousContext, MaliciousProtocolSteps,
         },
         ipa_prf::{
-            validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
             CompressedProofGenerator, FirstProofGenerator, ProverTableIndices,
             VerifierTableIndices,
+            validation_protocol::{proof_generation::ProofBatch, validation::BatchToVerify},
         },
-        Gate, RecordId, RecordIdRange,
     },
-    seq_join::{seq_join, SeqJoin},
+    seq_join::{SeqJoin, seq_join},
     sharding::ShardBinding,
     sync::{Arc, Mutex},
 };
@@ -938,7 +938,7 @@ mod tests {
     };
 
     use bitvec::{order::Lsb0, prelude::BitArray, vec::BitVec};
-    use futures::{stream, StreamExt, TryStreamExt};
+    use futures::{StreamExt, TryStreamExt, stream};
     use futures_util::stream::iter;
     use proptest::{
         prelude::{Just, Strategy},
@@ -950,30 +950,30 @@ mod tests {
         error::Error,
         ff::{
             boolean::Boolean,
-            boolean_array::{BooleanArray, BA16, BA20, BA256, BA3, BA32, BA64, BA8},
+            boolean_array::{BA3, BA8, BA16, BA20, BA32, BA64, BA256, BooleanArray},
         },
         protocol::{
-            basics::{select, BooleanArrayMul, SecureMul},
+            Gate, RecordId,
+            basics::{BooleanArrayMul, SecureMul, select},
             context::{
+                Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
+                TEST_DZKP_STEPS, UpgradableContext,
                 dzkp_field::DZKPCompatibleField,
                 dzkp_validator::{
-                    Batch, DZKPValidator, Segment, SegmentEntry, BIT_ARRAY_LEN, TARGET_PROOF_SIZE,
+                    BIT_ARRAY_LEN, Batch, DZKPValidator, Segment, SegmentEntry, TARGET_PROOF_SIZE,
                 },
-                Context, DZKPUpgradedMaliciousContext, DZKPUpgradedSemiHonestContext,
-                UpgradableContext, TEST_DZKP_STEPS,
             },
-            Gate, RecordId,
         },
-        rand::{thread_rng, Rng},
+        rand::{Rng, thread_rng},
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
-            Vectorizable,
+            IntoShares, SharedValue, Vectorizable,
+            replicated::semi_honest::AdditiveShare as Replicated,
         },
-        seq_join::{seq_join, SeqJoin},
+        seq_join::{SeqJoin, seq_join},
         sharding::NotSharded,
         test_executor::run_random,
         test_fixture::{
-            join3v, mpc_proptest_config, Reconstruct, Runner, TestWorld, TestWorldConfig,
+            Reconstruct, Runner, TestWorld, TestWorldConfig, join3v, mpc_proptest_config,
         },
     };
 
@@ -987,9 +987,9 @@ mod tests {
         let context = world.contexts();
         let mut rng = thread_rng();
 
-        let bit = rng.gen::<Boolean>();
-        let a = rng.gen::<V>();
-        let b = rng.gen::<V>();
+        let bit = rng.r#gen::<Boolean>();
+        let a = rng.r#gen::<V>();
+        let b = rng.r#gen::<V>();
 
         let bit_shares = bit.share_with(&mut rng);
         let a_shares = a.share_with(&mut rng);
@@ -1043,9 +1043,9 @@ mod tests {
         let context = world.malicious_contexts();
         let mut rng = thread_rng();
 
-        let bit = rng.gen::<Boolean>();
-        let a = rng.gen::<V>();
-        let b = rng.gen::<V>();
+        let bit = rng.r#gen::<Boolean>();
+        let a = rng.r#gen::<V>();
+        let b = rng.r#gen::<V>();
 
         let bit_shares = bit.share_with(&mut rng);
         let a_shares = a.share_with(&mut rng);
@@ -1094,7 +1094,7 @@ mod tests {
         const COUNT: usize = 32;
         let mut rng = thread_rng();
 
-        let original_inputs = repeat_with(|| rng.gen())
+        let original_inputs = repeat_with(|| rng.r#gen())
             .take(COUNT)
             .collect::<Vec<Boolean>>();
 
@@ -1159,9 +1159,9 @@ mod tests {
     {
         let mut rng = thread_rng();
 
-        let bit: Vec<Boolean> = repeat_with(|| rng.gen::<Boolean>()).take(count).collect();
-        let a: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
-        let b: Vec<V> = repeat_with(|| rng.gen()).take(count).collect();
+        let bit: Vec<Boolean> = repeat_with(|| rng.r#gen::<Boolean>()).take(count).collect();
+        let a: Vec<V> = repeat_with(|| rng.r#gen()).take(count).collect();
+        let b: Vec<V> = repeat_with(|| rng.r#gen()).take(count).collect();
 
         // Timeout is 10 seconds plus count * (3 ms).
         let config = TestWorldConfig::default()
@@ -1211,7 +1211,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let original_inputs = (0..count)
-            .map(|_| rng.gen::<Boolean>())
+            .map(|_| rng.r#gen::<Boolean>())
             .collect::<Vec<Boolean>>();
 
         let shared_inputs: Vec<[Replicated<Boolean>; 3]> = original_inputs
@@ -1369,9 +1369,9 @@ mod tests {
         let count: usize = TARGET_PROOF_SIZE + 1;
         let mut rng = thread_rng();
 
-        let bit: Vec<Boolean> = repeat_with(|| rng.gen::<Boolean>()).take(count).collect();
-        let a: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
-        let b: Vec<BA8> = repeat_with(|| rng.gen()).take(count).collect();
+        let bit: Vec<Boolean> = repeat_with(|| rng.r#gen::<Boolean>()).take(count).collect();
+        let a: Vec<BA8> = repeat_with(|| rng.r#gen()).take(count).collect();
+        let b: Vec<BA8> = repeat_with(|| rng.r#gen()).take(count).collect();
 
         let config = TestWorldConfig::default().with_timeout_secs(60);
         let world = TestWorld::<NotSharded>::with_config(&config);
@@ -1420,8 +1420,8 @@ mod tests {
     async fn missing_validate() {
         let mut rng = thread_rng();
 
-        let a = rng.gen::<Boolean>();
-        let b = rng.gen::<Boolean>();
+        let a = rng.r#gen::<Boolean>();
+        let b = rng.r#gen::<Boolean>();
 
         TestWorld::default()
             .malicious((a, b), |ctx, (a, b)| async move {
@@ -1441,8 +1441,8 @@ mod tests {
     async fn missing_validate_panic() {
         let mut rng = thread_rng();
 
-        let a = rng.gen::<Boolean>();
-        let b = rng.gen::<Boolean>();
+        let a = rng.r#gen::<Boolean>();
+        let b = rng.r#gen::<Boolean>();
 
         TestWorld::default()
             .malicious((a, b), |ctx, (a, b)| async move {
@@ -1531,9 +1531,9 @@ mod tests {
     fn batch_fill_out_of_order() {
         run_random(|mut rng| async move {
             let mut batch = Batch::with_implicit_first_record(3);
-            let ba0 = rng.gen::<BA256>();
-            let ba1 = rng.gen::<BA256>();
-            let ba2 = rng.gen::<BA256>();
+            let ba0 = rng.r#gen::<BA256>();
+            let ba1 = rng.r#gen::<BA256>();
+            let ba2 = rng.r#gen::<BA256>();
             let segment = segment_from_entry(
                 <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba0),
             );
@@ -1567,9 +1567,9 @@ mod tests {
         run_random(|mut rng| async move {
             const SIZE: usize = 3;
             let mut batch = Batch::with_implicit_first_record(SIZE);
-            let ba0 = rng.gen::<BA256>();
-            let ba1 = rng.gen::<BA256>();
-            let ba2 = rng.gen::<BA256>();
+            let ba0 = rng.r#gen::<BA256>();
+            let ba1 = rng.r#gen::<BA256>();
+            let ba2 = rng.r#gen::<BA256>();
             let segment = segment_from_entry(
                 <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba0),
             );
@@ -1603,7 +1603,7 @@ mod tests {
         run_random(|mut rng| async move {
             const SIZE: usize = 3;
             let mut batch = Batch::new(Some(RecordId::from(4)), SIZE);
-            let ba6 = rng.gen::<BA256>();
+            let ba6 = rng.r#gen::<BA256>();
             let segment = segment_from_entry(
                 <Boolean as DZKPCompatibleField<256>>::as_segment_entry(&ba6),
             );
@@ -1672,12 +1672,12 @@ mod tests {
         let mut rng = thread_rng();
 
         // vec for segments
-        let vec_x_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_x_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_y_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_y_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_prss_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_prss_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_x_left = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_x_right = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_left = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_right = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_left = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_right = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
 
         // compute z
         let vec_z_left = vec_x_left.clone() & vec_y_left.clone()
@@ -1689,11 +1689,11 @@ mod tests {
         // vector for unchecked elements
         // i.e. these are used to fill the segments of the verifier and prover that are not part
         // of this povers proof
-        let vec_x_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_y_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_z_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_prss_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-        let vec_z_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_x_3rd_share = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_3rd_share = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_z_right = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_3rd_share = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_z_3rd_share = (0..1024).map(|_| rng.r#gen::<u8>()).collect::<BitVec<u8>>();
 
         // generate and push segments
         for i in 0..1024 / segment_size {
@@ -1857,8 +1857,8 @@ mod tests {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = rng.gen::<Boolean>();
-        let b = rng.gen::<Boolean>();
+        let a = rng.r#gen::<Boolean>();
+        let b = rng.r#gen::<Boolean>();
 
         let [h1_batch, h2_batch, h3_batch] = world
             .malicious((a, b), |ctx, (a, b)| async move {

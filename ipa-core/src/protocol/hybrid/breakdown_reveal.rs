@@ -1,31 +1,31 @@
-use std::{convert::Infallible, iter::repeat, pin::pin};
+use std::{convert::Infallible, pin::pin};
 
 use futures::stream;
 use futures_util::{StreamExt, TryStreamExt};
-use tracing::{info_span, Instrument};
+use tracing::{Instrument, info_span};
 
 use crate::{
     error::{Error, UnwrapInfallible},
-    ff::{boolean::Boolean, boolean_array::BooleanArray, U128Conversions},
+    ff::{U128Conversions, boolean::Boolean, boolean_array::BooleanArray},
     helpers::TotalRecords,
     protocol::{
-        basics::{reveal, Reveal},
+        BooleanProtocols, RecordId,
+        basics::{Reveal, reveal},
         context::{
-            dzkp_validator::DZKPValidator, Context, DZKPUpgraded, MaliciousProtocolSteps,
-            ShardedContext, UpgradableContext,
+            Context, DZKPUpgraded, MaliciousProtocolSteps, ShardedContext, UpgradableContext,
+            dzkp_validator::DZKPValidator,
         },
         hybrid::step::AggregationStep as Step,
         ipa_prf::{
-            aggregation::{aggregate_values, aggregate_values_proof_chunk, AGGREGATE_DEPTH},
-            oprf_padding::{apply_dp_padding, PaddingParameters},
+            aggregation::{AGGREGATE_DEPTH, aggregate_values, aggregate_values_proof_chunk},
+            oprf_padding::{PaddingParameters, apply_dp_padding},
             shuffle::ShardedShuffle,
         },
-        BooleanProtocols, RecordId,
     },
     report::hybrid::AggregateableHybridReport,
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        TransposeFrom, Vectorizable,
+        BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated,
     },
     seq_join::seq_join,
 };
@@ -77,9 +77,10 @@ where
     // This was checked early in the protocol, but we need to check again here, in case
     // there were no matching pairs of reports.
     if attributed_values.is_empty() {
-        return Ok(BitDecomposed::new(
-            repeat(Replicated::<Boolean, B>::ZERO).take(usize::try_from(HV::BITS).unwrap()),
-        ));
+        return Ok(BitDecomposed::new(std::iter::repeat_n(
+            Replicated::<Boolean, B>::ZERO,
+            usize::try_from(HV::BITS).unwrap(),
+        )));
     }
 
     // Apply DP padding for Breakdown Reveal Aggregation
@@ -249,21 +250,21 @@ pub mod tests {
     use crate::{ff::boolean_array::BA16, test_executor::run};
     use crate::{
         ff::{
+            U128Conversions,
             boolean::Boolean,
             boolean_array::{BA3, BA5, BA8},
-            U128Conversions,
         },
         protocol::{
             hybrid::breakdown_reveal_aggregation, ipa_prf::oprf_padding::PaddingParameters,
         },
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, TransposeFrom,
+            BitDecomposed, TransposeFrom, replicated::semi_honest::AdditiveShare as Replicated,
         },
         test_executor::run_with,
         test_fixture::{
-            hybrid::TestAggregateableHybridReport, Reconstruct, Runner, TestWorld, TestWorldConfig,
-            WithShards,
+            Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards,
+            hybrid::TestAggregateableHybridReport,
         },
     };
 
@@ -522,22 +523,22 @@ mod proptests {
     use crate::{
         const_assert,
         ff::{
-            boolean::Boolean,
-            boolean_array::{BA3, BA32, BA5, BA8},
             U128Conversions,
+            boolean::Boolean,
+            boolean_array::{BA3, BA5, BA8, BA32},
         },
         protocol::{
             hybrid::breakdown_reveal::breakdown_reveal_aggregation,
             ipa_prf::oprf_padding::PaddingParameters,
         },
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
-            TransposeFrom,
+            BitDecomposed, SharedValue, TransposeFrom,
+            replicated::semi_honest::AdditiveShare as Replicated,
         },
         test_fixture::{
+            Reconstruct, Runner, TestWorld, TestWorldConfig, WithShards,
             hybrid::{TestAggregateableHybridReport, TestIndistinguishableHybridReport},
-            mpc_proptest_config_with_cases, Reconstruct, Runner, TestWorld, TestWorldConfig,
-            WithShards,
+            mpc_proptest_config_with_cases,
         },
     };
 

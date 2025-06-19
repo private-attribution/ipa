@@ -5,19 +5,19 @@ use crate::{
     ff::{Fp61BitPrime, MultiplyAccumulate, MultiplyAccumulatorArray, PrimeField},
     helpers::hashing::{compute_hash, hash_to_field},
     protocol::{
+        RecordId, RecordIdRange,
         context::{
-            dzkp_field::{TABLE_U, TABLE_V},
             Context,
+            dzkp_field::{TABLE_U, TABLE_V},
         },
         ipa_prf::{
-            malicious_security::{
-                lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
-                FIRST_RECURSION_FACTOR as FRF,
-            },
             CompressedProofGenerator,
+            malicious_security::{
+                FIRST_RECURSION_FACTOR as FRF,
+                lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
+            },
         },
         prss::SharedRandomness,
-        RecordId, RecordIdRange,
     },
     secret_sharing::SharedValue,
 };
@@ -229,12 +229,12 @@ struct ValuesExtrapolateIterator<
 }
 
 impl<
-        F: PrimeField,
-        const L: usize,
-        const P: usize,
-        const M: usize,
-        I: Iterator<Item = ([F; L], [F; L])>,
-    > Iterator for ValuesExtrapolateIterator<'_, F, L, P, M, I>
+    F: PrimeField,
+    const L: usize,
+    const P: usize,
+    const M: usize,
+    I: Iterator<Item = ([F; L], [F; L])>,
+> Iterator for ValuesExtrapolateIterator<'_, F, L, P, M, I>
 {
     type Item = ([F; P], [F; P]);
 
@@ -466,16 +466,16 @@ mod test {
         ff::{Fp31, Fp61BitPrime, PrimeField, U128Conversions},
         helpers::{Direction, Role},
         protocol::{
+            RecordId, RecordIdRange,
             context::{
-                dzkp_field::tests::reference_convert,
-                dzkp_validator::{MultiplicationInputsBlock, BIT_ARRAY_LEN},
                 Context,
+                dzkp_field::tests::reference_convert,
+                dzkp_validator::{BIT_ARRAY_LEN, MultiplicationInputsBlock},
             },
             ipa_prf::{
-                malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
                 FirstProofGenerator,
+                malicious_security::lagrange::{CanonicalLagrangeDenominator, LagrangeTable},
             },
-            RecordId, RecordIdRange,
         },
         seq_join::SeqJoin,
         test_executor::{run, run_random},
@@ -759,49 +759,50 @@ mod test {
         const PROOF_2: [u128; 7] = [18, 13, 26, 29, 1, 0, 4];
         const PROOF_3: [u128; 7] = [19, 25, 20, 9, 2, 15, 5];
         let world = TestWorld::default();
-        let [(h1_proof_left, h1_proof_right), (h2_proof_left, h2_proof_right), (h3_proof_left, h3_proof_right)] =
-            world
-                .semi_honest((), |ctx, ()| async move {
-                    let mut record_ids = RecordIdRange::ALL;
-                    let (proof_share_left, my_share_of_right) =
-                        TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_ids);
-                    let proof_u128 = match ctx.role() {
-                        Role::H1 => PROOF_1,
-                        Role::H2 => PROOF_2,
-                        Role::H3 => PROOF_3,
-                    };
-                    let proof = proof_u128.map(Fp31::truncate_from);
-                    let proof_share_right =
-                        TestProofGenerator::gen_other_proof_share(proof, proof_share_left);
+        let [
+            (h1_proof_left, h1_proof_right),
+            (h2_proof_left, h2_proof_right),
+            (h3_proof_left, h3_proof_right),
+        ] = world
+            .semi_honest((), |ctx, ()| async move {
+                let mut record_ids = RecordIdRange::ALL;
+                let (proof_share_left, my_share_of_right) =
+                    TestProofGenerator::gen_proof_shares_from_prss(&ctx, &mut record_ids);
+                let proof_u128 = match ctx.role() {
+                    Role::H1 => PROOF_1,
+                    Role::H2 => PROOF_2,
+                    Role::H3 => PROOF_3,
+                };
+                let proof = proof_u128.map(Fp31::truncate_from);
+                let proof_share_right =
+                    TestProofGenerator::gen_other_proof_share(proof, proof_share_left);
 
-                    // set up context
-                    let c = ctx
-                        .narrow("send_proof_share")
-                        .set_total_records(proof_share_right.len());
+                // set up context
+                let c = ctx
+                    .narrow("send_proof_share")
+                    .set_total_records(proof_share_right.len());
 
-                    // set up channels
-                    let send_channel_right =
-                        &c.send_channel::<Fp31>(ctx.role().peer(Direction::Right));
-                    let recv_channel_left =
-                        &c.recv_channel::<Fp31>(ctx.role().peer(Direction::Left));
+                // set up channels
+                let send_channel_right = &c.send_channel::<Fp31>(ctx.role().peer(Direction::Right));
+                let recv_channel_left = &c.recv_channel::<Fp31>(ctx.role().peer(Direction::Left));
 
-                    // send share
-                    let (my_share_of_left_vec, _) = try_join(
-                        c.parallel_join((0..proof_share_right.len()).map(|i| async move {
-                            recv_channel_left.receive(RecordId::from(i)).await
-                        })),
-                        c.parallel_join(proof_share_right.iter().enumerate().map(
-                            |(i, elem)| async move {
-                                send_channel_right.send(RecordId::from(i), elem).await
-                            },
-                        )),
-                    )
-                    .await
-                    .unwrap();
+                // send share
+                let (my_share_of_left_vec, _) = try_join(
+                    c.parallel_join((0..proof_share_right.len()).map(|i| async move {
+                        recv_channel_left.receive(RecordId::from(i)).await
+                    })),
+                    c.parallel_join(proof_share_right.iter().enumerate().map(
+                        |(i, elem)| async move {
+                            send_channel_right.send(RecordId::from(i), elem).await
+                        },
+                    )),
+                )
+                .await
+                .unwrap();
 
-                    (my_share_of_left_vec.try_into().unwrap(), my_share_of_right)
-                })
-                .await;
+                (my_share_of_left_vec.try_into().unwrap(), my_share_of_right)
+            })
+            .await;
 
         assert_two_part_secret_sharing(PROOF_1, h3_proof_right, h2_proof_left);
         assert_two_part_secret_sharing(PROOF_2, h1_proof_right, h3_proof_left);
@@ -814,44 +815,48 @@ mod test {
             const FPL: usize = FirstProofGenerator::PROOF_LENGTH;
             const FLL: usize = FirstProofGenerator::LAGRANGE_LENGTH;
 
-            let block = rng.gen::<MultiplicationInputsBlock>();
+            let block = rng.r#gen::<MultiplicationInputsBlock>();
 
             // Test equivalence for extrapolate_y_values
             let denominator = CanonicalLagrangeDenominator::new();
             let lagrange_table = LagrangeTable::from(denominator);
 
-            assert!(ProverTableIndices(block.table_indices_prover().into_iter())
-                .extrapolate_y_values::<FPL, FLL>(&lagrange_table)
-                .eq(ProverValues((0..BIT_ARRAY_LEN).map(|i| {
-                    reference_convert(
-                        block.x_left[i],
-                        block.x_right[i],
-                        block.y_left[i],
-                        block.y_right[i],
-                        block.prss_left[i],
-                        block.prss_right[i],
-                    )
-                }))
-                .extrapolate_y_values::<FPL, FLL>(&lagrange_table)));
+            assert!(
+                ProverTableIndices(block.table_indices_prover().into_iter())
+                    .extrapolate_y_values::<FPL, FLL>(&lagrange_table)
+                    .eq(ProverValues((0..BIT_ARRAY_LEN).map(|i| {
+                        reference_convert(
+                            block.x_left[i],
+                            block.x_right[i],
+                            block.y_left[i],
+                            block.y_right[i],
+                            block.prss_left[i],
+                            block.prss_right[i],
+                        )
+                    }))
+                    .extrapolate_y_values::<FPL, FLL>(&lagrange_table))
+            );
 
             // Test equivalence for eval_at_r
             let denominator = CanonicalLagrangeDenominator::new();
-            let r = rng.gen();
+            let r = rng.r#gen();
             let lagrange_table_r = LagrangeTable::new(&denominator, &r);
 
-            assert!(ProverTableIndices(block.table_indices_prover().into_iter())
-                .eval_at_r(&lagrange_table_r)
-                .eq(ProverValues((0..BIT_ARRAY_LEN).map(|i| {
-                    reference_convert(
-                        block.x_left[i],
-                        block.x_right[i],
-                        block.y_left[i],
-                        block.y_right[i],
-                        block.prss_left[i],
-                        block.prss_right[i],
-                    )
-                }))
-                .eval_at_r(&lagrange_table_r)));
+            assert!(
+                ProverTableIndices(block.table_indices_prover().into_iter())
+                    .eval_at_r(&lagrange_table_r)
+                    .eq(ProverValues((0..BIT_ARRAY_LEN).map(|i| {
+                        reference_convert(
+                            block.x_left[i],
+                            block.x_right[i],
+                            block.y_left[i],
+                            block.y_right[i],
+                            block.prss_left[i],
+                            block.prss_right[i],
+                        )
+                    }))
+                    .eval_at_r(&lagrange_table_r))
+            );
         });
     }
 }

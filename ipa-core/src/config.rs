@@ -6,8 +6,8 @@ use std::{
     time::Duration,
 };
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use hyper::{http::uri::Scheme, Uri};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use hyper::{Uri, http::uri::Scheme};
 use hyper_util::client::legacy::Builder;
 use rustls_pemfile::Item;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -503,7 +503,7 @@ impl KeyRegistries {
 mod tests {
     use std::time::Duration;
 
-    use hpke::{kem::X25519HkdfSha256, Kem};
+    use hpke::{Kem, kem::X25519HkdfSha256};
     use hyper::Uri;
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
@@ -577,14 +577,16 @@ mod tests {
                     "http config is not the same: {:?} vs {:?}",
                     expected.http_config, actual.http_config
                 ),
-            };
+            }
         }
 
-        assert!(serde_json::from_str::<ClientConfig>(
-            r#"{ "http_config": { "version": "http1", "ping_interval_secs": 132 } }"#,
-        )
-        .unwrap_err()
-        .is_data());
+        assert!(
+            serde_json::from_str::<ClientConfig>(
+                r#"{ "http_config": { "version": "http1", "ping_interval_secs": 132 } }"#,
+            )
+            .unwrap_err()
+            .is_data()
+        );
 
         assert_config_eq(
             r#"{ "http_config": { "version": "http2" } }"#,

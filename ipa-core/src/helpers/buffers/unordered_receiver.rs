@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{task::Waker, Future, Stream};
+use futures::{Future, Stream, task::Waker};
 use generic_array::GenericArray;
 use typenum::Unsigned;
 
@@ -193,7 +193,8 @@ where
     fn add_waker(&mut self, i: usize, waker: &Waker) {
         assert!(
             i > self.next,
-            "Awaiting a read (record = {i}) that has already been fulfilled. Read cursor is currently at {}", self.next
+            "Awaiting a read (record = {i}) that has already been fulfilled. Read cursor is currently at {}",
+            self.next
         );
         // We don't save a waker at `self.next`, so `>` and not `>=`.
         if i > self.next + self.wakers.len() {
@@ -257,7 +258,7 @@ where
                     }
                 }
                 Poll::Ready(None) => {
-                    return Poll::Ready(Err(EndOfStreamError(RecordId::from(self.next)).into()))
+                    return Poll::Ready(Err(EndOfStreamError(RecordId::from(self.next)).into()));
                 }
             }
         }
@@ -374,9 +375,9 @@ mod test {
     use std::num::NonZeroUsize;
 
     use futures::{
+        Future, Stream,
         future::{try_join, try_join_all},
         stream::iter,
-        Future, Stream,
     };
     use generic_array::GenericArray;
     use rand::Rng;
@@ -500,7 +501,7 @@ mod test {
         run(|| {
             let mut rng = crate::rand::thread_rng();
             let mut values = Vec::with_capacity(COUNT);
-            values.resize_with(COUNT, || rng.gen::<Fp32BitPrime>());
+            values.resize_with(COUNT, || rng.r#gen::<Fp32BitPrime>());
 
             let mut encoded = vec![0; ENCODED_LEN];
             for (i, v) in values.iter().enumerate() {

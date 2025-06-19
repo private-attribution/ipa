@@ -10,4 +10,4 @@ pub use processor::{
     NewQueryError, PrepareQueryError, Processor as QueryProcessor, QueryCompletionError,
     QueryInputError, QueryKillStatus, QueryKilled, QueryStatusError,
 };
-pub use state::{min_status, QueryStatus};
+pub use state::{QueryStatus, min_status};

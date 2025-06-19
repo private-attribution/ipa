@@ -1,12 +1,12 @@
-use axum::{routing::post, Extension, Json, Router};
+use axum::{Extension, Json, Router, routing::post};
 use hyper::StatusCode;
 
 use crate::{
     helpers::{ApiError, BodyStream},
     net::{
+        Error,
         http_serde::{self, query::QueryConfigQueryParams},
         transport::MpcHttpTransport,
-        Error,
     },
     query::NewQueryError,
 };
@@ -37,17 +37,16 @@ mod tests {
 
     use axum::body::Body;
     use hyper::{
-        http::uri::{Authority, Scheme},
         StatusCode,
+        http::uri::{Authority, Scheme},
     };
 
     use crate::{
         ff::FieldType,
         helpers::{
-            make_owned_handler,
+            HelperResponse, Role, RoleAssignment, make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType},
             routing::RouteId,
-            HelperResponse, Role, RoleAssignment,
         },
         net::{
             http_serde,
@@ -164,6 +163,7 @@ mod tests {
                 val.epsilon,
             );
 
+            #[allow(clippy::format_push_string)]
             if let Some(window) = val.attribution_window_seconds {
                 query.push_str(&format!("&attribution_window_seconds={window}"));
             }

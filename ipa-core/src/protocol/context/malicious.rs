@@ -14,19 +14,19 @@ use crate::{
         TotalRecords,
     },
     protocol::{
+        Gate, RecordId,
         basics::mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
         context::{
+            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness, ShardedContext,
+            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
             batcher::Batcher,
             dzkp_validator::MaliciousDZKPValidator,
             prss::InstrumentedIndexedSharedRandomness,
             step::UpgradeStep,
             upgrade::Upgradable,
             validator::{self, BatchValidator},
-            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness, ShardedContext,
-            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::{Endpoint as PrssEndpoint, FromPrss},
-        Gate, RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField, ExtendableFieldSimd},
@@ -148,8 +148,8 @@ impl<B: ShardBinding> super::Context for Context<'_, B> {
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness,
-        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
     ) {
         self.inner.prss_rng()
     }

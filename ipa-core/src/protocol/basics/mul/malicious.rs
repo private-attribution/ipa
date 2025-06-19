@@ -4,13 +4,13 @@ use futures::future::try_join;
 use crate::{
     error::Error,
     protocol::{
+        RecordId,
         basics::{
-            mul::{semi_honest_multiply, step::MaliciousMultiplyStep},
             SecureMul,
+            mul::{semi_honest_multiply, step::MaliciousMultiplyStep},
         },
         context::{Context, UpgradedMaliciousContext},
         prss::FromPrss,
-        RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableFieldSimd},
@@ -131,7 +131,7 @@ mod test {
     use crate::{
         ff::Fp31,
         protocol::basics::SecureMul,
-        rand::{thread_rng, Rng},
+        rand::{Rng, thread_rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -140,8 +140,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
+        let a = rng.r#gen::<Fp31>();
+        let b = rng.r#gen::<Fp31>();
 
         let res =
             world

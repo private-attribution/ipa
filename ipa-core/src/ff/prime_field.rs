@@ -7,8 +7,8 @@ use super::Field;
 use crate::{
     const_assert,
     ff::{
-        accumulator::{Accumulator, MultiplyAccumulate},
         Serializable, U128Conversions,
+        accumulator::{Accumulator, MultiplyAccumulate},
     },
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
@@ -280,7 +280,7 @@ macro_rules! field_impl {
 
         impl rand::distributions::Distribution<$field> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $field {
-                <$field>::truncate_from(rng.gen::<u128>())
+                <$field>::truncate_from(rng.r#gen::<u128>())
             }
         }
 
@@ -350,14 +350,14 @@ macro_rules! field_impl {
 
             use generic_array::GenericArray;
             use proptest::{
-                prelude::{prop, Arbitrary, Strategy},
+                prelude::{Arbitrary, Strategy, prop},
                 proptest,
             };
 
             use super::*;
             use crate::{
                 ff::Serializable,
-                rand::{thread_rng, Rng},
+                rand::{Rng, thread_rng},
             };
 
             impl Arbitrary for $field {
@@ -391,9 +391,9 @@ macro_rules! field_impl {
             fn batch_invert_test() {
                 let mut rng = thread_rng();
                 let mut elements: [$field; 100] = from_fn(|_| {
-                    let mut element = $field::truncate_from(rng.gen::<u128>());
+                    let mut element = $field::truncate_from(rng.r#gen::<u128>());
                     while (element == $field::ZERO) {
-                        element = $field::truncate_from(rng.gen::<u128>());
+                        element = $field::truncate_from(rng.r#gen::<u128>());
                     }
                     element
                 });

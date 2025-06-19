@@ -4,15 +4,15 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{mul::semi_honest::multiplication_protocol, SecureMul},
+        RecordId,
+        basics::{SecureMul, mul::semi_honest::multiplication_protocol},
         context::{
-            dzkp_field::DZKPCompatibleField, dzkp_validator::Segment, Context,
-            DZKPUpgradedMaliciousContext,
+            Context, DZKPUpgradedMaliciousContext, dzkp_field::DZKPCompatibleField,
+            dzkp_validator::Segment,
         },
         prss::SharedRandomness,
-        RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
+    secret_sharing::{Vectorizable, replicated::semi_honest::AdditiveShare as Replicated},
     sharding::{NotSharded, ShardBinding},
 };
 
@@ -85,11 +85,11 @@ mod test {
     use crate::{
         ff::boolean::Boolean,
         protocol::{
-            basics::SecureMul,
-            context::{dzkp_validator::DZKPValidator, Context, UpgradableContext, TEST_DZKP_STEPS},
             RecordId,
+            basics::SecureMul,
+            context::{Context, TEST_DZKP_STEPS, UpgradableContext, dzkp_validator::DZKPValidator},
         },
-        rand::{thread_rng, Rng},
+        rand::{Rng, thread_rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -98,8 +98,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = rng.gen::<Boolean>();
-        let b = rng.gen::<Boolean>();
+        let a = rng.r#gen::<Boolean>();
+        let b = rng.r#gen::<Boolean>();
 
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {

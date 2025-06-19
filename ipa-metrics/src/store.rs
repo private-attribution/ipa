@@ -3,7 +3,7 @@ use std::{borrow::Borrow, hash::BuildHasher};
 use hashbrown::hash_map::RawEntryMut;
 use rustc_hash::FxBuildHasher;
 
-use crate::{key::OwnedMetricName, kind::CounterValue, MetricName};
+use crate::{MetricName, key::OwnedMetricName, kind::CounterValue};
 
 /// A basic store. Currently only supports counters.
 /// Counters and other metrics are stored to optimize writes. That means, one lookup
@@ -121,7 +121,7 @@ impl<const LABELS: usize> CounterHandle<'_, LABELS> {
 mod tests {
     use std::hash::{DefaultHasher, Hash, Hasher};
 
-    use crate::{counter, metric_name, store::Store, LabelValue};
+    use crate::{LabelValue, counter, metric_name, store::Store};
 
     impl LabelValue for &'static str {
         fn hash(&self) -> u64 {

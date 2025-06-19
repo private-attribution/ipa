@@ -5,11 +5,11 @@ use std::{
 };
 
 use clap::Args;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use rand_core::CryptoRng;
 use rcgen::{
     CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, Ia5String, IsCa,
-    KeyUsagePurpose, SanType, SerialNumber, PKCS_ECDSA_P256_SHA256,
+    KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, SanType, SerialNumber,
 };
 use time::{Duration, OffsetDateTime};
 
@@ -101,7 +101,7 @@ pub fn keygen_tls<R: Rng + CryptoRng>(args: &KeygenArgs, rng: &mut R) -> Result<
 
 /// Generates public and private key used for encrypting and decrypting match keys.
 fn keygen_matchkey<R: Rng + CryptoRng>(args: &KeygenArgs, mut rng: &mut R) -> Result<(), BoxError> {
-    let keypair = crate::hpke::KeyPair::gen(&mut rng);
+    let keypair = crate::hpke::KeyPair::r#gen(&mut rng);
 
     if args.mk_public_key.is_some() && args.mk_private_key.is_some() {
         create_new(args.mk_public_key.as_ref().unwrap())?

@@ -6,7 +6,7 @@ use tokio::sync::watch;
 use crate::{
     error::Error,
     helpers::TotalRecords,
-    protocol::{context::dzkp_validator::TARGET_PROOF_SIZE, RecordId},
+    protocol::{RecordId, context::dzkp_validator::TARGET_PROOF_SIZE},
     sync::Mutex,
 };
 
@@ -208,7 +208,7 @@ impl<'a, B> Batcher<'a, B> {
         &mut self,
         record_id: RecordId,
         validate_batch: VF,
-    ) -> impl Future<Output = Result<(), Error>>
+    ) -> impl Future<Output = Result<(), Error>> + use<VF, Fut, B>
     where
         VF: FnOnce(usize, B) -> Fut,
         Fut: Future<Output = Result<(), Error>>,
@@ -286,8 +286,8 @@ mod tests {
     use std::{future::ready, pin::pin};
 
     use futures::{
-        future::{join_all, poll_immediate, try_join, try_join3, try_join4},
         FutureExt,
+        future::{join_all, poll_immediate, try_join, try_join3, try_join4},
     };
 
     use super::*;
@@ -413,28 +413,36 @@ mod tests {
                 .push(i);
         }
 
-        let mut fut0 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(0), |_i, _b| async { unreachable!() }));
-        let fut1 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(1), |i, b| {
-                assert!(i == 0 && b.as_slice() == [0, 1]);
-                ready(Ok(()))
-            }));
-        let mut fut2 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(2), |_i, _b| async { unreachable!() }));
-        let fut3 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(3), |i, b| {
-                assert!(i == 1 && b.as_slice() == [2, 3]);
-                ready(Ok(()))
-            }));
+        let mut fut0 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(0), |_i, _b| async { unreachable!() })
+        );
+        let fut1 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(1), |i, b| {
+                    assert!(i == 0 && b.as_slice() == [0, 1]);
+                    ready(Ok(()))
+                })
+        );
+        let mut fut2 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(2), |_i, _b| async { unreachable!() })
+        );
+        let fut3 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(3), |i, b| {
+                    assert!(i == 1 && b.as_slice() == [2, 3]);
+                    ready(Ok(()))
+                })
+        );
 
         assert!(poll_immediate(&mut fut0).await.is_none());
         assert!(poll_immediate(&mut fut2).await.is_none());
@@ -462,28 +470,36 @@ mod tests {
                 .push(i);
         }
 
-        let mut fut0 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(0), |_i, _b| async { unreachable!() }));
-        let fut1 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(1), |i, b| {
-                assert!(i == 0 && b.as_slice() == [0, 1]);
-                ready(Err(Error::DZKPValidationFailed))
-            }));
-        let mut fut2 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(2), |_i, _b| async { unreachable!() }));
-        let fut3 = pin!(batcher
-            .lock()
-            .unwrap()
-            .validate_record(RecordId::from(3), |i, b| {
-                assert!(i == 1 && b.as_slice() == [2, 3]);
-                ready(Ok(()))
-            }));
+        let mut fut0 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(0), |_i, _b| async { unreachable!() })
+        );
+        let fut1 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(1), |i, b| {
+                    assert!(i == 0 && b.as_slice() == [0, 1]);
+                    ready(Err(Error::DZKPValidationFailed))
+                })
+        );
+        let mut fut2 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(2), |_i, _b| async { unreachable!() })
+        );
+        let fut3 = pin!(
+            batcher
+                .lock()
+                .unwrap()
+                .validate_record(RecordId::from(3), |i, b| {
+                    assert!(i == 1 && b.as_slice() == [2, 3]);
+                    ready(Ok(()))
+                })
+        );
 
         assert!(poll_immediate(&mut fut0).await.is_none());
         assert!(poll_immediate(&mut fut2).await.is_none());

@@ -4,10 +4,10 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
+        RecordId,
         basics::{malicious_reveal, mul::semi_honest_multiply, step::CheckZeroStep as Step},
         context::Context,
         prss::{FromRandom, SharedRandomness},
-        RecordId,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
@@ -74,7 +74,7 @@ mod tests {
     use crate::{
         error::Error,
         ff::{Fp31, PrimeField, U128Conversions},
-        protocol::{context::Context, RecordId},
+        protocol::{RecordId, context::Context},
         rand::thread_rng,
         secret_sharing::{IntoShares, SharedValue},
         test_fixture::TestWorld,

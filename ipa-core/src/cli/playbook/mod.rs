@@ -19,14 +19,14 @@ pub use sharded_shuffle::secure_shuffle;
 use tokio::time::sleep;
 
 pub use self::{
-    hybrid::{run_hybrid_query_and_validate, HybridQueryResult},
+    hybrid::{HybridQueryResult, run_hybrid_query_and_validate},
     streaming::{BufferedRoundRobinSubmission, StreamingSubmission},
 };
 use crate::{
     cli::config_parse::HelperNetworkConfigParseExt,
     config::{ClientConfig, NetworkConfig, PeerConfig},
     executor::IpaRuntime,
-    ff::boolean_array::{BA20, BA3, BA8},
+    ff::boolean_array::{BA3, BA8, BA20},
     helpers::query::DpMechanism,
     net::{ClientIdentity, Helper, IpaHttpClient},
     protocol::{dp::NoiseParams, ipa_prf::oprf_padding::insecure::OPRFPaddingDp},
@@ -158,7 +158,7 @@ pub fn validate_dp(
 
                 let (_, std) = truncated_discrete_laplace.mean_and_std();
                 let tolerance_factor = 20.0; // set so this fails randomly with small probability
-                                             // println!("mean = {mean}, std = {std}, tolerance_factor * std = {}",tolerance_factor * std);
+                // println!("mean = {mean}, std = {std}, tolerance_factor * std = {}",tolerance_factor * std);
                 (next_actual_f64_shifted - next_expected_f64).abs() < tolerance_factor * 3.0 * std
             }
             DpMechanism::NoDp => next_expected == next_actual,
@@ -189,8 +189,10 @@ pub fn validate_dp(
     // make sure DP noise actually changed the results. For large epsilon and few breakdowns keys
     // we might end up not adding any noise
     if epsilon <= 1.0 {
-        assert!(!all_equal,
-                "Expected and actual results match exactly...probably DP noise is not being added when it should be");
+        assert!(
+            !all_equal,
+            "Expected and actual results match exactly...probably DP noise is not being added when it should be"
+        );
     }
 }
 

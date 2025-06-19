@@ -20,10 +20,10 @@ use hashbrown::hash_map::Entry;
 use rustc_hash::FxBuildHasher;
 
 use crate::{
+    MetricName,
     key::OwnedMetricName,
     kind::CounterValue,
     store::{CounterHandle, Store},
-    MetricName,
 };
 
 thread_local! {

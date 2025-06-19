@@ -15,19 +15,19 @@ use crate::{
         TotalRecords,
     },
     protocol::{
+        Gate, RecordId,
         context::{
+            Base, Context as _, InstrumentedIndexedSharedRandomness,
+            InstrumentedSequentialSharedRandomness, MaliciousProtocolSteps, ShardedContext,
+            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
             dzkp_validator::SemiHonestDZKPValidator, step::MaliciousProtocolStep,
-            upgrade::Upgradable, validator::SemiHonest as Validator, Base, Context as _,
-            InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
-            MaliciousProtocolSteps, ShardedContext, SpecialAccessToUpgradedContext,
-            UpgradableContext, UpgradedContext,
+            upgrade::Upgradable, validator::SemiHonest as Validator,
         },
         prss::Endpoint as PrssEndpoint,
-        Gate, RecordId,
     },
     secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         Vectorizable,
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
     },
     seq_join::SeqJoin,
     sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
@@ -81,7 +81,7 @@ impl<'a> Context<'a, Sharded> {
     }
 }
 
-#[allow(clippy::needless_lifetimes)] // Lifetime may not live long enough, if lifetime is dropped
+#[allow(clippy::needless_lifetimes, clippy::elidable_lifetime_names)] // Lifetime may not live long enough, if lifetime is dropped
 impl<'a, B: ShardBinding> Context<'a, B> {
     #[cfg(test)]
     #[must_use]
@@ -139,8 +139,8 @@ impl<B: ShardBinding> super::Context for Context<'_, B> {
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness,
-        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
     ) {
         self.inner.prss_rng()
     }
@@ -260,8 +260,8 @@ impl<B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'_, B, F> 
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness,
-        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
     ) {
         self.inner.prss_rng()
     }

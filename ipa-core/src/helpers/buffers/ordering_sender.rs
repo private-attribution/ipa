@@ -9,16 +9,16 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{task::Waker, Future, Stream};
+use futures::{Future, Stream, task::Waker};
 
 use crate::{
-    helpers::{buffers::circular::CircularBuf, Message},
+    helpers::{Message, buffers::circular::CircularBuf},
     sync::{
+        Mutex, MutexGuard,
         atomic::{
             AtomicUsize,
             Ordering::{AcqRel, Acquire},
         },
-        Mutex, MutexGuard,
     },
 };
 
@@ -207,7 +207,7 @@ impl Waiting {
 
     /// Find a shard.  This ensures that sequential values pick the same shard
     /// in a contiguous block.
-    fn shard(&self, i: usize) -> MutexGuard<WaitingShard> {
+    fn shard(&self, i: usize) -> MutexGuard<'_, WaitingShard> {
         let idx = (i >> Self::CONTIGUOUS_BITS) % Self::SHARDS;
         self.shards[idx].lock().unwrap()
     }
@@ -511,18 +511,18 @@ mod test {
         future::poll_fn,
         iter::zip,
         num::NonZeroUsize,
-        pin::{pin, Pin},
+        pin::{Pin, pin},
     };
 
     use ::tokio::sync::Barrier;
     use futures::{
-        future::{join, join3, join_all, poll_immediate, try_join_all},
-        stream::StreamExt,
         Future, FutureExt,
+        future::{join, join_all, join3, poll_immediate, try_join_all},
+        stream::StreamExt,
     };
     use futures_util::future::try_join;
     use generic_array::GenericArray;
-    use rand::{seq::SliceRandom, Rng};
+    use rand::{Rng, seq::SliceRandom};
     #[cfg(feature = "shuttle")]
     use shuttle::future as tokio;
     use typenum::Unsigned;
@@ -738,7 +738,7 @@ mod test {
 
         run_random(|mut rng| async move {
             let mut values = Vec::with_capacity(COUNT);
-            values.resize_with(COUNT, || rng.gen::<Fp31>());
+            values.resize_with(COUNT, || rng.r#gen::<Fp31>());
             let indices = shuffle_indices(COUNT, &mut rng);
 
             let sender = sender::<Fp31>();
@@ -834,7 +834,7 @@ mod test {
         use std::{cmp::min, iter::zip};
 
         use futures::{
-            future::{join3, join_all},
+            future::{join_all, join3},
             stream::StreamExt,
         };
         use generic_array::GenericArray;
@@ -844,17 +844,17 @@ mod test {
             strategy::{Just, Strategy},
         };
         use rand::{
+            Rng,
             distributions::{Distribution, Standard},
             rngs::StdRng,
-            Rng,
         };
         use rand_core::SeedableRng;
         use typenum::Unsigned;
 
         use crate::{
             ff::{
-                boolean_array::{BA112, BA256, BA7},
                 Fp31, Fp32BitPrime, Serializable,
+                boolean_array::{BA7, BA112, BA256},
             },
             helpers::OrderingSender,
             secret_sharing::SharedValue,
@@ -877,7 +877,7 @@ mod test {
 
             let mut rng = StdRng::seed_from_u64(seed);
             let mut values = Vec::with_capacity(count);
-            values.resize_with(count, || rng.gen::<V>());
+            values.resize_with(count, || rng.r#gen::<V>());
 
             let sender = OrderingSender::new(
                 (sz * capacity_units).try_into().unwrap(),
@@ -897,8 +897,10 @@ mod test {
             let lengths = output.iter().map(Vec::len).collect::<Vec<_>>();
             let read_size_bytes = min(read_size_bytes, sz * count);
             assert!(lengths.len() <= 2);
-            assert!(lengths.iter().any(|l| read_size_bytes == *l),
-                    "read size {read_size_bytes} chunks never read from OrderingSender. Actual chunks read: {lengths:?}");
+            assert!(
+                lengths.contains(&read_size_bytes),
+                "read size {read_size_bytes} chunks never read from OrderingSender. Actual chunks read: {lengths:?}"
+            );
             let buf = output.into_iter().flatten().collect::<Vec<_>>();
             for (&v, b) in zip(values.iter(), buf.chunks(sz)) {
                 assert_eq!(v, V::deserialize(GenericArray::from_slice(b)).unwrap());

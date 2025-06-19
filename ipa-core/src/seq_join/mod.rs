@@ -1,8 +1,8 @@
 use std::{future::IntoFuture, num::NonZeroUsize};
 
 use futures::{
-    stream::{iter, Iter as StreamIter, TryCollect},
     Future, Stream, TryStreamExt,
+    stream::{Iter as StreamIter, TryCollect, iter},
 };
 
 use crate::helpers::stream::ExactSizeStream;
@@ -167,9 +167,9 @@ mod test {
     use std::{convert::Infallible, iter::once, num::NonZeroUsize, task::Poll};
 
     use futures::{
-        future::{lazy, BoxFuture},
-        stream::{iter, poll_immediate},
         Future, Stream, StreamExt,
+        future::{BoxFuture, lazy},
+        stream::{iter, poll_immediate},
     };
 
     use crate::{

@@ -1,4 +1,4 @@
-use axum::{body::Body, BoxError};
+use axum::{BoxError, body::Body};
 use http_body_util::BodyExt;
 use hyper::Uri;
 use hyper_rustls::HttpsConnectorBuilder;

@@ -1,5 +1,5 @@
 use crate::report::hybrid::{
-    InvalidHybridReportError, KeyIdentifier, NonAsciiStringError, HELPER_ORIGIN,
+    HELPER_ORIGIN, InvalidHybridReportError, KeyIdentifier, NonAsciiStringError,
 };
 
 const DOMAIN: &str = "private-attribution";
@@ -19,7 +19,11 @@ impl HybridImpressionInfo {
     #[must_use]
     pub fn byte_len(&self) -> usize {
         let out_len = std::mem::size_of_val(&self.key_id);
-        debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
+        debug_assert_eq!(
+            out_len,
+            self.to_bytes().len(),
+            "Serialization length estimation is incorrect and leads to extra allocation or wasted memory"
+        );
         out_len
     }
 
@@ -32,7 +36,11 @@ impl HybridImpressionInfo {
 
         r.push(self.key_id);
 
-        debug_assert_eq!(r.len(), info_len, "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
+        debug_assert_eq!(
+            r.len(),
+            info_len,
+            "Serialization length estimation is incorrect and leads to extra allocation or wasted memory"
+        );
 
         r.into_boxed_slice()
     }
@@ -48,7 +56,11 @@ impl HybridImpressionInfo {
 
         r.push(self.key_id);
 
-        debug_assert_eq!(r.len(), info_len, "HPKE Info length estimation is incorrect and leads to extra allocation or wasted memory");
+        debug_assert_eq!(
+            r.len(),
+            info_len,
+            "HPKE Info length estimation is incorrect and leads to extra allocation or wasted memory"
+        );
 
         r.into_boxed_slice()
     }
@@ -105,7 +117,11 @@ impl HybridConversionInfo {
         + std::mem::size_of_val(&self.timestamp)
         + std::mem::size_of_val(&self.epsilon)
         + std::mem::size_of_val(&self.sensitivity);
-        debug_assert_eq!(out_len, self.to_bytes().len(), "Serialization length estimation is incorrect and leads to extra allocation or wasted memory");
+        debug_assert_eq!(
+            out_len,
+            self.to_bytes().len(),
+            "Serialization length estimation is incorrect and leads to extra allocation or wasted memory"
+        );
         out_len
     }
 
@@ -129,7 +145,11 @@ impl HybridConversionInfo {
         r.extend_from_slice(&self.epsilon.to_be_bytes());
         r.extend_from_slice(&self.sensitivity.to_be_bytes());
 
-        debug_assert_eq!(r.len(), info_len, "Serilization length estimation is incorrect and leads to extra allocation or wasted memory");
+        debug_assert_eq!(
+            r.len(),
+            info_len,
+            "Serilization length estimation is incorrect and leads to extra allocation or wasted memory"
+        );
 
         r.into_boxed_slice()
     }
@@ -156,7 +176,11 @@ impl HybridConversionInfo {
         r.extend_from_slice(&self.epsilon.to_be_bytes());
         r.extend_from_slice(&self.sensitivity.to_be_bytes());
 
-        debug_assert_eq!(r.len(), info_len, "HPKE Info length estimation is incorrect and leads to extra allocation or wasted memory");
+        debug_assert_eq!(
+            r.len(),
+            info_len,
+            "HPKE Info length estimation is incorrect and leads to extra allocation or wasted memory"
+        );
 
         r.into_boxed_slice()
     }

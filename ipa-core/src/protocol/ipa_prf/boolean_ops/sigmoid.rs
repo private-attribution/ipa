@@ -6,10 +6,10 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        basics::mul::SecureMul, boolean::step::ThirtyTwoBitStep, context::Context,
-        BooleanProtocols, RecordId,
+        BooleanProtocols, RecordId, basics::mul::SecureMul, boolean::step::ThirtyTwoBitStep,
+        context::Context,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    secret_sharing::{BitDecomposed, FieldSimd, replicated::semi_honest::AdditiveShare},
 };
 
 async fn a_times_b_and_not_b<C, const N: usize>(
@@ -163,8 +163,8 @@ mod test {
     use std::num::TryFromIntError;
 
     use crate::{
-        ff::{boolean_array::BA8, U128Conversions},
-        protocol::{context::Context, ipa_prf::boolean_ops::sigmoid::sigmoid, RecordId},
+        ff::{U128Conversions, boolean_array::BA8},
+        protocol::{RecordId, context::Context, ipa_prf::boolean_ops::sigmoid::sigmoid},
         secret_sharing::{BitDecomposed, SharedValue, TransposeFrom},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -233,7 +233,10 @@ mod test {
                 let y_f64 = (res.as_u128() as f64) / 256_f64;
                 let exact_sigmoid = 1.0_f64 / (1.0_f64 + f64::exp(-x_f64));
                 let delta_from_exact = f64::abs(exact_sigmoid - y_f64);
-                assert!(delta_from_exact < 0.0197_f64, "At x={x_f64} the delta from an exact sigmoid is {delta_from_exact}. Exact value: {exact_sigmoid}, approximate value: {y_f64}");
+                assert!(
+                    delta_from_exact < 0.0197_f64,
+                    "At x={x_f64} the delta from an exact sigmoid is {delta_from_exact}. Exact value: {exact_sigmoid}, approximate value: {y_f64}"
+                );
             }
         });
     }

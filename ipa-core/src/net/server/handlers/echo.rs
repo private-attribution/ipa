@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use axum::{extract::Query, routing::get, Json, Router};
+use axum::{Json, Router, extract::Query, routing::get};
 use hyper::HeaderMap;
 
 use crate::net::{
@@ -38,7 +38,7 @@ mod tests {
     use bytes::Buf;
     use http_body_util::BodyExt;
     use hyper::{Request, StatusCode};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use tower::ServiceExt;
 
     use super::*;

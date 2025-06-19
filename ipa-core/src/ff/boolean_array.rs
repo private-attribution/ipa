@@ -8,11 +8,11 @@ use bitvec::{
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{Unsigned, U12, U14, U18, U2, U32, U8};
+use typenum::{U2, U8, U12, U14, U18, U32, Unsigned};
 
 use crate::{
     error::LengthError,
-    ff::{boolean::Boolean, ArrayAccess, Expand, Field, Gf32Bit, Serializable, U128Conversions},
+    ff::{ArrayAccess, Expand, Field, Gf32Bit, Serializable, U128Conversions, boolean::Boolean},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
@@ -218,7 +218,7 @@ macro_rules! boolean_array_impl_small {
 
         impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
-                <$name>::from_random_u128(rng.gen::<u128>())
+                <$name>::from_random_u128(rng.r#gen::<u128>())
             }
         }
 
@@ -602,8 +602,7 @@ macro_rules! boolean_array_impl {
                 fn try_from(value: $name) -> Result<Self, Self::Error> {
                     // len() returns bits, so divide by 8
                     // further divide by 4 since Gf32Bit has 4 byte
-                    // add 31 to round up
-                    let length = (value.0.len() + 31) / 32;
+                    let length = value.0.len().div_ceil(32);
                     let mut chunks = Vec::<Gf32Bit>::with_capacity(length);
                     let last_chunk_start = length-1;
                     for i in 0..last_chunk_start {
@@ -787,9 +786,9 @@ macro_rules! boolean_array_impl {
                 #[test]
                 fn set_boolean_array() {
                     let mut rng = thread_rng();
-                    let i = rng.gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
-                    let a = rng.gen::<Boolean>();
-                    let mut ba = rng.gen::<$name>();
+                    let i = rng.r#gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
+                    let a = rng.r#gen::<Boolean>();
+                    let mut ba = rng.r#gen::<$name>();
                     ba.set(i, a);
                     assert_eq!(ba.get(i), Some(a));
                 }
@@ -797,7 +796,7 @@ macro_rules! boolean_array_impl {
                 #[test]
                 fn convert_to_galois_field() {
                     let mut rng = thread_rng();
-                    let ba = rng.gen::<$name>();
+                    let ba = rng.r#gen::<$name>();
                     let mut vec = ba.as_raw_slice().to_vec();
                     // append with zeros when necessary
                     for _ in 0..(4-vec.len()%4)%4 {
@@ -862,7 +861,7 @@ macro_rules! boolean_array_impl {
 
                 #[test]
                 fn serde() {
-                    let ba = thread_rng().gen::<$name>();
+                    let ba = thread_rng().r#gen::<$name>();
                     let mut buf = GenericArray::default();
                     ba.serialize(&mut buf);
                     assert_eq!(
@@ -882,7 +881,7 @@ macro_rules! boolean_array_impl {
                 #[test]
                 fn bitslice() {
                     let zero = $name::ZERO;
-                    let random = thread_rng().gen::<$name>();
+                    let random = thread_rng().r#gen::<$name>();
 
                     // generate slices
                     let slice_zero = zero.as_bitslice();
@@ -944,7 +943,7 @@ macro_rules! boolean_array_impl_large {
         impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
                 <$name>::from_random(
-                    repeat_with(|| rng.gen())
+                    repeat_with(|| rng.r#gen())
                         .take(<$wordlength>::USIZE)
                         .collect(),
                 )

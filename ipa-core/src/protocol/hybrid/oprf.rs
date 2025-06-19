@@ -1,43 +1,44 @@
 use std::cmp::max;
 
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use typenum::Const;
 
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
+        Serializable, U128Conversions,
         boolean::Boolean,
-        boolean_array::{BooleanArray, BA5, BA64, BA8},
+        boolean_array::{BA5, BA8, BA64, BooleanArray},
         curve_points::RP25519,
         ec_prime_field::Fp25519,
-        Serializable, U128Conversions,
     },
     helpers::{
-        stream::{div_round_up, process_slice_by_chunks, Chunk, ChunkData, TryFlattenItersExt},
         TotalRecords,
+        stream::{Chunk, ChunkData, TryFlattenItersExt, div_round_up, process_slice_by_chunks},
     },
     protocol::{
+        BasicProtocols, RecordId,
         basics::{BooleanProtocols, Reveal},
         context::{
-            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
-            reshard_try_stream, DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext,
+            DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext,
             ShardedUpgradedMaliciousContext, UpgradableContext, UpgradedMaliciousContext,
             Validator,
+            dzkp_validator::{DZKPValidator, TARGET_PROOF_SIZE},
+            reshard_try_stream,
         },
         hybrid::step::HybridStep,
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
-            prf_eval::{eval_dy_prf, PrfSharing},
+            prf_eval::{PrfSharing, eval_dy_prf},
         },
         prss::{FromPrss, SharedRandomness},
-        BasicProtocols, RecordId,
     },
     report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
     secret_sharing::{
-        replicated::{malicious, semi_honest::AdditiveShare as Replicated},
         BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
+        replicated::{malicious, semi_honest::AdditiveShare as Replicated},
     },
-    seq_join::{seq_join, SeqJoin},
+    seq_join::{SeqJoin, seq_join},
     utils::non_zero_prev_power_of_two,
 };
 
@@ -211,10 +212,10 @@ mod test {
 
     use crate::{
         ff::boolean_array::{BA3, BA8},
-        protocol::{hybrid::oprf::compute_prf_and_reshard, step::ProtocolStep, Gate},
+        protocol::{Gate, hybrid::oprf::compute_prf_and_reshard, step::ProtocolStep},
         report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
         test_executor::run,
-        test_fixture::{hybrid::TestHybridRecord, Runner, TestWorld, TestWorldConfig, WithShards},
+        test_fixture::{Runner, TestWorld, TestWorldConfig, WithShards, hybrid::TestHybridRecord},
     };
 
     #[test]

@@ -5,7 +5,7 @@ mod query;
 use axum::Router;
 
 use crate::{
-    net::{http_serde, transport::MpcHttpTransport, HttpTransport, Shard},
+    net::{HttpTransport, Shard, http_serde, transport::MpcHttpTransport},
     sync::Arc,
 };
 

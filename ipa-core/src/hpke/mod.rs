@@ -6,8 +6,8 @@ use std::{fmt::Debug, io, ops::Add};
 
 use generic_array::ArrayLength;
 use hpke::{
-    aead::AeadTag, single_shot_open_in_place_detached, single_shot_seal_in_place_detached, OpModeR,
-    OpModeS,
+    OpModeR, OpModeS, aead::AeadTag, single_shot_open_in_place_detached,
+    single_shot_seal_in_place_detached,
 };
 use rand_core::{CryptoRng, RngCore};
 use typenum::U16;

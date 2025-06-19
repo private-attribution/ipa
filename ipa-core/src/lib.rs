@@ -61,12 +61,12 @@ pub(crate) mod rand {
     /// TODO: shuttle does not re-export `CryptoRng`. The only reason it works is because IPA uses
     /// the same version of `rand`.
     pub use rand::CryptoRng;
-    pub use shuttle::rand::{thread_rng, Rng, RngCore};
+    pub use shuttle::rand::{Rng, RngCore, thread_rng};
 }
 
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod rand {
-    pub use rand::{thread_rng, CryptoRng, Rng, RngCore};
+    pub use rand::{CryptoRng, Rng, RngCore, thread_rng};
 }
 
 #[cfg(all(feature = "shuttle", test))]
@@ -198,7 +198,7 @@ pub(crate) mod executor {
         task::{Context, Poll},
     };
 
-    use shuttle_crate::future::{spawn, JoinHandle};
+    use shuttle_crate::future::{JoinHandle, spawn};
 
     use crate::shim::Tokio;
 
@@ -294,7 +294,7 @@ pub(crate) mod test_executor {
 pub(crate) mod test_executor {
     use std::future::Future;
 
-    use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
+    use rand::{SeedableRng, random, rngs::StdRng};
 
     // These routines use `FnOnce` because it is easier than dealing with lifetimes of
     // `&mut rng` borrows in futures. If there were a need to support multiple
@@ -342,7 +342,7 @@ pub(crate) mod test_executor {
         F: FnOnce(StdRng) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()>,
     {
-        let seed = thread_rng().gen();
+        let seed = random();
         run_with_seed(seed, f);
     }
 }

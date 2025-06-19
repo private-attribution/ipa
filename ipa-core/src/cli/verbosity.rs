@@ -1,13 +1,13 @@
 use std::{
     fs::OpenOptions,
-    io::{stderr, IsTerminal},
+    io::{IsTerminal, stderr},
     path::PathBuf,
 };
 
 use clap::Parser;
-use tracing::{info, metadata::LevelFilter, Level};
+use tracing::{Level, info, metadata::LevelFilter};
 use tracing_subscriber::{
-    fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
+    EnvFilter, fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 use crate::{
@@ -57,7 +57,7 @@ impl Verbosity {
                 .append(true)
                 .create(true)
                 .open(path)
-                .unwrap_or_else(|e| panic!("failed to open log file {path:?}: {e}"));
+                .unwrap_or_else(|e| panic!("failed to open log file {}: {e}", path.display()));
             let file_writer = fmt::layer()
                 .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
                 .with_ansi(false)

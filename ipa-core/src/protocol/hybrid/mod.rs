@@ -6,19 +6,20 @@ pub(crate) mod step;
 use std::{convert::Infallible, ops::Add};
 
 use generic_array::ArrayLength;
-use tracing::{info_span, Instrument};
+use tracing::{Instrument, info_span};
 
 use crate::{
     error::{Error, LengthError},
     ff::{
-        boolean::Boolean, boolean_array::BooleanArray, curve_points::RP25519,
-        ec_prime_field::Fp25519, Serializable, U128Conversions,
+        Serializable, U128Conversions, boolean::Boolean, boolean_array::BooleanArray,
+        curve_points::RP25519, ec_prime_field::Fp25519,
     },
     helpers::query::DpMechanism,
     protocol::{
+        BooleanProtocols,
         basics::{
-            shard_fin::{FinalizerContext, Histogram},
             BooleanArrayMul, Reveal,
+            shard_fin::{FinalizerContext, Histogram},
         },
         context::{
             DZKPUpgraded, MacUpgraded, MaliciousProtocolSteps, ShardedContext, UpgradableContext,
@@ -27,21 +28,20 @@ use crate::{
         hybrid::{
             agg::aggregate_reports,
             breakdown_reveal::breakdown_reveal_aggregation,
-            oprf::{compute_prf_and_reshard, BreakdownKey, CONV_CHUNK, PRF_CHUNK},
+            oprf::{BreakdownKey, CONV_CHUNK, PRF_CHUNK, compute_prf_and_reshard},
             step::{FinalizeSteps, HybridStep as Step},
         },
         ipa_prf::{
-            oprf_padding::{apply_dp_padding, PaddingParameters},
+            oprf_padding::{PaddingParameters, apply_dp_padding},
             prf_eval::PrfSharing,
             shuffle::ShardedShuffle,
         },
         prss::FromPrss,
-        BooleanProtocols,
     },
     report::hybrid::{IndistinguishableHybridReport, PrfHybridReport},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        TransposeFrom, Vectorizable,
+        BitDecomposed, FieldSimd, TransposeFrom, Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated,
     },
 };
 

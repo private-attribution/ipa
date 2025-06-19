@@ -6,10 +6,10 @@ use crate::{
     cli::LoggingHandle,
     executor::IpaRuntime,
     helpers::{
-        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
-        routing::{Addr, RouteId},
         ApiError, BodyStream, HandlerBox, HandlerRef, HelperIdentity, HelperResponse,
         MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport, TransportIdentity,
+        query::{CompareStatusRequest, PrepareQuery, QueryConfig, QueryInput},
+        routing::{Addr, RouteId},
     },
     hpke::{KeyRegistry, PrivateKeyOnly},
     protocol::QueryId,
@@ -222,7 +222,7 @@ impl RequestHandler<ShardIndex> for Inner {
                 return Err(ApiError::BadRequest(
                     format!("{r:?} request must not be handled by shard query processing flow")
                         .into(),
-                ))
+                ));
             }
         })
     }
@@ -241,7 +241,7 @@ impl RequestHandler<HelperIdentity> for Inner {
                 return Err(ApiError::BadRequest(
                     format!("{r:?} request must not be handled by MPC query processing flow")
                         .into(),
-                ))
+                ));
             }
             RouteId::ReceiveQuery => {
                 let req = req.into::<QueryConfig>()?;

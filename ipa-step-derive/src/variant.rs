@@ -2,11 +2,11 @@ use ipa_step::name::UnderscoreStyle;
 use proc_macro2::{Literal, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
-    meta::ParseNestedMeta, spanned::Spanned, Attribute, DataEnum, ExprPath, Fields, Ident, LitInt,
-    LitStr, Type, TypePath, Variant,
+    Attribute, DataEnum, ExprPath, Fields, Ident, LitInt, LitStr, Type, TypePath, Variant,
+    meta::ParseNestedMeta, spanned::Spanned,
 };
 
-use crate::{sum::ExtendedSum, IntoSpan};
+use crate::{IntoSpan, sum::ExtendedSum};
 
 struct VariantAttrParser<'a> {
     full_name: String,
@@ -387,8 +387,9 @@ impl Generator {
         if let Some(child) = step_child {
             let idx = self.arm_count.clone()
                 + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap());
-            let out_of_bounds_msg =
-                format!("Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors.");
+            let out_of_bounds_msg = format!(
+                "Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors."
+            );
             self.index_arms.extend(quote! {
                 #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
                 #arm(i) => panic!(#out_of_bounds_msg),
@@ -431,8 +432,9 @@ impl Generator {
         } else {
             let idx = self.arm_count.clone()
                 + quote!(::ipa_step::CompactGateIndex::try_from(*i).unwrap());
-            let out_of_bounds_msg =
-                format!("Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors.");
+            let out_of_bounds_msg = format!(
+                "Step index {{i}} out of bounds for {step_full_name} with count {step_count}. Consider using bounds-checked step constructors."
+            );
             self.index_arms.extend(quote! {
                 #arm(i) if *i < #step_integer::try_from(#step_count).unwrap() => #idx,
                 #arm(i) => panic!(#out_of_bounds_msg),

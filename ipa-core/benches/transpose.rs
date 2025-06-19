@@ -14,18 +14,19 @@
 
 use std::{array, iter::repeat_with, time::Duration};
 
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use ipa_core::{
     error::UnwrapInfallible,
     ff::boolean_array::BA64,
     secret_sharing::{
-        vector::{transpose_16x16, transpose_8x8},
         SharedValue, TransposeFrom,
+        vector::{transpose_8x8, transpose_16x16},
     },
 };
 use rand::{
+    Rng,
     distributions::{Distribution, Standard},
-    thread_rng, Rng,
+    thread_rng,
 };
 
 fn random_array<T, const N: usize>() -> [T; N]
@@ -33,7 +34,7 @@ where
     Standard: Distribution<T>,
 {
     let mut rng = thread_rng();
-    array::from_fn(|_| rng.gen())
+    array::from_fn(|_| rng.r#gen())
 }
 
 struct Params {

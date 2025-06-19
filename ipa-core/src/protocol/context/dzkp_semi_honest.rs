@@ -13,11 +13,11 @@ use crate::{
         Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd, ShardReceivingEnd, TotalRecords,
     },
     protocol::{
+        Gate, RecordId,
         context::{
             Base, DZKPContext, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness,
         },
-        Gate, RecordId,
     },
     seq_join::SeqJoin,
     sharding::{ShardBinding, ShardConfiguration, ShardIndex, Sharded},
@@ -89,8 +89,8 @@ impl<B: ShardBinding> super::Context for DZKPUpgraded<'_, B> {
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness,
-        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
     ) {
         self.inner.prss_rng()
     }
