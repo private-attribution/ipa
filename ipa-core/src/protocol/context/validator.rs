@@ -423,7 +423,7 @@ mod tests {
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
     ///     \
-    ///      Mult_Gate -> A*B
+    ///      `Mult_Gate` -> A*B
     ///     /
     /// B -
     ///

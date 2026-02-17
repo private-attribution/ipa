@@ -375,7 +375,7 @@ mod test {
     const BENCH_COUNT: usize = 131_072;
 
     #[test]
-    #[ignore] // benchmark
+    #[ignore = "benchmark"]
     #[cfg(not(coverage))]
     fn semi_honest_compare_gt_novec() {
         run(|| async move {
@@ -430,7 +430,7 @@ mod test {
     }
 
     #[test]
-    #[ignore] // benchmark
+    #[ignore = "benchmark"]
     #[cfg(not(coverage))]
     fn semi_honest_compare_gt_vec() {
         run(|| async move {

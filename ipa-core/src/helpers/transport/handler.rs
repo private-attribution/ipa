@@ -177,7 +177,7 @@ pub enum Error {
 }
 
 /// Trait for custom-handling different request types made against MPC helper parties.
-/// There is a limitation for RPITIT that traits can't be made object-safe, hence the use of async_trait
+/// There is a limitation for RPITIT that traits can't be made object-safe, hence the use of `async_trait`
 #[async_trait]
 pub trait RequestHandler<I: TransportIdentity>: Send + Sync {
     /// Handle the incoming request with metadata/headers specified in [`Addr`] and body encoded as

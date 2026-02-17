@@ -19,4 +19,5 @@ pub struct TwoHundredFiftySixBitOpStep(usize);
 #[cfg(test)]
 #[derive(CompactStep)]
 #[step(count = 256, name = "bit")]
+#[allow(dead_code)] // used as a type parameter, not constructed directly
 pub struct DefaultBitStep(usize);

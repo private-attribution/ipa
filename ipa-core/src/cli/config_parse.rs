@@ -361,8 +361,8 @@ pub fn sharded_server_from_toml_str(
         let url = myself.url.to_string();
         let pos = url.rfind(':');
         let port = shard_port.expect("Shard port should be set");
-        let new_url = if pos.is_some() {
-            format!("{}{port}", &url[..=pos.unwrap()])
+        let new_url = if let Some(pos) = pos {
+            format!("{}{port}", &url[..=pos])
         } else {
             format!("{}:{port}", &url)
         };
@@ -374,7 +374,7 @@ pub fn sharded_server_from_toml_str(
         };
         Ok((mpc_network, shard_network))
     } else {
-        return Err(Error::MissingShardUrls(missing_urls));
+        Err(Error::MissingShardUrls(missing_urls))
     }
 }
 

@@ -222,7 +222,7 @@ pub async fn make_clients(
     // Note: This closure is only called when the selected action uses clients.
 
     let clients = IpaHttpClient::from_conf(&IpaRuntime::current(), &network, &ClientIdentity::None);
-    wait_for_servers(wait, &[clients.clone()]).await;
+    wait_for_servers(wait, std::slice::from_ref(&clients)).await;
     (clients, network)
 }
 

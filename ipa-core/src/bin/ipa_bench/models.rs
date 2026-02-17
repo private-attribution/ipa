@@ -133,19 +133,6 @@ pub enum GenericReport {
     },
 }
 
-#[derive(Serialize, Deserialize)]
-enum QueryType {
-    SourceFanout,
-    TriggerFanout,
-}
-
-#[derive(Serialize, Deserialize)]
-enum Node {
-    Helper1,
-    Helper2,
-    Helper3,
-}
-
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::{Epoch, EventTimestamp};

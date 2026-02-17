@@ -277,7 +277,7 @@ where
                 ChunkType::Partial(remainder_len),
             ))
         } else {
-            return None;
+            None
         }
     }
 }

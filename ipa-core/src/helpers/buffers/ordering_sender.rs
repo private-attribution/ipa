@@ -9,7 +9,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{Future, Stream, task::Waker};
+use futures::{Future, task::Waker};
 
 use crate::{
     helpers::{Message, buffers::circular::CircularBuf},
@@ -493,11 +493,13 @@ impl Future for Close<'_> {
 /// the next stream that happens to be polled.  Ordinarily streams require a
 /// mutable reference so that they have exclusive access to the underlying state.
 /// To avoid that happening, don't make more than one stream.
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub struct OrderedStream<B: Borrow<OrderingSender>> {
     sender: B,
 }
 
-impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+impl<B: Borrow<OrderingSender> + Unpin> futures::Stream for OrderedStream<B> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

@@ -291,7 +291,7 @@ async fn server(args: ServerArgs, logging_handle: LoggingHandle) -> Result<(), B
 
     join(server_handle, shard_server_handle).await;
 
-    [query_runtime, http_runtime].map(Runtime::shutdown_background);
+    let _ = [query_runtime, http_runtime].map(Runtime::shutdown_background);
 
     Ok(())
 }

@@ -1,5 +1,5 @@
 use std::{
-    pin::{Pin, pin},
+    pin::Pin,
     task::{Context, Poll},
 };
 

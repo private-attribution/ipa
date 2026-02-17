@@ -1128,9 +1128,9 @@ mod tests {
         use crate::{helpers::query::CompareStatusRequest, protocol::QueryId};
 
         /// * From the standpoint of leader shard in Helper 1
-        /// * On query_status
+        /// * On `query_status`
         ///
-        /// The min state should be returned. In this case, if I, as leader, am in AwaitingInputs
+        /// The min state should be returned. In this case, if I, as leader, am in `AwaitingInputs`
         /// state and shards report that they are further ahead (Completed and Running), then my
         /// state is returned.
         #[tokio::test]
@@ -1188,9 +1188,9 @@ mod tests {
         }
 
         /// * From the standpoint of leader shard in Helper 1
-        /// * On query_status
+        /// * On `query_status`
         ///
-        /// If one of my shards hasn't received the query yet (NoSuchQuery) the leader should
+        /// If one of my shards hasn't received the query yet (`NoSuchQuery`) the leader should
         /// return an error despite other shards returning their status
         #[tokio::test]
         #[should_panic(

@@ -684,7 +684,7 @@ pub trait DZKPValidator: Send + Sync {
     fn context(&self) -> Self::Context;
 
     /// Sets the validator's total number of records field. This is required when using
-    /// the validate_record API, if it wasn't already set on the context used to create
+    /// the `validate_record` API, if it wasn't already set on the context used to create
     /// the validator.
     fn set_total_records<T: Into<TotalRecords>>(&mut self, total_records: T);
 
@@ -860,7 +860,7 @@ impl<'a, B: ShardBinding> DZKPValidator for MaliciousDZKPValidator<'a, B> {
     }
 
     /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified.
-    /// This function is called by drop() to ensure that the validator is safe to be dropped.
+    /// This function is called by `drop()` to ensure that the validator is safe to be dropped.
     ///
     /// ## Errors
     /// Errors when there are `MultiplicationInputs` that have not been verified.

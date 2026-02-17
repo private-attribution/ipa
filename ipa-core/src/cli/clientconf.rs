@@ -63,7 +63,7 @@ pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
         .map(|(id, (host, (port, shard_port)))| {
             let id: u8 = u8::try_from(id).unwrap() + 1;
             HelperClientConf {
-                host: host.to_string(),
+                host: host.clone(),
                 port,
                 shard_port,
                 tls_cert_file: args.keys_dir.helper_tls_cert(id),

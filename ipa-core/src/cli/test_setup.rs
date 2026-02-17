@@ -174,7 +174,7 @@ fn make_client_configs(
             keygen(&keygen_args)?;
 
             Ok(HelperClientConf {
-                host: localhost.to_string(),
+                host: localhost.clone(),
                 port: mpc_port,
                 shard_port,
                 tls_cert_file: keygen_args.tls_cert,

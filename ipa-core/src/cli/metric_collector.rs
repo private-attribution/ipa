@@ -8,9 +8,9 @@ use tokio::runtime::Builder;
 
 /// Holds a reference to metrics controller and producer
 pub struct CollectorHandle {
-    thread_handle: JoinHandle<()>,
+    thread_handle: Option<JoinHandle<()>>,
     /// This will be used once we start consuming metrics
-    controller: MetricsCollectorController,
+    controller: Option<MetricsCollectorController>,
     producer: MetricsProducer,
 }
 
@@ -26,16 +26,23 @@ pub fn install_collector() -> io::Result<CollectorHandle> {
     tracing::info!("Metrics engine is enabled");
 
     Ok(CollectorHandle {
-        thread_handle: handle,
-        controller,
+        thread_handle: Some(handle),
+        controller: Some(controller),
         producer,
     })
 }
 
 impl Drop for CollectorHandle {
     fn drop(&mut self) {
-        if !thread::panicking() && !self.thread_handle.is_finished() {
-            tracing::warn!("Metrics thread is still running");
+        if thread::panicking() {
+            return; // avoid potential deadlock during panic unwind
+        }
+        // Drop controller first to disconnect the command channel.
+        // This causes the collector thread's event_loop to exit.
+        drop(self.controller.take());
+        // Wait for the collector thread to finish.
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
         }
     }
 }
@@ -61,7 +68,12 @@ impl CollectorHandle {
     /// If metrics is not initialized
     #[must_use]
     pub fn scrape_metrics(&self) -> Vec<u8> {
-        let mut store = self.controller.snapshot().expect("Metrics must be set up");
+        let mut store = self
+            .controller
+            .as_ref()
+            .expect("Metrics must be set up")
+            .snapshot()
+            .expect("Metrics snapshot failed");
         let mut buff = Vec::new();
         store.export(&mut buff);
 

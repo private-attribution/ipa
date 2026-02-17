@@ -22,13 +22,14 @@ use crate::{
 ///  * `ipa::ff::Error`, for finite field routines
 ///  * `ipa::net::Error`, for the HTTP transport
 ///  * `ipa::app::Error`, for the report collector query APIs
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Default)]
 pub enum Error {
     #[error("already exists")]
     AlreadyExists,
     #[error("already setup")]
     AlreadySetup,
     #[error("internal")]
+    #[default]
     Internal,
     #[error("invalid id found: {0}")]
     InvalidId(String),
@@ -104,12 +105,6 @@ pub enum Error {
     ShuffleValidationFailed(String),
     #[error("Duplicate bytes found after {0} checks")]
     DuplicateBytes(usize),
-}
-
-impl Default for Error {
-    fn default() -> Self {
-        Self::Internal
-    }
 }
 
 impl Error {

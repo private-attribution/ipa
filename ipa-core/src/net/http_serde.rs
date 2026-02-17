@@ -69,12 +69,6 @@ pub mod echo {
 }
 
 pub mod metrics {
-
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct Request {}
-
     pub const AXUM_PATH: &str = "/metrics";
 }
 

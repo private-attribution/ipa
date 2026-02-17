@@ -212,6 +212,7 @@ impl Reconstruct<()> for [(); 3] {
     fn reconstruct(&self) {}
 }
 
+#[allow(dead_code)] // used as a trait bound; not all feature combinations call its methods
 pub trait ValidateMalicious<F: ExtendableField> {
     fn validate(&self, r: F::ExtendedField);
 }

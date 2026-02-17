@@ -670,7 +670,7 @@ mod e2e_tests {
     }
 
     /// Ensures that server tracks number of requests it received and emits a corresponding metric.
-    /// In order for this test not to be flaky, we rely on tokio::test macro to set up a
+    /// In order for this test not to be flaky, we rely on `tokio::test` macro to set up a
     /// new runtime per test (which it currently does) and set up metric recorders per thread (done
     /// by this test). It is also tricky to make it work in a multi-threaded environment - I haven't
     /// tested that, so better to stick with default behavior of tokio:test macro

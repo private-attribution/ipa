@@ -66,7 +66,7 @@ fn benchmark_proof(c: &mut Criterion) {
                 (a, b)
             },
             |(a, b): (Vec<BA>, Vec<BA>)| async move {
-                TestWorld::default()
+                let _ = TestWorld::default()
                     .malicious((a.into_iter(), b.into_iter()), |ctx, (a, b)| async move {
                         let batch_size = non_zero_prev_power_of_two(
                             TARGET_PROOF_SIZE / usize::try_from(BA::BITS).unwrap(),

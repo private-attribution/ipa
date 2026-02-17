@@ -1,5 +1,8 @@
+#[cfg(test)]
 mod basic_step;
+#[cfg(test)]
 mod complex_step;
+#[cfg(test)]
 mod module;
 
 #[cfg(test)]
